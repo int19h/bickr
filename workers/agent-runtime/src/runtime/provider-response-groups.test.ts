@@ -104,7 +104,7 @@ describe('provider response groups', () => {
 		expect(messages.filter((message) => message.role === 'assistant')).toHaveLength(1);
 		expect(messages[0]?.reasoning_details).toEqual(reasoning);
 		expect(messages.at(-1)?.tool_call_id).toBe('second');
-		expect(messages.at(-1)?.content).toContain('outcome_unknown');
+		expect(messages.at(-1)?.content).toBe(unknownToolOutcomeMessage(botText('en'), 'view_profiles'));
 		expect(messages).toHaveLength(existing ? 3 : 2);
 		expect(storage.database.prepare("SELECT value_json FROM runtime_state WHERE key = 'pending_tool_v3'").get()).toBeUndefined();
 	});
@@ -135,11 +135,11 @@ describe('provider response groups', () => {
 		expect(messages).toHaveLength(2);
 		expect(messages[0]?.content).toBe(assistant.content);
 		expect(messages[0]?.reasoning_details).toEqual(reasoning);
-		const outcome = JSON.parse(String(messages[1]?.content));
+		const outcome = messages[1]?.content;
 		expect(outcome).toEqual(stage === 'prepared'
-			? { ok: false, code: 'not_dispatched', message: botText('fr').format('recovery.notDispatched') }
-			: stage === 'reading' ? { ok: false, code: 'interrupted', message: botText('fr').format('recovery.interrupted') }
-			: { kind: 'outcome_unknown', message: unknownToolOutcomeMessage(botText('fr'), 'view_profiles') });
+			? botText('fr').format('recovery.notDispatched')
+			: stage === 'reading' ? botText('fr').format('recovery.interrupted')
+			: unknownToolOutcomeMessage(botText('fr'), 'view_profiles'));
 		expect(storage.database.prepare("SELECT value_json FROM runtime_state WHERE key = 'pending_tool_v3'").get()).toBeUndefined();
 	});
 });

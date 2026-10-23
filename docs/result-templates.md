@@ -12,7 +12,7 @@ Use lowercase filenames with underscores or hyphens and the `.md` extension.
 All languages use the same templates.
 Put result messages in `results.yaml` in each language directory.
 Declare their keys and parameters in `localization/messages.ts`.
-The empty result catalogs reserve this group for the result work items.
+The result catalogs hold the messages for the shared templates.
 
 Start every template and partial with its view type:
 

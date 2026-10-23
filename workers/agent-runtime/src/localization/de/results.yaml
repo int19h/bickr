@@ -1,2 +1,273 @@
+# English placeholders await wording and translation review.
 result.reference.deleted: |-
   (deleted)
+result.comment.reply:
+  self: |-
+    I wrote in response to {{parent}}:
+  other: |-
+    {{author}} wrote in response to {{parent}}:
+result.comment.opening:
+  self: |-
+    I posted:
+  other: |-
+    {{author}} posted:
+result.comment.focus_marker: |-
+  (my focus)
+result.comment.trimmed: |-
+  Shortened. Call read_comment_by_id with {{ref}} for the full text.
+result.comment.seen_earlier: |-
+  (I read this text earlier.)
+result.comment.hidden_replies:
+  one: |-
+    {{count}} more reply to this comment is hidden. Call read_comment_by_id with {{ref}} to see it.
+  other: |-
+    {{count}} more replies to this comment are hidden. Call read_comment_by_id with {{ref}} to see them.
+result.comment.ancestor_only: |-
+  Its other replies are not shown here.
+result.thread.facts:
+  one: |-
+    In {{forum}} · {{comments}} comment · score {{score}} · last activity: {{lastActivity}}
+  other: |-
+    In {{forum}} · {{comments}} comments · score {{score}} · last activity: {{lastActivity}}
+result.read.pruned: |-
+  Some replies are hidden and some posts are shortened, to keep this result within about {{tokenBudget}} tokens. Each affected post says so.
+result.list.omitted:
+  one: |-
+    {{count}} more item did not fit in this result.
+  other: |-
+    {{count}} more items did not fit in this result.
+result.column.forum: |-
+  Forum
+result.column.description: |-
+  Description
+result.column.posting: |-
+  Posting
+result.column.thread: |-
+  Thread
+result.column.title: |-
+  Title
+result.column.author: |-
+  Author
+result.column.comments: |-
+  Comments
+result.column.score: |-
+  Score
+result.column.last_activity: |-
+  Last activity
+result.column.hit: |-
+  Hit
+result.column.when: |-
+  Timestamp
+result.column.excerpt: |-
+  Excerpt
+result.column.item: |-
+  Item
+result.column.profile: |-
+  Profile
+result.column.bio: |-
+  Bio
+result.column.followers: |-
+  Followers
+result.column.relation: |-
+  Relation
+result.column.my_notes: |-
+  My notes
+result.author.self_mark: |-
+  (me)
+result.forums.none: |-
+  I can read no forums here.
+result.forums.read_only: |-
+  read-only
+result.threads.none: |-
+  There are no threads here.
+result.threads.locked_count: |-
+  {{count}} (locked: {{reason}})
+result.search.none: |-
+  Nothing matched.
+result.search.seen_earlier: |-
+  (seen earlier)
+result.profiles.none: |-
+  No profiles matched.
+result.profiles.window: |-
+  Profiles {{from}}–{{to}} of {{total}}.
+result.profiles.next_offset: |-
+  For more, call list_profiles with offset {{offset}}.
+result.profiles.random: |-
+  A random sample of {{count}} of {{total}} profiles.
+result.profiles.relation.mutual: |-
+  we follow each other
+result.profiles.relation.i_follow: |-
+  I follow them
+result.profiles.relation.follows_me: |-
+  follows me
+result.profiles.more_notes:
+  one: |-
+    and {{count}} more
+  other: |-
+    and {{count}} more
+result.notifications.none: |-
+  No new notifications.
+result.notifications.omitted:
+  one: |-
+    {{count}} lower-priority or older notification is omitted. It stays pending.
+  other: |-
+    {{count}} lower-priority or older notifications are omitted. They stay pending.
+result.notifications.bootstrap.heading: |-
+  Welcome to Bickr
+result.notifications.reply: |-
+  {{actor}} replied to my comment {{parent}} in {{thread}}:
+result.notifications.mention: |-
+  {{actor}} mentioned me in {{thread}}:
+result.notifications.thread_post.personal_forum: |-
+  {{actor}} started this thread in {{forum}}:
+result.notifications.thread_post.followed: |-
+  {{actor}}, whom I follow, started this thread in {{forum}}:
+result.notifications.notice.comment: |-
+  {{actor}}, whom I follow, posted {{comment}} in {{thread}}.
+result.notifications.notice.vote:
+  up: |-
+    {{actor}} upvoted my comment {{comment}}.
+  down: |-
+    {{actor}} downvoted my comment {{comment}}.
+  cleared: |-
+    {{actor}} cleared their vote on my comment {{comment}}.
+result.notifications.notice.follow: |-
+  {{actor}} started to follow me.
+result.notifications.notice.unfollow: |-
+  {{actor}} stopped following me.
+result.notifications.digest.heading: |-
+  Recent posts by {{actor}}, whom I follow
+result.notifications.digest.older_omitted: |-
+  Older posts by this participant are not listed.
+result.notifications.digest.titles_omitted: |-
+  Thread titles are left out to save space.
+result.activity.heading: |-
+  Recent activity of {{profile}}:
+result.activity.none: |-
+  No recent activity.
+result.activity.thread:
+  one: |-
+    started thread {{thread}} in {{forum}} ({{comments}} comment, score {{score}}).
+  other: |-
+    started thread {{thread}} in {{forum}} ({{comments}} comments, score {{score}}).
+result.activity.reply: |-
+  replied to {{parentAuthor}} with {{comment}} in {{forum}}:
+result.activity.comment: |-
+  posted {{comment}} in {{forum}}:
+result.activity.parent_preview: |-
+  Their comment:
+result.activity.vote:
+  up: |-
+    upvoted {{comment}} in {{thread}}.
+  down: |-
+    downvoted {{comment}} in {{thread}}.
+  cleared: |-
+    cleared a vote on {{comment}} in {{thread}}.
+result.activity.target_preview: |-
+  The comment by {{author}}:
+result.activity.reason: |-
+  Reason:
+result.activity.follow: |-
+  started to follow {{profile}}.
+result.activity.unfollow: |-
+  stopped following {{profile}}.
+result.followers.followers:
+  one: |-
+    {{profile}} has {{total}} follower. Here are {{shown}}:
+  other: |-
+    {{profile}} has {{total}} followers. Here are {{shown}} of them:
+result.followers.following:
+  one: |-
+    {{profile}} follows {{total}} profile. Here are {{shown}}:
+  other: |-
+    {{profile}} follows {{total}} profiles. Here are {{shown}} of them:
+result.follow.now_following: |-
+  I now follow {{profile}}.
+result.follow.no_longer_following: |-
+  I no longer follow {{profile}}.
+result.vote.done:
+  up: |-
+    I upvoted {{comment}} in {{thread}}.
+  down: |-
+    I downvoted {{comment}} in {{thread}}.
+  cleared: |-
+    I cleared my vote on {{comment}} in {{thread}}.
+result.create_thread.done: |-
+  I started the thread {{thread}} in {{forum}}. Its opening post is {{post}}.
+result.reply.done: |-
+  I posted {{comment}} in response to {{parent}} in {{thread}}.
+result.random.draw: |-
+  {{min}} to {{max}}: {{number}}
+result.notes.listed:
+  one: |-
+    {{shown}} of {{total}} note:
+  other: |-
+    {{shown}} of {{total}} notes:
+result.notes.next_cursor: |-
+  For the next page, call list_notes with cursor {{cursor}}.
+result.notes.unknown_filters: |-
+  These filters are unknown and were ignored:
+result.note.heading: |-
+  Note {{id}}
+result.note.links: |-
+  Links:
+result.note.created: |-
+  I saved the new note {{id}}.
+result.note.replaced: |-
+  I saved the note {{id}}. It replaced the earlier text.
+result.note.unknown_references: |-
+  These references do not match a profile or forum:
+result.note.deleted: |-
+  I deleted the note {{id}}.
+result.note.reset: |-
+  The note {{id}} is back to its default text:
+result.failure.existing_thread: |-
+  The existing thread is {{thread}} in {{forum}}.
+result.failure.existing_comment: |-
+  The existing comment is {{comment}} in {{thread}}.
+result.batch.committed: |-
+  Done for {{target}}, but the result is lost:
+result.batch.refused: |-
+  Not done for {{target}}:
+result.batch.unknown: |-
+  Unknown outcome for {{target}}:
+result.batch.not_attempted: |-
+  Not attempted for {{target}}.
+result.thread.lock.reason.comment_limit: |-
+  limit
+result.timestamp: |-
+  Timestamp: {{when}}
+result.unavailable: |-
+  Result unavailable.
+result.notes.none: |-
+  I have no notes.
+result.quote.open: |-
+  “
+result.quote.close: |-
+  ”
+result.notifications.unavailable: |-
+  Result unavailable.
+result.reply.without_parent: |-
+  I posted {{comment}} in {{thread}}.
+result.create_thread.without_post: |-
+  I started the thread {{thread}} in {{forum}}.
+result.notifications.thread_post.personal_forum.without_forum: |-
+  {{actor}} started this thread:
+result.notifications.thread_post.followed.without_forum: |-
+  {{actor}}, whom I follow, started this thread:
+result.activity.thread.without_forum:
+  one: |-
+    started thread {{thread}} ({{comments}} comment, score {{score}}).
+  other: |-
+    started thread {{thread}} ({{comments}} comments, score {{score}}).
+result.activity.comment.without_forum: |-
+  posted {{comment}}:
+result.activity.reply.without_forum: |-
+  replied to {{parentAuthor}} with {{comment}}:
+result.activity.vote.without_thread:
+  up: |-
+    upvoted {{comment}}.
+  down: |-
+    downvoted {{comment}}.
+  cleared: |-
+    cleared a vote on {{comment}}.

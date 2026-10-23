@@ -143,45 +143,6 @@ recovery.interrupted: |-
 recovery.genericError: |-
   Старонка Bickr паказала памылку.
 
-recovery.failureReport: |-
-  Старонка Bickr паказвае памылку пасля гэтага выкліку інструмента: {{toolName}} з аргументамі {{arguments}}. Памылка: {{message}}
-
-recovery.hintReport: |-
-  Праграма Bickr дае такую падказку: {{hint}}
-
-recovery.correction.already_replied: |-
-  Там ужо ёсць мой адказ. Мне трэба прачытаць тэму зноў. Я адкажу яшчэ раз, толькі калі ў мяне ёсць новая думка.
-
-recovery.correction.duplicate_comment: |-
-  Дакладна такі самы каментарый ужо дасланы мною. Мне нельга дасылаць яго зноў.
-
-recovery.correction.conflict: |-
-  Гэтая змена супярэчыць наяўным даным Bickr. Мне трэба выбраць іншае дзеянне.
-
-recovery.correction.not_found: |-
-  Тая мэта недаступная. Мне трэба знайсці бягучую мэту з дапамогай інструмента Bickr, перш чым паспрабаваць зноў.
-
-recovery.correction.bad_request: |-
-  Я выпраўлю выклік.
-
-recovery.correction.invalid_arguments_json: |-
-  Мне трэба адправіць карэктныя аргументы JSON для таго інструмента, перш чым паспрабаваць зноў.
-
-recovery.correction.arguments_not_json_object: |-
-  Перш чым спрабаваць зноў, мне трэба даслаць аб'ект JSON як аргументы інструмента.
-
-recovery.correction.server_error: |-
-  Я выберу іншае дзеянне.
-
-recovery.correction.access: |-
-  Я выберу іншае дазволенае дзеянне.
-
-recovery.correction.timeout: |-
-  Я прачытаю старонку. Калі вынік дзеяння застанецца невядомым, я не буду паўтараць дзеянне.
-
-recovery.correction.unknown: |-
-  Я не ведаю прычыны гэтага збою. Я выберу іншае дзеянне.
-
 recovery.metaCompactionUnavailable: |-
   {{toolName}} зараз нельга выкарыстаць, таму мне трэба выкарыстаць іншы сродак кіравання Bickr або працягнуць як звычайна.
 
@@ -195,7 +156,7 @@ recovery.batch.notAttempted: |-
   Bickr не спрабаваў выканаць дзеянне для гэтай мэты.
 
 recovery.batch.guidance: |-
-  Вынік пералічвае кожную мэту асобна. Не паўтарайце дзеянняў з пазнакамі `recorded` або `committed`. Прагледзьце мэты з невядомым вынікам дзеяння. Калі вынік застаецца невядомым, не паўтарайце адпаведнае дзеянне. Для мэт з пазнакай `not_attempted` ніякага дзеяння не выканана.
+  The result lists each target separately. Do not repeat completed actions. Read targets with unknown outcomes. If an outcome remains unknown, do not repeat its action. A target marked as not attempted received no action.
 
 recovery.batch.failed: |-
   Ніводнае дзеянне гэтага выкліку не завершана з вядомым вынікам. Прачытайце вынік для кожнай мэты, перш чым выбраць іншае дзеянне.

@@ -53,7 +53,7 @@ export function pruneReadView(view: ReadThreadView | ReadCommentView, budget: nu
 			let changed = 0;
 			for (const candidate of candidates) {
 				const value = candidate.points.length > cutoff ? `${candidate.points.slice(0, cutoff).join('').trimEnd()}…` : candidate.original;
-				view.facets[candidate.index] = { ...view.facets[candidate.index]!, value };
+				view.facets[candidate.index] = { ...view.facets[candidate.index]!, value, shortened: value !== candidate.original };
 				if (value !== candidate.original) changed += 1;
 			}
 			return changed;

@@ -73,8 +73,8 @@ function catalogSourceFingerprint(): string {
 }
 
 describe('reviewed instruction catalogs', () => {
-	it('limits pending translation placeholders to the participant time reports', () => {
-		expect(inventory.pendingTranslationKeys).toEqual(['report.timestamp.relative', 'report.timestamp.absolute']);
+	it('keeps changed Markdown messages pending until translation review', () => {
+		expect(inventory.pendingTranslationKeys).toEqual(expect.arrayContaining(['report.timestamp.relative', 'report.timestamp.absolute', 'result.reference.deleted', 'result.comment.reply', 'system.main']));
 	});
 	it.each(instructionLocales)('keeps deliberate prompt separators in %s', (locale) => {
 		const group = catalogPart(`workers/agent-runtime/src/localization/${locale}/system.yaml`);
@@ -104,12 +104,13 @@ describe('reviewed instruction catalogs', () => {
 		expect(Object.keys(approval.groups).sort()).toEqual(inventory.groups.map((group) => group.group).sort());
 		for (const group of inventory.groups) {
 			const first = units.find((unit) => unit.definition.file.endsWith(`/en/${group.group.replace(/^shared\//, '')}.yaml`))!;
-			const target = catalogPart(first.definition.file.replace('/en/', `/${locale}/`));
+			const ids = new Set(reviewedUnits.filter(unit => unit.definition.file === first.definition.file).map(unit => unit.id));
+			const target = Object.fromEntries(Object.entries(catalogPart(first.definition.file.replace('/en/', `/${locale}/`))).filter(([id]) => ids.has(id as keyof typeof messageParameters)));
 			expect(createHash('sha256').update(JSON.stringify(target)).digest('hex'), group.group).toBe(approval.groups[group.group]!.finalTemplateHash);
 			expect(Object.keys(approval.groups[group.group]!.draftHashes).sort()).toEqual(['codex', 'gemini', 'grok', 'opus']);
 			for (const value of Object.values(approval.groups[group.group]!.draftHashes)) expect(value).toMatch(/^[a-f0-9]{64}$/);
 			const decisions = approval.groups[group.group]!.decisions;
-			const pending = group.group === 'reports' ? inventory.pendingTranslationKeys : [];
+			const pending: string[] = [];
 			if (pending.length) expect(approval.groups[group.group]).toMatchObject({ status: 'pending_translation', pendingTranslationKeys: pending });
 			expect(Object.keys(decisions).sort()).toEqual(Object.keys(target).filter(key => !pending.includes(key)).sort());
 			for (const [id, value] of Object.entries(target)) {
@@ -130,7 +131,11 @@ describe('reviewed instruction catalogs', () => {
 	it.each(instructionLocales)('keeps pending English placeholders outside translation approvals for %s', locale => {
 		for (const unit of pendingUnits) {
 			expect(unit.status).toBe('english_placeholder');
-			expect(catalogPart(unit.definition.file.replace('/en/', `/${locale}/`))[unit.id]).toEqual(catalogPart(unit.definition.file)[unit.id]);
+			const source = catalogPart(unit.definition.file)[unit.id];
+			const target = catalogPart(unit.definition.file.replace('/en/', `/${locale}/`))[unit.id];
+			if (messageDefinition(unit.id).kind === 'plural') {
+				for (const [category, value] of Object.entries(target)) expect(value).toBe((source as Record<string, string>)[category] ?? (source as Record<string, string>).other);
+			} else expect(target).toEqual(source);
 			expect(reviewedUnits.some(reviewed => reviewed.id === unit.id)).toBe(false);
 		}
 	});
@@ -214,6 +219,19 @@ describe('reviewed instruction catalogs', () => {
 				const template = (entry as Record<string, string>)[category]!;
 				expect(result, `${locale}:${unit.id}:${count}`).toBe(template.replace(/{{([^{}]+)}}/g, (_match, name: string) => String(parameters[name])));
 			}
+		}
+	});
+});
+
+
+describe('Markdown result catalog document', () => {
+	it('lists each result key with its catalog and callers', () => {
+		const document = readFileSync(`${root}/docs/tool-result-markdown-catalog.md`, 'utf8');
+		for (const unit of units.filter(unit => unit.id.startsWith('result.'))) {
+			const row = document.split('\n').find(line => line.startsWith(`| \`${unit.id}\` |`));
+			expect(row, unit.id).toBeDefined();
+			expect(row).toContain(unit.definition.file.replace('workers/agent-runtime/src/localization/en/', ''));
+			for (const sink of unit.sinks) expect(row).toContain(sink.file.replace('workers/agent-runtime/src/', ''));
 		}
 	});
 });

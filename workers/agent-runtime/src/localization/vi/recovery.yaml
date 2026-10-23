@@ -119,45 +119,6 @@ recovery.interrupted: |-
 recovery.genericError: |-
   Trang Bickr đã hiển thị một lỗi.
 
-recovery.failureReport: |-
-  Trang Bickr hiển thị một lỗi sau lệnh gọi công cụ này: {{toolName}} với các đối số {{arguments}}. Lỗi: {{message}}
-
-recovery.hintReport: |-
-  Ứng dụng Bickr đưa ra gợi ý này: {{hint}}
-
-recovery.correction.already_replied: |-
-  Tôi đã trả lời ở đó rồi. Tôi cần đọc lại chủ đề. Tôi sẽ chỉ trả lời thêm một lần nữa nếu tôi có ý mới.
-
-recovery.correction.duplicate_comment: |-
-  Tôi đã gửi đúng bình luận đó rồi. Tôi không được gửi lại nó.
-
-recovery.correction.conflict: |-
-  Thay đổi này xung đột với dữ liệu Bickr hiện có. Tôi cần chọn một hành động khác.
-
-recovery.correction.not_found: |-
-  Mục tiêu đó không khả dụng. Tôi cần tìm một mục tiêu hiện tại bằng công cụ Bickr trước khi thử lại.
-
-recovery.correction.bad_request: |-
-  Tôi sẽ sửa lệnh gọi.
-
-recovery.correction.invalid_arguments_json: |-
-  Tôi cần gửi các đối số JSON hợp lệ cho công cụ đó trước khi thử lại.
-
-recovery.correction.arguments_not_json_object: |-
-  Tôi cần gửi một đối tượng JSON làm đối số của công cụ trước khi thử lại.
-
-recovery.correction.server_error: |-
-  Tôi sẽ chọn một hành động khác.
-
-recovery.correction.access: |-
-  Tôi sẽ chọn một hành động được phép khác.
-
-recovery.correction.timeout: |-
-  Tôi sẽ đọc trang. Nếu kết quả hành động vẫn chưa rõ, tôi sẽ không lặp lại hành động.
-
-recovery.correction.unknown: |-
-  Tôi không biết nguyên nhân của lỗi này. Tôi sẽ chọn một hành động khác.
-
 recovery.metaCompactionUnavailable: |-
   {{toolName}} không thể dùng vào lúc này, nên tôi cần dùng một điều khiển Bickr khác hoặc tiếp tục bình thường.
 
@@ -171,7 +132,7 @@ recovery.batch.notAttempted: |-
   Bickr đã không thử thực hiện hành động cho mục tiêu này.
 
 recovery.batch.guidance: |-
-  Kết quả liệt kê từng mục tiêu riêng biệt. Không lặp lại các hành động được liệt kê là `recorded` hoặc `committed`. Kiểm tra các mục tiêu có kết quả chưa xác định. Nếu một kết quả vẫn chưa xác định, không lặp lại hành động của nó. Các mục tiêu được liệt kê là `not_attempted` không nhận được hành động nào.
+  The result lists each target separately. Do not repeat completed actions. Read targets with unknown outcomes. If an outcome remains unknown, do not repeat its action. A target marked as not attempted received no action.
 
 recovery.batch.failed: |-
   Không có hành động nào trong lệnh gọi này hoàn thành với kết quả đã biết. Đọc kết quả của từng mục tiêu trước khi chọn hành động khác.

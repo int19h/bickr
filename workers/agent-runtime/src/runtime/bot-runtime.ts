@@ -5,7 +5,7 @@ import { type ResultRenderContext } from './tool-result-views';
 import { legacyResultFacets } from './legacy-result-facets';
 import { resultMessage, resultDescriptor, renderResultText, unknownOutcomeText, type ResultText } from './result-text';
 import { renderStoredLoopMessage, toolResultViewFromRow, toolResultViewForMessage, attachToolResultView } from './result-messages';
-import { buildToolResultView, renderToolResultView, failureResultView, settlementResultView, batchResultView, toolResultViewPayload, notificationContentIds, retainKnownProfiles, resultViewFacetArrays } from './tool-result-views';
+import { buildToolResultView, renderToolResultView, failureResultView, settlementResultView, batchResultView, notificationContentIds, retainKnownProfiles, resultViewFacetArrays } from './tool-result-views';
 import { ResultContextScope, hydrateResultFacets, facetFingerprint } from './result-context-scope';
 import { resultContentIdentities, resultForumIds } from './result-handles';
 import { formatParticipantTime } from "@bickr/shared/participant-time";
@@ -3903,7 +3903,7 @@ export class BotRuntime {
 				if (consecutiveToolFailures >= 5) {
 					persistentFailure = failure;
 				}
-				toolFailureAcknowledgements.push(acknowledgement);
+				if (acknowledgement) toolFailureAcknowledgements.push(acknowledgement);
 			};
 
 			const recoverUnknownOutcome = async (cause: unknown): Promise<'retry' | 'pause'> => {
@@ -3974,7 +3974,7 @@ export class BotRuntime {
 					this.setPendingTool(bot.text, runId, toolCall, args, assistantMessage!, providerResponseGroup.current?.seq ?? null);
 					result = await this.executeTool(bot, runId, toolCall.function.name, args, { ...runContext, inferenceAttribution: response.inferenceAttribution, toolInvocationId: `${runId}:${requestEvent.seq}:${toolCall.id}`, toolCallId: toolCall.id }, (success) => {
 						const recordedToolCall = success.effectiveArgs ? toolCallWithArguments(toolCall, JSON.stringify(providerToolArgs(success.name, success.effectiveArgs))) : toolCall;
-						appendAssistantToolResultPair(toolCall, success.view ? attachToolResultView({ role: 'tool', tool_call_id: toolCall.id, content: JSON.stringify(success.providerResult) }, success.view) : { role: 'tool', tool_call_id: toolCall.id, content: JSON.stringify(success.providerResult) }, 'tool_result', 'complete', { displayEventSeq: success.displayEventSeq }, recordedToolCall);
+						appendAssistantToolResultPair(toolCall, success.view ? attachToolResultView({ role: 'tool', tool_call_id: toolCall.id, content: typeof success.providerResult === 'string' ? success.providerResult : JSON.stringify(success.providerResult) }, success.view) : { role: 'tool', tool_call_id: toolCall.id, content: typeof success.providerResult === 'string' ? success.providerResult : JSON.stringify(success.providerResult) }, 'tool_result', 'complete', { displayEventSeq: success.displayEventSeq }, recordedToolCall);
 					});
 					pendingToolCallIds.delete(toolCall.id);
 					consecutiveToolFailures = 0;
@@ -3993,7 +3993,7 @@ export class BotRuntime {
 						selfCorrectionAcknowledgements.push(...error.selfCorrectionMessages);
 						const outcomeView = await batchResultView(canonicalName, error.items, { time: { settings: participantTimeSettingsOf(bot), createdAt: bot.createdAt }, text: bot.text, selfId: bot.id, scope: await this.resultContextScope(), writtenAt: new Date().toISOString(), references: new Map() },
 							(targetArgs, cause) => failureResultView(toolFailurePayload(bot.text, canonicalName, targetArgs, cause), bot.text, { message: toolFailureMessageText(cause), guidance: toolFailureGuidanceText(canonicalName, cause) }));
-						const outcome = toolResultViewPayload(outcomeView, contextWithProducedReferences(context, [outcomeView]));
+						const outcome = renderToolResultView(outcomeView, contextWithProducedReferences(context, [outcomeView]));
 						const committed = error.items.filter((item) => item.kind === 'recorded' || item.kind === 'committed');
 						const unknown = error.items.some((item) => item.kind === 'unknown');
 						spotlightOutcomeUncertain ||= error.items.some((item) => item.kind === 'unknown' && item.scope.related);
@@ -4001,7 +4001,7 @@ export class BotRuntime {
 						const unrelated = committed.some((item) => (item.kind === 'recorded' || item.kind === 'committed') && item.scope.unrelated);
 						pendingToolCallIds.delete(toolCall.id);
 						const event = this.appendEvent(runId, 'tool_result', { name: canonicalName, args, result: outcome, outcome: 'partial', ownerDiagnostic: { cause: runtimeErrorCause(error.cause) } });
-						appendAssistantToolResultPair(toolCall, attachToolResultView({ role: 'tool', tool_call_id: toolCall.id, content: JSON.stringify(outcome) }, outcomeView), 'tool_result', unknown ? 'interrupted' : 'complete', { displayEventSeq: event.seq });
+						appendAssistantToolResultPair(toolCall, attachToolResultView({ role: 'tool', tool_call_id: toolCall.id, content: renderToolResultView(outcomeView, contextWithProducedReferences(context, [outcomeView])) }, outcomeView), 'tool_result', unknown ? 'interrupted' : 'complete', { displayEventSeq: event.seq });
 						const seenItems = error.items.flatMap((item) => item.kind === 'recorded' ? seenItemsFromToolResultEnvelope(item.envelope) : []);
 						await this.finishToolBookkeeping(bot, runId, { name: canonicalName, result: outcome, providerResult: outcome, envelope: { kind: 'batch_settled' }, displayEventSeq: event.seq,
 							bookkeeping: { seenItems, ...(related && runContext.spotlightId && ['follow_profile', 'unfollow_profile'].includes(canonicalName) ? { spotlightId: runContext.spotlightId } : {}) } });
@@ -4013,7 +4013,8 @@ export class BotRuntime {
 						} else {
 							consecutiveToolFailures += 1;
 							const failure: ToolFailurePayload = { ok: false, code: 'batch_refused', message: bot.text.format('recovery.batch.failed'), toolName: canonicalName, args: providerToolArgs(canonicalName, args) };
-							toolFailureAcknowledgements.push(toolFailureAssistantContent(bot.text, failure));
+							const acknowledgement = toolFailureAssistantContent(bot.text, failure);
+							if (acknowledgement) toolFailureAcknowledgements.push(acknowledgement);
 							if (consecutiveToolFailures >= 5) persistentFailure = failure;
 						}
 						if (unknown) {
@@ -4049,7 +4050,7 @@ export class BotRuntime {
 						mutatingToolUsedThisIteration ||= mutableToolNames.has(canonicalName);
 						if (error.scope.related) spotlightMutationCount += 1;
 						this.appendEvent(runId, 'tool_result', { name: canonicalName, args, mutationIdentity: this.pendingMutationIdentity(runId, toolCall.id), result: outcome, outcome: 'committed', ownerDiagnostic: { message: error.message } });
-						appendAssistantToolResultPair(toolCall, attachToolResultView({ role: 'tool', tool_call_id: toolCall.id, content: JSON.stringify(outcome) }, outcomeView), 'tool_result', 'complete');
+						appendAssistantToolResultPair(toolCall, attachToolResultView({ role: 'tool', tool_call_id: toolCall.id, content: renderToolResultView(outcomeView, contextWithProducedReferences(context, [outcomeView])) }, outcomeView), 'tool_result', 'complete');
 						if (runContext.spotlightId) {
 							await this.dropPendingGeneratedProviderToolCalls(runId, requestEvent.seq, response.toolCalls, pendingToolCallIds, 'committed_result_unavailable');
 							await this.appendSyntheticLimitLogOff(bot, runId, runContext, 'committed_result_unavailable');
@@ -4068,7 +4069,7 @@ export class BotRuntime {
 						const outcomeView = settlementResultView('outcome_unknown', unknownOutcomeText(canonicalName), bot.text);
 						pendingToolCallIds.delete(toolCall.id);
 						this.appendEvent(runId, 'tool_result', { name: canonicalName, args, mutationIdentity: this.pendingMutationIdentity(runId, toolCall.id), result: outcome, outcome: 'unknown' });
-						appendAssistantToolResultPair(toolCall, attachToolResultView({ role: 'tool', tool_call_id: toolCall.id, content: JSON.stringify(outcome) }, outcomeView), 'tool_failure', 'interrupted');
+						appendAssistantToolResultPair(toolCall, attachToolResultView({ role: 'tool', tool_call_id: toolCall.id, content: renderToolResultView(outcomeView, contextWithProducedReferences(context, [outcomeView])) }, outcomeView), 'tool_failure', 'interrupted');
 						if (await recoverUnknownOutcome(error) === 'pause') {
 							await this.appendSyntheticLimitLogOff(bot, runId, runContext, 'repeated_outcome_unknown');
 							return { logOffCalled: true, spotlightMutationCount, toolCallCount, unknownOutcomeCount, spotlightOutcomeUncertain };
@@ -4799,7 +4800,7 @@ export class BotRuntime {
 		const toolMessage: ChatMessage = {
 			role: 'tool',
 			tool_call_id: toolCall.id,
-			content: JSON.stringify(result.providerResult),
+			content: typeof result.providerResult === 'string' ? result.providerResult : JSON.stringify(result.providerResult),
 		};
 		if (result.view) attachToolResultView(toolMessage, result.view);
 		this.appendLoopMessageGroup(context, [
@@ -9678,16 +9679,8 @@ export function formatRuntimeEventForContext(
  }
 }
 
-function toolFailureAssistantContent(text: BotText, failure: ToolFailurePayload): string {
-	const selfCorrection = selfCorrectionMessageForToolFailurePayload(text, failure);
-	if (selfCorrection) return selfCorrection;
-	const message = safeContextText(failure.message || text.format('recovery.genericError'), 260);
-	const correction = failure.guidance
-		? text.format('recovery.hintReport', { hint: failure.guidance })
-		: toolFailureSelfCorrection(text, failure);
-	return [text.format('recovery.failureReport', {
-		toolName: failure.toolName, arguments: safeContextText(JSON.stringify(failure.args), 800), message,
-	}), correction].join(text.format('formatting.sentenceSeparator'));
+function toolFailureAssistantContent(text: BotText, failure: ToolFailurePayload): string | null {
+	return selfCorrectionMessageForToolFailurePayload(text, failure);
 }
 
 export function selfCorrectionMessageForToolFailurePayload(text: BotText, failure: ToolFailurePayload): string | null {
@@ -9728,36 +9721,6 @@ export function selfCorrectionMessageForToolFailurePayload(text: BotText, failur
 		return followToolSelfCorrectionMessage(text, failure.toolName, historyUsernames(failure.args).map((username) => ({ username, reason: 'profile_not_found' })));
 	}
 	return null;
-}
-
-function toolFailureSelfCorrection(text: BotText, failure: Pick<ToolFailurePayload, 'code' | 'toolName'>): string {
-	switch (failure.code) {
-		case 'already_replied':
-			return text.format('recovery.correction.already_replied');
-		case 'duplicate_comment':
-			return text.format('recovery.correction.duplicate_comment');
-		case 'conflict':
-			return text.format('recovery.correction.conflict');
-		case 'not_found':
-			return text.format('recovery.correction.not_found');
-		case 'self_author_annotation_in_handle':
-		case 'bad_request':
-			return text.format('recovery.correction.bad_request');
-		case 'invalid_arguments_json':
-			return text.format('recovery.correction.invalid_arguments_json');
-		case 'arguments_not_json_object':
-			return text.format('recovery.correction.arguments_not_json_object');
-		case 'preparation_failed':
-		case 'server_error':
-			return text.format('recovery.correction.server_error');
-		case 'forbidden':
-		case 'unauthorized':
-			return text.format('recovery.correction.access');
-		case 'timeout':
-			return text.format('recovery.correction.timeout');
-		default:
-			return text.format('recovery.correction.unknown');
-	}
 }
 
 function safeContextText(text: string, limit: number): string {

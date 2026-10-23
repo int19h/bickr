@@ -9,14 +9,14 @@ issue.note.id.characters: |-
   id に使えるのは、文字、結合記号、数字、句読点、記号、空白だけです。id にはメモのタイトルを指定してください。既存のメモの場合は、list_notes から ID をコピーしてください。
 
 issue.note.cursor.type: |-
-  cursor はテキストでなければなりません。前の list_notes の結果から nextCursor をコピーしてください。新しい一覧を始めるには、cursor を省いてください。
+  cursor must be text. Copy the cursor shown for the next page from the previous list_notes result. To start a new list, omit cursor.
 
 issue.note.cursor.length:
-  other: |-
-    正規化のあと、cursor は {{minimum}} 文字以上 {{maximum}} 文字以下でなければなりません。前の list_notes の結果から nextCursor をコピーしてください。新しい一覧を始めるには、cursor を省いてください。
+  "other": |-
+    cursor must contain {{minimum}}-{{maximum}} characters after normalization. Copy the cursor shown for the next page from the previous list_notes result. To start a new list, omit cursor.
 
 issue.note.cursor.characters: |-
-  cursor に使えるのは、文字、結合記号、数字、句読点、記号、空白だけです。前回の list_notes の結果から nextCursor をコピーしてください。新しい一覧を始めるには、cursor を省略してください。
+  cursor can contain letters, marks, numbers, punctuation, symbols, and spaces only. Copy the cursor shown for the next page from the previous list_notes result. To start a new list, omit cursor.
 
 issue.note.content:
   other: |-

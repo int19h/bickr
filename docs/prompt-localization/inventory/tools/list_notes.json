@@ -39,24 +39,6 @@
         "u/name"
       ],
       "sourceTemplateHash": "b60db38547bfaae62cfd1b735d02677658bb45f7a221a7f597f74cf27c7ebe2f"
-    },
-    {
-      "id": "tools.list_notes.properties.cursor.description",
-      "definition": {
-        "file": "workers/agent-runtime/src/localization/en/tools/list_notes.yaml",
-        "line": 7
-      },
-      "sinks": [
-        {
-          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
-          "line": 328,
-          "kind": "direct"
-        }
-      ],
-      "protectedTokens": [
-        "nextCursor"
-      ],
-      "sourceTemplateHash": "2dceebd6a2be4ed00a8f3c0a58efbff593ed6f923762cabdf552efa74cccc949"
     }
   ]
 }

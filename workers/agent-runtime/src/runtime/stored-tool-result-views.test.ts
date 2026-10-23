@@ -67,10 +67,10 @@ describe('stored tool result views', () => {
 		expect(Object.isFrozen(current)).toBe(true);
 		expect(Object.isFrozen(current.time)).toBe(true);
 		expect(Object.isFrozen(current.time.settings)).toBe(true);
-		expect(messages[1]?.content).toContain('"handle":"after"');
-		expect(messages[1]?.content).toContain('"handle":"last-forum","deleted":true');
+		expect(messages[1]?.content).toContain('u/after');
+		expect(messages[1]?.content).toContain('f/last-forum (deleted)');
 		expect(messages[1]?.content).toContain('Authored u/before stays unchanged');
-		expect(JSON.parse(messages[2]!.content!)).toMatchObject({ message: botText('fr').format('recovery.notDispatched') });
+		expect(messages[2]!.content!).toBe(botText('fr').format('recovery.notDispatched'));
 		expect(queries).toHaveLength(2);
 		expect(queries.map(item => item.bindings)).toEqual([[JSON.stringify(['alice'])], [JSON.stringify(['general'])]]);
 		expect(fresh.activeLoopMessagesForProvider(current)).toEqual(messages);
@@ -79,8 +79,8 @@ describe('stored tool result views', () => {
 		vi.mocked(botById).mockResolvedValue({ instructionLocale: 'de', createdAt: testResultTime.createdAt, timeSettings: testResultTime.settings } as EffectiveBotDocument);
 		const second = await restart();
 		const next = await second.resultRenderContextForRows('reader', rows);
-		expect(second.activeLoopMessagesForProvider(next)[1]?.content).toContain('"handle":"after-again"');
-		expect(JSON.parse(second.activeLoopMessagesForProvider(next)[2]!.content!)).toMatchObject({ message: botText('de').format('recovery.notDispatched') });
+		expect(second.activeLoopMessagesForProvider(next)[1]?.content).toContain('u/after-again');
+		expect(second.activeLoopMessagesForProvider(next)[2]!.content!).toBe(botText('de').format('recovery.notDispatched'));
 		expect(fresh.activeLoopMessagesForProvider(current)).toEqual(messages);
 		expect(rows.every(row => row.role !== 'tool' || !JSON.parse(row.message_json).content)).toBe(true);
 	});
@@ -90,7 +90,7 @@ describe('stored tool result views', () => {
 		const makeView = (id: string, handle: string): ToolResultView => ({ ...resultViewBase(text), kind: 'read_note', id, content: 'A note', links: [{ ref: { kind: 'participant', entityId: id, handle }, deleted: false }] });
 		const first = makeView('first', 'first-name');
 		const second = makeView('second', 'second-name');
-		expect(JSON.parse(renderToolResultView(first, testResultContext)).links).toEqual([{ kind: 'participant', handle: 'first-name', deleted: true }]);
+		expect(renderToolResultView(first, testResultContext)).toContain('u/first-name (deleted)');
 		const once = contextWithProducedReferences(testResultContext, [first]);
 		const twice = contextWithProducedReferences(once, [second]);
 		expect(renderToolResultView(first, twice)).toBe(renderToolResultView(first, once));
@@ -131,7 +131,7 @@ describe('stored tool result views', () => {
 		const handles = new Map([[resultHandleKey(reference), { kind: 'deleted' as const, handle: 'after' }]]);
 		const rendered = renderStoredLoopMessage(row, testViewRenderContext(toolResultViewFromRow(row)!, text, handles));
 		expect(rendered.content).toContain('u/before stays authored');
-		expect(rendered.content).toContain('"handle":"after","deleted":true');
+		expect(rendered.content).toContain('u/after (deleted)');
 	});
 	it('hydrates the newest kept view without writing text into its row', async () => {
 		const { storage, store } = fixture();

@@ -135,45 +135,6 @@ recovery.interrupted: |-
 recovery.genericError: |-
   La pagina di Bickr ha mostrato un errore.
 
-recovery.failureReport: |-
-  La pagina di Bickr mostra un errore dopo questa chiamata a uno strumento: {{toolName}} con gli argomenti {{arguments}}. Errore: {{message}}
-
-recovery.hintReport: |-
-  L'applicazione Bickr dà questo suggerimento: {{hint}}
-
-recovery.correction.already_replied: |-
-  Ho già risposto lì. Devo rileggere la discussione. Risponderò un'altra volta solo se ho un punto nuovo.
-
-recovery.correction.duplicate_comment: |-
-  Ho già inviato esattamente quel commento. Non devo inviarlo di nuovo.
-
-recovery.correction.conflict: |-
-  Questa modifica è in conflitto con dati esistenti di Bickr. Devo scegliere un'altra azione.
-
-recovery.correction.not_found: |-
-  Quel destinatario non è disponibile. Devo trovare un destinatario attuale con uno strumento Bickr prima di riprovare.
-
-recovery.correction.bad_request: |-
-  Correggerò la chiamata.
-
-recovery.correction.invalid_arguments_json: |-
-  Devo inviare argomenti JSON validi per quello strumento prima di riprovare.
-
-recovery.correction.arguments_not_json_object: |-
-  Devo inviare un oggetto JSON come argomenti dello strumento prima di riprovare.
-
-recovery.correction.server_error: |-
-  Sceglierò un'altra azione.
-
-recovery.correction.access: |-
-  Sceglierò un'altra azione consentita.
-
-recovery.correction.timeout: |-
-  Leggerò la pagina. Se l'esito resta sconosciuto, non ripeterò l'azione.
-
-recovery.correction.unknown: |-
-  Non conosco la causa di questo fallimento. Sceglierò un'altra azione.
-
 recovery.metaCompactionUnavailable: |-
   {{toolName}} non si può usare in questo momento, quindi devo usare un altro comando di Bickr o continuare normalmente.
 
@@ -187,7 +148,7 @@ recovery.batch.notAttempted: |-
   Bickr non ha tentato l'azione per questo destinatario.
 
 recovery.batch.guidance: |-
-  Il risultato elenca ogni destinatario separatamente. Non ripetere le azioni indicate come `recorded` o `committed`. Esamina i destinatari con esito sconosciuto. Se un esito resta sconosciuto, non ripetere la relativa azione. I destinatari indicati come `not_attempted` non hanno ricevuto alcuna azione.
+  The result lists each target separately. Do not repeat completed actions. Read targets with unknown outcomes. If an outcome remains unknown, do not repeat its action. A target marked as not attempted received no action.
 
 recovery.batch.failed: |-
   Nessuna azione in questa chiamata è stata completata con un risultato noto. Leggi l'esito di ogni destinatario prima di scegliere un'altra azione.

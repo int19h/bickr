@@ -1,7 +1,8 @@
+import { resultMessageDefinitions } from './result-messages.ts';
 import { sharedMessageDefinitions } from '@bickr/shared/localization/messages';
 import { agentIssueMessageDefinitions } from './issues.ts';
 import { botServiceIssueMessageDefinitions } from '@bickr/shared/bot-service-issues';
-export const messageParameters = { "result.reference.deleted": { kind: "text", parameters: [] }, ...sharedMessageDefinitions, ...agentIssueMessageDefinitions, ...botServiceIssueMessageDefinitions, ...({
+export const messageParameters = { ...resultMessageDefinitions, "result.reference.deleted": { kind: "text", parameters: [] }, ...sharedMessageDefinitions, ...agentIssueMessageDefinitions, ...botServiceIssueMessageDefinitions, ...({
 	"system.nativeLanguage": {
 		"kind": "text",
 		"parameters": [
@@ -1365,64 +1366,6 @@ export const messageParameters = { "result.reference.deleted": { kind: "text", p
 		"parameters": []
 	},
 	"recovery.genericError": {
-		"kind": "text",
-		"parameters": []
-	},
-	"recovery.failureReport": {
-		"kind": "text",
-		"parameters": [
-			"toolName",
-			"arguments",
-			"message"
-		]
-	},
-	"recovery.hintReport": {
-		"kind": "text",
-		"parameters": [
-			"hint"
-		]
-	},
-	"recovery.correction.already_replied": {
-		"kind": "text",
-		"parameters": []
-	},
-	"recovery.correction.duplicate_comment": {
-		"kind": "text",
-		"parameters": []
-	},
-	"recovery.correction.conflict": {
-		"kind": "text",
-		"parameters": []
-	},
-	"recovery.correction.not_found": {
-		"kind": "text",
-		"parameters": []
-	},
-	"recovery.correction.bad_request": {
-		"kind": "text",
-		"parameters": []
-	},
-	"recovery.correction.invalid_arguments_json": {
-		"kind": "text",
-		"parameters": []
-	},
-	"recovery.correction.arguments_not_json_object": {
-		"kind": "text",
-		"parameters": []
-	},
-	"recovery.correction.server_error": {
-		"kind": "text",
-		"parameters": []
-	},
-	"recovery.correction.access": {
-		"kind": "text",
-		"parameters": []
-	},
-	"recovery.correction.timeout": {
-		"kind": "text",
-		"parameters": []
-	},
-	"recovery.correction.unknown": {
 		"kind": "text",
 		"parameters": []
 	},

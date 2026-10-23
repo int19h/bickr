@@ -1,6 +1,6 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "catalogSourceHash": "569c6dc99760c3c93e1594717e4078e6e25111ee4b5b788935ef32b6d2cb5cab",
+  "catalogSourceHash": "9e0bc5f98d28edf8caf9f35e8a6315b5d01512cacf38164f4bd5a3dff3ef0e2c",
   "locale": "ga",
   "status": "partially_pending_translation",
   "leadReason": "Accept best-effort Irish after both requested final discussions and both 28-unit follow-ups. Use standard is gá dom action needs, direct audience wording, explicit persona genitives, dictionary-backed disclaimer notices, singular detached member headers, native JSON adjective order and list punctuation. Keep the maximum ceiling and all conditions. Relative-time digit patterns follow resolved Unicode CLDR and protected identifiers remain opaque. The lead chooses the optional direct relative from Opus.",
@@ -168,7 +168,7 @@
   "groups": {
     "system": {
       "finalHash": "ac93aec6499b85f0e79f7c2d28b192d66fd9d0bec0d9e63a35cc64bb23bc7545",
-      "finalTemplateHash": "13599858b6eb8c836801600488cc18f825b1a9f48a6f705e5d0718d56984f819",
+      "finalTemplateHash": "334d90588b07e9681672d803739c2f38eac0cf1904a0c3fcc8da838911a1e86f",
       "draftHashes": {
         "codex": "725378aa73dbdeebb2570c44a999ac0295b09e1d6b3be689db0ba0916aeaa98e",
         "opus": "b9c7a9a1cf0a633b5dee16a391ee910ead008a84cc5a4c6dfccc4878edbd5822",
@@ -248,13 +248,6 @@
           "candidateReason": "Preserve the updated note, PLAN and action guidance, native-language formatting and setting spacing.",
           "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
           "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
-        },
-        "system.main": {
-          "finalValueHash": "b3e833d96d04680254adcdabb8b315bb9f48c32d432e7baa3a9d24565e3a5902",
-          "leadReason": "Accept after independent Codex review of meaning, grammar, force, examples and protected syntax.",
-          "candidateReason": "Translate reply motivations, every example, first-person reasoning, optional research and changed decisions, response focus and audience exceptions, and context weighting. Match the Activities paragraph split.",
-          "opusReason": "No new Opus review applies to this update. Independent Codex review covers the changed text.",
-          "grokReason": "No new Grok review applies to this update. Independent Codex review covers the changed text."
         },
         "system.toolOverview": {
           "finalValueHash": "66bddd0479e22884b1b009481bd191f9ef176c488547adbe1d395a64c898ce59",
@@ -786,35 +779,6 @@
         }
       }
     },
-    "tools/list_accessible_forums": {
-      "finalHash": "0db6269c6acb15d9ace99f519b8c9c4a7baabbc80aa3fde0159c9a54b5a1843f",
-      "finalTemplateHash": "0a7e0e85b890a37915431ebe2a437cebae7bd936af8068a0a6d32741ac519ca4",
-      "draftHashes": {
-        "codex": "0db6269c6acb15d9ace99f519b8c9c4a7baabbc80aa3fde0159c9a54b5a1843f",
-        "opus": "f2e09b686b5575a479f5667f5c2cca696339137c33d6428d091de840d1a286dd",
-        "grok": "33886caf5eb769799972a0b6db87dedb0ff11d3720845560f20e0d7193396a1e",
-        "gemini": "d58eb28057ded4f4ecd543ede3795d906b26d1895b3b20a3e13b5186695b880c"
-      },
-      "comparisonHashes": {
-        "opus": "54ff5589471951bceb86326dd86c665349d6b61e2e66ad0b0fb7fca27df71658",
-        "grok": "0365fc76758a0b396013fe88b885ed56f41d52e63bd4de5a9347bb1900c9d325"
-      },
-      "decisions": {
-        "tools.list_accessible_forums.description": {
-          "finalValueHash": "407760e5825e951ada7af8fe781c36c9dfdef15b412e3dc19f71a5713fdfee17",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Singular imperative and complete read-only permissions, exclusions and exact false flag. Other drafts verbal-noun descriptions or less clear flags.",
-          "opusDecision": "accept",
-          "opusReason": "Read-only semantics, readOnly false condition with \"Ná ... ach\", blogs excluded, blog mapping.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex. can stays is féidir or ní féidir ach, not ní mór. English: List public forums that I can read. Each result has a readOnly flag. A read-only forum still shows threads and accepts votes. It does not accept new threads or ",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        }
-      }
-    },
     "tools/list_recent_threads": {
       "finalHash": "3cdfb85a9c8eebb548a4939ad11717a020291d55bf10b3b13d1b4b3d3e17193d",
       "finalTemplateHash": "4618ae45f74cf2774ecea8bb18a5b13e715d4e6b36822352a53eb38168755f25",
@@ -867,93 +831,6 @@
           "opusReason": "Faithful.",
           "grokDecision": "accept",
           "grokReason": "Accept snáitheanna móréilimh. Hot is the named popular feed, and system.main uses móréilimh.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        }
-      }
-    },
-    "tools/read_thread": {
-      "finalHash": "7cd7be7b29a64749214a53f32674a3a3796c5920c773f06b17626af54c8e7ffa",
-      "finalTemplateHash": "671c240d505ab21699c4bd072eebcb7497ef0dfa503a16b68901a9eeb7c2aa44",
-      "draftHashes": {
-        "codex": "7cd7be7b29a64749214a53f32674a3a3796c5920c773f06b17626af54c8e7ffa",
-        "opus": "b44e5c915be30b2043c5b469d4c2b797d46bd719dc0477b3c41cd7f3d7360333",
-        "grok": "91ed48a7e77b522cccef32b60400d6a0d45f2693214e7f831281a91478a71e3f",
-        "gemini": "04f963dfe02b3b5b4cc1e66ee7b07f646b333b1161cad5bc75f71c19d9b008c8"
-      },
-      "comparisonHashes": {
-        "opus": "f1a4f9ac384d078940c85419a89a63893c14e84db13a56dbb18789c054e654c6",
-        "grok": "b65b10971fdab0b3d7b3a6dbca2537958f69380aa9e2555fb897b75ad3200aa2"
-      },
-      "decisions": {
-        "tools.read_thread.description": {
-          "finalValueHash": "60c05ce8b8db66e59b83ff4c9ee3907f4973d029d33b254021321845f2c71f64",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Correct ref lookup, all truncation conditions and imperative. Gemini changes lookup to forum/title and Grok has malformed copula.",
-          "opusDecision": "accept",
-          "opusReason": "ref lookup, Markdown source, hidden replies, numeric replies and ellipsis guidance.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex. actor, tense, limits, and parameters match the English. English: Read a thread and its comments by thread ref. Comment bodies contain Markdown source. Large results hide some replies. If `replies` is a number, use read_commen",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        }
-      }
-    },
-    "tools/read_thread_by_id": {
-      "finalHash": "d040db62089206f961f931d763f8cb14061960da6eab2c63c7f5592cceb32b29",
-      "finalTemplateHash": "d7c04048ca89fc64fe091bcf8879530a5767e3342c7174af638b8c6d10ff8b6b",
-      "draftHashes": {
-        "codex": "d040db62089206f961f931d763f8cb14061960da6eab2c63c7f5592cceb32b29",
-        "opus": "687ed21581850a71a7bb2bce1b8537fc47063b76a70c018dab3f7db2334ce185",
-        "grok": "3105130d126903e2f6187c3c9e98e6664b6aea0a5f6174abdefd769fc6e07a1e",
-        "gemini": "05d016c37c8f0f5b2f27ed22fa4a2f3d659d04910d4c90df31999a2bef4c48ff"
-      },
-      "comparisonHashes": {
-        "opus": "396a6353278d41de807d31e3b91cc4226b6ed47701174ab7b22f646e9047f2a8",
-        "grok": "d73db1c7f5b47baea02640d24f390c59c6d12ad0d53d309e9a9734977056a3e9"
-      },
-      "decisions": {
-        "tools.read_thread_by_id.description": {
-          "finalValueHash": "60c05ce8b8db66e59b83ff4c9ee3907f4973d029d33b254021321845f2c71f64",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Same complete ref lookup and expansion conditions as read_thread; Opus uses verbal noun and Gemini changes comments to opinions.",
-          "opusDecision": "accept",
-          "opusReason": "Same.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex. actor, tense, limits, and parameters match the English. English: Read a thread and its comments by thread ref. Comment bodies contain Markdown source. Large results hide some replies. If `replies` is a number, use read_commen",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        }
-      }
-    },
-    "tools/read_comment_by_id": {
-      "finalHash": "74059fb29b3701cca494b582060c5dd3c78b224d5d87e92626d24e12f2db0638",
-      "finalTemplateHash": "9974835f7ec7293faaad507b32a8e316ac1168ebd5d4a4d75afc42330594bacf",
-      "draftHashes": {
-        "codex": "74059fb29b3701cca494b582060c5dd3c78b224d5d87e92626d24e12f2db0638",
-        "opus": "6e91735df91ce9d6fb26ae103f675e9630932fc104099b836679a9c9235c85a6",
-        "grok": "4aee7a1fb341daada068f24716949a4b701dcd8a511b3cb018a7bfa8d76122a9",
-        "gemini": "5627284ce4d4010520e796e38a9328cb344bd773d01b595aaaac49dce447da22"
-      },
-      "comparisonHashes": {
-        "opus": "0ad0daca834298dcfaef903dff455b29b69d7eb6b120316fc71e8c1d9c96e65b",
-        "grok": "5e67fba014c421de68aebf44f77652ad545391479456a65295be14937109f243"
-      },
-      "decisions": {
-        "tools.read_comment_by_id.description": {
-          "finalValueHash": "9b5edfd5fd9b653f1075c98bea0085fec2226b066673dd21f8a855b5e2cd369e",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Complete parent comments, own replies and another-comment ellipsis condition; Gemini changes parents to maternal comments.",
-          "opusDecision": "accept",
-          "opusReason": "Parents and replies included, both guidance lines.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex. actor, tense, limits, and parameters match the English. English: Read a comment by its ref. Its body contains Markdown source. The result includes its parent comments and replies. Large results hide some replies. If `replies`",
           "changedAfterComparison": false,
           "finalFollowUp": {},
           "finalDiscussion": {}
@@ -1338,7 +1215,7 @@
     },
     "tools/list_notes": {
       "finalHash": "849575fcd8a12893a8b036f63270dd65262d53f805832ec79d7d9f6b2257fbc1",
-      "finalTemplateHash": "eec33e31d6aa5d0a3fc7691fc4bdb3e8530164e4b129309456278b9cfb983e90",
+      "finalTemplateHash": "4f01594741a44f696db9cd8b046ce4bcc3129d40a57c4b954c27ddf7017429fe",
       "draftHashes": {
         "codex": "b42e98fe47452bc155d54173cecfb696621ad12146ad7b4e6e30112318f3f74c",
         "opus": "7ec9869eba45745532c8de75b809f22ab0b7916e1df5017c7af9e75622b4ebf4",
@@ -1372,19 +1249,6 @@
           "opusReason": "Optional list, any-match.",
           "grokDecision": "accept",
           "grokReason": "Accept. Compared with the English source and opus. actor, tense, limits, and parameters match the English. English: Optional list of u/name or f/name references. Notes matching any listed entity are returned.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "tools.list_notes.properties.cursor.description": {
-          "finalValueHash": "5b3ccf7ef6c5efe8b2e049a450d0ee8f22cd29262240567254341bf14b70e579",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Correct continuing list action and ID head noun; Grok mutates identifier as nID.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex. actor, tense, limits, and parameters match the English. English: Use nextCursor from the previous page to continue listing IDs.",
           "changedAfterComparison": false,
           "finalFollowUp": {},
           "finalDiscussion": {}
@@ -4390,29 +4254,9 @@
         }
       }
     },
-    "reports": {
-      "finalHash": "2011a793bc466ed79e1e11e503bc1f7a80b0e1a166e41d46c76fa8abdbd486cc",
-      "finalTemplateHash": "c235daf236aaefbf2f2ac729e55f54493b3f02fb8e450438dcaf29fe31d1e9c8",
-      "draftHashes": {
-        "codex": "c9be595197338930a0f89580f201bf6fbbb400ec5fd66d247959d132e336343b",
-        "opus": "d681acb044cedb87826aa3b8b13c2d348f0d8309f47fb22c8fb2e64e5a917e53",
-        "grok": "9e6ca6ae5ae31db5893d56343b558de12999254641912b20dac8c96a6fad26b0",
-        "gemini": "f5b489640fbef49d22852a632ee88f52b218d3d8f7228251dc9d6200a47eb299"
-      },
-      "comparisonHashes": {
-        "opus": "def842ce8e5c65e37b989aca5e852c76dbbc4dcdcd79280503c9baf892e71aac",
-        "grok": "a0f85ccb624ff6e271e83f92ddba3dbd3f11d32bb7b55562cd0a4f486a56e207"
-      },
-      "decisions": {},
-      "status": "pending_translation",
-      "pendingTranslationKeys": [
-        "report.timestamp.relative",
-        "report.timestamp.absolute"
-      ]
-    },
     "recovery": {
       "finalHash": "398b8dd647f9dcb52c42f7cfaad9f3cbdd335aa11bd14c20b9b02a3b47ea9aaa",
-      "finalTemplateHash": "7c41678f28eca1875f4548f67875180e54448d5500c57859cc34bb96d585ab08",
+      "finalTemplateHash": "dcdb91c2b20be8f1c8ffa15e48e21d53e687fc225031cffdc2e1c54b74ff7cef",
       "draftHashes": {
         "codex": "735a7b3ec477c057d8835136bcccd39421571f5bf5919f3fd1020036a7cef7e6",
         "opus": "7845aa8fbdb6e5e6f8084d7262f7a3673cbd95f420971cb0eb3d4490f686530c",
@@ -4942,305 +4786,6 @@
           "finalFollowUp": {},
           "finalDiscussion": {}
         },
-        "recovery.failureReport": {
-          "finalValueHash": "913744b1e5f725f188596ad7582465d57cb9e9b5b7bc2727550d2f804f288538",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Present page report, exact tool/arguments and opaque error message all retained.",
-          "opusDecision": "accept",
-          "opusReason": "Placeholders preserved.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. No period after {{message}}.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "recovery.hintReport": {
-          "finalValueHash": "a63549935e11661a02c7144cfa92f136eea7edcc3c51ae2ca3534bb79aff5131",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Present app gives this hint with explicit app actor.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. The Bickr app gives the hint, and there is no period after {{hint}}.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "recovery.correction.already_replied": {
-          "finalValueHash": "c4c54b868f33db8e52f97c9bd791895ebdf3e26f4ce6dc7dcc2dca91782d4d34",
-          "chosenFrom": "grok",
-          "leadReason": "Use an explicit tá gá agam construction for the participant’s stated need. Caithfidh and ní mór can also express practical necessity in Irish, so this is a clarity choice, not a blanket lexical rule that they always strengthen need. Preserve the action, actor, need-versus-future distinction, before/after/only conditions, alternatives, completed/unknown status, and strict prohibitions. Leave source must clauses unchanged.",
-          "candidateReason": "Already replied and reread need retained, but add explicit one more in conditional future reply.",
-          "opusDecision": "accept",
-          "opusReason": "New-point condition with \"Ní ... ach amháin má\".",
-          "grokDecision": "required_change",
-          "grokReason": "English says I need. caithfidh and ní mór are obligation. tá gá agam keeps need and does not strengthen it to must. The other conditions in the sentence stay.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {
-            "opus": {
-              "decision": "accept",
-              "reason": "\"Is gá dom … a + verbal noun\" is the construction that the official need entry (focloir.ie, need) gives alongside \"caithfidh\" and \"ní mór\" for a needed action. It keeps the source's practical \"I need to\" without turning it into \"must\". The earlier \"Tá gá agam (le) …\" was at least unsettled grammar before a verbal-noun clause. I agree with the lead that this is a construction choice: \"caithfidh mé\" correctly remains in the six units where the English says \"must\" (self-correction units, already_replied.next, malformed.example). The first-person actor is kept, and the only change is the need construction. All other clauses (reasons, before-deciding and before-retry conditions, alternatives such as \"or continue\", protected PLAN, {{toolName}} and {{username}}) are unchanged. The previous \"tá gá agam le leanúint\" and \"tá gá agam le smaoineamh\" forms are gone.",
-              "proposedValueHash": "c4c54b868f33db8e52f97c9bd791895ebdf3e26f4ce6dc7dcc2dca91782d4d34"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept Is gá dom before the verbal noun. The Foras na Gaeilge need entry gives this construction for a needed action, including ní gá duit ach clárú, an gá dúinn é seo a phlé, is gá duit a bheith, is gá iad a bheathú, and an gá dom a dhath eile a rá. The same entry also gives caithfidh and ní mór for English need, including you need to be over 21 and you need to work hard, so those verbs remain available need wording. This sentence keeps practical necessity. The le that belonged to tá gá agam le is absent because is gá dom takes the verbal noun directly. D'fhreagair mé ansin cheana keeps the completed reply. The need is still to read the thread again. The last sentence still allows one further reply only when there is a new point: Ní thabharfaidh mé freagra amháin eile ach amháin má tá pointe nua agam.",
-              "proposedValueHash": "c4c54b868f33db8e52f97c9bd791895ebdf3e26f4ce6dc7dcc2dca91782d4d34"
-            }
-          },
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "I accepted \"Ní mór dom\" or \"Caithfidh mé\" in the comparison, but I agree with the lead's reasoning. Both can express practical necessity, but they also read as \"must\", while the source says \"I need to\". \"Tá gá agam\" states need without strengthening it, and the actor, conditions and alternatives are unchanged. Confidence limit: I cannot confirm which complement is standard after \"Tá gá agam\". Most units use \"Tá gá agam X a dhéanamh\", while notes.disabled and factory.reasoningPrefill use \"Tá gá agam le …\". I record that as an open question rather than propose an edit I cannot verify.",
-              "proposedValueHash": "312735471f57e7e0f9b9e0689c82db784324316d9dea2b8d2baa41bd90a22056"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept Tá gá agam an snáithe a léamh arís. English says I already replied there, I need to read the thread again, and I will reply once more only if I have a new point. The already-replied fact and the new-point condition stay. Tá gá agam states the participant’s need. caithfidh and ní mór can also express practical necessity, so this is the explicit need wording and not a claim that those verbs are always wrong. The action and the other conditions stay.",
-              "proposedValueHash": "312735471f57e7e0f9b9e0689c82db784324316d9dea2b8d2baa41bd90a22056"
-            }
-          },
-          "finalLeadResolution": {
-            "reason": "Use Is gá dom for first-person practical necessity before a verbal-noun action. The official Foras na Gaeilge need entry explicitly supports the is gá construction for needed actions. This avoids the unsettled Tá gá agam grammar. Caithfidh and ní mór also express need in this dictionary, so this is a construction choice, not a rule that bans those words. Preserve every reason, condition, role, protected parameter and strict constraint.",
-            "changedFromProposal": true
-          }
-        },
-        "recovery.correction.duplicate_comment": {
-          "finalValueHash": "895ec0b5f0b8e239f96642d4eee1ce38137f7dae5cbd5f28bdba07c2b630a938",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Natural same exact comment already sent and strict no-resend prohibition.",
-          "opusDecision": "accept",
-          "opusReason": "\"Ní ceadmhach dom\" keeps must not.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and opus. the prohibition stays ná, ní cheadaítear, or ní féidir. English: I already sent that exact comment. I must not send it again.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "recovery.correction.conflict": {
-          "finalValueHash": "d229365557cb265c49747fdb41c67ad334198b4d5a4a888f92ac7905241948df",
-          "chosenFrom": "grok",
-          "leadReason": "Use an explicit tá gá agam construction for the participant’s stated need. Caithfidh and ní mór can also express practical necessity in Irish, so this is a clarity choice, not a blanket lexical rule that they always strengthen need. Preserve the action, actor, need-versus-future distinction, before/after/only conditions, alternatives, completed/unknown status, and strict prohibitions. Leave source must clauses unchanged.",
-          "candidateReason": "Natural conflict with existing data and need for different action.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "required_change",
-          "grokReason": "English says I need. caithfidh and ní mór are obligation. tá gá agam keeps need and does not strengthen it to must. The other conditions in the sentence stay.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {
-            "opus": {
-              "decision": "accept",
-              "reason": "\"Is gá dom … a + verbal noun\" is the construction that the official need entry (focloir.ie, need) gives alongside \"caithfidh\" and \"ní mór\" for a needed action. It keeps the source's practical \"I need to\" without turning it into \"must\". The earlier \"Tá gá agam (le) …\" was at least unsettled grammar before a verbal-noun clause. I agree with the lead that this is a construction choice: \"caithfidh mé\" correctly remains in the six units where the English says \"must\" (self-correction units, already_replied.next, malformed.example). The first-person actor is kept, and the only change is the need construction. All other clauses (reasons, before-deciding and before-retry conditions, alternatives such as \"or continue\", protected PLAN, {{toolName}} and {{username}}) are unchanged. The previous \"tá gá agam le leanúint\" and \"tá gá agam le smaoineamh\" forms are gone.",
-              "proposedValueHash": "d229365557cb265c49747fdb41c67ad334198b4d5a4a888f92ac7905241948df"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept Is gá dom before the verbal noun. The Foras na Gaeilge need entry gives this construction for a needed action, including ní gá duit ach clárú, an gá dúinn é seo a phlé, is gá duit a bheith, is gá iad a bheathú, and an gá dom a dhath eile a rá. The same entry also gives caithfidh and ní mór for English need, including you need to be over 21 and you need to work hard, so those verbs remain available need wording. This sentence keeps practical necessity. The le that belonged to tá gá agam le is absent because is gá dom takes the verbal noun directly. Tagann an t-athrú seo salach ar shonraí Bickr atá ann cheana keeps the conflict with existing Bickr data. The needed action is still to choose another action. Bickr stays uninflected.",
-              "proposedValueHash": "d229365557cb265c49747fdb41c67ad334198b4d5a4a888f92ac7905241948df"
-            }
-          },
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "I accepted \"Ní mór dom\" or \"Caithfidh mé\" in the comparison, but I agree with the lead's reasoning. Both can express practical necessity, but they also read as \"must\", while the source says \"I need to\". \"Tá gá agam\" states need without strengthening it, and the actor, conditions and alternatives are unchanged. Confidence limit: I cannot confirm which complement is standard after \"Tá gá agam\". Most units use \"Tá gá agam X a dhéanamh\", while notes.disabled and factory.reasoningPrefill use \"Tá gá agam le …\". I record that as an open question rather than propose an edit I cannot verify.",
-              "proposedValueHash": "cd799ff469e02b346d92200540e19f1b9697da24793d0985adedc1f713eaa847"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept Tá gá agam gníomh eile a roghnú. English says this change conflicts with existing Bickr data and I need to choose another action. The conflict with existing data stays. Tá gá agam states the participant’s need. caithfidh and ní mór can also express practical necessity, so this is the explicit need wording and not a claim that those verbs are always wrong. The action and the other conditions stay.",
-              "proposedValueHash": "cd799ff469e02b346d92200540e19f1b9697da24793d0985adedc1f713eaa847"
-            }
-          },
-          "finalLeadResolution": {
-            "reason": "Use Is gá dom for first-person practical necessity before a verbal-noun action. The official Foras na Gaeilge need entry explicitly supports the is gá construction for needed actions. This avoids the unsettled Tá gá agam grammar. Caithfidh and ní mór also express need in this dictionary, so this is a construction choice, not a rule that bans those words. Preserve every reason, condition, role, protected parameter and strict constraint.",
-            "changedFromProposal": true
-          }
-        },
-        "recovery.correction.not_found": {
-          "finalValueHash": "356bc6c70729ddc82e648dc7ad051fbddb061623e354b2016f19683b1b6a2d64",
-          "chosenFrom": "grok",
-          "leadReason": "Use an explicit tá gá agam construction for the participant’s stated need. Caithfidh and ní mór can also express practical necessity in Irish, so this is a clarity choice, not a blanket lexical rule that they always strengthen need. Preserve the action, actor, need-versus-future distinction, before/after/only conditions, alternatives, completed/unknown status, and strict prohibitions. Leave source must clauses unchanged.",
-          "candidateReason": "Unavailable target and required current lookup before retry, with natural try-again idiom.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "required_change",
-          "grokReason": "English says I need. caithfidh and ní mór are obligation. tá gá agam keeps need and does not strengthen it to must. The other conditions in the sentence stay.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {
-            "opus": {
-              "decision": "accept",
-              "reason": "\"Is gá dom … a + verbal noun\" is the construction that the official need entry (focloir.ie, need) gives alongside \"caithfidh\" and \"ní mór\" for a needed action. It keeps the source's practical \"I need to\" without turning it into \"must\". The earlier \"Tá gá agam (le) …\" was at least unsettled grammar before a verbal-noun clause. I agree with the lead that this is a construction choice: \"caithfidh mé\" correctly remains in the six units where the English says \"must\" (self-correction units, already_replied.next, malformed.example). The first-person actor is kept, and the only change is the need construction. All other clauses (reasons, before-deciding and before-retry conditions, alternatives such as \"or continue\", protected PLAN, {{toolName}} and {{username}}) are unchanged. The previous \"tá gá agam le leanúint\" and \"tá gá agam le smaoineamh\" forms are gone.",
-              "proposedValueHash": "356bc6c70729ddc82e648dc7ad051fbddb061623e354b2016f19683b1b6a2d64"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept Is gá dom before the verbal noun. The Foras na Gaeilge need entry gives this construction for a needed action, including ní gá duit ach clárú, an gá dúinn é seo a phlé, is gá duit a bheith, is gá iad a bheathú, and an gá dom a dhath eile a rá. The same entry also gives caithfidh and ní mór for English need, including you need to be over 21 and you need to work hard, so those verbs remain available need wording. This sentence keeps practical necessity. The le that belonged to tá gá agam le is absent because is gá dom takes the verbal noun directly. Níl an sprioc sin ar fáil keeps the unavailable target. The needed action is still to find a current target with a Bickr tool before trying again. uirlis Bickr names the tool. sula mbainfidh mé triail eile as keeps the retry condition. Bickr stays uninflected.",
-              "proposedValueHash": "356bc6c70729ddc82e648dc7ad051fbddb061623e354b2016f19683b1b6a2d64"
-            }
-          },
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "I accepted \"Ní mór dom\" or \"Caithfidh mé\" in the comparison, but I agree with the lead's reasoning. Both can express practical necessity, but they also read as \"must\", while the source says \"I need to\". \"Tá gá agam\" states need without strengthening it, and the actor, conditions and alternatives are unchanged. Confidence limit: I cannot confirm which complement is standard after \"Tá gá agam\". Most units use \"Tá gá agam X a dhéanamh\", while notes.disabled and factory.reasoningPrefill use \"Tá gá agam le …\". I record that as an open question rather than propose an edit I cannot verify.",
-              "proposedValueHash": "7565b1a4d56c5363b4fa112c943b970b57ae3d3dc1cef247f047f8a9b967d102"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept Tá gá agam sprioc reatha a aimsiú le huirlis Bickr. English says that target is unavailable and I need to find a current target with a Bickr tool before I try again. The unavailable target and the tool lookup stay. Tá gá agam states the participant’s need. caithfidh and ní mór can also express practical necessity, so this is the explicit need wording and not a claim that those verbs are always wrong. The action and the other conditions stay.",
-              "proposedValueHash": "7565b1a4d56c5363b4fa112c943b970b57ae3d3dc1cef247f047f8a9b967d102"
-            }
-          },
-          "finalLeadResolution": {
-            "reason": "Use Is gá dom for first-person practical necessity before a verbal-noun action. The official Foras na Gaeilge need entry explicitly supports the is gá construction for needed actions. This avoids the unsettled Tá gá agam grammar. Caithfidh and ní mór also express need in this dictionary, so this is a construction choice, not a rule that bans those words. Preserve every reason, condition, role, protected parameter and strict constraint.",
-            "changedFromProposal": true
-          }
-        },
-        "recovery.correction.bad_request": {
-          "finalValueHash": "4c2e84c1c30542e119348ec1e37823addd113910717e957c30cbf9fb0541230b",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Three agree on future repair of call rather than merely correcting it.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and opus, grok, gemini. actor, tense, limits, and parameters match the English. English: I will repair the call.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "recovery.correction.invalid_arguments_json": {
-          "finalValueHash": "39f072c9265253ab0ac670c7d074d580b1b55347cb95bc787c4063019eeae6d0",
-          "chosenFrom": "grok",
-          "leadReason": "Use an explicit tá gá agam construction for the participant’s stated need. Caithfidh and ní mór can also express practical necessity in Irish, so this is a clarity choice, not a blanket lexical rule that they always strengthen need. Preserve the action, actor, need-versus-future distinction, before/after/only conditions, alternatives, completed/unknown status, and strict prohibitions. Leave source must clauses unchanged.",
-          "candidateReason": "Valid JSON argument requirement for that tool before retry, natural try-again idiom.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "required_change",
-          "grokReason": "English says I need. caithfidh and ní mór are obligation. tá gá agam keeps need and does not strengthen it to must. The other conditions in the sentence stay.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {
-            "opus": {
-              "decision": "accept",
-              "reason": "\"Is gá dom … a + verbal noun\" is the construction that the official need entry (focloir.ie, need) gives alongside \"caithfidh\" and \"ní mór\" for a needed action. It keeps the source's practical \"I need to\" without turning it into \"must\". The earlier \"Tá gá agam (le) …\" was at least unsettled grammar before a verbal-noun clause. I agree with the lead that this is a construction choice: \"caithfidh mé\" correctly remains in the six units where the English says \"must\" (self-correction units, already_replied.next, malformed.example). The first-person actor is kept, and the only change is the need construction. All other clauses (reasons, before-deciding and before-retry conditions, alternatives such as \"or continue\", protected PLAN, {{toolName}} and {{username}}) are unchanged. The previous \"tá gá agam le leanúint\" and \"tá gá agam le smaoineamh\" forms are gone.",
-              "proposedValueHash": "39f072c9265253ab0ac670c7d074d580b1b55347cb95bc787c4063019eeae6d0"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept Is gá dom before the verbal noun. The Foras na Gaeilge need entry gives this construction for a needed action, including ní gá duit ach clárú, an gá dúinn é seo a phlé, is gá duit a bheith, is gá iad a bheathú, and an gá dom a dhath eile a rá. The same entry also gives caithfidh and ní mór for English need, including you need to be over 21 and you need to work hard, so those verbs remain available need wording. This sentence keeps practical necessity. The le that belonged to tá gá agam le is absent because is gá dom takes the verbal noun directly. The needed object is still valid JSON arguments for that tool, argóintí JSON bailí, and the retry condition sula mbainfidh mé triail eile as stays. JSON stays uninflected. bailí still follows the noun group.",
-              "proposedValueHash": "39f072c9265253ab0ac670c7d074d580b1b55347cb95bc787c4063019eeae6d0"
-            }
-          },
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "I accepted \"Ní mór dom\" or \"Caithfidh mé\" in the comparison, but I agree with the lead's reasoning. Both can express practical necessity, but they also read as \"must\", while the source says \"I need to\". \"Tá gá agam\" states need without strengthening it, and the actor, conditions and alternatives are unchanged. Confidence limit: I cannot confirm which complement is standard after \"Tá gá agam\". Most units use \"Tá gá agam X a dhéanamh\", while notes.disabled and factory.reasoningPrefill use \"Tá gá agam le …\". I record that as an open question rather than propose an edit I cannot verify.",
-              "proposedValueHash": "d9d4d774a936511a4de53a4e7cac280a775c9a5c52ffc179a95d8bbf519309ca"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept Tá gá agam argóintí JSON bailí a sheoladh. English says I need to send valid JSON arguments for that tool before I try again. The tool and the retry stay. Tá gá agam states the participant’s need. caithfidh and ní mór can also express practical necessity, so this is the explicit need wording and not a claim that those verbs are always wrong. The action and the other conditions stay.",
-              "proposedValueHash": "d9d4d774a936511a4de53a4e7cac280a775c9a5c52ffc179a95d8bbf519309ca"
-            }
-          },
-          "finalLeadResolution": {
-            "reason": "Use Is gá dom for first-person practical necessity before a verbal-noun action. The official Foras na Gaeilge need entry explicitly supports the is gá construction for needed actions. This avoids the unsettled Tá gá agam grammar. Caithfidh and ní mór also express need in this dictionary, so this is a construction choice, not a rule that bans those words. Preserve every reason, condition, role, protected parameter and strict constraint.",
-            "changedFromProposal": true
-          }
-        },
-        "recovery.correction.arguments_not_json_object": {
-          "finalValueHash": "45fe80673f5bc02c46a12cc4c9c7219f9928afba98befabffc4058fd5223e37c",
-          "chosenFrom": "grok",
-          "leadReason": "Use an explicit tá gá agam construction for the participant’s stated need. Caithfidh and ní mór can also express practical necessity in Irish, so this is a clarity choice, not a blanket lexical rule that they always strengthen need. Preserve the action, actor, need-versus-future distinction, before/after/only conditions, alternatives, completed/unknown status, and strict prohibitions. Leave source must clauses unchanged.",
-          "candidateReason": "Object-as-tool-arguments requirement before retry and exact actor retained.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "required_change",
-          "grokReason": "English says I need. caithfidh and ní mór are obligation. tá gá agam keeps need and does not strengthen it to must. The other conditions in the sentence stay.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {
-            "opus": {
-              "decision": "accept",
-              "reason": "\"Is gá dom … a + verbal noun\" is the construction that the official need entry (focloir.ie, need) gives alongside \"caithfidh\" and \"ní mór\" for a needed action. It keeps the source's practical \"I need to\" without turning it into \"must\". The earlier \"Tá gá agam (le) …\" was at least unsettled grammar before a verbal-noun clause. I agree with the lead that this is a construction choice: \"caithfidh mé\" correctly remains in the six units where the English says \"must\" (self-correction units, already_replied.next, malformed.example). The first-person actor is kept, and the only change is the need construction. All other clauses (reasons, before-deciding and before-retry conditions, alternatives such as \"or continue\", protected PLAN, {{toolName}} and {{username}}) are unchanged. The previous \"tá gá agam le leanúint\" and \"tá gá agam le smaoineamh\" forms are gone.",
-              "proposedValueHash": "45fe80673f5bc02c46a12cc4c9c7219f9928afba98befabffc4058fd5223e37c"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept Is gá dom before the verbal noun. The Foras na Gaeilge need entry gives this construction for a needed action, including ní gá duit ach clárú, an gá dúinn é seo a phlé, is gá duit a bheith, is gá iad a bheathú, and an gá dom a dhath eile a rá. The same entry also gives caithfidh and ní mór for English need, including you need to be over 21 and you need to work hard, so those verbs remain available need wording. This sentence keeps practical necessity. The le that belonged to tá gá agam le is absent because is gá dom takes the verbal noun directly. The needed object is still a JSON object used as the tool arguments, réad JSON mar argóintí na huirlise, before another try. JSON stays uninflected. The tool and the retry condition stay.",
-              "proposedValueHash": "45fe80673f5bc02c46a12cc4c9c7219f9928afba98befabffc4058fd5223e37c"
-            }
-          },
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "I accepted \"Ní mór dom\" or \"Caithfidh mé\" in the comparison, but I agree with the lead's reasoning. Both can express practical necessity, but they also read as \"must\", while the source says \"I need to\". \"Tá gá agam\" states need without strengthening it, and the actor, conditions and alternatives are unchanged. Confidence limit: I cannot confirm which complement is standard after \"Tá gá agam\". Most units use \"Tá gá agam X a dhéanamh\", while notes.disabled and factory.reasoningPrefill use \"Tá gá agam le …\". I record that as an open question rather than propose an edit I cannot verify.",
-              "proposedValueHash": "cbfa868d5f0aa1a405101918da67d8cac663f3b13ee3a9f84b83bbf0ae107d2b"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept Tá gá agam réad JSON a sheoladh. English says I need to send a JSON object as the tool arguments before I try again. The object requirement and the retry stay. Tá gá agam states the participant’s need. caithfidh and ní mór can also express practical necessity, so this is the explicit need wording and not a claim that those verbs are always wrong. The action and the other conditions stay.",
-              "proposedValueHash": "cbfa868d5f0aa1a405101918da67d8cac663f3b13ee3a9f84b83bbf0ae107d2b"
-            }
-          },
-          "finalLeadResolution": {
-            "reason": "Use Is gá dom for first-person practical necessity before a verbal-noun action. The official Foras na Gaeilge need entry explicitly supports the is gá construction for needed actions. This avoids the unsettled Tá gá agam grammar. Caithfidh and ní mór also express need in this dictionary, so this is a construction choice, not a rule that bans those words. Preserve every reason, condition, role, protected parameter and strict constraint.",
-            "changedFromProposal": true
-          }
-        },
-        "recovery.correction.server_error": {
-          "finalValueHash": "f33af2b906e816c7f5aa4ebddf1d32fe4c553ed3dfa3ec2c97986391d5e86528",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Opus and Gemini future verb spelling correct; Grok misspells roghnóidh.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and opus, gemini. actor, tense, limits, and parameters match the English. English: I will choose another action.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "recovery.correction.access": {
-          "finalValueHash": "6dbae6bbf650f7362aa3b2247f3b77ce85242ea48c03d3302a94d40497b23bfe",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Opus and Gemini retain permitted future alternative; Grok misspells future verb.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and opus, gemini. actor, tense, limits, and parameters match the English. English: I will choose another permitted action.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "recovery.correction.timeout": {
-          "finalValueHash": "da6d280db24ea6a16fb2e2cccf40cb4176fe711ce205d226fea0b78ec3960679",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Future page read and conditional future nonrepeat preserve uncertainty.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and opus. actor, tense, limits, and parameters match the English. English: I will read the page. If the outcome remains unknown, I will not repeat the action.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "recovery.correction.unknown": {
-          "finalValueHash": "b0562a4bfd514d619de432d56a6f42fdc5c5d22ccba26c0894aae8086f7978b8",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Opus and Gemini preserve unknown cause and future other action.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and opus, gemini. the prohibition stays ná, ní cheadaítear, or ní féidir. English: I do not know the cause of this failure. I will choose another action.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
         "recovery.metaCompactionUnavailable": {
           "finalValueHash": "1fb3a4c6fa126c787dfde1230d2c04628e120e7b36f713b27170dd2bf0b710b0",
           "chosenFrom": "grok",
@@ -5315,19 +4860,6 @@
           "opusReason": "Faithful.",
           "grokDecision": "accept",
           "grokReason": "Accept. Compared with the English source and opus. actor, tense, limits, and parameters match the English. English: Bickr did not attempt the action for this target.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "recovery.batch.guidance": {
-          "finalValueHash": "4355d37468617513ddd8e4ce30cf545e44a129c8cad51ed88862f4de4c24b4d5",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All per-target statuses and unknown inspection retained; natural no action applied to not_attempted targets.",
-          "opusDecision": "accept",
-          "opusReason": "Literal statuses and the no-repeat condition preserved.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and opus. the prohibition stays ná, ní cheadaítear, or ní féidir. English: The result lists each target separately. Do not repeat actions listed as `recorded` or `committed`. Inspect targets with unknown outcomes. If an outcome remains",
           "changedAfterComparison": false,
           "finalFollowUp": {},
           "finalDiscussion": {}
@@ -6437,7 +5969,7 @@
     },
     "issues/notes": {
       "finalHash": "9a6304c9583dce25752d39ef5ab31dd3f6eb9139199ab950dd16ca7ef62b8661",
-      "finalTemplateHash": "273d012c07d49505093b96a28a5c89259a1c58261fcea972c391cc9a23f5670c",
+      "finalTemplateHash": "3612bd7fc9a25f3b04caf3cf1c626c82904ab0c71db599d6ed91e2cce020fa81",
       "draftHashes": {
         "codex": "f56c7d22c7c6fdf4134e22d0c24a207d8eac05a47c2d796c0af9ee3065fa3bc5",
         "opus": "708438155e5035b4b29be9d42ded20e83c6d3d9aa366ff0cef7fd19b36a322a4",
@@ -6484,45 +6016,6 @@
           "opusReason": "\"Ní féidir ach\" keeps only.",
           "grokDecision": "accept",
           "grokReason": "Accept. The allow-list keeps letters, marcanna, numbers, punctuation, symbols, and spaces. Ní féidir ach keeps can-only. The copy instruction stays.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "issue.note.cursor.type": {
-          "finalValueHash": "9f588a523a45a71af178f9ae5369311af1d24d4e68f8d960ae85919364136460",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Text cursor, previous result, and omit-for-new-list instructions retained. Grok changes the definite previous result to an indefinite one.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and opus. the obligation stays caithfidh or ní mór. English: cursor must be text. Copy nextCursor from the previous list_notes result. To start a new list, omit cursor.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "issue.note.cursor.length": {
-          "finalValueHash": "548c697cc299a8b06f06dfedcec756eb94aaaf9c45c38a342116da9eb55ee341",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All five variants compared. Count label avoids uncertain numeral mutations and has the safe cursor field head. Both bounds, normalization, and new-list omission remain explicit.",
-          "opusDecision": "accept",
-          "opusReason": "Neutral range form.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and opus. one is 1, two is 2, few is 3–6, many is 7–10, and other includes 0 and 11 or more; the shared líon or invariant wording is grammatical for each; the obligation stays caithfidh or ní mór. English: cursor must contain {{minimum}}-{{maximum}} character after normalization. Copy nextCursor from the previous list_notes result. To start a new list, omit cursor",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "issue.note.cursor.characters": {
-          "finalValueHash": "572de3382bd0203b225a4c85f547d088befadfd12bed3593cda20d568e48973b",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Six allowed character classes, previous-result copying, and omission for a new list remain intact. Opus uses a safe field head unlike English in in Grok.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and opus. can stays is féidir or ní féidir ach, not ní mór; the only-condition stays ach amháin or amháin. English: cursor can contain letters, marks, numbers, punctuation, symbols, and spaces only. Copy nextCursor from the previous list_notes result. To start a new list, omi",
           "changedAfterComparison": false,
           "finalFollowUp": {},
           "finalDiscussion": {}

@@ -151,45 +151,6 @@ recovery.interrupted: |-
 recovery.genericError: |-
   Thaispeáin leathanach Bickr earráid.
 
-recovery.failureReport: |-
-  Taispeánann leathanach Bickr earráid tar éis an ghlao uirlise seo: {{toolName}} leis na hargóintí {{arguments}}. Earráid: {{message}}
-
-recovery.hintReport: |-
-  Tugann an aip Bickr an leid seo: {{hint}}
-
-recovery.correction.already_replied: |-
-  D'fhreagair mé ansin cheana. Is gá dom an snáithe a léamh arís. Ní thabharfaidh mé freagra amháin eile ach amháin má tá pointe nua agam.
-
-recovery.correction.duplicate_comment: |-
-  Sheol mé an trácht céanna sin cheana. Ní ceadmhach dom é a sheoladh arís.
-
-recovery.correction.conflict: |-
-  Tagann an t-athrú seo salach ar shonraí Bickr atá ann cheana. Is gá dom gníomh eile a roghnú.
-
-recovery.correction.not_found: |-
-  Níl an sprioc sin ar fáil. Is gá dom sprioc reatha a aimsiú le huirlis Bickr sula mbainfidh mé triail eile as.
-
-recovery.correction.bad_request: |-
-  Deiseoidh mé an glao.
-
-recovery.correction.invalid_arguments_json: |-
-  Is gá dom argóintí JSON bailí a sheoladh don uirlis sin sula mbainfidh mé triail eile as.
-
-recovery.correction.arguments_not_json_object: |-
-  Is gá dom réad JSON a sheoladh mar argóintí na huirlise sula mbainfidh mé triail eile as.
-
-recovery.correction.server_error: |-
-  Roghnóidh mé gníomh eile.
-
-recovery.correction.access: |-
-  Roghnóidh mé gníomh ceadaithe eile.
-
-recovery.correction.timeout: |-
-  Léifidh mé an leathanach. Má fhanann an toradh anaithnid, ní athdhéanfaidh mé an gníomh.
-
-recovery.correction.unknown: |-
-  Níl a fhios agam cúis na teipe seo. Roghnóidh mé gníomh eile.
-
 recovery.metaCompactionUnavailable: |-
   Ní féidir {{toolName}} a úsáid faoi láthair, mar sin is gá dom rialtán Bickr eile a úsáid nó leanúint ar aghaidh mar is gnách.
 
@@ -203,7 +164,7 @@ recovery.batch.notAttempted: |-
   Níor bhain Bickr triail as an ngníomh don sprioc seo.
 
 recovery.batch.guidance: |-
-  Liostaíonn an toradh gach sprioc ar leith. Ná hathdhéan gníomhartha atá liostaithe mar `recorded` nó `committed`. Scrúdaigh spriocanna a bhfuil a dtoradh anaithnid. Má fhanann toradh anaithnid, ná hathdhéan a ghníomh. Níor cuireadh aon ghníomh i bhfeidhm ar spriocanna atá liostaithe mar `not_attempted`.
+  The result lists each target separately. Do not repeat completed actions. Read targets with unknown outcomes. If an outcome remains unknown, do not repeat its action. A target marked as not attempted received no action.
 
 recovery.batch.failed: |-
   Níor críochnaíodh aon ghníomh sa ghlao seo le toradh aitheanta. Léigh toradh gach sprice sula roghnaíonn tú gníomh eile.

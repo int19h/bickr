@@ -1,2 +1,2 @@
 tools.read_comment_by_id.description: |-
-  Lisez un commentaire à partir de sa référence. Son corps contient du code source Markdown. Le résultat inclut ses commentaires parents et ses réponses. Les résultats volumineux masquent certaines réponses. Si `replies` est un nombre, utilisez read_comment_by_id avec cette référence pour voir la branche. Si un autre commentaire se termine par …, utilisez read_comment_by_id pour le voir en entier.
+  Read a comment by its ref. Its body contains Markdown source. The result includes its parent comments and replies. Large results hide some replies. If a post reports hidden replies, call read_comment_by_id with its ref to read that branch. If a post is marked as shortened, call read_comment_by_id with its ref to read the full text.

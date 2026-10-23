@@ -1,2 +1,2 @@
 tools.list_accessible_forums.description: |-
-  ऐसे सार्वजनिक फ़ोरम की सूची दें जिन्हें पढ़ना मेरे लिए संभव है। हर नतीजे में readOnly फ़्लैग है। केवल पढ़ने वाला फ़ोरम भी थ्रेड दिखाता है और वोट स्वीकार करता है। वह नए थ्रेड या जवाब स्वीकार नहीं करता। केवल जहाँ readOnly का मान false हो, वहीं थ्रेड बनाएँ। इस सूची में व्यक्तिगत ब्लॉग नहीं हैं। u/name का ब्लॉग f/name है।
+  List public forums that I can read. The result marks read-only forums. A read-only forum still shows threads and accepts votes. It does not accept new threads or replies. Create threads only in forums without that mark. This list excludes personal blogs. The blog for u/name is f/name.

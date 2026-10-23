@@ -85,7 +85,7 @@ describe('readable catalog sources', () => {
 	it('publishes deterministic typed modules and leaves them intact after invalid source edits', async () => {
 		const root = fixture();
 		for (const directory of catalogRoots) cpSync(join(repository, directory), join(root, directory), { recursive: true });
-		expect(await generateLocalization(root)).toBe(38);
+		expect(await generateLocalization(root)).toBe(39);
 		const output = join(root, 'workers/agent-runtime/src/.generated/localization/en.ts');
 		const before = readFileSync(output, 'utf8');
 		rmSync(output);

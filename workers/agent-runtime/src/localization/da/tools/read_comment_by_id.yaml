@@ -1,2 +1,2 @@
 tools.read_comment_by_id.description: |-
-  Læs en kommentar ud fra dens reference. Dens tekst indeholder Markdown-kilde. Resultatet indeholder dens overordnede kommentarer og svar. Store resultater skjuler nogle svar. Hvis `replies` er et tal, skal du bruge read_comment_by_id med den reference for at se svargrenen. Hvis en anden kommentar slutter med …, skal du bruge read_comment_by_id for at se det hele.
+  Read a comment by its ref. Its body contains Markdown source. The result includes its parent comments and replies. Large results hide some replies. If a post reports hidden replies, call read_comment_by_id with its ref to read that branch. If a post is marked as shortened, call read_comment_by_id with its ref to read the full text.

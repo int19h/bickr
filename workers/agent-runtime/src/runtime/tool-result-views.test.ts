@@ -1,20 +1,17 @@
 import { testViewRenderContext } from './result-render-context.test-support';
 import { botServiceIssue } from '@bickr/shared/bot-service-issues';
-import { providerBatchOutcome } from './batch-outcomes.test-support';
 import { toolFailurePayload } from './bot-runtime';
 import { interruptedToolSettlement } from './tool-dispatch';
 import { resultMessage, unknownOutcomeText } from './result-text';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import type { BotProfileRelationshipSummary, ForumSummary, LanguageTag, ThreadDocument, ThreadSummary } from '@bickr/shared/model';
 import type { ToolResultEnvelope, ToolResultReadContentItem } from '@bickr/shared/tool-results';
 import { botText } from '../localization';
-import { providerSerializationContext as oldSerializationContext, providerToolResultPayload, pruneReadContentTreeForProviderBudget, readResultContext } from './tool-result-golden-builders.test-support';
-import { buildToolResultView, renderToolResultView, failureResultView, settlementResultView, batchResultView, type ViewBuildContext } from './tool-result-views';
-import { ResultContextScope } from './result-context-scope';
+import { buildToolResultView, renderToolResultView, failureResultView, settlementResultView, batchResultView, type ViewBuildContext, notificationContentIds } from './tool-result-views';
+import { ResultContextScope, hydrateResultFacets } from './result-context-scope';
 
 const text = botText('en');
 const time = { settings: { mode: 'relative' as const, timezone: 'UTC' }, createdAt: '2026-10-01T00:00:00Z' };
-const providerSerializationContext = (text: Parameters<typeof oldSerializationContext>[0], self: Parameters<typeof oldSerializationContext>[1]) => oldSerializationContext(text, self, undefined, time);
 const writtenAt = '2026-10-23T10:00:00.000Z';
 const en = 'en' as LanguageTag;
 const authored = (text: string) => ({ text, lang: en });
@@ -41,7 +38,7 @@ const cases: { name: string; raw: unknown; envelope: ToolResultEnvelope }[] = [
 	{ name: 'delete_note', raw: null, envelope: { kind: 'note_deleted', id: 'one' } },
 	{ name: 'delete_note', raw: null, envelope: { kind: 'note_reset', id: 'PLAN', content: 'A plan' } },
 	{ name: 'create_thread', raw: null, envelope: { kind: 'thread_created', thread } },
-	{ name: 'reply_to_comment', raw: null, envelope: { kind: 'comment_created', thread, comment: { id: comment.id, threadId: summary.id } as never } },
+	{ name: 'reply_to_comment', raw: null, envelope: { kind: 'comment_created', thread, comment: { id: 'cmt_reply', threadId: summary.id, parentCommentId: comment.id } as never } },
 	{ name: 'vote', raw: null, envelope: { kind: 'vote_set', votes: [{ commentId: comment.id, value: 1, thread }] } },
 	{ name: 'follow_profile', raw: null, envelope: { kind: 'profile_followed', profiles: [{ username: profile.handle, following: true, profile, reason: authored('A reason') }] } },
 	{ name: 'unfollow_profile', raw: null, envelope: { kind: 'profile_unfollowed', profiles: [{ username: profile.handle, following: false, profile }] } },
@@ -80,113 +77,277 @@ const activities: import('@bickr/shared/model').BotActivityItem[] = [
 	{ type: 'unfollow', id: 'unfollow-activity', bot: profile, createdAt: writtenAt },
 ];
 for (const activity of activities) cases.push({ name: 'view_activity', raw: { bot: profile, activities: [activity] }, envelope: { kind: 'activity_viewed', feed: { bot: profile, activities: [activity] } } });
-function context(scope = new ResultContextScope()): ViewBuildContext { return { time, text, selfId: 'reader', scope, writtenAt, references: new Map([['f/general', forum.id], ['u/alice', profile.id]]) }; }
-describe('JSON result views', () => {
-	it.each(cases.flatMap(test => [undefined, 1, 30, 100].map(budget => ({ ...test, budget }))))('matches the old $name builder with budget $budget', async ({ name, raw, envelope, budget }) => {
-		vi.useFakeTimers(); vi.setSystemTime(new Date(writtenAt));
-		try {
-			const oldKinds = ['profile_viewed', 'note_listed', 'note_read', 'note_written', 'note_deleted', 'note_reset', 'thread_created', 'comment_created', 'vote_set', 'profile_followed', 'profile_unfollowed', 'random_integers_drawn'];
-			const old = JSON.stringify(providerToolResultPayload(name, raw, {}, providerSerializationContext(text, { botId: 'reader' }), { tokenBudget: budget }, oldKinds.includes(envelope.kind) ? envelope : undefined));
-			const view = await buildToolResultView(envelope, context(), budget);
-			expect(view).not.toBeNull();
-			const serialized = JSON.stringify(view);
-			expect(serialized).not.toContain('SECRET');
-			expect(serialized).not.toContain('futurePrivateField');
-			expect(renderToolResultView(view!, testViewRenderContext(view!, text))).toBe(old);
-			expect(renderToolResultView(JSON.parse(serialized), testViewRenderContext(JSON.parse(serialized), text))).toBe(old);
-		} finally { vi.useRealTimers(); }
+function context(scope = new ResultContextScope()): ViewBuildContext { return { time, text, selfId: 'reader', scope, writtenAt, references: new Map([['f/general', forum.id], ['u/alice', profile.id]]), contentIdentities: { forumsByThreadId: new Map([[summary.id, forum.id]]), forumHandlesById: new Map([[forum.id, forum.handle]]), authorsByCommentId: new Map([[comment.id, profile.id]]), threadCreatedAtById: new Map([[summary.id, writtenAt]]), commentCreatedAtById: new Map([[comment.id, writtenAt]]) } }; }
+describe('Markdown result views', () => {
+	it.each(cases.flatMap((test, index) => [undefined, 1, 30, 100].map(budget => ({ ...test, index, budget }))))('renders $name case $index with budget $budget', async ({ envelope, index, budget }) => {
+		const view = await buildToolResultView(envelope, context(), budget);
+		expect(view).not.toBeNull();
+		const stored = JSON.stringify(view);
+		expect(stored).not.toContain('SECRET');
+		expect(stored).not.toContain('futurePrivateField');
+		const output = renderToolResultView(view!, testViewRenderContext(view!, text));
+		expect(output).not.toContain('SECRET');
+		expect(output).toMatchSnapshot(`case ${index}, budget ${budget}`);
+		expect(renderToolResultView(JSON.parse(stored), testViewRenderContext(view!, text))).toBe(output);
 	});
-	it.each([1, 70, 150, 300, 1000, 10000])('matches the old read pruning with budget %s', async budget => {
-		vi.useFakeTimers(); vi.setSystemTime(new Date(writtenAt));
-		try {
-		const leaf = { ...comment, id: 'cmt_leaf', commentId: 'cmt_leaf', body: authored('A deep reply '.repeat(100)), replies: [] };
-		const child = { ...comment, id: 'cmt_child', commentId: 'cmt_child', body: authored('A child reply '.repeat(100)), replies: [leaf] };
-		const content = [{ ...comment, body: authored('The protected root…'), replies: [child, { ...child, id: 'cmt_focus', commentId: 'cmt_focus', focused: true as const, replies: [] }] }];
-		const pruned = pruneReadContentTreeForProviderBudget(text, content, budget, { botId: 'reader' });
-		const old = JSON.stringify(providerToolResultPayload('read_thread_by_id', { ...read, content: pruned.content, context: readResultContext(text, read.operation, pruned, budget), contextGuidance: { collapsedReplies: pruned.omittedReplyCount > 0, trimmedBodies: pruned.trimmedBodyCount > 0 } }, {}, providerSerializationContext(text, { botId: 'reader' })));
-		const view = await buildToolResultView({ kind: 'posts_read', items: [], read: { ...read, content, contextDecision: { operation: read.operation, tokenBudget: budget, omittedReplyCount: 0, trimmedBodyCount: 0 } } }, context());
-		expect(renderToolResultView(view!, testViewRenderContext(view!, text))).toBe(old);
-		expect(view?.kind === 'read_thread' && view.pruning?.omittedReplyCount).toBe(pruned.omittedReplyCount);
-		} finally { vi.useRealTimers(); }
+	it('keeps the forum from notification content identities and handles missing identities', async () => {
+		const event = notificationPayloads[2];
+		expect(notificationContentIds([event]).threadIds).toEqual([summary.id]);
+		for (const withIdentity of [true, false]) {
+			const input = context();
+			if (!withIdentity) delete input.contentIdentities;
+			const view = (await buildToolResultView({ kind: 'notifications_checked', events: [event] }, input))!;
+			const output = renderToolResultView(view, testViewRenderContext(view, text));
+			expect(output).toContain(withIdentity ? 'started this thread in f/general:' : 'started this thread:');
+			expect(output).not.toContain('in :');
+			expect(output).toMatchSnapshot(`notification forum identity ${withIdentity}`);
+		}
 	});
-	it('re-renders generated bootstrap forum advice after a rename', async () => {
-		const view = await buildToolResultView({ kind: 'notifications_checked', events: [notificationPayloads[0]!] }, context());
-		const handle = new Map([[JSON.stringify(['forum', forum.id]), { kind: 'current' as const, handle: 'renamed' }]]);
-		expect(renderToolResultView(view!, testViewRenderContext(view!, text, handle))).toContain('f/renamed');
-		expect(JSON.stringify(view)).not.toContain('SECRET');
+	it('shows a reply parent only when its ID is present', async () => {
+		for (const parentCommentId of ['cmt_parent', undefined, '', 'c/', '   ']) {
+			const view = (await buildToolResultView({ kind: 'comment_created', thread, comment: { id: 'cmt_reply', threadId: summary.id, parentCommentId } as never }, context()))!;
+			const output = renderToolResultView(view, testViewRenderContext(view, text));
+			expect(output).toBe(parentCommentId === 'cmt_parent' ? 'I posted c/cmt_reply in response to c/cmt_parent in t/thr_abc “A topic”.' : 'I posted c/cmt_reply in t/thr_abc “A topic”.');
+		}
 	});
-	it('returns a bounded result when an old bootstrap forum has no ID', async () => {
-		const view = await buildToolResultView({ kind: 'notifications_checked', events: [notificationPayloads[0]!] }, { ...context(), references: new Map() });
-		expect(renderToolResultView(view!, testViewRenderContext(view!, text))).not.toContain('f/general');
-		expect(view?.kind === 'check_notifications' && view.events[0]?.kind).toBe('unavailable');
+	it('never builds an empty optional post or activity ref', async () => {
+		const created = (await buildToolResultView({ kind: 'thread_created', thread }, context()))!;
+		if (created.kind !== 'create_thread') throw new Error('Expected a thread result.');
+		delete created.thread.rootCommentId;
+		expect(renderToolResultView(created, testViewRenderContext(created, text))).toBe('I started the thread t/thr_abc “A topic” in f/general.');
+		for (const item of activities.slice(0, 3)) {
+			const view = (await buildToolResultView({ kind: 'activity_viewed', feed: { bot: profile, activities: [item] } }, context()))!;
+			if (view.kind !== 'view_activity') throw new Error('Expected an activity result.');
+			const activity = view.activities[0]!;
+			if (activity.kind === 'thread' || activity.kind === 'comment' || activity.kind === 'vote') delete activity.forum;
+			if (activity.kind === 'vote') delete activity.threadId;
+			const output = renderToolResultView(view, testViewRenderContext(view, text));
+			expect(output).not.toMatch(/(?:[tc]\/| in )(?=[ .:\n]|$)/u);
+			expect(output).toMatchSnapshot(`activity without context ${item.type}`);
+		}
+		const invalid = (await buildToolResultView({ kind: 'comment_created', thread, comment: { id: '', threadId: summary.id } as never }, context()))!;
+		expect(renderToolResultView(invalid, testViewRenderContext(invalid, text))).toBe('Result unavailable.');
 	});
-	it('shows edited bodies again and omits repeated bodies across results', async () => {
+	it('prints only the omitted notice when pruning removes every list item', async () => {
+		const kinds = new Set(['forums_listed', 'threads_listed', 'posts_searched', 'profiles_searched', 'activity_viewed', 'notifications_checked']);
+		for (const test of cases.filter(item => kinds.has(item.envelope.kind))) {
+			const view = (await buildToolResultView(test.envelope, context(), 1))!;
+			if (!view.omittedCount) continue;
+			const output = renderToolResultView(view, testViewRenderContext(view, text));
+			for (const key of ['result.forums.none', 'result.threads.none', 'result.search.none', 'result.profiles.none', 'result.activity.none', 'result.notifications.none', 'result.notes.none'] as const) expect(output).not.toContain(text.format(key));
+			expect(output).toContain(text.format(view.kind === 'check_notifications' ? 'result.notifications.omitted' : 'result.list.omitted', { count: view.omittedCount }));
+		}
+		// Notes use a bounded query rather than pruning, but share the list contract.
+		const notes = (await buildToolResultView({ kind: 'note_listed', ids: [], total: 2, nextCursor: null, unknownFilters: [] }, context()))!;
+		notes.omittedCount = 2;
+		expect(renderToolResultView(notes, testViewRenderContext(notes, text))).toBe(text.format('result.list.omitted', { count: 2 }));
+	});
+	it('puts each timestamp in one post line, bullet prefix, or table cell', async () => {
+		for (const event of notificationPayloads.slice(2)) {
+			const view = (await buildToolResultView({ kind: 'notifications_checked', events: [event] }, context()))!;
+			const output = renderToolResultView(view, testViewRenderContext(view, text));
+			expect(output).not.toContain('at timestamp');
+			const lines = output.split('\n').filter(line => line.includes('22d10h0m'));
+			const expected = event.kind === 'reply' || event.kind === 'follower_activity_digest' ? 2 : 1;
+			expect(lines).toHaveLength(expected);
+			for (const line of lines) expect(line).toMatch(/^(?:Timestamp: 22d10h0m$|- Timestamp: 22d10h0m\. |\| .+ \| 22d10h0m \|$)/u);
+		}
+		for (const item of activities) {
+			const view = (await buildToolResultView({ kind: 'activity_viewed', feed: { bot: profile, activities: [item] } }, context()))!;
+			const output = renderToolResultView(view, testViewRenderContext(view, text));
+			expect(output.match(/Timestamp:/gu)).toHaveLength(1);
+			expect(output).toContain('- Timestamp: 22d10h0m. ');
+			expect(output).not.toContain('at timestamp');
+		}
+	});
+	it('trims render endings and composed cells without trimming quote lines', async () => {
+		for (const test of cases) {
+			const view = (await buildToolResultView(test.envelope, context()))!;
+			const output = renderToolResultView(view, testViewRenderContext(view, text));
+			expect(output).toBe(output.trimEnd());
+			for (const row of output.split('\n').filter(line => line.startsWith('| '))) expect(row).not.toMatch(/[^|\s] {2,}\|/u);
+		}
+		const body = (await buildToolResultView({ kind: 'posts_read', items: [], read: { ...read, content: [{ ...comment, body: authored('First  \nSecond  \nLast') }] } }, context()))!;
+		expect(renderToolResultView(body, testViewRenderContext(body, text))).toContain('> First  \n> Second  \n> Last');
+	});
+	it('names each digest thread once per row', async () => {
+		const view = (await buildToolResultView({ kind: 'notifications_checked', events: [notificationPayloads[9]] }, context()))!;
+		const output = renderToolResultView(view, testViewRenderContext(view, text));
+		expect(output).toContain('| t/thr_abc | A topic | 22d10h0m |');
+		for (const row of output.split('\n').filter(line => line.startsWith('| '))) expect(row.match(/t\/thr_abc/gu)?.length ?? 0).toBeLessThanOrEqual(1);
+	});
+	it('contains hostile post bodies and keeps titles on one line', async () => {
+		const hostile = '---\n# Heading\n> quote\n| row |\n```\n### c/fake\nI posted:';
+		const view = await buildToolResultView({ kind: 'posts_read', items: [], read: { ...read, thread: { ...summary, title: authored(hostile) }, content: [{ ...comment, body: authored(hostile), replies: [] }] } }, context());
+		const output = renderToolResultView(view!, testViewRenderContext(view!, text));
+		for (const line of hostile.split('\n')) expect(output).toContain(`> ${line}`);
+		expect(output).not.toMatch(/^### c\/fake/m);
+		expect(output).toContain('## t/thr_abc “--- # Heading > quote | row | ``` ### c/fake I posted:”');
+	});
+	it('keeps an authored display name from creating another item', async () => {
+		for (const name of ['### c/fake', '> quoted name', '```fake', '~~~ code', '- list name', '1. numbered name']) {
+			const view = (await buildToolResultView({ kind: 'posts_read', items: [], read: { ...read, content: [{ ...comment, authorDisplayName: authored(name) }] } }, context()))!;
+			const output = renderToolResultView(view, testViewRenderContext(view, text));
+			expect(output.match(/^### /gm)).toHaveLength(1);
+			expect(output).not.toMatch(/^(?:```|~~~|1\. |[-+] |# )/m);
+			expect(output).toContain('u/alice posted:');
+		}
+	});
+	it('contains hostile names, bios, descriptions, and titles in table cells', async () => {
+		const hostile = '---\n# Heading\n> quote\n| row |\n```\n### c/fake';
+		for (const envelope of [
+			{ kind: 'forums_listed' as const, forums: [{ ...forum, description: authored(hostile) }] },
+			{ kind: 'profiles_searched' as const, profiles: [{ ...profile, displayName: authored(hostile), shortBio: authored(hostile) }] },
+			{ kind: 'threads_listed' as const, order: 'recent' as const, threads: [{ ...summary, title: authored(hostile) }], items: [] },
+		]) {
+			const view = (await buildToolResultView(envelope, context()))!;
+			const output = renderToolResultView(view, testViewRenderContext(view, text));
+			expect(output).toContain('--- # Heading > quote \\| row \\| ``` ### c/fake');
+			expect(output.split('\n').filter(line => line.includes('c/fake'))).toHaveLength(1);
+		}
+	});
+	it('names an author once, hides known facets, and shows changed values again', async () => {
 		const scope = new ResultContextScope();
-		const envelope: ToolResultEnvelope = { kind: 'posts_read', read, items: [] };
-		const first = await buildToolResultView(envelope, context(scope));
-		const second = await buildToolResultView(envelope, context(scope));
-		const edited = await buildToolResultView({ ...envelope, read: { ...read, content: [{ ...comment, body: authored('Edited body') }] } }, context(scope));
-		expect(renderToolResultView(first!, testViewRenderContext(first!, text))).toContain('The opening body');
-		expect(renderToolResultView(second!, testViewRenderContext(second!, text))).not.toContain('The opening body');
-		expect(renderToolResultView(edited!, testViewRenderContext(edited!, text))).toContain('Edited body');
+		const first = (await buildToolResultView({ kind: 'posts_read', read: nestedRead, items: [] }, context(scope)))!;
+		const output = renderToolResultView(first, testViewRenderContext(first, text));
+		expect(output.match(/Alice u\/alice/g)).toHaveLength(1);
+		expect(output).toContain('u/alice wrote in response to c/cmt_root:');
+		const second = (await buildToolResultView({ kind: 'posts_read', read: nestedRead, items: [] }, context(scope)))!;
+		const known = renderToolResultView(second, testViewRenderContext(second, text));
+		expect(known).not.toContain('Alice'); expect(known).not.toContain('A topic'); expect(known).not.toContain('The opening body');
+		expect(known).toContain('(I read this text earlier.)');
+		const edited = (await buildToolResultView({ kind: 'posts_read', read: { ...read, content: [{ ...comment, body: authored('Changed body'), authorDisplayName: authored('New name') }] }, items: [] }, context(scope)))!;
+		expect(renderToolResultView(edited, testViewRenderContext(edited, text))).toContain('New name u/alice');
+		expect(renderToolResultView(edited, testViewRenderContext(edited, text))).toContain('> Changed body');
+		expect(hydrateResultFacets(first.facets, [second.facets])).toBeGreaterThan(0);
+		const hydrated = renderToolResultView(second, testViewRenderContext(second, text));
+		expect(hydrated).toContain('Alice u/alice'); expect(hydrated).toContain('A topic'); expect(hydrated).toContain('The opening body');
+	});
+	it('hides known bios and descriptions and restores changed values', async () => {
+		const scope = new ResultContextScope();
+		for (const envelope of [
+			{ kind: 'profiles_searched', profiles: [profile] },
+			{ kind: 'forums_listed', forums: [forum] },
+		] satisfies ToolResultEnvelope[]) {
+			const first = (await buildToolResultView(envelope, context(scope)))!;
+			const second = (await buildToolResultView(envelope, context(scope)))!;
+			const known = renderToolResultView(second, testViewRenderContext(second, text));
+			expect(known).not.toContain('Hello'); expect(known).not.toContain('A forum');
+			expect(hydrateResultFacets(first.facets, [second.facets])).toBeGreaterThan(0);
+			expect(renderToolResultView(second, testViewRenderContext(second, text))).toContain(envelope.kind === 'profiles_searched' ? 'Hello' : 'A forum');
+		}
+		const changedBio = (await buildToolResultView({ kind: 'profiles_searched', profiles: [{ ...profile, shortBio: authored('New bio') }] }, context(scope)))!;
+		const changedDescription = (await buildToolResultView({ kind: 'forums_listed', forums: [{ ...forum, description: authored('New description') }] }, context(scope)))!;
+		expect(renderToolResultView(changedBio, testViewRenderContext(changedBio, text))).toContain('New bio');
+		expect(renderToolResultView(changedDescription, testViewRenderContext(changedDescription, text))).toContain('New description');
+	});
+	it('distinguishes authored ellipses from shortened bodies after hydration', async () => {
+		const literal = (await buildToolResultView({ kind: 'posts_read', read: { ...read, content: [{ ...comment, body: authored('I pause…') }] }, items: [] }, context()))!;
+		expect(renderToolResultView(literal, testViewRenderContext(literal, text))).not.toContain('Shortened.');
+		const scope = new ResultContextScope();
+		const child = { ...comment, id: 'cmt_child', body: authored('A long reply '.repeat(100)), replies: [] };
+		const envelope: ToolResultEnvelope = { kind: 'posts_read', items: [], read: { ...read, content: [{ ...comment, replies: [child] }], contextDecision: { operation: 'read_thread', tokenBudget: 1, omittedReplyCount: 0, trimmedBodyCount: 0 } } };
+		const first = (await buildToolResultView(envelope, context(scope)))!;
+		const second = (await buildToolResultView(envelope, context(scope)))!;
+		expect(renderToolResultView(first, testViewRenderContext(first, text))).toContain('Shortened.');
+		expect(hydrateResultFacets(first.facets, [second.facets])).toBeGreaterThan(0);
+		expect(renderToolResultView(second, testViewRenderContext(second, text))).toContain('Shortened.');
+	});
+	it('shows negative and zero scores and includes a positive sign', async () => {
+		for (const score of [-2, 0, 6]) {
+			const view = (await buildToolResultView({ kind: 'threads_listed', order: 'recent', items: [], threads: [{ ...summary, voteScore: score }] }, context()))!;
+			expect(renderToolResultView(view, testViewRenderContext(view, text))).toContain(`| ${score > 0 ? '+' : ''}${score} |`);
+		}
+	});
+	it('shows a name again when it changes back within one result', async () => {
+		const content = ['Alice', 'New name', 'Alice'].map((name, index) => ({ ...comment, id: `cmt_name_${index}`, authorDisplayName: authored(name) }));
+		const view = (await buildToolResultView({ kind: 'posts_read', items: [], read: { ...read, content } }, context()))!;
+		const output = renderToolResultView(view, testViewRenderContext(view, text));
+		expect(output.match(/Alice u\/alice posted:/g)).toHaveLength(2);
+		expect(output).toContain('New name u/alice posted:');
+	});
+	it('includes shortening notices when it fits a read within its budget', async () => {
+		const tokenBudget = 200;
+		const child = { ...comment, id: 'cmt_budget_child', parentCommentId: comment.id, body: authored('A long reply '.repeat(1000)) };
+		const view = (await buildToolResultView({ kind: 'posts_read', items: [], read: { ...read, content: [{ ...comment, replies: [child] }], contextDecision: { operation: read.operation, tokenBudget, omittedReplyCount: 0, trimmedBodyCount: 0 } } }, context()))!;
+		const output = renderToolResultView(view, testViewRenderContext(view, text));
+		expect(output).toContain('Shortened.');
+		expect(Math.ceil(output.length / 4)).toBeLessThanOrEqual(tokenBudget);
+		expect(output).toContain('> The opening body');
+	});
+	it('uses current and deletion handles without changing authored note content', async () => {
+		const view = (await buildToolResultView({ kind: 'note_read', id: 'PLAN', content: 'u/alice\n---\n# My plan', links }, context()))!;
+		for (const kind of ['current', 'deleted'] as const) {
+			const handles = new Map([[JSON.stringify(['participant', profile.id]), { kind, handle: 'renamed' }]]);
+			const output = renderToolResultView(view, testViewRenderContext(view, text, handles));
+			expect(output).toContain(kind === 'deleted' ? 'u/renamed (deleted)' : 'u/renamed');
+			expect(output.endsWith('u/alice\n---\n# My plan')).toBe(true);
+		}
+	});
+	it('renders the synthetic PLAN, notification, and profile sequence of a visit', async () => {
+		const scope = new ResultContextScope();
+		const envelopes: ToolResultEnvelope[] = [{ kind: 'note_read', id: 'PLAN', content: 'Read and reply.', links: [] }, { kind: 'notifications_checked', events: notificationPayloads.slice(2, 4) }, { kind: 'profile_viewed', profiles: [viewed] }];
+		const outputs = [];
+		for (const envelope of envelopes) { const view = (await buildToolResultView(envelope, context(scope)))!; outputs.push(renderToolResultView(view, testViewRenderContext(view, text))); }
+		expect(outputs).toMatchSnapshot();
+		expect(outputs.join('\n').match(/Alice u\/alice/g)).toHaveLength(1);
+		expect(outputs[0]).toBe('## Note `PLAN`\n\nRead and reply.');
+	});
+	it('labels every notification and activity timestamp in absolute mode', async () => {
+		for (const envelope of cases.filter(item => ['notifications_checked', 'activity_viewed'].includes(item.envelope.kind)).map(item => item.envelope)) {
+			const view = (await buildToolResultView(envelope, context()))!;
+			if (view.kind === 'check_notifications' && !view.events.length || view.kind === 'view_activity' && !view.activities.length) continue;
+			const output = renderToolResultView(view, testViewRenderContext(view, text, undefined, { ...time, settings: { mode: 'absolute', timezone: 'UTC' } }));
+			expect(output).toContain('2026-10-23T10:00');
+		}
+	});
+	it('shows signed scores and the localized lock reason without opening refs in lists', async () => {
+		const view = (await buildToolResultView({ kind: 'threads_listed', order: 'recent', threads: [{ ...summary, lock: { kind: 'comment_limit', limit: 200 }, commentCount: 200 }], items: [] }, context()))!;
+		const output = renderToolResultView(view, testViewRenderContext(view, text));
+		expect(output).toContain('200 (locked: limit)'); expect(output).toContain('+4'); expect(output).not.toContain('c/cmt_root');
+	});
+	it('renders empty lists and self-authored posts', async () => {
+		for (const envelope of [{ kind: 'forums_listed', forums: [] }, { kind: 'threads_listed', order: 'recent', threads: [], items: [] }, { kind: 'profiles_searched', profiles: [] }, { kind: 'posts_searched', posts: [], items: [] }, { kind: 'note_listed', ids: [], total: 0, nextCursor: null, unknownFilters: [] }] satisfies ToolResultEnvelope[]) {
+			const view = (await buildToolResultView(envelope, context()))!;
+			expect(renderToolResultView(view, testViewRenderContext(view, text))).toMatchSnapshot(envelope.kind);
+		}
+		const view = (await buildToolResultView({ kind: 'posts_read', read: { ...read, content: [{ ...comment, authorBotId: 'reader' }] }, items: [] }, context()))!;
+		expect(renderToolResultView(view, testViewRenderContext(view, text))).toContain('I posted:');
+	});
+	it('bounds unknown view kinds without raw data', () => {
+		const unknown = { kind: 'future', privateData: 'SECRET' } as unknown as import('./tool-result-views').ToolResultView;
+		expect(renderToolResultView(unknown, testViewRenderContext(unknown, text))).toBe('Result unavailable.');
 	});
 });
 
-
-describe('failure and settlement views', () => {
-	it('projects failure fields and arguments without new internal data', () => {
+describe('Markdown failures and settlements', () => {
+	it('omits call arguments, owner fields, and generic failure narration', () => {
 		const original = toolFailurePayload(text, 'read_note', { id: 'one' }, new Error('Internal details'));
 		const view = failureResultView({ ...original, ...privateData, args: { id: 'one', ...privateData } }, text, { message: resultMessage('recovery.genericError') });
 		expect(JSON.stringify(view)).not.toContain('SECRET');
-		expect(renderToolResultView(view, testViewRenderContext(view, text))).toBe(JSON.stringify(original));
-		expect(renderToolResultView(view, testViewRenderContext(view, botText('fr')))).toBe(JSON.stringify(toolFailurePayload(botText('fr'), 'read_note', { id: 'one' }, new Error('Internal details'))));
+		expect(renderToolResultView(view, testViewRenderContext(view, text))).toBe(text.format('recovery.genericError'));
+		expect(renderToolResultView(view, testViewRenderContext(view, botText('fr')))).toBe(botText('fr').format('recovery.genericError'));
 	});
-	it('uses the current forum handle in duplicate-title failures', () => {
-		const original = toolFailurePayload(text, 'create_thread', { forumHandle: 'old', title: authored('Title'), body: authored('Body') }, new Error('Internal details'));
-		original.existingForumHandle = 'old';
-		const view = failureResultView(original, text, { message: resultMessage('recovery.genericError') });
-		view.existingForum = { kind: 'forum', entityId: forum.id, handle: 'old' };
-		const handles = new Map([[JSON.stringify(['forum', forum.id]), { kind: 'deleted' as const, handle: 'new' }]]);
-		expect(JSON.parse(renderToolResultView(view, testViewRenderContext(view, text, handles))).existingForumHandle).toBe('new (deleted)');
-		expect(JSON.parse(renderToolResultView(view, testViewRenderContext(view, text, handles))).args.forumHandle).toBe('old');
-	});
-	it.each(['prepared', 'reading', 'dispatched'] as const)('matches interrupted settlement at %s', stage => {
+	it.each(['prepared', 'reading', 'dispatched'] as const)('renders the interrupted settlement at %s', stage => {
 		const old = interruptedToolSettlement(text, 'create_thread', stage);
 		const kind = old.outcome === 'unknown' ? 'outcome_unknown' : old.outcome;
 		const recipe = stage === 'prepared' ? resultMessage('recovery.notDispatched') : stage === 'reading' ? resultMessage('recovery.interrupted') : unknownOutcomeText('create_thread');
-		expect(renderToolResultView(settlementResultView(kind, recipe, text), testViewRenderContext(settlementResultView(kind, recipe, text), text))).toBe(JSON.stringify(old.result));
+		const view = settlementResultView(kind, recipe, text);
+		expect(renderToolResultView(view, testViewRenderContext(view, text))).toMatchSnapshot();
 	});
-	it.each(['not_attempted', 'completed_result_unavailable', 'outcome_unknown', 'result_unavailable'] as const)('keeps the %s result shape', kind => {
-		const view = settlementResultView(kind, resultMessage('recovery.genericError'), text);
-		const old = kind === 'result_unavailable' ? { ok: false, code: kind, message: text.format('recovery.genericError') } : { kind, message: text.format('recovery.genericError') };
-		expect(renderToolResultView(view, testViewRenderContext(view, text))).toBe(JSON.stringify(old));
-	});
-	it('re-renders participant targets for every batch outcome', async () => {
+	it('renders every batch outcome and resolves each target through the handle map', async () => {
+		const scope = { related: false, unrelated: false };
 		const targetParticipant = { id: profile.id, handle: profile.handle, ...privateData };
 		const items: import('../errors').ToolBatchOutcomeItem[] = [
-			{ kind: 'recorded', target: 'u/alice', targetParticipant, envelope: { kind: 'profile_followed', profiles: [{ username: 'alice', following: true, profile }] }, scope: { related: false, unrelated: false } },
-			{ kind: 'unknown', target: 'u/alice', targetParticipant, error: new Error('Private'), scope: { related: false, unrelated: false } },
+			{ kind: 'recorded', target: 'u/alice', targetParticipant, envelope: { kind: 'profile_followed', profiles: [{ username: 'alice', following: true, profile }] }, scope },
+			{ kind: 'committed', target: 'u/alice', targetParticipant, issue: botServiceIssue('issue.service.mutationReceiptUnavailable', {}), scope },
+			{ kind: 'refused', target: 'u/alice', targetParticipant, args: {}, error: new Error('Internal details') },
+			{ kind: 'unknown', target: 'u/alice', targetParticipant, error: new Error('Internal details'), scope },
 			{ kind: 'not_attempted', target: 'u/alice', targetParticipant },
 		];
-		const view = await batchResultView('follow_profile', items, context(), () => { throw new Error('Unexpected refusal'); });
+		const view = await batchResultView('follow_profile', items, context(), (args, cause) => failureResultView(toolFailurePayload(text, 'follow_profile', args, cause), text, { message: resultMessage('recovery.genericError') }));
 		const handles = new Map([[JSON.stringify(['participant', profile.id]), { kind: 'current' as const, handle: 'renamed' }]]);
-		expect(JSON.parse(renderToolResultView(view, testViewRenderContext(view, text, handles))).items.map((item: { target: string }) => item.target)).toEqual(['u/renamed', 'u/renamed', 'u/renamed']);
-		expect(JSON.stringify(view)).not.toContain('SECRET');
-	});
-	it('matches every batch outcome without reading nested result text', async () => {
-		const scope = { related: false, unrelated: false };
-		const vote = { kind: 'vote_set' as const, votes: [{ commentId: comment.id, value: 1 as const, thread }] };
-		const items: import('../errors').ToolBatchOutcomeItem[] = [
-			{ kind: 'recorded', target: 'c/cmt_root', envelope: vote, scope },
-			{ kind: 'committed', target: 'c/cmt_two', issue: botServiceIssue('issue.service.mutationReceiptUnavailable', {}), scope },
-			{ kind: 'refused', target: 'c/cmt_three', args: {}, error: new Error('Internal details') },
-			{ kind: 'unknown', target: 'c/cmt_four', error: new Error('Internal details'), scope },
-			{ kind: 'not_attempted', target: 'c/cmt_five' },
-		];
-		const failure = (args: Record<string, unknown>, cause: unknown) => toolFailurePayload(text, 'vote', args, cause);
-		const old = providerBatchOutcome(text, 'vote', items, providerSerializationContext(text, { botId: 'reader' }), failure);
-		const view = await batchResultView('vote', items, context(), (args, cause) => failureResultView(failure(args, cause), text, { message: resultMessage('recovery.genericError') }));
-		expect(renderToolResultView(view, testViewRenderContext(view, text))).toBe(JSON.stringify(old));
-		expect(JSON.stringify(view)).not.toContain('Internal details');
+		const output = renderToolResultView(view, testViewRenderContext(view, text, handles));
+		expect(output).toMatchSnapshot(); expect(output).not.toContain('SECRET'); expect(output).not.toContain('u/alice'); expect(output).toContain('u/renamed');
 	});
 });

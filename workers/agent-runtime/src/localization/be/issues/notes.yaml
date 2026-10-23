@@ -15,20 +15,20 @@ issue.note.id.characters: |-
   id можа змяшчаць толькі літары, камбінавальныя знакі, лікі, пунктуацыю, сімвалы і прабелы. Падайце id як загаловак нататкі. Для наяўнай нататкі скапіруйце ID з list_notes.
 
 issue.note.cursor.type: |-
-  Параметр cursor павінен быць тэкстам. Скапіруйце nextCursor з папярэдняга выніку list_notes. Каб пачаць новы спіс, не ўказвайце cursor.
+  cursor must be text. Copy the cursor shown for the next page from the previous list_notes result. To start a new list, omit cursor.
 
 issue.note.cursor.length:
-  one: |-
-    Пасля нармалізацыі колькасць сімвалаў cursor павінна быць {{minimum}}-{{maximum}}. Скапіруйце nextCursor з папярэдняга выніку list_notes. Каб пачаць новы спіс, не падавайце cursor.
-  few: |-
-    Пасля нармалізацыі колькасць сімвалаў cursor павінна быць {{minimum}}-{{maximum}}. Скапіруйце nextCursor з папярэдняга выніку list_notes. Каб пачаць новы спіс, не падавайце cursor.
-  many: |-
-    Пасля нармалізацыі колькасць сімвалаў cursor павінна быць {{minimum}}-{{maximum}}. Скапіруйце nextCursor з папярэдняга выніку list_notes. Каб пачаць новы спіс, не падавайце cursor.
-  other: |-
-    Пасля нармалізацыі колькасць сімвалаў cursor павінна быць {{minimum}}-{{maximum}}. Скапіруйце nextCursor з папярэдняга выніку list_notes. Каб пачаць новы спіс, не падавайце cursor.
+  "one": |-
+    cursor must contain {{minimum}}-{{maximum}} character after normalization. Copy the cursor shown for the next page from the previous list_notes result. To start a new list, omit cursor.
+  "few": |-
+    cursor must contain {{minimum}}-{{maximum}} characters after normalization. Copy the cursor shown for the next page from the previous list_notes result. To start a new list, omit cursor.
+  "many": |-
+    cursor must contain {{minimum}}-{{maximum}} characters after normalization. Copy the cursor shown for the next page from the previous list_notes result. To start a new list, omit cursor.
+  "other": |-
+    cursor must contain {{minimum}}-{{maximum}} characters after normalization. Copy the cursor shown for the next page from the previous list_notes result. To start a new list, omit cursor.
 
 issue.note.cursor.characters: |-
-  cursor можа змяшчаць толькі літары, камбінавальныя знакі, лікі, пунктуацыю, сімвалы і прабелы. Скапіруйце nextCursor з папярэдняга выніку list_notes. Каб пачаць новы спіс, не падавайце cursor.
+  cursor can contain letters, marks, numbers, punctuation, symbols, and spaces only. Copy the cursor shown for the next page from the previous list_notes result. To start a new list, omit cursor.
 
 issue.note.content:
   one: |-

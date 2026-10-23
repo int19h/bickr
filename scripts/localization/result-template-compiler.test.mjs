@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import ts from 'typescript';
@@ -232,7 +232,7 @@ import type { FreeText } from '../localization/result-template.ts';
 import type { withRunExecution } from './execution-scope.ts';
 export type ProbeView = { rows: { title: FreeText }[]; execution?: typeof withRunExecution };
 `);
-	writeFileSync(join(runtime, 'localization/result-template-views.ts'), "export type { ProbeView } from '../runtime/result-template-probe.ts';\n");
+	writeFileSync(join(runtime, 'localization/result-template-views.ts'), readFileSync(join(runtime, 'localization/result-template-views.ts'), 'utf8') + "\nexport type { ProbeView } from '../runtime/result-template-probe.ts';\n");
 	const template = join(root, templateDirectory, 'probe.md');
 	writeFileSync(template, '{{! view: ProbeView }}\n| {{#each rows}}{{this.title | cell}}{{/each}} |\n');
 	await expect(generateLocalization(root)).resolves.toBe(1);

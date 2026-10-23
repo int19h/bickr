@@ -34,7 +34,11 @@ export function cell(value: FreeText, context?: InlineContext): string;
 export function cell(value: InlineValue, context: InlineContext): string;
 export function cell(value: FreeText | InlineValue, context?: InlineContext): string {
 	if (typeof value !== 'string' && !context) throw new Error('An inline cell needs a render context.');
-	const rendered = typeof value === 'string' ? value : inline(value, context!);
+	// Apply cell escaping to authored names once. Keep the ref's inline form.
+	const rendered = typeof value === 'string' ? value
+		: value.kind === 'author' && value.value.displayName !== undefined
+			? `${value.value.displayName.replace(/\r\n|\r|\n/g, ' ')} ${context!.inline.author({ ref: value.value.ref, person: value.value.person })}`
+			: inline(value, context!);
 	// Escape backslashes first so that an authored backslash cannot cancel a pipe escape.
 	return rendered.replace(/\\/g, '\\\\').replace(/\|/g, '\\|').replace(/\r\n|\r|\n/g, ' ').trim();
 }
@@ -90,6 +94,14 @@ export function kind<Value extends string | { readonly kind: string }>(value: Va
 }
 export function assertNever(value: never): never { throw new Error(`The result variant does not exist: ${String(value)}`); }
 
+/** Keep a display name from becoming a block header or fence. */
+function inlineDisplayName(value: FreeText): string {
+	return value.replace(/\r\n|\r|\n/g, ' ').trim()
+		.replace(/\\/g, '\\\\').replace(/`/g, '\\`')
+		.replace(/^(#{1,6}|>|[-+*]|~{3,})(?=\s|$)/u, '\\$1')
+		.replace(/^(\d{1,9})([.)])(?=\s)/u, '$1\\$2');
+}
+
 /** Quotation marks must come from the instruction language catalog. */
 export function createInlineRenderers(context: Pick<RenderContext, 'quotationMarks'> & { readonly catalog: { readonly locale: InstructionLocale } }): InlineRenderers {
 	const number = new Intl.NumberFormat(instructionContentLanguage(context.catalog.locale));
@@ -103,6 +115,6 @@ export function createInlineRenderers(context: Pick<RenderContext, 'quotationMar
 		count: (value) => number.format(value),
 		score: (value) => value > 0 ? `+${number.format(value)}` : value === 0 ? '0' : number.format(value),
 		timestamp: (value) => value,
-		author: (value) => value.displayName === undefined ? value.ref : `${value.displayName.replace(/\r\n|\r|\n/g, ' ')} ${value.ref}`,
+		author: (value) => value.displayName === undefined ? value.ref : `${inlineDisplayName(value.displayName)} ${value.ref}`,
 	};
 }

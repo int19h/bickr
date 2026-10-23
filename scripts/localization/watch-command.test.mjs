@@ -28,7 +28,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { factoryText } from './packages/shared/src/localization/index.ts';
 console.log('READY:' + process.pid + ':' + factoryText('en').format('factory.translationPrompt'));
 const templateModule = 'workers/agent-runtime/src/.generated/localization/result-templates.ts';
-if (existsSync(templateModule)) console.log('TEMPLATE:' + readFileSync(templateModule, 'utf8').includes('###'));
+if (existsSync(templateModule)) console.log('TEMPLATE:' + readFileSync(templateModule, 'utf8').includes('======='));
 process.on('SIGTERM', () => { console.log('STOP'); process.exit(0); });
 setInterval(() => {}, 1000);
 `);
@@ -49,7 +49,7 @@ setInterval(() => {}, 1000);
 		expect(output).toMatch(/STOP\n[\s\S]*READY:\d+:Translate to English\. Watch restart test\./);
 		if (templateEdit) {
 			expect(output).toContain('TEMPLATE:false');
-			writeFileSync(join(root, 'workers/agent-runtime/src/localization/templates/sample.md'), '{{! view: EmptyView }}\n###');
+			writeFileSync(join(root, 'workers/agent-runtime/src/localization/templates/sample.md'), '{{! view: EmptyView }}\n=======');
 			await expect.poll(() => output.includes('TEMPLATE:true'), { timeout: 30000 }).toBe(true);
 		}
 		if (signal) wrapper.kill(signal);

@@ -1,3 +1,4 @@
+import { unknownToolOutcomeMessage } from '../workers/agent-runtime/src/runtime/tool-recovery';
 import { testResultContext } from '../workers/agent-runtime/src/runtime/result-render-context.test-support';
 import { renderStoredLoopMessage } from "../workers/agent-runtime/src/runtime/result-messages";
 import { env } from 'cloudflare:workers';
@@ -116,7 +117,7 @@ describe('runtime liveness in a real SQLite Durable Object', () => {
 			expect(await runtime.stopTick(bot.id)).toMatchObject({ kind: 'stopped' });
 			const messages = state.storage.sql.exec<{ role: string; message_json: string }>('SELECT * FROM loop_messages ORDER BY seq').toArray();
 			expect(messages.map((message) => message.role)).toEqual(['assistant', 'tool']);
-			expect(renderStoredLoopMessage(messages[1]!, testResultContext).content).toContain('outcome_unknown');
+			expect(renderStoredLoopMessage(messages[1]!, testResultContext).content).toBe(unknownToolOutcomeMessage(botText('en'), 'reply_to_comment'));
 			expect(messages[0]?.message_json).toContain('I should reply to the comment.');
 			expect(runtime.activeRunId).toBeNull();
 			expect(() => runtime.withRunExecution(runId, () => runtime.appendEvent(runId, 'assistant_message', {}))).toThrow();
