@@ -1,3 +1,6 @@
+import { buildToolResultView, toolResultViewPayload } from './tool-result-views';
+import { resultContentIdentities } from './result-handles';
+import type { ResultContextScope } from './result-context-scope';
 import { isCommittedBotServiceIssue } from '@bickr/shared/bot-service-issues';
 import { isAbortError } from '../provider/sse';
 import { TickStoppedError } from '../errors';
@@ -99,13 +102,8 @@ import {
 	voteTargetsArg,
 } from './tool-args';
 import {
-	providerSerializationContext,
-	providerToolResultPayload,
 	providerToolResultUsesTokenBudget,
-	pruneReadContentTreeForProviderBudget,
 	readContentItemTree,
-	readResultContext,
-	type ProviderContextContentScope,
 } from './tool-results';
 
 export type RuntimeToolsRuntime = {
@@ -116,7 +114,7 @@ export type RuntimeToolsRuntime = {
 	forumService<T>(path: string, botId: string, body: unknown, signal: AbortSignal, onDispatch?: () => void): Promise<T>;
 	vectorSearchBots(worldId: string, query: string, limit: number): Promise<BotSearchResult[]>;
 	readCommentTreeTokenBudget(bot: RuntimeBotDocument): Promise<number>;
-	providerContentInActiveContext(): ProviderContextContentScope;
+	resultContextScope(): Promise<ResultContextScope>;
 	markToolDispatched(): void;
 	markToolReading(): void;
 	recordMutationIdentity(identity: MutationIdentity | undefined): void;
@@ -173,12 +171,14 @@ export class RuntimeTools {
 		switch (canonicalName) {
 			case 'check_notifications':
 				result = { events: [] };
-				envelope = { kind: 'opaque', value: result };
+				envelope = { kind: 'notifications_checked', events: [] };
 				break;
-			case 'list_accessible_forums':
-				result = (await listForums(this.runtime.env.BICKR_D1, bot.homeWorldHandle)).filter((forum) => !forum.personalBotId);
-				envelope = { kind: 'opaque', value: result };
+			case 'list_accessible_forums': {
+				const forums = (await listForums(this.runtime.env.BICKR_D1, bot.homeWorldHandle)).filter((forum) => !forum.personalBotId);
+				result = forums;
+				envelope = { kind: 'forums_listed', forums };
 				break;
+			}
 			case 'list_recent_threads': {
 				const forum = await this.forumFromArgs(bot, normalizedArgs);
 				const threads = await this.annotateThreadSummariesFollowStatus(
@@ -186,7 +186,7 @@ export class RuntimeTools {
 					await listThreads(this.runtime.env.BICKR_D1, forum.id, 'recent', numberArg(normalizedArgs.limit, 20)),
 				);
 				result = threads;
-				envelope = contentReadEnvelope(threads.map(threadSummaryContentItem));
+				envelope = { kind: 'threads_listed', order: 'recent', threads, items: uniqueToolResultContentItems(threads.map(threadSummaryContentItem)) };
 				break;
 			}
 			case 'list_hot_threads': {
@@ -195,7 +195,7 @@ export class RuntimeTools {
 					await listHotThreads(this.runtime.env.BICKR_D1, bot.homeWorldId, numberArg(normalizedArgs.limit, 20)),
 				);
 				result = threads;
-				envelope = contentReadEnvelope(threads.map(threadSummaryContentItem));
+				envelope = { kind: 'threads_listed', order: 'hot', threads, items: uniqueToolResultContentItems(threads.map(threadSummaryContentItem)) };
 				break;
 			}
 			case 'read_thread':
@@ -206,13 +206,13 @@ export class RuntimeTools {
 					canonicalName,
 				);
 				result = readResult;
-				envelope = contentReadEnvelope(readResultContentItems(readResult));
+				envelope = { kind: 'posts_read', read: readResult, items: uniqueToolResultContentItems(readResultContentItems(readResult)) };
 				break;
 			}
 			case 'read_comment_by_id': {
 				const readResult = await this.readCommentById(bot, stringArg(normalizedArgs.commentId, 'commentRef'), canonicalName);
 				result = readResult;
-				envelope = contentReadEnvelope(readResultContentItems(readResult));
+				envelope = { kind: 'posts_read', read: readResult, items: uniqueToolResultContentItems(readResultContentItems(readResult)) };
 				break;
 			}
 			case 'create_thread': {
@@ -340,24 +340,26 @@ export class RuntimeTools {
 					await searchThreads(this.runtime.env.BICKR_D1, bot.homeWorldId, stringArg(normalizedArgs.query, 'query')),
 				);
 				result = threads;
-				envelope = contentReadEnvelope(threads.flatMap(searchThreadContentItems));
+				envelope = { kind: 'posts_searched', posts: threads, items: uniqueToolResultContentItems(threads.flatMap(searchThreadContentItems)) };
 				break;
 			}
-			case 'search_profiles':
-				result = await this.searchBotsTool(bot, stringArg(normalizedArgs.query, 'query'), numberArg(normalizedArgs.limit, 10));
-				envelope = { kind: 'opaque', value: result };
+			case 'search_profiles': {
+				const profiles = await this.searchBotsTool(bot, stringArg(normalizedArgs.query, 'query'), numberArg(normalizedArgs.limit, 10));
+				result = profiles;
+				envelope = { kind: 'profiles_searched', profiles };
 				break;
+			}
 			case 'list_profiles': {
 				const query = listProfilesToolArgs(normalizedArgs);
 				const profileList = await this.listProfilesTool(bot, query);
 				extraSeenItems = profileList.profiles.map((profile) => ({ type: 'bot', id: profile.id }));
 				result = profileList;
-				envelope = { kind: 'opaque', value: result };
+				envelope = { kind: 'profiles_listed', page: profileList };
 				break;
 			}
 			case 'query_followers': {
 				const query = queryFollowersToolArgs(normalizedArgs);
-				result = await queryBotFollowUsernamesByHandle(
+				const followers = await queryBotFollowUsernamesByHandle(
 					this.runtime.env.BICKR_KV,
 					this.runtime.env.BICKR_D1,
 					bot.homeWorldId,
@@ -366,7 +368,8 @@ export class RuntimeTools {
 					query.usernameGlob,
 					50,
 				);
-				envelope = { kind: 'opaque', value: result };
+				result = followers;
+				envelope = { kind: 'followers_queried', result: followers };
 				break;
 			}
 			case 'view_profiles': {
@@ -427,8 +430,9 @@ export class RuntimeTools {
 					activityLimit,
 				);
 				extraSeenItems = [{ type: 'bot', id: feed.bot.id }];
-				result = await this.annotateActivityFeedFollowStatus(bot.id, feed);
-				envelope = { kind: 'opaque', value: result };
+				const annotated = await this.annotateActivityFeedFollowStatus(bot.id, feed);
+				result = annotated;
+				envelope = { kind: 'activity_viewed', feed: annotated };
 				break;
 			}
 			case 'draw_random_integers': {
@@ -449,7 +453,7 @@ export class RuntimeTools {
 			case 'log_off':
 				normalizedArgs.reason = localizedToolTextArg(normalizedArgs.reason, 'reason', bot.language);
 				result = { ok: true, status: 'finished', message: bot.text.format('tool.log_off.finished') };
-				envelope = { kind: 'opaque', value: result };
+				envelope = { kind: 'logged_off' };
 				break;
 			default:
 				throw new ToolCallArgumentValidationError('bad_request', agentIssue('issue.tool.unknown', { toolName: canonicalName }));
@@ -462,14 +466,18 @@ export class RuntimeTools {
 		if (effectiveArgs) {
 			this.runtime.replaceEventPayload(toolCallEvent, { name: canonicalName, args: providerToolArgs(canonicalName, effectiveArgs) });
 		}
-		const providerResult = providerToolResultPayload(
-			canonicalName,
-			result,
-			normalizedArgs,
-			providerSerializationContext(bot.text, { botId: bot.id }, this.runtime.providerContentInActiveContext()),
-			{ tokenBudget: providerResultTokenBudget },
-			envelope,
-		);
+		const threadIds: string[] = [], commentIds: string[] = [];
+		if (envelope.kind === 'posts_searched') threadIds.push(...envelope.posts.map(post => post.threadId));
+		if (envelope.kind === 'activity_viewed') for (const item of envelope.feed.activities) {
+			if ((item.type === 'thread' || item.type === 'comment' || item.type === 'vote') && item.threadId) threadIds.push(item.threadId);
+			const comment = item.type === 'comment' ? item.parentComment : item.type === 'vote' ? item.targetComment : undefined;
+			if (comment) commentIds.push(comment.commentId);
+		}
+		const contentIdentities = await resultContentIdentities(this.runtime.env.BICKR_D1, threadIds, commentIds);
+		const references = new Map<string, string>();
+		const view = await buildToolResultView(envelope, { text: bot.text, selfId: bot.id, scope: await this.runtime.resultContextScope(), writtenAt: new Date().toISOString(), references, contentIdentities }, providerResultTokenBudget);
+		if (!view) throw new Error('The tool result has no typed view.');
+		const providerResult: unknown = toolResultViewPayload(view, bot.text);
 		const toolResultPayload = {
 			name: canonicalName,
 			args: providerToolArgs(canonicalName, normalizedArgs),
@@ -487,6 +495,7 @@ export class RuntimeTools {
 			name: canonicalName,
 			result,
 			providerResult,
+			view,
 			envelope,
 			...(seenItems.length || spotlightId ? { bookkeeping: { seenItems, ...(spotlightId ? { spotlightId } : {}) } } : {}),
 			displayEventSeq: toolResultEvent.seq,
@@ -591,11 +600,11 @@ export class RuntimeTools {
 					profile: { ...profile, following: follow.following }, reason: target.reason,
 					...(follow.activityId ? { activityId: follow.activityId } : {}) };
 				results.push(result);
-				completed.push({ kind: 'recorded', target: `u/${profile.handle}`,
+				completed.push({ kind: 'recorded', target: `u/${profile.handle}`, targetParticipant: { id: profile.id, handle: profile.handle },
 					envelope: { kind: shouldFollow ? 'profile_followed' : 'profile_unfollowed', profiles: [result] }, scope });
 			} catch (error) {
-				throw new ToolBatchOutcomeError([...completed, batchFailureItem(`u/${profile.handle}`, error, args, scope, dispatched),
-					...targetPlan.validProfiles.slice(index + 1).map((remaining): ToolBatchOutcomeItem => ({ kind: 'not_attempted', target: `u/${remaining.handle}` }))], error, selfCorrectionMessages);
+				throw new ToolBatchOutcomeError([...completed, { ...batchFailureItem(`u/${profile.handle}`, error, args, scope, dispatched), targetParticipant: { id: profile.id, handle: profile.handle } },
+					...targetPlan.validProfiles.slice(index + 1).map((remaining): ToolBatchOutcomeItem => ({ kind: 'not_attempted', target: `u/${remaining.handle}`, targetParticipant: { id: remaining.id, handle: remaining.handle } }))], error, selfCorrectionMessages);
 			}
 		}
 		return {
@@ -783,16 +792,17 @@ export class RuntimeTools {
 		const annotatedContent = await this.annotateReadContentFollowStatus(bot.id, content);
 		const commentTree = readContentItemTree(annotatedContent);
 		const tokenBudget = await this.runtime.readCommentTreeTokenBudget(bot);
-		const pruned = pruneReadContentTreeForProviderBudget(bot.text, commentTree, tokenBudget, { botId: bot.id });
+
 		const threadSummary =
 			(await this.annotateThreadReadSummariesFollowStatus(bot.id, [threadReadSummary(thread)]))[0] ?? threadReadSummary(thread);
 		return {
 			operation,
-			context: readResultContext(bot.text, operation, pruned, tokenBudget),
-			contextGuidance: { collapsedReplies: pruned.omittedReplyCount > 0, trimmedBodies: pruned.trimmedBodyCount > 0 },
+			context: '',
+			contextDecision: { operation, tokenBudget, omittedReplyCount: 0, trimmedBodyCount: 0 },
+			contextGuidance: { collapsedReplies: false, trimmedBodies: false },
 			thread: threadSummary,
 			...(targetCommentId ? { targetCommentId } : {}),
-			content: pruned.content,
+			content: commentTree,
 		};
 	}
 
@@ -919,10 +929,6 @@ function spotlightMutationScopeForCreateThread(
 ): SpotlightMutationScope {
 	const related = Boolean(personalBotId && spotlightScope?.authorBotIds.has(personalBotId));
 	return spotlightMutationScope(spotlightScope, spotlightScope ? 1 : 0, related ? 1 : 0);
-}
-
-function contentReadEnvelope(items: ToolResultContentItem[]): ToolResultEnvelope {
-	return { kind: 'content_read', items: uniqueToolResultContentItems(items) };
 }
 
 function threadSummaryContentItem(thread: ThreadSummary): ToolResultContentItem {

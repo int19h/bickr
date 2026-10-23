@@ -1,3 +1,4 @@
+import { ResultContextScope } from '../workers/agent-runtime/src/runtime/result-context-scope';
 import type { RuntimeBotDocument } from "../workers/agent-runtime/src/types";
 import type { LocalizedProviderSettings } from "../workers/agent-runtime/src/provider-requests";
 import { botText as testBotText } from "../workers/agent-runtime/src/localization";
@@ -776,7 +777,7 @@ describe("Tick limits and recovery", () => {
 			forumService: unreachable("the forum coordinator"),
 			vectorSearchBots: unreachable("vector search"),
 			readCommentTreeTokenBudget: unreachable("the comment-tree token budget"),
-			providerContentInActiveContext: () => ({ commentsWithText: new Set(), threadsWithText: new Set() }),
+			resultContextScope: async () => new ResultContextScope(),
 			recentToolResultRows: () => [],
 			setLastSuccessfulLogOffSeq: unreachable("the log-off marker"),
 		});

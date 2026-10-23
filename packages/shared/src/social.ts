@@ -372,7 +372,7 @@ type BotProfileListRow = {
 	updatedAt: string;
 };
 type FollowerCountRow = { id: string; followers: number };
-type FollowUsernameRow = { handle: string };
+type FollowUsernameRow = { id: string; handle: string };
 
 function localizedTextFromIndex(text: string, lang: string | null | undefined): LocalizedText {
 	return localizedTextFromStored({ lang: lang ?? null, text });
@@ -3538,14 +3538,14 @@ export async function queryBotFollowUsernamesByHandle(
 	direction: BotFollowUsernameQueryDirection,
 	usernameGlob?: string,
 	limit = 50,
-): Promise<BotFollowUsernameQueryResult> {
+): Promise<BotFollowUsernameQueryResult & { profile: { id: string; handle: string }; direction: BotFollowUsernameQueryDirection; participants: { id: string; handle: string }[] }> {
 	const bot = await botByHandle(kv, db, worldId, handle);
 	if (!bot) {
 		throw repositoryError("not_found", "Bot not found.", 404, { botIssue: botServiceIssue("issue.service.participantMissing", {}) });
 	}
 	const pattern = usernameGlobLikePattern(usernameGlob);
 	if (pattern === null) {
-		return { total: 0, usernames: [] };
+		return { total: 0, usernames: [], profile: { id: bot.id, handle: bot.handle }, direction, participants: [] };
 	}
 
 	const query = followUsernameQueryParts(direction, pattern !== undefined);
@@ -3566,14 +3566,14 @@ export async function queryBotFollowUsernamesByHandle(
 	);
 	const total = totalResult.results?.[0]?.total ?? 0;
 	if (total === 0) {
-		return { total: 0, usernames: [] };
+		return { total: 0, usernames: [], profile: { id: bot.id, handle: bot.handle }, direction, participants: [] };
 	}
 
 	const boundedLimit = Math.max(1, Math.min(participantListLimits.maximumFollowers, Math.floor(limit)));
 	const rows = await safeD1Search(() =>
 		db
 			.prepare(
-				`SELECT b.handle AS handle
+				`SELECT b.bot_id AS id, b.handle AS handle
 				 FROM follows f
 				 JOIN bots_index b ON ${query.otherJoin}
 				 LEFT JOIN follows follower_count ON follower_count.followed_bot_id = b.bot_id
@@ -3591,6 +3591,9 @@ export async function queryBotFollowUsernamesByHandle(
 	);
 	return {
 		total,
+		profile: { id: bot.id, handle: bot.handle },
+		direction,
+		participants: (rows.results ?? []).map(row => ({ id: row.id, handle: row.handle })),
 		usernames: (rows.results ?? []).map((row) => `u/${row.handle}`),
 	};
 }
@@ -4916,6 +4919,9 @@ export function seenItemsFromToolResultEnvelope(envelope: ToolResultEnvelope): S
 			return seenItemsForThread(envelope.thread);
 		case "vote_set":
 			return envelope.votes.flatMap((vote) => seenItemsForThread(vote.thread));
+		case "threads_listed":
+		case "posts_read":
+		case "posts_searched":
 		case "content_read":
 			return envelope.items.map((item) => ({ type: item.kind, id: item.id }));
 		case "profile_followed":
@@ -4927,6 +4933,14 @@ export function seenItemsFromToolResultEnvelope(envelope: ToolResultEnvelope): S
 		case "note_deleted":
 		case "note_reset":
 		case "random_integers_drawn":
+		case "forums_listed":
+		case "profiles_searched":
+		case "profiles_listed":
+		case "notifications_checked":
+		case "activity_viewed":
+		case "followers_queried":
+		case "batch_settled":
+		case "logged_off":
 		case "opaque":
 			return [];
 		default:
@@ -8507,6 +8521,9 @@ function spotlightStandardHumanNotifications(
 			return spotlightProfileActionHumanNotifications(envelope.profiles, true, bot, input);
 		case "profile_unfollowed":
 			return spotlightProfileActionHumanNotifications(envelope.profiles, false, bot, input);
+		case "threads_listed":
+		case "posts_read":
+		case "posts_searched":
 		case "content_read":
 		case "profile_viewed":
 		case "note_listed":
@@ -8515,6 +8532,14 @@ function spotlightStandardHumanNotifications(
 		case "note_deleted":
 		case "note_reset":
 		case "random_integers_drawn":
+		case "forums_listed":
+		case "profiles_searched":
+		case "profiles_listed":
+		case "notifications_checked":
+		case "activity_viewed":
+		case "followers_queried":
+		case "batch_settled":
+		case "logged_off":
 		case "opaque":
 			return [];
 		default:

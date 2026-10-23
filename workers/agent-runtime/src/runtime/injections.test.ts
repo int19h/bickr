@@ -32,7 +32,7 @@ function fixture() {
 	const runtime = Object.assign(Object.create(BotRuntime.prototype), {
 		state: { storage }, runtimeMessageStore: () => store,
 		previousTerminalTickEvent: () => null,
-		profileUsernamesInActiveContext: () => new Set(), providerContentInActiveContext: () => ({}),
+		legacyProfileUsernamesInActiveContext: () => new Set(),
 		appendNotificationSyntheticContext: prepareContext,
 		activeLoopMessagesForProvider: () => store.activeLoopMessageRows(),
 	});

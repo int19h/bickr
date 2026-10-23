@@ -1,3 +1,9 @@
+import { legacyResultFacets } from './legacy-result-facets';
+import { resultMessage, resultDescriptor, renderResultText, unknownOutcomeText, type ResultText } from './result-text';
+import { renderStoredLoopMessage, toolResultViewFromRow, toolResultViewForMessage, attachToolResultView } from './result-messages';
+import { buildToolResultView, renderToolResultView, resultViewReferences, failureResultView, settlementResultView, batchResultView, toolResultViewPayload, notificationContentIds, retainKnownProfiles, resultViewFacetArrays } from './tool-result-views';
+import { ResultContextScope, hydrateResultFacets, facetFingerprint } from './result-context-scope';
+import { currentResultHandles, resultContentIdentities, resultForumIds, type ResultHandleMap } from './result-handles';
 import { RuntimeFollowerActivityDelivery } from './follower-activity-delivery';
 import type { FollowerActivitySelection, NotificationDeliveryCandidate } from '@bickr/shared/follower-activity';
 import { instructionLocalizationVersion, instructionLocalizationStateKey } from '@bickr/shared/instruction-localization-migration';
@@ -5,7 +11,6 @@ import type { RuntimeLocalizationStatus } from './instruction-localization-sweep
 import { interruptedToolSettlement, type MutationIdentity, type ToolDispatchStage } from './tool-dispatch';
 import { factoryPlanMigrationKey } from './notes';
 import { applyNoteNewlineMigration, inspectNoteNewlineMigration, reviewedNoteReplacements } from './note-newline-migration';
-import { providerBatchOutcome } from './batch-outcomes';
 import { ToolBatchOutcomeError } from '../errors';
 import { seenItemsFromToolResultEnvelope } from '@bickr/shared/social';
 import { approximateTextTokens } from '@bickr/shared/text-token-estimate';
@@ -13,7 +18,7 @@ import { botServiceIssue, botServiceIssueManifest, isCommittedBotServiceIssue } 
 import { parseInstructionIssue } from '@bickr/shared/instruction-issues';
 import { ToolCommittedOutcomeError } from '../errors';
 import { legacyReadContentFocus } from './tool-results';
-import { toolFailureGuidance, unknownToolOutcomeMessage } from './tool-recovery';
+import { toolFailureGuidance, toolFailureGuidanceText, unknownToolOutcomeMessage } from './tool-recovery';
 import { botText, botTextFor, type BotText } from '../localization';
 import { automaticInstructionLocale, isInstructionLocale, instructionContentLanguage, type InstructionLocale } from '@bickr/shared/instruction-language';
 import { contextBudgetDraft } from './context-budget-draft';
@@ -45,7 +50,7 @@ import {
 import { inferenceGraphReadVersion } from '@bickr/shared/inference-configuration-repository';
 import { ExclusiveOperationQueue } from '@bickr/shared/exclusive-operation-queue';
 import { json } from '@bickr/shared/http';
-import { formatCommentRef, formatThreadRef, parseObjectRef } from '@bickr/shared/ids';
+import { formatCommentRef, formatThreadRef, parseThreadRef, parseObjectRef } from '@bickr/shared/ids';
 import {
 	isOpenRouterProviderBaseUrl,
 	isMetaChatProviderBaseUrl,
@@ -247,25 +252,17 @@ import {
 	usernameArg,
 } from './tool-args';
 import {
-	cloneProviderContextContentScope,
 	collectProviderContextContentFromValue,
 	commentReferencesWithoutTextFromValue,
 	commentTextRecordsFromChatMessages,
 	emptyProviderContextContentScope,
 	hydrateNewestCommentReferences,
-	providerCheckNotificationsResultWithInclusions,
 	providerReadCommentTreeTokenBudget,
-	providerReadResult,
 	providerLegacyToolResultPayload,
 	providerLegacyInputPayload,
 	providerSerializationContext,
 	providerToolResultPayload,
-	providerViewedProfiles,
-	pruneReadContentTreeForProviderBudget,
 	readContentItemTree,
-	readResultContext,
-	type ProviderContextContentScope,
-	type ProviderSerializationContext,
 } from './tool-results';
 import type { ViewedProfileResult } from '@bickr/shared/tool-results';
 import {
@@ -1768,6 +1765,9 @@ CREATE TABLE IF NOT EXISTS loop_messages (
 	run_id TEXT NOT NULL,
 	role TEXT NOT NULL,
 	message_json TEXT NOT NULL,
+	-- Views share the retention of their loop-message row. New tool rows hold no rendered content.
+	tool_result_view_json TEXT,
+	tool_result_view_version INTEGER,
 	origin TEXT NOT NULL,
 	status TEXT,
 	token_estimate INTEGER NOT NULL,
@@ -1852,6 +1852,8 @@ function pendingToolFromStoredRow(row: { key: string; value_json: string }): Pen
 }
 
 export class BotRuntime {
+	private resultViewText?: BotText;
+	private resultViewHandles: ResultHandleMap = new Map();
 	private readonly state: DurableObjectState;
 	private readonly env: Env;
 	private readonly notes: BotNotesStore;
@@ -2002,6 +2004,8 @@ export class BotRuntime {
 				.toArray()
 				.map((row) => row.name),
 		);
+		if (!columns.has('tool_result_view_json')) this.state.storage.sql.exec(`ALTER TABLE loop_messages ADD COLUMN tool_result_view_json TEXT`);
+		if (!columns.has('tool_result_view_version')) this.state.storage.sql.exec(`ALTER TABLE loop_messages ADD COLUMN tool_result_view_version INTEGER`);
 		if (!columns.has('deleted_at')) {
 			this.state.storage.sql.exec(`ALTER TABLE loop_messages ADD COLUMN deleted_at TEXT`);
 		}
@@ -2302,12 +2306,12 @@ export class BotRuntime {
 			await this.requireOwnerOrInternal(request, botId);
 			const after = Number(url.searchParams.get('after') ?? 0);
 			const page = Number(url.searchParams.get('page') ?? 1);
-			return ok(
-				this.loopMessagesPage({
-					after: Number.isFinite(after) ? after : 0,
-					page: Number.isFinite(page) ? page : 1,
-				}),
-			);
+			const response = this.loopMessagesPage({ after: Number.isFinite(after) ? after : 0, page: Number.isFinite(page) ? page : 1 });
+			const rows = this.state.storage.sql.exec<LoopMessageRow>('SELECT * FROM loop_messages WHERE seq IN (SELECT value FROM json_each(?))', JSON.stringify(response.messages.map(message => message.seq))).toArray();
+			const bot = await botById(this.env.BICKR_KV, this.env.BICKR_D1, botId);
+			await this.refreshResultViewRendering(botTextFor(bot), rows);
+			const bySeq = new Map(rows.map(row => [row.seq, row]));
+			return ok({ ...response, messages: response.messages.map(message => ({ ...message, message: this.renderLoopMessageRow(bySeq.get(message.seq)!) })) });
 		}
 
 		if (request.method === 'GET' && url.pathname.endsWith('/inference-logs')) {
@@ -2994,7 +2998,7 @@ export class BotRuntime {
 		let event: BotRuntimeEvent | undefined;
 		this.runtimeMessageStore().appendProviderToolResult(
 			{ runId, message: { ...assistant, tool_calls: [pending.toolCall] }, origin: 'provider_response', status: 'interrupted' },
-			{ runId, message: { role: 'tool', tool_call_id: pending.toolCall.id, content: JSON.stringify(outcome) }, origin: 'tool_failure', status: 'interrupted' },
+			{ runId, message: attachToolResultView({ role: 'tool', tool_call_id: pending.toolCall.id, content: JSON.stringify(outcome) }, settlementResultView(settlement.outcome === 'unknown' ? 'outcome_unknown' : settlement.outcome, settlement.outcome === 'not_dispatched' ? resultMessage('recovery.notDispatched') : settlement.outcome === 'interrupted' ? resultMessage('recovery.interrupted') : unknownOutcomeText(pending.toolCall.function.name), text)), origin: 'tool_failure', status: 'interrupted' },
 			assistantSeq,
 			() => { event = this.runtimeEventsStore().appendEventWithoutBroadcast(runId, 'tool_result', { name: pending.toolCall.function.name, args: pending.args, mutationIdentity: pending.mutationIdentity, arguments: pending.toolCall.function.arguments, result: outcome, outcome: settlement.outcome }); },
 		);
@@ -3850,6 +3854,14 @@ export class BotRuntime {
 					tool_call_id: toolCall.id,
 					content: JSON.stringify(failure),
 				};
+				const failureView = failureResultView(failure, bot.text, { message: toolFailureMessageText(error), guidance: toolFailureGuidanceText(toolCall.function.name, error) });
+				const threadId = parseThreadRef(failure.existingThreadRef);
+				if (threadId && failure.existingForumHandle) {
+					const identities = await resultContentIdentities(this.env.BICKR_D1, [threadId], []);
+					const forumId = identities.forumsByThreadId.get(threadId);
+					if (forumId) failureView.existingForum = { kind: 'forum', entityId: forumId, handle: failure.existingForumHandle };
+				}
+				attachToolResultView(toolMessage, failureView);
 				appendAssistantToolResultPair(toolCall, toolMessage, 'tool_failure');
 				const acknowledgement = toolFailureAssistantContent(bot.text, failure);
 				if (consecutiveToolFailures >= 5) {
@@ -3868,7 +3880,7 @@ export class BotRuntime {
 					pendingToolCallIds.delete(remaining.id);
 					const outcome = { kind: 'not_attempted', message: bot.text.format('recovery.unknown.siblingNotAttempted') };
 					const event = this.appendEvent(runId, 'tool_result', { name: remaining.function.name, arguments: remaining.function.arguments, result: outcome, outcome: 'not_started', unknownOutcomeCount });
-					appendAssistantToolResultPair(remaining, { role: 'tool', tool_call_id: remaining.id, content: JSON.stringify(outcome) }, 'tool_failure', 'complete', { displayEventSeq: event.seq });
+					appendAssistantToolResultPair(remaining, attachToolResultView({ role: 'tool', tool_call_id: remaining.id, content: JSON.stringify(outcome) }, settlementResultView('not_attempted', { kind: 'message', key: 'recovery.unknown.siblingNotAttempted', parameters: {} }, bot.text)), 'tool_failure', 'complete', { displayEventSeq: event.seq });
 					await this.dropGeneratedProviderToolCall(runId, requestEvent.seq, remaining, 'earlier_outcome_unknown');
 				}
 				if (underlying instanceof TickStoppedError || isAbortError(underlying)) throw underlying;
@@ -3926,7 +3938,7 @@ export class BotRuntime {
 					this.setPendingTool(bot.text, runId, toolCall, args, assistantMessage!, providerResponseGroup.current?.seq ?? null);
 					result = await this.executeTool(bot, runId, toolCall.function.name, args, { ...runContext, inferenceAttribution: response.inferenceAttribution, toolInvocationId: `${runId}:${requestEvent.seq}:${toolCall.id}`, toolCallId: toolCall.id }, (success) => {
 						const recordedToolCall = success.effectiveArgs ? toolCallWithArguments(toolCall, JSON.stringify(providerToolArgs(success.name, success.effectiveArgs))) : toolCall;
-						appendAssistantToolResultPair(toolCall, { role: 'tool', tool_call_id: toolCall.id, content: JSON.stringify(success.providerResult) }, 'tool_result', 'complete', { displayEventSeq: success.displayEventSeq }, recordedToolCall);
+						appendAssistantToolResultPair(toolCall, success.view ? attachToolResultView({ role: 'tool', tool_call_id: toolCall.id, content: JSON.stringify(success.providerResult) }, success.view) : { role: 'tool', tool_call_id: toolCall.id, content: JSON.stringify(success.providerResult) }, 'tool_result', 'complete', { displayEventSeq: success.displayEventSeq }, recordedToolCall);
 					});
 					pendingToolCallIds.delete(toolCall.id);
 					consecutiveToolFailures = 0;
@@ -3943,9 +3955,9 @@ export class BotRuntime {
 				} catch (error) {
 					if (error instanceof ToolBatchOutcomeError) {
 						selfCorrectionAcknowledgements.push(...error.selfCorrectionMessages);
-						const outcome = providerBatchOutcome(bot.text, canonicalName, error.items,
-							providerSerializationContext(bot.text, { botId: bot.id }),
-							(targetArgs, cause) => toolFailurePayload(bot.text, canonicalName, targetArgs, cause));
+						const outcomeView = await batchResultView(canonicalName, error.items, { text: bot.text, selfId: bot.id, scope: await this.resultContextScope(), writtenAt: new Date().toISOString(), references: new Map() },
+							(targetArgs, cause) => failureResultView(toolFailurePayload(bot.text, canonicalName, targetArgs, cause), bot.text, { message: toolFailureMessageText(cause), guidance: toolFailureGuidanceText(canonicalName, cause) }));
+						const outcome = toolResultViewPayload(outcomeView, bot.text);
 						const committed = error.items.filter((item) => item.kind === 'recorded' || item.kind === 'committed');
 						const unknown = error.items.some((item) => item.kind === 'unknown');
 						spotlightOutcomeUncertain ||= error.items.some((item) => item.kind === 'unknown' && item.scope.related);
@@ -3953,9 +3965,9 @@ export class BotRuntime {
 						const unrelated = committed.some((item) => (item.kind === 'recorded' || item.kind === 'committed') && item.scope.unrelated);
 						pendingToolCallIds.delete(toolCall.id);
 						const event = this.appendEvent(runId, 'tool_result', { name: canonicalName, args, result: outcome, outcome: 'partial', ownerDiagnostic: { cause: runtimeErrorCause(error.cause) } });
-						appendAssistantToolResultPair(toolCall, { role: 'tool', tool_call_id: toolCall.id, content: JSON.stringify(outcome) }, 'tool_result', unknown ? 'interrupted' : 'complete', { displayEventSeq: event.seq });
+						appendAssistantToolResultPair(toolCall, attachToolResultView({ role: 'tool', tool_call_id: toolCall.id, content: JSON.stringify(outcome) }, outcomeView), 'tool_result', unknown ? 'interrupted' : 'complete', { displayEventSeq: event.seq });
 						const seenItems = error.items.flatMap((item) => item.kind === 'recorded' ? seenItemsFromToolResultEnvelope(item.envelope) : []);
-						await this.finishToolBookkeeping(bot, runId, { name: canonicalName, result: outcome, providerResult: outcome, envelope: { kind: 'opaque', value: outcome }, displayEventSeq: event.seq,
+						await this.finishToolBookkeeping(bot, runId, { name: canonicalName, result: outcome, providerResult: outcome, envelope: { kind: 'batch_settled' }, displayEventSeq: event.seq,
 							bookkeeping: { seenItems, ...(related && runContext.spotlightId && ['follow_profile', 'unfollow_profile'].includes(canonicalName) ? { spotlightId: runContext.spotlightId } : {}) } });
 						if (committed.length > 0) {
 							consecutiveToolFailures = 0;
@@ -3994,13 +4006,14 @@ export class BotRuntime {
 					}
 					if (error instanceof ToolCommittedOutcomeError) {
 						const outcome = { kind: 'completed_result_unavailable', message: bot.text.formatDescriptor(error.issue) };
+						const outcomeView = settlementResultView('completed_result_unavailable', resultDescriptor(error.issue), bot.text);
 						pendingToolCallIds.delete(toolCall.id);
 						consecutiveToolFailures = 0;
 						successfulToolCallsThisIteration += 1;
 						mutatingToolUsedThisIteration ||= mutableToolNames.has(canonicalName);
 						if (error.scope.related) spotlightMutationCount += 1;
 						this.appendEvent(runId, 'tool_result', { name: canonicalName, args, mutationIdentity: this.pendingMutationIdentity(runId, toolCall.id), result: outcome, outcome: 'committed', ownerDiagnostic: { message: error.message } });
-						appendAssistantToolResultPair(toolCall, { role: 'tool', tool_call_id: toolCall.id, content: JSON.stringify(outcome) }, 'tool_result', 'complete');
+						appendAssistantToolResultPair(toolCall, attachToolResultView({ role: 'tool', tool_call_id: toolCall.id, content: JSON.stringify(outcome) }, outcomeView), 'tool_result', 'complete');
 						if (runContext.spotlightId) {
 							await this.dropPendingGeneratedProviderToolCalls(runId, requestEvent.seq, response.toolCalls, pendingToolCallIds, 'committed_result_unavailable');
 							await this.appendSyntheticLimitLogOff(bot, runId, runContext, 'committed_result_unavailable');
@@ -4016,9 +4029,10 @@ export class BotRuntime {
 					if (error instanceof ToolOutcomeUnknownError) {
 						spotlightOutcomeUncertain ||= error.scope.related;
 						const outcome = { kind: 'outcome_unknown', message: unknownToolOutcomeMessage(bot.text, canonicalName) };
+						const outcomeView = settlementResultView('outcome_unknown', unknownOutcomeText(canonicalName), bot.text);
 						pendingToolCallIds.delete(toolCall.id);
 						this.appendEvent(runId, 'tool_result', { name: canonicalName, args, mutationIdentity: this.pendingMutationIdentity(runId, toolCall.id), result: outcome, outcome: 'unknown' });
-						appendAssistantToolResultPair(toolCall, { role: 'tool', tool_call_id: toolCall.id, content: JSON.stringify(outcome) }, 'tool_failure', 'interrupted');
+						appendAssistantToolResultPair(toolCall, attachToolResultView({ role: 'tool', tool_call_id: toolCall.id, content: JSON.stringify(outcome) }, outcomeView), 'tool_failure', 'interrupted');
 						if (await recoverUnknownOutcome(error) === 'pause') {
 							await this.appendSyntheticLimitLogOff(bot, runId, runContext, 'repeated_outcome_unknown');
 							return { logOffCalled: true, spotlightMutationCount, toolCallCount, unknownOutcomeCount, spotlightOutcomeUncertain };
@@ -4154,7 +4168,8 @@ export class BotRuntime {
 			}
 			pendingToolCallIds.delete(toolCall.id);
 			const active = pending?.toolCall.id === toolCall.id ? pending : undefined;
-			const settlement = interruptedToolSettlement(active ? botText(active.instructionLocale) : text, toolCall.function.name, active?.stage ?? 'prepared');
+			const settlementText = active ? botText(active.instructionLocale) : text;
+			const settlement = interruptedToolSettlement(settlementText, toolCall.function.name, active?.stage ?? 'prepared');
 			const content = JSON.stringify(settlement.result);
 			let event: BotRuntimeEvent | undefined;
 			const commit = () => { event = this.runtimeEventsStore().appendEventWithoutBroadcast(runId, 'tool_result', { name: toolCall.function.name, ...(active ? { args: active.args, mutationIdentity: active.mutationIdentity } : {}), arguments: toolCall.function.arguments, result: settlement.result, outcome: settlement.outcome }); };
@@ -4163,6 +4178,7 @@ export class BotRuntime {
 				tool_call_id: toolCall.id,
 				content,
 			};
+			attachToolResultView(toolMessage, settlementResultView(settlement.outcome === 'unknown' ? 'outcome_unknown' : settlement.outcome, settlement.outcome === 'not_dispatched' ? resultMessage('recovery.notDispatched') : settlement.outcome === 'interrupted' ? resultMessage('recovery.interrupted') : unknownOutcomeText(toolCall.function.name), settlementText));
 			if (appendToolResultForToolCall) {
 				appendToolResultForToolCall(toolCall, toolMessage, content, commit);
 				if (event) this.broadcast(event);
@@ -4724,6 +4740,7 @@ export class BotRuntime {
 			tool_call_id: toolCall.id,
 			content: JSON.stringify(result.providerResult),
 		};
+		if (result.view) attachToolResultView(toolMessage, result.view);
 		this.appendLoopMessageGroup([
 			{
 				runId,
@@ -4750,6 +4767,7 @@ export class BotRuntime {
 			this.state.storage,
 			(message) => this.broadcastLoopMessage(message),
 			() => this.broadcastControl({ type: 'loop_messages_reset' }),
+			view => renderToolResultView(view, this.resultViewText ?? botText(view.instructionLocale), this.resultViewHandles),
 		);
 	}
 
@@ -4840,13 +4858,34 @@ export class BotRuntime {
 		return this.runtimeMessageStore().nextLoopMessagePosition();
 	}
 
+	private renderLoopMessageRow(row: LoopMessageRow): ChatMessage {
+		return renderStoredLoopMessage(row, view => renderToolResultView(view, this.resultViewText ?? botText(view.instructionLocale), this.resultViewHandles));
+	}
+
+	private async resultContextScope(): Promise<ResultContextScope> {
+		const scope = new ResultContextScope();
+		for (const row of this.activeLoopMessageRows()) {
+			const view = toolResultViewFromRow(row);
+			if (view) scope.include(resultViewFacetArrays(view).flat());
+			else if (row.role === 'tool') scope.include(await legacyResultFacets(JSON.parse(row.message_json).content));
+		}
+		return scope;
+	}
+
+	private async refreshResultViewRendering(text: BotText, rows = this.activeLoopMessageRows()): Promise<void> {
+		const views = rows.flatMap(row => { const view = toolResultViewFromRow(row); return view ? [view] : []; });
+		const handles = views.length > 0 ? await currentResultHandles(this.env.BICKR_D1, views.flatMap(resultViewReferences)) : new Map();
+		this.resultViewText = text;
+		this.resultViewHandles = handles;
+	}
+
 	private activeLoopMessagesForProvider(): ChatMessage[] {
-		return this.activeProviderHistoryLoopMessageRows().map(loopMessageChatMessageFromRow);
+		return this.activeProviderHistoryLoopMessageRows().map(row => this.renderLoopMessageRow(row));
 	}
 
 	private activeProviderHistoryLoopMessageRows(): LoopMessageRow[] {
 		return this.activeLoopMessageRows().filter((row) =>
-			loopMessageContributesToProviderHistory(row.origin, loopMessageChatMessageFromRow(row)),
+			loopMessageContributesToProviderHistory(row.origin, this.renderLoopMessageRow(row)),
 		);
 	}
 
@@ -6146,7 +6185,7 @@ export class BotRuntime {
 			}, runContext.inferenceAttribution, invocationId),
 			vectorSearchBots: (worldId, query, limit) => vectorSearchBots(this.env, worldId, query, limit),
 			readCommentTreeTokenBudget: this.readCommentTreeTokenBudget.bind(this),
-			providerContentInActiveContext: this.providerContentInActiveContext.bind(this),
+			resultContextScope: this.resultContextScope.bind(this),
 			markToolDispatched: beforeMutation,
 			markToolReading: () => { if (toolCallId) this.markPendingToolReading(runId, toolCallId); },
 			recordMutationIdentity: (identity) => {
@@ -6265,8 +6304,8 @@ export class BotRuntime {
 		if (elapsed) {
 			prepared.push({ runId, message: { role: 'user', content: elapsed }, origin: 'input' });
 		}
-		const existingProfileUsernames = this.profileUsernamesInActiveContext();
-		const existingProviderContent = this.providerContentInActiveContext();
+		const existingProfileUsernames = this.legacyProfileUsernamesInActiveContext();
+		const existingProviderContent = await this.resultContextScope();
 		if (input.spotlightContexts.length > 0) {
 			await this.appendSpotlightSyntheticContext(bot, runId, input.spotlightContexts, existingProfileUsernames, existingProviderContent, collect);
 		} else if (setupMode === 'new_iteration') {
@@ -6317,40 +6356,46 @@ export class BotRuntime {
 		runId: string,
 		notifications: LoopNotification[],
 		existingProfileUsernames: ReadonlySet<string>,
-		existingProviderContent: ProviderContextContentScope,
+		existingProviderContent: ResultContextScope,
 		collect?: (entries: LoopMessageGroupEntry[]) => void,
 	): Promise<string[]> {
 		const toolCalls: SyntheticToolCall[] = [];
 		const results: ChatMessage[] = [];
-		const providerContext = providerSerializationContext(bot.text, { botId: bot.id }, cloneProviderContextContentScope(existingProviderContent));
+		const contentIds = notificationContentIds(notifications);
+		const contentIdentities = contentIds.threadIds.length || contentIds.commentIds.length
+			? await resultContentIdentities(this.env.BICKR_D1, contentIds.threadIds, contentIds.commentIds) : undefined;
+		const introForums = notifications.flatMap(event => event.kind === 'bootstrap' && event.bootstrapVersion === 2 && event.introForum ? [event.introForum] : []);
+		const references = introForums.length ? await resultForumIds(this.env.BICKR_D1, bot.homeWorldId, introForums) : new Map<string, string>();
+		const viewContext = { contentIdentities, text: bot.text, selfId: bot.id, scope: existingProviderContent.clone(), writtenAt: new Date().toISOString(), references };
 		if (planEnabled(bot.toolSettings)) {
 			const plan = this.notes.read(bot.text, planNoteId);
 			if (plan) {
 				const links = await noteLinkViews(this.env.BICKR_D1, bot.homeWorldId, plan.links);
 				const call = syntheticToolCall(runId, 'read_note', toolCalls.length, { id: planNoteId });
 				toolCalls.push(call);
-				results.push({
-					role: 'tool', tool_call_id: call.id,
-					content: JSON.stringify(providerToolResultPayload('read_note', { ...plan, links }, { id: planNoteId }, providerContext, {}, { kind: 'note_read', id: planNoteId, content: plan.content, links })),
-				});
+				const view = await buildToolResultView({ kind: 'note_read', id: planNoteId, content: plan.content, links }, viewContext);
+				if (!view) throw new Error('The PLAN result has no typed view.');
+				results.push(attachToolResultView({ role: 'tool', tool_call_id: call.id, content: renderToolResultView(view, bot.text) }, view));
 			}
 		}
 		const notificationCall = syntheticToolCall(runId, 'check_notifications', toolCalls.length, {});
 		toolCalls.push(notificationCall);
 		const notificationTokenBudget = notifications.length > 0 ? await this.readCommentTreeTokenBudget(bot) : undefined;
-		const notificationResult = providerCheckNotificationsResultWithInclusions(notifications, providerContext, notificationTokenBudget);
-		const includedNotificationIds = new Set(notificationResult.includedEventIds);
-		const includedNotifications = notifications.filter((notification) => includedNotificationIds.has(notification.id));
-		results.push({ role: 'tool', tool_call_id: notificationCall.id, content: JSON.stringify(notificationResult.payload) });
+		const notificationView = await buildToolResultView({ kind: 'notifications_checked', events: notifications }, viewContext, notificationTokenBudget);
+		if (!notificationView || notificationView.kind !== 'check_notifications') throw new Error('The notification result has no typed view.');
+		const includedEventIds = notificationView.events.flatMap(event => event.ids);
+		const includedNotificationIds = new Set(includedEventIds);
+		const includedNotifications = notifications.filter(notification => includedNotificationIds.has(notification.id));
+		results.push(attachToolResultView({ role: 'tool', tool_call_id: notificationCall.id, content: renderToolResultView(notificationView, bot.text) }, notificationView));
 		const usernames = referencedProfileUsernamesFromNotifications(includedNotifications, bot.handle, existingProfileUsernames);
 		if (usernames.length > 0) {
 			const profiles = await this.syntheticProfilesForUsernames(bot, usernames, runId);
-			const profileResult = providerViewedProfiles(profiles, providerContext.self, notificationTokenBudget);
-			if (profileResult.profiles.length > 0) {
-				await this.markSyntheticProfilesSeen(bot, profiles.slice(0, profileResult.profiles.length), runId, 'notification');
+			const profileResult = await this.syntheticProfileView(profiles, viewContext, notificationTokenBudget, notificationView);
+			if (profileResult && profileResult.profiles.length > 0) {
+				await this.markSyntheticProfilesSeen(bot, profiles.filter(profile => profileResult.profiles.some(item => item.ref.entityId === profile.id)), runId, 'notification');
 				const toolCall = syntheticToolCall(runId, 'view_profiles', toolCalls.length, { usernames });
 				toolCalls.push(toolCall);
-				results.push({ role: 'tool', tool_call_id: toolCall.id, content: JSON.stringify(profileResult) });
+				results.push(attachToolResultView({ role: 'tool', tool_call_id: toolCall.id, content: renderToolResultView(profileResult, bot.text) }, profileResult));
 			}
 		}
 		this.appendToolCallChainLoopMessages(
@@ -6365,7 +6410,7 @@ export class BotRuntime {
 			'complete',
 			collect,
 		);
-		return notificationResult.includedEventIds;
+		return includedEventIds;
 	}
 
 	private async appendSpotlightSyntheticContext(
@@ -6373,29 +6418,29 @@ export class BotRuntime {
 		runId: string,
 		contexts: SpotlightSyntheticContext[],
 		existingProfileUsernames: ReadonlySet<string>,
-		existingProviderContent: ProviderContextContentScope,
+		existingProviderContent: ResultContextScope,
 		collect?: (entries: LoopMessageGroupEntry[]) => void,
 	): Promise<void> {
 		const chains = contexts.flatMap(spotlightSyntheticToolChains);
 		const toolCalls: SyntheticToolCall[] = chains.map((chain, index) => syntheticToolCall(runId, chain.toolName, index, chain.args));
-		const providerContext = providerSerializationContext(bot.text, { botId: bot.id }, cloneProviderContextContentScope(existingProviderContent));
+		const viewContext = { text: bot.text, selfId: bot.id, scope: existingProviderContent.clone(), writtenAt: new Date().toISOString(), references: new Map<string, string>() };
 		const tokenBudget = await this.readCommentTreeTokenBudget(bot);
-		const results: ChatMessage[] = chains.map((chain, index) => ({
-			role: 'tool',
-			tool_call_id: toolCalls[index]?.id ?? syntheticToolCallId(runId, index),
-			content: JSON.stringify(
-				spotlightReadResult(chain.context, chain.toolName, providerContext, tokenBudget, chain.targetCommentId, chain.targetThreadId),
-			),
-		}));
+		const results: ChatMessage[] = [];
+		for (const [index, chain] of chains.entries()) {
+			const read = spotlightReadInput(chain.context, chain.toolName, tokenBudget, chain.targetCommentId, chain.targetThreadId);
+			const view = await buildToolResultView({ kind: 'posts_read', read, items: [] }, viewContext);
+			if (!view) throw new Error('The spotlight result has no typed view.');
+			results.push(attachToolResultView({ role: 'tool', tool_call_id: toolCalls[index]?.id ?? syntheticToolCallId(runId, index), content: renderToolResultView(view, bot.text) }, view));
+		}
 		const usernames = referencedProfileUsernamesFromSpotlight(contexts, bot.handle, existingProfileUsernames);
 		if (usernames.length > 0) {
 			const profiles = await this.syntheticProfilesForUsernames(bot, usernames, runId);
-			const profileResult = providerViewedProfiles(profiles, providerContext.self, tokenBudget);
-			if (profileResult.profiles.length > 0) {
-				await this.markSyntheticProfilesSeen(bot, profiles.slice(0, profileResult.profiles.length), runId, 'spotlight');
+			const profileResult = await this.syntheticProfileView(profiles, viewContext, tokenBudget, results.length ? toolResultViewForMessage(results.at(-1)!) : undefined);
+			if (profileResult && profileResult.profiles.length > 0) {
+				await this.markSyntheticProfilesSeen(bot, profiles.filter(profile => profileResult.profiles.some(item => item.ref.entityId === profile.id)), runId, 'spotlight');
 				const toolCall = syntheticToolCall(runId, 'view_profiles', toolCalls.length, { usernames });
 				toolCalls.push(toolCall);
-				results.push({ role: 'tool', tool_call_id: toolCall.id, content: JSON.stringify(profileResult) });
+				results.push(attachToolResultView({ role: 'tool', tool_call_id: toolCall.id, content: renderToolResultView(profileResult, bot.text) }, profileResult));
 			}
 		}
 		if (toolCalls.length === 0) {
@@ -6453,6 +6498,20 @@ export class BotRuntime {
 		if (collect) collect(entries); else this.appendLoopMessageGroup(entries);
 	}
 
+	private async syntheticProfileView(profiles: ViewedProfileResult[], context: import('./tool-result-views').ViewBuildContext, tokenBudget?: number, anchor?: import('./tool-result-views').ToolResultView): Promise<import('./tool-result-views').ProfilesView | null> {
+		const unknown: ViewedProfileResult[] = [];
+		for (const profile of profiles) {
+			const name = localizedTextString(profile.displayName).trim();
+			const bio = localizedTextString(profile.shortBio).trim();
+			const nameKnown = !name || context.scope.knows({ entityId: profile.id, facet: 'profile_display_name' }, await facetFingerprint(name));
+			const bioKnown = context.scope.knows({ entityId: profile.id, facet: 'profile_bio' }, await facetFingerprint(bio));
+			if (!nameKnown || !bioKnown) unknown.push(profile);
+			else if (anchor) await retainKnownProfiles(anchor, [profile], context);
+		}
+		const view = await buildToolResultView({ kind: 'profile_viewed', profiles: unknown }, context, tokenBudget);
+		return view?.kind === 'profiles' ? view : null;
+	}
+
 	private async syntheticProfilesForUsernames(
 		bot: BotDocument,
 		usernames: string[],
@@ -6502,28 +6561,19 @@ export class BotRuntime {
 		});
 	}
 
-	private profileUsernamesInActiveContext(): Set<string> {
+	private legacyProfileUsernamesInActiveContext(): Set<string> {
 		const usernames = new Set<string>();
 		for (const row of this.activeLoopMessageRows()) {
-			if (row.role !== 'tool') {
+			if (row.role !== 'tool' || row.tool_result_view_json) {
 				continue;
 			}
-			for (const username of profileUsernamesFromToolResultContent(loopMessageChatMessageFromRow(row).content)) {
+			// Remove this legacy branch after the active-row census, WI-F forced
+			// compaction, and the next view schema version.
+			for (const username of profileUsernamesFromToolResultContent(this.renderLoopMessageRow(row).content)) {
 				usernames.add(username);
 			}
 		}
 		return usernames;
-	}
-
-	private providerContentInActiveContext(): ProviderContextContentScope {
-		const scope = emptyProviderContextContentScope();
-		for (const row of this.activeLoopMessageRows()) {
-			const message = loopMessageChatMessageFromRow(row);
-			if (loopMessageContributesToProviderHistory(row.origin, message)) {
-				collectProviderContextContentFromValue(message.content, scope);
-			}
-		}
-		return scope;
 	}
 
 	private previousTerminalTickEvent(runId: string): RuntimeRow | null {
@@ -7029,6 +7079,7 @@ export class BotRuntime {
 			providerTools = providerToolsForBotRound(budgetBot, settings).tools;
 			const compactionMode = providerCompactionMode(settings);
 			const calibration = this.textTokenCalibration(settings.model);
+			await this.refreshResultViewRendering(budgetBot.text);
 			const requestMessages = providerMessagesWithPrefillCompatibility(settings.text,
 				settings,
 				this.activeProviderRequestMessages(budgetBot, providerTools, providerToolCallsForSettings(settings)),
@@ -7322,7 +7373,7 @@ export class BotRuntime {
 			);
 			const estimates = remaining.map((row) => ({
 				row,
-				tokens: estimateChatMessageTokens(loopMessageChatMessageFromRow(row), calibration),
+				tokens: estimateChatMessageTokens(this.renderLoopMessageRow(row), calibration),
 			}));
 			const selection = compactionRowSelectionForEstimatedBudget<LoopMessageRow>(
 				estimates,
@@ -7407,6 +7458,7 @@ export class BotRuntime {
 		let recentActivity = '';
 		let compactedMessages: ChatMessage[] = [];
 		let compactedCommentBodies: ReadonlyMap<string, string> = new Map();
+		let compactedFacets: import('./result-context-scope').ResultFacetValue[] = [];
 		let outputLimitShrinkAttempts = 0;
 
 		for (;;) {
@@ -7418,9 +7470,14 @@ export class BotRuntime {
 			const compactionMode = providerCompactionMode(settings);
 			const compactionReasoning = this.compactionReasoningForSettings(settings);
 			ledgerRows = this.compactionLedgerRows(providerRows);
-			recentActivity = providerRows.map((message) => truncateForContext(loopMessageContextLine(bot.text, message), 1_200)).join('\n');
-			compactedMessages = providerRows.map((row) => loopMessageChatMessageFromRow(row));
-			compactedCommentBodies = commentTextRecordsFromChatMessages(compactedMessages);
+			recentActivity = providerRows.map((message) => truncateForContext(loopMessageContextLine(bot.text, message, this.renderLoopMessageRow(message)), 1_200)).join('\n');
+			compactedMessages = providerRows.map((row) => this.renderLoopMessageRow(row));
+			compactedCommentBodies = commentTextRecordsFromChatMessages(providerRows.filter(row => !row.tool_result_view_json).map(row => this.renderLoopMessageRow(row)));
+			compactedFacets = [];
+			for (const row of providerRows) {
+				const view = toolResultViewFromRow(row);
+				compactedFacets.push(...(view ? resultViewFacetArrays(view).flat() : await legacyResultFacets(this.renderLoopMessageRow(row).content)));
+			}
 			const baseLimits = providerCompactionSummaryLimitsForChat(
 				bot,
 				compactedMessages,
@@ -7598,6 +7655,7 @@ export class BotRuntime {
 					{ role: 'assistant', content: summary },
 				]);
 			}
+			this.hydrateResultViewsAfterCompaction(compactedFacets);
 			this.repairDanglingCommentReferencesAfterCompaction(
 				summaryMessage.seq,
 				summaryPosition,
@@ -7617,7 +7675,7 @@ export class BotRuntime {
 		const lastProviderPosition = Math.max(...providerRows.map((row) => row.position));
 		const rowsBySeq = new Map<number, LoopMessageRow>();
 		for (const row of this.activeLoopMessageRows()) {
-			const message = loopMessageChatMessageFromRow(row);
+			const message = this.renderLoopMessageRow(row);
 			if (
 				providerSeqs.has(row.seq) ||
 				(row.position <= lastProviderPosition && !loopMessageContributesToProviderHistory(row.origin, message))
@@ -7631,6 +7689,19 @@ export class BotRuntime {
 		return [...rowsBySeq.values()].sort((left, right) => left.position - right.position || left.seq - right.seq);
 	}
 
+	private hydrateResultViewsAfterCompaction(removed: readonly import('./result-context-scope').ResultFacetValue[]): void {
+		const rows = this.activeLoopMessageRows().flatMap(row => { const view = toolResultViewFromRow(row); return view ? [{ row, view, before: row.tool_result_view_json }] : []; });
+		if (hydrateResultFacets(removed, rows.flatMap(item => resultViewFacetArrays(item.view))) === 0) return;
+		for (const item of rows) {
+			const json = JSON.stringify(item.view);
+			if (json === item.before) continue;
+			const content = renderToolResultView(item.view, this.resultViewText ?? botText(item.view.instructionLocale), this.resultViewHandles);
+			this.state.storage.sql.exec('UPDATE loop_messages SET tool_result_view_json = ?, token_estimate = ? WHERE seq = ?', json, estimateTextTokens(content), item.row.seq);
+		}
+	}
+
+	// Remove this legacy hydration after the active-row census, WI-F forced
+	// compaction, and the next view schema version.
 	private repairDanglingCommentReferencesAfterCompaction(
 		summarySeq: number,
 		summaryPosition: number,
@@ -7642,13 +7713,14 @@ export class BotRuntime {
 		}
 		const rows = this.state.storage.sql
 			.exec<LoopMessageRow>(
-				`SELECT m.seq, m.position, m.run_id, m.role, m.message_json, m.origin, m.status,
+				`SELECT m.seq, m.position, m.run_id, m.role, m.message_json, m.tool_result_view_json, m.tool_result_view_version, m.origin, m.status,
 				        m.token_estimate, m.stream_seq, m.compacted_by, m.deleted_at, m.created_at,
 				        CASE WHEN EXISTS (SELECT 1 FROM loop_message_logs l WHERE l.message_seq = m.seq) THEN 1 ELSE 0 END AS has_logs
 				 FROM loop_messages m
 				 WHERE m.compacted_by IS NULL
 				   AND m.deleted_at IS NULL
 				   AND m.role = 'tool'
+				   AND m.tool_result_view_json IS NULL
 				   AND (m.position > ? OR (m.position = ? AND m.seq > ?))
 				 ORDER BY m.position ASC, m.seq ASC`,
 				summaryPosition,
@@ -7662,12 +7734,12 @@ export class BotRuntime {
 		const activeScope = emptyProviderContextContentScope();
 		collectProviderContextContentFromValue(summaryMessage.content, activeScope);
 		for (const row of rows) {
-			collectProviderContextContentFromValue(loopMessageChatMessageFromRow(row).content, activeScope);
+			collectProviderContextContentFromValue(this.renderLoopMessageRow(row).content, activeScope);
 		}
 
 		const pendingCommentIds = new Set<string>();
 		for (const row of rows) {
-			const refs = commentReferencesWithoutTextFromValue(loopMessageChatMessageFromRow(row).content);
+			const refs = commentReferencesWithoutTextFromValue(this.renderLoopMessageRow(row).content);
 			for (const commentId of refs) {
 				if (!activeScope.commentsWithText.has(commentId) && compactedCommentBodies.has(commentId)) {
 					pendingCommentIds.add(commentId);
@@ -7683,7 +7755,7 @@ export class BotRuntime {
 			if (pendingCommentIds.size === 0) {
 				break;
 			}
-			const refs = commentReferencesWithoutTextFromValue(loopMessageChatMessageFromRow(row).content);
+			const refs = commentReferencesWithoutTextFromValue(this.renderLoopMessageRow(row).content);
 			for (const commentId of refs) {
 				if (!pendingCommentIds.has(commentId)) {
 					continue;
@@ -7706,7 +7778,7 @@ export class BotRuntime {
 			if (!ids) {
 				continue;
 			}
-			const message = loopMessageChatMessageFromRow(row);
+			const message = this.renderLoopMessageRow(row);
 			if (typeof message.content !== 'string') {
 				continue;
 			}
@@ -7761,7 +7833,7 @@ export class BotRuntime {
 	private compactionCandidateEstimates(calibration = this.textTokenCalibration()): CompactionCandidateEstimate<LoopMessageRow>[] {
 		return this.compactionCandidateRows().map((row) => ({
 			row,
-			tokens: estimateChatMessageTokens(loopMessageChatMessageFromRow(row), calibration),
+			tokens: estimateChatMessageTokens(this.renderLoopMessageRow(row), calibration),
 		}));
 	}
 
@@ -7775,7 +7847,7 @@ export class BotRuntime {
 	): ProviderCompactionSummaryLimits {
 		return providerCompactionSummaryLimitsForChat(
 			bot,
-			rows.map((row) => loopMessageChatMessageFromRow(row)),
+			rows.map((row) => this.renderLoopMessageRow(row)),
 			calibration,
 			providerTools,
 			mode,
@@ -8638,14 +8710,13 @@ function spotlightFocusAssistantContent(text: BotText, contexts: readonly Spotli
 	return text.format('synthetic.spotlight.focus_many', { focusList: focuses.map((focus) => `- ${focus}`).join('\n') });
 }
 
-function spotlightReadResult(
+function spotlightReadInput(
 	spotlight: SpotlightSyntheticContext,
 	operation: 'read_thread_by_id' | 'read_comment_by_id',
-	providerContext: ProviderSerializationContext,
 	tokenBudget: number,
 	targetCommentId?: string,
 	targetThreadId?: string,
-): Record<string, unknown> {
+): import('@bickr/shared/tool-results').ToolResultRead {
 	const threadId =
 		targetThreadId ??
 		spotlight.content.find((item) => item.id === targetCommentId)?.threadId ??
@@ -8655,18 +8726,16 @@ function spotlightReadResult(
 		? spotlightCommentChainContent(spotlight.content, threadId, targetCommentId)
 		: spotlight.content.filter((item) => item.threadId === threadId);
 	const commentTree = readContentItemTree(content.map((item) => spotlightReadContentItem(spotlight, item)));
-	const pruned = pruneReadContentTreeForProviderBudget(providerContext.text, commentTree, tokenBudget, providerContext.self);
-	return providerReadResult(
-		{
+
+	return {
 			operation,
-			context: readResultContext(providerContext.text, operation, pruned, tokenBudget),
-			contextGuidance: { collapsedReplies: pruned.omittedReplyCount > 0, trimmedBodies: pruned.trimmedBodyCount > 0 },
+			context: '',
+			contextDecision: { operation, tokenBudget, omittedReplyCount: 0, trimmedBodyCount: 0 },
+			contextGuidance: { collapsedReplies: false, trimmedBodies: false },
 			thread: spotlightThreadSummaryRecord(spotlight, threadId, content),
 			...(targetCommentId ? { targetCommentId } : {}),
-			content: pruned.content,
-		},
-		providerContext,
-	);
+			content: commentTree,
+	};
 }
 
 function spotlightCommentChainContent(
@@ -8712,7 +8781,7 @@ function spotlightThreadSummaryRecord(
 	context: SpotlightSyntheticContext,
 	threadId: string,
 	content: SpotlightIncludedContent[],
-): Record<string, unknown> {
+): import('@bickr/shared/tool-results').ToolResultRead['thread'] {
 	const thread = (context.threads ?? []).find((item) => item.threadId === threadId || item.id === threadId);
 	const root = content.find((item) => item.id === thread?.rootCommentId) ?? content.find((item) => !item.parentCommentId);
 	const activityTimes = content
@@ -8722,7 +8791,8 @@ function spotlightThreadSummaryRecord(
 	const lastActivityAt = activityTimes[activityTimes.length - 1];
 	return {
 		id: threadId,
-		threadId,
+		worldId: context.world.id,
+		forumId: context.forum.id,
 		rootCommentId: thread?.rootCommentId,
 		worldHandle: stripTypedHandle(context.world.handle, 'w'),
 		forumHandle: stripTypedHandle(context.forum.handle, 'f'),
@@ -10075,6 +10145,16 @@ function optionalLanguageTagValue(value: unknown): LanguageTag | null {
 	}
 }
 
+function toolFailureMessageText(error: unknown): ResultText {
+	if (error instanceof ToolCallArgumentValidationError || error instanceof AgentInputError || error instanceof AgentRepositoryError) return resultDescriptor(error.issue);
+	if (error instanceof RepositoryError && error.details?.botIssue) return resultDescriptor(error.details.botIssue);
+	if (error instanceof InputError && error.botIssue) return resultDescriptor(error.botIssue);
+	if (error instanceof DuplicateReplyError) return resultMessage('issue.tool.duplicateReply', { commentRef: formatCommentRef(error.duplicate.commentId), urlPath: error.duplicate.urlPath });
+	if (error instanceof PriorTargetReplyError) return error.prior.targetCommentId ? resultMessage('recovery.already_replied.comment', { ref: formatCommentRef(error.prior.targetCommentId) }) : resultMessage('recovery.already_replied.thread', { ref: formatThreadRef(error.prior.threadId) });
+	if (error instanceof RepositoryError && error.details?.runtimeStorageCause === 'storage_cleared') return resultMessage('issue.service.runtimeStorageCleared', {});
+	return resultMessage(error instanceof ToolPreparationError ? 'recovery.preparationFailure' : 'recovery.genericError');
+}
+
 export function toolFailurePayload(text: BotText, name: string, args: Record<string, unknown>, error: unknown): ToolFailurePayload {
 	const canonical = canonicalToolName(name);
 	const duplicate = error instanceof DuplicateReplyError ? error.duplicate : undefined;
@@ -10085,14 +10165,7 @@ export function toolFailurePayload(text: BotText, name: string, args: Record<str
 	return {
 		ok: false,
 		code: toolFailureCode(error),
-		message: error instanceof ToolCallArgumentValidationError || error instanceof AgentInputError || error instanceof AgentRepositoryError ? text.formatDescriptor(error.issue)
-			: error instanceof RepositoryError && error.details?.botIssue ? text.formatDescriptor(error.details.botIssue)
-			: error instanceof InputError && error.botIssue ? text.formatDescriptor(error.botIssue)
-			: error instanceof DuplicateReplyError ? text.format('issue.tool.duplicateReply', { commentRef: formatCommentRef(error.duplicate.commentId), urlPath: error.duplicate.urlPath })
-			: prior ? prior.targetCommentId ? text.format('recovery.already_replied.comment', { ref: formatCommentRef(prior.targetCommentId) })
-				: text.format('recovery.already_replied.thread', { ref: formatThreadRef(prior.threadId) })
-			: error instanceof RepositoryError && error.details?.runtimeStorageCause === 'storage_cleared' ? text.format('issue.service.runtimeStorageCleared', {})
-			: error instanceof ToolPreparationError ? text.format('recovery.preparationFailure') : text.format('recovery.genericError'),
+		message: renderResultText(toolFailureMessageText(error), text),
 		toolName: canonical || 'unknown_tool',
 		args: providerToolArgs(canonical, safelyNormalizeFailureArgs(canonical, args)),
 		...(toolFailureGuidance(text, canonical, error) ? { guidance: toolFailureGuidance(text, canonical, error) } : {}),
@@ -10199,8 +10272,7 @@ export function runtimeRecord(value: unknown): Record<string, unknown> {
 	return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }
 
-function loopMessageContextLine(text: BotText, row: LoopMessageRow): string {
-	const message = loopMessageChatMessageFromRow(row);
+function loopMessageContextLine(text: BotText, row: LoopMessageRow, message = loopMessageChatMessageFromRow(row)): string {
 	const content = typeof message.content === 'string' ? message.content : '';
 	if (message.role === 'user') {
 		return text.format('compaction.history.app', { content: markdownQuoteForContext(content, 1_500) });

@@ -1,3 +1,4 @@
+import { ResultContextScope } from "../workers/agent-runtime/src/runtime/result-context-scope";
 import { botText as testBotText } from "../workers/agent-runtime/src/localization";
 const englishInstructions = testBotText("en");
 import { runHumanNotificationFanout } from "@bickr/shared/human-notification-fanout";
@@ -3641,7 +3642,8 @@ describe("Provider requests", () => {
 		it("returns only included notification IDs for delivery marking", async () => {
 			const appendedMessages: Array<Record<string, unknown>> = [];
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
-			notes: { read: () => null },
+			env: testEnv,
+ notes: { read: () => null },
 			readCommentTreeTokenBudget: async () => 90,
 				appendLoopMessageGroup: testAppendLoopMessageGroup,
 				appendLoopMessage: (_runId: string, message: Record<string, unknown>) => {
@@ -3655,7 +3657,7 @@ describe("Provider requests", () => {
 					runId: string,
 					notifications: Array<Record<string, unknown>>,
 					existingProfileUsernames: ReadonlySet<string>,
-					existingProviderContent: { commentsWithText: Set<string>; threadsWithText: Set<string> },
+					existingProviderContent: ResultContextScope,
 				) => Promise<string[]>;
 			}).appendNotificationSyntheticContext.bind(runtime);
 			const includedIds = await appendNotificationSyntheticContext(
@@ -3663,24 +3665,28 @@ describe("Provider requests", () => {
 				"run-notification-prune",
 				[
 					{
-						id: "ntf_leading",
+						kind: "legacy",
+ createdAt: "2026-05-01T00:00:00.000Z",
+ id: "ntf_leading",
 						type: "comment_created",
 						deliveryReasons: ["mention"],
 						sourceObjectId: "cmt_leading",
-						actor: { username: "u/leading" },
+						actor: { id: "bot_leading", username: "u/leading" },
 						comment: { id: "cmt_leading", threadId: "thr_leading", text: "Leading notification text stays whole." },
 					},
 					{
-						id: "ntf_trailing",
+						kind: "legacy",
+ createdAt: "2026-05-01T00:00:00.000Z",
+ id: "ntf_trailing",
 						type: "comment_created",
 						deliveryReasons: ["mention"],
 						sourceObjectId: "cmt_trailing",
-						actor: { username: "u/trailing" },
+						actor: { id: "bot_trailing", username: "u/trailing" },
 						comment: { id: "cmt_trailing", threadId: "thr_trailing", text: "Trailing text " + "x".repeat(400) },
 					},
 				],
 				new Set(["leading"]),
-				{ commentsWithText: new Set<string>(), threadsWithText: new Set<string>() },
+				new ResultContextScope(),
 			);
 
 			// Only the included ids are reported, and only those are deleted: what
@@ -3695,7 +3701,8 @@ describe("Provider requests", () => {
 		it("marks the participant's own thread and comment as u/handle (MYSELF) in synthetic notification context", async () => {
 			const appendedMessages: Array<Record<string, unknown>> = [];
 			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
-				notes: { read: () => null },
+				env: testEnv,
+ notes: { read: () => null },
 				readCommentTreeTokenBudget: async () => 4_000,
 				appendLoopMessageGroup: testAppendLoopMessageGroup,
 				appendLoopMessage: (_runId: string, message: Record<string, unknown>) => {
@@ -3709,7 +3716,7 @@ describe("Provider requests", () => {
 					runId: string,
 					notifications: Array<Record<string, unknown>>,
 					existingProfileUsernames: ReadonlySet<string>,
-					existingProviderContent: { commentsWithText: Set<string>; threadsWithText: Set<string> },
+					existingProviderContent: ResultContextScope,
 				) => Promise<string[]>;
 			}).appendNotificationSyntheticContext.bind(runtime);
 			const bot = fakeBotDocument({ id: "bot_self_author", handle: "sabine-h" });
@@ -3718,7 +3725,9 @@ describe("Provider requests", () => {
 				"run-notification-self",
 				[
 					{
-						id: "ntf_reply_to_me",
+						kind: "legacy",
+ createdAt: "2026-05-01T00:00:00.000Z",
+ id: "ntf_reply_to_me",
 						type: "comment_created",
 						deliveryReasons: ["direct_reply"],
 						sourceObjectId: "cmt_theirs",
@@ -3744,7 +3753,7 @@ describe("Provider requests", () => {
 					},
 				],
 				new Set(["other-h"]),
-				{ commentsWithText: new Set<string>(), threadsWithText: new Set<string>() },
+				new ResultContextScope(),
 			);
 
 			const notificationContent = String(appendedMessages.find((message) => message.role === "tool")?.content);

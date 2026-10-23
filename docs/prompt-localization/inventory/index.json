@@ -1,6 +1,6 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "sourceUnitCount": 438,
+  "sourceUnitCount": 439,
   "catalogSourceHash": "1ea4d0935facacfea35be251f30fc67822b5de7e36d4075fd21c7595bffff89e",
   "baseCommit": "cd3c3d2db56d1ab7281a11bfbfc37eafac2ea62a",
   "groups": [
@@ -369,6 +369,25 @@
       "catalogSourceHash": "c8fe81102ded524f2695eeac0e492caaefe4885d7d83899e8e807d923e9eec99",
       "sourceFreeze": "Remove the double-escaping clause. Add a Markdown PLAN example with actual line breaks. Example prose is translatable.",
       "review": "Independent Codex agent /root/translation_review approved prompt text and all 18 translations at d70df878c2ed8af89ed0c03f51b370a784585ef0. The reviewer uses the same model as the primary agent. Irish remains best effort without native-speaker certification. Earlier model evidence remains historical."
+    }
+  ],
+  "pendingUnits": [
+    {
+      "id": "result.reference.deleted",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 1
+      },
+      "protectedTokens": [],
+      "sourceTemplateHash": "539d7bd31eadd664039719bfb066ac3a6948e667fb880d129a3b175c2866f659",
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-views.ts",
+          "line": 348,
+          "kind": "direct"
+        }
+      ],
+      "status": "english_placeholder"
     }
   ]
 }

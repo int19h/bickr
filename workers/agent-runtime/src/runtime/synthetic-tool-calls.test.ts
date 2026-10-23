@@ -1,3 +1,4 @@
+import { ResultContextScope } from './result-context-scope';
 import { botText } from '../localization';
 const text = botText('en');
 import { describe, expect, it } from 'vitest';
@@ -26,7 +27,7 @@ describe('authored synthetic tool reasoning', () => {
 			appendToolCallChainLoopMessages: (_text: unknown, _runId: string, _origin: string, _narration: string, _calls: SyntheticToolCall[], messages: ChatMessage[]) => results.push(...messages),
 		});
 		await runtime.appendSpotlightSyntheticContext({ text, id: 'bot_me', handle: 'me' }, 'run-title', [context!],
-			new Set(), { includedContentIds: new Set() });
+			new Set(), new ResultContextScope());
 		const result = JSON.parse(results[0]!.content as string);
 		if (title === undefined) expect(result.thread).not.toHaveProperty('title');
 		else expect(result.thread.title).toBe(title);
@@ -43,7 +44,7 @@ describe('authored synthetic tool reasoning', () => {
 		});
 		await runtime.appendNotificationSyntheticContext(
 			{ text, id: 'bot-me', handle: 'me', homeWorldId: 'world', toolSettings: { bickrNotes: { enabled: true, planEnabled: true } } },
-			'run-plan', [], new Set(), { includedContentIds: new Set() },
+			'run-plan', [], new Set(), new ResultContextScope(),
 		);
 		const chain = captured[0]!;
 		expect(chain.calls.map((call) => call.function.name)).toEqual(['read_note', 'check_notifications']);
@@ -67,7 +68,7 @@ describe('authored synthetic tool reasoning', () => {
 		});
 		await runtime.appendNotificationSyntheticContext(
 			{ text, id: 'bot-me', handle: 'me', homeWorldId: 'world', toolSettings: { bickrNotes: settings } },
-			'run-without-plan', [], new Set(), { includedContentIds: new Set() },
+			'run-without-plan', [], new Set(), new ResultContextScope(),
 		);
 		expect(reads).toBe(0);
 		expect(captured[0]?.calls.map((call) => call.function.name)).toEqual(['check_notifications']);

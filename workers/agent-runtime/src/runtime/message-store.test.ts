@@ -661,7 +661,7 @@ describe('RuntimeMessageStore', () => {
 		const retrySubmission = [
 			{ role: 'assistant' as const, content: 'I am ready.' },
 			...retentionStore.activeLoopMessageRows()
-				.map(loopMessageFromRow)
+				.map(row => loopMessageFromRow(row))
 				.filter(({ message, origin }) => loopMessageContributesToProviderHistory(origin, message))
 				.map(({ message }) => message),
 		];

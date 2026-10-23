@@ -1,3 +1,4 @@
+import { botText as resultBotText } from "../workers/agent-runtime/src/localization";
 import type { BotDocument, InferenceAttribution, ThreadDocument } from '@bickr/shared/model';
 import type { RunContext, ToolResult } from '../workers/agent-runtime/src/types';
 import { onRequestGet as inferenceRedirect } from '../apps/web/functions/inference/[botId]/[runId]/[seq]';
@@ -14,7 +15,7 @@ it('records the originating request for posts, replies, votes, follows, and unfo
  const actor = await createBotForTest(cookie, 'охренеть');
  const other = await createBotForTest(cookie, 'target');
  const forum = await createForumForTest(cookie, 'attribution');
- const bot = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, actor.id);
+ const bot = { ...await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, actor.id), text: resultBotText("en"), instructionLocale: "en" };
  const runtime = testRuntimeForToolExecution();
  const execute = (runtime as unknown as { executeTool(bot: BotDocument, runId: string, name: string, args: Record<string, unknown>, context: RunContext): Promise<ToolResult> }).executeTool.bind(runtime);
  const attribution: InferenceAttribution = { model: 'vendor/model-a', parameters: { temperature: 0.6, max_completion_tokens: 4000 }, source: { botId: actor.id, botHandle: actor.handle, worldHandle: '世界', runId: 'run-a', requestSeq: 42 } };

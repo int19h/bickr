@@ -1,3 +1,4 @@
+import { renderStoredLoopMessage } from "../workers/agent-runtime/src/runtime/result-messages";
 import type { RuntimeBotDocument } from "../workers/agent-runtime/src/types";
 import type { LocalizedProviderSettings } from "../workers/agent-runtime/src/provider-requests";
 import { botText as testBotText } from "../workers/agent-runtime/src/localization";
@@ -393,7 +394,7 @@ describe("Tick flow", () => {
 				{ mode: "normal", signal: controller.signal },
 			)).rejects.toBeInstanceOf(TickStoppedError);
 			expect(executed).toEqual(["read_thread"]);
-			const toolRows = state.storage.sql.exec<{ message_json: string; origin: string; status: string }>("SELECT message_json, origin, status FROM loop_messages WHERE role = 'tool' ORDER BY seq").toArray().map(({ message_json, ...metadata }) => ({ ...metadata, message: JSON.parse(message_json) }));
+			const toolRows = state.storage.sql.exec<{ message_json: string; origin: string; status: string }>("SELECT * FROM loop_messages WHERE role = 'tool' ORDER BY seq").toArray().map((row) => ({ ...row, message: renderStoredLoopMessage(row) }));
 			expect(toolRows).toEqual([
 				expect.objectContaining({ origin: "tool_result", status: "complete", message: expect.objectContaining({ tool_call_id: "call-first" }) }),
 				expect.objectContaining({ origin: "tool_failure", status: "interrupted", message: expect.objectContaining({ tool_call_id: "call-second" }) }),
@@ -679,7 +680,7 @@ describe("Tick flow", () => {
 			},
 			activeLoopMessagesForProvider: () => ledgerMessages,
 			activeLoopMessageRows: () => [],
-			profileUsernamesInActiveContext: () => new Set<string>(),
+			legacyProfileUsernamesInActiveContext: () => new Set<string>(),
 		}));
 		attachInputHistoryStorage(runtime);
 		const buildMessages = (BotRuntime.prototype as unknown as {
@@ -740,7 +741,7 @@ describe("Tick flow", () => {
 			},
 			activeLoopMessagesForProvider: () => ledgerMessages,
 			activeLoopMessageRows: () => [],
-			profileUsernamesInActiveContext: () => new Set<string>(),
+			legacyProfileUsernamesInActiveContext: () => new Set<string>(),
 		}));
 		attachInputHistoryStorage(runtime);
 		const buildMessages = (BotRuntime.prototype as unknown as {
@@ -814,7 +815,7 @@ describe("Tick flow", () => {
 			},
 			activeLoopMessagesForProvider: () => ledgerMessages,
 			activeLoopMessageRows: () => [],
-			profileUsernamesInActiveContext: () => new Set<string>(),
+			legacyProfileUsernamesInActiveContext: () => new Set<string>(),
 		}));
 		attachInputHistoryStorage(runtime);
 		const buildMessages = (BotRuntime.prototype as unknown as {
@@ -907,7 +908,7 @@ describe("Tick flow", () => {
 			},
 			activeLoopMessagesForProvider: () => ledgerMessages,
 			activeLoopMessageRows: () => [],
-			profileUsernamesInActiveContext: () => new Set<string>(),
+			legacyProfileUsernamesInActiveContext: () => new Set<string>(),
 		}));
 		attachInputHistoryStorage(runtime);
 		const buildMessages = (BotRuntime.prototype as unknown as {
@@ -966,7 +967,7 @@ describe("Tick flow", () => {
 			actor: {
 				id: referencedProfile.id,
 				username: `u/${referencedProfile.handle}`,
-				displayName: lt(referencedProfile.displayName),
+				displayName: lt(localizedTextString(referencedProfile.displayName)),
 			},
 			thread: { id: "thr_profile_context", title: lt("Notice thread") },
 			comment: { id: "cmt_profile_context", threadId: "thr_profile_context" },
@@ -983,7 +984,7 @@ describe("Tick flow", () => {
 					profiles: [
 						{
 							username: `u/${referencedProfile.handle}`,
-							displayName: lt(referencedProfile.displayName),
+							displayName: lt(localizedTextString(referencedProfile.displayName)),
 							shortBio: "Already active.",
 						},
 					],
@@ -1089,7 +1090,7 @@ describe("Tick flow", () => {
 		const author = {
 			id: referencedProfile.id,
 			username: `u/${referencedProfile.handle}`,
-			displayName: lt(referencedProfile.displayName),
+			displayName: lt(localizedTextString(referencedProfile.displayName)),
 		};
 		const baseEvent = {
 			type: "comment_created" as const,
@@ -1155,7 +1156,7 @@ describe("Tick flow", () => {
 					role: "tool",
 					tool_call_id: "call_profiles",
 					content: JSON.stringify({
-						profiles: [{ username: `u/${referencedProfile.handle}`, displayName: lt(referencedProfile.displayName), shortBio: "Already active." }],
+						profiles: [{ username: `u/${referencedProfile.handle}`, displayName: lt(localizedTextString(referencedProfile.displayName)), shortBio: "Already active." }],
 					}),
 				}),
 				origin: "tool_result",
@@ -1259,7 +1260,7 @@ describe("Tick flow", () => {
 			const selfProfile = await createBotForTest(cookie, "notice-budget-self");
 			const bot = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, selfProfile.id);
 			const tokenBudget = 260;
-		const author = { id: selfProfile.id, username: `u/${selfProfile.handle}`, displayName: lt(selfProfile.displayName) };
+		const author = { id: selfProfile.id, username: `u/${selfProfile.handle}`, displayName: lt(localizedTextString(selfProfile.displayName)) };
 		const messages: Array<Record<string, unknown>> = [];
 		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
 			env: {
@@ -1323,7 +1324,7 @@ describe("Tick flow", () => {
 			const selfProfile = await createBotForTest(cookie, "notice-drop-self");
 			const bot = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, selfProfile.id);
 			const tokenBudget = 300;
-			const author = { id: selfProfile.id, username: `u/${selfProfile.handle}`, displayName: lt(selfProfile.displayName) };
+			const author = { id: selfProfile.id, username: `u/${selfProfile.handle}`, displayName: lt(localizedTextString(selfProfile.displayName)) };
 		const messages: Array<Record<string, unknown>> = [];
 		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
 			env: {
@@ -1954,7 +1955,7 @@ describe("Tick flow", () => {
 					title: lt("My own thread"),
 					authorBotId: selfProfile.id,
 					authorHandle: selfProfile.handle,
-					authorDisplayName: lt(selfProfile.displayName),
+					authorDisplayName: lt(localizedTextString(selfProfile.displayName)),
 					body: lt("My root post."),
 					createdAt: "2026-05-01T00:00:00.000Z",
 					ancestorOnly: true,
@@ -1967,7 +1968,7 @@ describe("Tick flow", () => {
 					parentCommentId: "cmt_self_root",
 					authorBotId: otherProfile.id,
 					authorHandle: otherProfile.handle,
-					authorDisplayName: lt(otherProfile.displayName),
+					authorDisplayName: lt(localizedTextString(otherProfile.displayName)),
 					body: lt("Their reply."),
 					createdAt: "2026-05-01T00:01:00.000Z",
 					ancestorOnly: true,
@@ -1980,7 +1981,7 @@ describe("Tick flow", () => {
 					parentCommentId: "cmt_other_reply",
 					authorBotId: selfProfile.id,
 					authorHandle: selfProfile.handle,
-					authorDisplayName: lt(selfProfile.displayName),
+					authorDisplayName: lt(localizedTextString(selfProfile.displayName)),
 					body: lt("My follow-up."),
 					createdAt: "2026-05-01T00:02:00.000Z",
 					focused: true,
@@ -2067,7 +2068,7 @@ describe("Tick flow", () => {
 				...(index > 0 ? { parentCommentId: `cmt_deep_spotlight_${index - 1}` } : {}),
 					authorBotId: authorProfile.id,
 					authorHandle: authorProfile.handle,
-					authorDisplayName: lt(authorProfile.displayName),
+					authorDisplayName: lt(localizedTextString(authorProfile.displayName)),
 					body: lt(`Deep spotlight context ${index}. ${"z".repeat(800)}`),
 				createdAt: `2026-05-01T00:${String(index).padStart(2, "0")}:00.000Z`,
 				...(index === chainLength - 1 ? { focused: true as const } : { ancestorOnly: true }),

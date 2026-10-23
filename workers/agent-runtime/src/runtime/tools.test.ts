@@ -1,3 +1,4 @@
+import { ResultContextScope } from './result-context-scope';
 import { botText } from '../localization';
 const text = botText('en');
 import { describe, expect, it } from "vitest";
@@ -378,7 +379,7 @@ function toolExecutionRecorder() {
 		forumService: unreachable("the forum coordinator"),
 		vectorSearchBots: unreachable("vector search"),
 		readCommentTreeTokenBudget: unreachable("the comment-tree token budget"),
-		providerContentInActiveContext: () => ({ commentsWithText: new Set(), threadsWithText: new Set() }),
+		resultContextScope: async () => new ResultContextScope(),
 		markToolDispatched: () => {},
 		markToolReading: () => {},
 		recordMutationIdentity: () => {},

@@ -19,15 +19,19 @@ type InventoryUnit = {
 };
 const inventory = JSON.parse(readFileSync(`${root}/docs/prompt-localization/inventory/index.json`, 'utf8')) as {
 	sourceUnitCount: number;
+	pendingUnits?: (InventoryUnit & { status: "english_placeholder" })[];
 	sourceHash: string;
 	catalogSourceHash: string;
 	groups: readonly { group: string; file: string; units: number }[];
 };
-const units = inventory.groups.flatMap((group) => {
+const reviewedUnits = inventory.groups.flatMap((group) => {
 	const data = JSON.parse(readFileSync(`${root}/docs/prompt-localization/inventory/${group.file}`, 'utf8')) as { units: InventoryUnit[] };
 	expect(data.units).toHaveLength(group.units);
 	return data.units;
 });
+const pendingUnits = inventory.pendingUnits ?? [];
+const units = [...reviewedUnits, ...pendingUnits];
+
 function catalogPart(file: string): Record<string, string | Record<string, string>> {
 	const localeDirectory = file.match(/^(.*\/localization\/[a-z]{2})\//)![1]!;
 	return readCatalogGroup(`${root}/${file}`, `${root}/${localeDirectory}`, messageParameters).messages;
@@ -50,7 +54,7 @@ function allToolShapes(locale: typeof instructionLocales[number]): unknown {
 }
 
 function catalogSourceFingerprint(): string {
-	const sourceRecords = [...units].sort((a, b) => a.id.localeCompare(b.id, 'en')).map((unit) => {
+	const sourceRecords = [...reviewedUnits].sort((a, b) => a.id.localeCompare(b.id, 'en')).map((unit) => {
 		const definition = messageParameters[unit.id];
 		return {
 		id: unit.id, parameters: [...definition.parameters].sort(),
@@ -103,6 +107,14 @@ describe('reviewed instruction catalogs', () => {
 					expect(reason.trim().length, id).toBeGreaterThan(0);
 				}
 			}
+		}
+	});
+
+	it.each(instructionLocales)('keeps pending English placeholders outside translation approvals for %s', locale => {
+		for (const unit of pendingUnits) {
+			expect(unit.status).toBe('english_placeholder');
+			expect(catalogPart(unit.definition.file.replace('/en/', `/${locale}/`))[unit.id]).toEqual(catalogPart(unit.definition.file)[unit.id]);
+			expect(reviewedUnits.some(reviewed => reviewed.id === unit.id)).toBe(false);
 		}
 	});
 

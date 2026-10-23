@@ -1,3 +1,4 @@
+import { renderStoredLoopMessage } from "../workers/agent-runtime/src/runtime/result-messages";
 import { BotRuntime, describe, expect, fakeBotDocument, it, providerResponseWithToolCalls, testToolExecutor, toolDefinitionsForProviderRound, withTestRunLiveness, withRuntimeSqliteForTest } from './helpers/index-harness';
 import { ToolBatchOutcomeError, ToolOutcomeUnknownError, TickStoppedError } from '../workers/agent-runtime/src/errors';
 import { botText } from '../workers/agent-runtime/src/localization';
@@ -36,7 +37,7 @@ function fixture(errors: readonly unknown[], state: DurableObjectState) {
 	const run = () => loop({  ...fakeBotDocument(), tickSettings: { ...fakeBotDocument().tickSettings, maxToolCallsPerTick: 4 } },
 		{ text, baseUrl: 'https://openrouter.ai/api/v1', model: 'test-model', temperature: 0.2 } as LocalizedProviderSettings,
 		'run-outcomes', [], { mode: 'normal', setupMode: 'new_iteration', signal: new AbortController().signal });
-	return { run, executed, events, messages: () => state.storage.sql.exec<{ message_json: string }>('SELECT message_json FROM loop_messages ORDER BY seq').toArray().map((row) => JSON.parse(row.message_json) as ChatMessage) };
+	return { run, executed, events, messages: () => state.storage.sql.exec<{ message_json: string }>('SELECT * FROM loop_messages ORDER BY seq').toArray().map(row => renderStoredLoopMessage(row)) };
 }
 
 describe('unknown tool outcome visit recovery', () => {

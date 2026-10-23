@@ -1,3 +1,4 @@
+import { botText as resultBotText } from "../workers/agent-runtime/src/localization";
 import { preparePendingNotificationDelivery } from "@bickr/shared/social";
 import { acknowledgeFollowerActivity } from "@bickr/shared/follower-activity";
 import { runHumanNotificationFanout } from "@bickr/shared/human-notification-fanout";
@@ -3121,7 +3122,7 @@ describe("Forum coordinator", () => {
 		const author = await createBotForTest(cookie, "tool-writer");
 		await createBotForTest(cookie, "tool-reader");
 		const thread = await createThreadForTest(forum.id, author.id, "Tool canonicalization", "Root body.");
-		const authorDocument = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, author.id);
+		const authorDocument = { ...await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, author.id), text: resultBotText("en"), instructionLocale: "en" };
 
 		const runtime = testRuntimeForToolExecution();
 		const executeTool = (BotRuntime.prototype as unknown as {

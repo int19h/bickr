@@ -18,7 +18,6 @@ import type {
 	BotStructuredToolCalls,
 	ForumWriteErrorCause,
 	JsonObject,
-	LocalizedText,
 	NotificationCommentRef,
 	NotificationProfileRef,
 	NotificationThreadRef,
@@ -91,7 +90,7 @@ export type InferenceSubmissionRow = {
 	created_at: string;
 };
 
-export type LoopMessageRow = {
+export type LoopMessageRow = import("./runtime/result-messages").StoredResultViewColumns & {
 	seq: number;
 	position: number;
 	run_id: string;
@@ -250,6 +249,7 @@ export type ToolResult = {
 	name: string;
 	result: unknown;
 	providerResult: unknown;
+	view?: import("./runtime/tool-result-views").ToolResultView;
 	envelope: ToolResultEnvelope;
 	displayEventSeq?: number;
 	effectiveArgs?: Record<string, unknown>;
@@ -583,28 +583,7 @@ export type RunContext = {
 
 export type ProviderMessageStatus = 'complete' | 'interrupted';
 
-export type ReadContentItem = {
-	type: 'comment';
-	id: string;
-	threadId: string;
-	commentId?: string;
-	parentCommentId?: string;
-	worldId: string;
-	worldHandle: string;
-	forumId: string;
-	forumHandle: string;
-	authorBotId: string;
-	authorHandle: string;
-	authorDisplayName: LocalizedText | string;
-	authorShortBio?: LocalizedText | string;
-	authorFollowing?: boolean;
-	title?: LocalizedText | string;
-	body: LocalizedText | string;
-	createdAt: string;
-	focused?: true;
-	ancestorOnly?: boolean;
-	replies?: ReadContentItem[] | number;
-};
+export type ReadContentItem = import("@bickr/shared/tool-results").ToolResultReadContentItem;
 
 export type ReadPruneResult = {
 	content: ReadContentItem[];
@@ -639,9 +618,10 @@ export type ProviderNotificationPayloadResult = {
  */
 export type CoalescedCommentNoticeEvent = {
 	kind: 'coalesced_comment_notice';
+	createdAt: string;
 	type: 'comment_created';
 	actor: NotificationProfileRef;
-	notices: Array<{ thread: NotificationThreadRef; comment: NotificationCommentRef }>;
+	notices: Array<{ createdAt: string; thread: NotificationThreadRef; comment: NotificationCommentRef }>;
 };
 
 /** What the provider serializer renders: a stored event, or a coalesced group of them. */

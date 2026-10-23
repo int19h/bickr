@@ -4,7 +4,7 @@ import { RuntimeTools, type RuntimeToolsRuntime } from './tools';
 import { ToolBatchOutcomeError, type ToolBatchOutcomeItem, ToolCommittedOutcomeError, ToolOutcomeUnknownError } from '../errors';
 import { botServiceIssue } from '@bickr/shared/bot-service-issues';
 import { RepositoryError } from '@bickr/shared/repository';
-import { providerBatchOutcome } from './batch-outcomes';
+import { providerBatchOutcome } from './batch-outcomes.test-support';
 import { providerSerializationContext } from './tool-results';
 import { toolFailurePayload } from './bot-runtime';
 import type { BotDocument, RequiredLocalizedText, ThreadDocument } from '@bickr/shared/model';

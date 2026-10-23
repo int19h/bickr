@@ -1,3 +1,4 @@
+import { ResultContextScope } from './result-context-scope';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { botById, RepositoryError } from '@bickr/shared/repository';
 import { forumByHandle, botPublicProfilesByHandles, followedBotIdSet, readThread, followBot, unfollowBot } from '@bickr/shared/social';
@@ -56,7 +57,7 @@ function harness(name: string, args: Record<string, unknown>) {
 		markToolDispatched: beforeWrite, markToolReading: () => runtime.markPendingToolReading('run', call.id),
 		recordMutationIdentity: (identity) => { if (identity) storage.sql.exec("UPDATE runtime_state SET value_json = json_set(value_json, '$.mutationIdentity', json(?)) WHERE key = 'pending_tool_v3'", JSON.stringify(identity)); },
 		readCommentTreeTokenBudget: async () => 10_000, vectorSearchBots: async () => [],
-		providerContentInActiveContext: () => ({ commentsWithText: new Set(), threadsWithText: new Set() }),
+		resultContextScope: async () => new ResultContextScope(),
 		recentToolResultRows: () => storage.sql.exec("SELECT * FROM events WHERE type = 'tool_result'").toArray() as ReturnType<RuntimeToolsRuntime['recentToolResultRows']>,
 		setLastSuccessfulLogOffSeq: () => {},
 		writeNote: (id, content, links) => notes.write(id, content, links, undefined, beforeWrite),
@@ -283,7 +284,7 @@ it('uses the real runtime wiring to persist the exact request identity before se
 	Object.assign(h.runtime, {
 		liveness: { progress: () => {} },
 		readCommentTreeTokenBudget: async () => 10_000,
-		providerContentInActiveContext: () => ({ commentsWithText: new Set(), threadsWithText: new Set() }),
+		resultContextScope: async () => new ResultContextScope(),
 	});
 	const pending = h.runtime.executeTool(bot, 'run', h.call.function.name, args, { mode: 'normal', setupMode: 'new_iteration', signal: h.signal.signal, toolCallId: h.call.id, toolInvocationId: 'run:request:call' }).catch((error: unknown) => error);
 	await vi.waitFor(() => expect(h.fetch).toHaveBeenCalled());

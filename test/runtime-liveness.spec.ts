@@ -1,3 +1,4 @@
+import { renderStoredLoopMessage } from "../workers/agent-runtime/src/runtime/result-messages";
 import { env } from 'cloudflare:workers';
 import { runDurableObjectAlarm, runInDurableObject } from 'cloudflare:test';
 import { describe, expect, it } from 'vitest';
@@ -112,9 +113,9 @@ describe('runtime liveness in a real SQLite Durable Object', () => {
 			runtime.setPendingTool(botText('en'), runId, { id: 'call-pending', type: 'function', function: { name: 'reply_to_comment', arguments: '{}' } }, {}, { role: 'assistant', reasoning: 'I should reply to the comment.' }, null);
 			runtime.markPendingToolDispatched(runId, 'call-pending');
 			expect(await runtime.stopTick(bot.id)).toMatchObject({ kind: 'stopped' });
-			const messages = state.storage.sql.exec<{ role: string; message_json: string }>('SELECT role, message_json FROM loop_messages ORDER BY seq').toArray();
+			const messages = state.storage.sql.exec<{ role: string; message_json: string }>('SELECT * FROM loop_messages ORDER BY seq').toArray();
 			expect(messages.map((message) => message.role)).toEqual(['assistant', 'tool']);
-			expect(messages[1]?.message_json).toContain('outcome_unknown');
+			expect(renderStoredLoopMessage(messages[1]!).content).toContain('outcome_unknown');
 			expect(messages[0]?.message_json).toContain('I should reply to the comment.');
 			expect(runtime.activeRunId).toBeNull();
 			expect(() => runtime.withRunExecution(runId, () => runtime.appendEvent(runId, 'assistant_message', {}))).toThrow();

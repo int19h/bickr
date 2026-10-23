@@ -80,6 +80,7 @@ describe("Compaction", () => {
 			vi.stubGlobal("fetch", fetchMock);
 			try {
 				const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+ refreshResultViewRendering: async () => {},
 					appendEvent: vi.fn(),
 					throwIfStopped: vi.fn(),
 				});
@@ -152,6 +153,7 @@ describe("Compaction", () => {
 				loopMessageRowForMessage(5, { role: "assistant", content: large("e") }),
 			];
 			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+ refreshResultViewRendering: async () => {},
 				activeLoopMessageRows: () => rows,
 				textTokenCalibration: () => ({ tokensPerCharacter: 0.25, sampleCount: 0 }),
 			});
@@ -191,6 +193,7 @@ describe("Compaction", () => {
 				loopMessageRowForMessage(4, { role: "assistant", content: large("d") }),
 			];
 			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+ refreshResultViewRendering: async () => {},
 				activeLoopMessageRows: () => rows,
 				textTokenCalibration: () => ({ tokensPerCharacter: 0.25, sampleCount: 0 }),
 			});
@@ -230,6 +233,7 @@ describe("Compaction", () => {
 				loopMessageRowForMessage(4, { role: "assistant", content: huge("d") }),
 			];
 			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+ refreshResultViewRendering: async () => {},
 				activeLoopMessageRows: () => rows,
 				textTokenCalibration: () => ({ tokensPerCharacter: 0.25, sampleCount: 0 }),
 			});
@@ -272,6 +276,7 @@ describe("Compaction", () => {
 				loopMessageRowForMessage(4, { role: "assistant", content: large("d") }),
 			];
 			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+ refreshResultViewRendering: async () => {},
 				activeLoopMessageRows: () => rows,
 				textTokenCalibration: () => ({ tokensPerCharacter: 0.25, sampleCount: 0 }),
 			});
@@ -298,6 +303,7 @@ describe("Compaction", () => {
 				loopMessageRowForMessage(1, { role: "assistant", content: "I remember a short summary." }, "compaction"),
 			];
 			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+ refreshResultViewRendering: async () => {},
 				activeLoopMessageRows: () => rows,
 				textTokenCalibration: () => ({ tokensPerCharacter: 0.25, sampleCount: 0 }),
 			});
@@ -382,6 +388,7 @@ describe("Compaction", () => {
 				),
 			];
 			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+ refreshResultViewRendering: async () => {},
 				activeLoopMessageRows: () => rows,
 				textTokenCalibration: () => calibration,
 			});
@@ -421,6 +428,7 @@ describe("Compaction", () => {
 				loopMessageRowForMessage(4, { role: "assistant", content: "Provider-visible newer context." }),
 			];
 			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+ refreshResultViewRendering: async () => {},
 				activeLoopMessageRows: () => rows,
 				textTokenCalibration: () => ({ tokensPerCharacter: 0.25, sampleCount: 0 }),
 			});
@@ -480,6 +488,7 @@ describe("Compaction", () => {
 			it("uses only requested-model calibration samples for prompt estimates", () => {
 				const queries: Array<{ sql: string; params: unknown[] }> = [];
 				const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+ refreshResultViewRendering: async () => {},
 					state: {
 						storage: {
 							sql: {
@@ -524,6 +533,7 @@ describe("Compaction", () => {
 			it("backfills calibration samples from retained legacy submissions by requested model", () => {
 				const inserted: unknown[][] = [];
 				const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+ refreshResultViewRendering: async () => {},
 					state: {
 						storage: {
 							sql: {
@@ -611,6 +621,7 @@ describe("Compaction", () => {
 					learnedMinimalCompactionReasoning,
 				);
 				const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+ refreshResultViewRendering: async () => {},
 					env: {},
 					state: {
 						storage: {
@@ -697,6 +708,7 @@ describe("Compaction", () => {
 				createdAt: "2026-05-01T00:00:01.000Z",
 			}));
 			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+ refreshResultViewRendering: async () => {},
 				env: {},
 				state: {
 					storage: {
@@ -759,6 +771,7 @@ describe("Compaction", () => {
 
 		it("adds request usage and cache badges to retained loop message logs", () => {
 			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+ refreshResultViewRendering: async () => {},
 				state: {
 					storage: {
 						sql: memoryLoopMessageLogSql({
@@ -831,6 +844,7 @@ describe("Compaction", () => {
 			const sql = memoryLoopMessageLogSql();
 			const broadcastControl = vi.fn();
 			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+ refreshResultViewRendering: async () => {},
 				state: { storage: { sql } },
 				readStatus: async () => ({ status: "idle" }),
 				broadcastControl,
@@ -871,6 +885,7 @@ describe("Compaction", () => {
 				loopMessageRowForTest(21, "run-current", "Current event"),
 			];
 			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+ refreshResultViewRendering: async () => {},
 				state: { storage: { sql: memoryLoopMessagePageSql(rows) } },
 			});
 			const loopMessagesPage = (BotRuntime.prototype as unknown as {
@@ -903,6 +918,7 @@ describe("Compaction", () => {
 				loopMessageRowForTest(21, "run-current", "Current event"),
 			];
 			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+ refreshResultViewRendering: async () => {},
 				state: { storage: { sql: memoryLoopMessagePageSql(rows) } },
 			});
 			const loopMessagesPage = (BotRuntime.prototype as unknown as {
@@ -933,6 +949,7 @@ describe("Compaction", () => {
 				{ ...loopMessageRowForTest(100, "run-compact", "Current summary"), position: 5, origin: "compaction" as BotLoopMessage["origin"] },
 			];
 			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+ refreshResultViewRendering: async () => {},
 				state: { storage: { sql: memoryLoopMessagePageSql(rows) } },
 			});
 			const loopMessagesPage = (BotRuntime.prototype as unknown as {
@@ -954,6 +971,7 @@ describe("Compaction", () => {
 				loopMessageRowForTest(11, "run-current", "Current event"),
 			];
 			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+ refreshResultViewRendering: async () => {},
 				state: { storage: { sql: memoryLoopMessagePageSql(rows) } },
 			});
 			const loopMessagesPage = (BotRuntime.prototype as unknown as {
@@ -996,6 +1014,7 @@ describe("Compaction", () => {
 				loopMessageRowForMessage(2, { role: "tool", tool_call_id: "call-legacy", content: "{}" }, "tool_result"),
 			];
 			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+ refreshResultViewRendering: async () => {},
 				state: { storage: { sql: memoryLoopMessagePageSql(rows) } },
 			});
 			const loopMessagesPage = (BotRuntime.prototype as unknown as {
@@ -1033,6 +1052,7 @@ describe("Compaction", () => {
 				loopMessageRowForTest(11, "run-current", "Current event"),
 			];
 			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+ refreshResultViewRendering: async () => {},
 				state: { storage: { sql: memoryLoopMessagePageSql(rows) } },
 			});
 			const loopMessagesPage = (BotRuntime.prototype as unknown as {
@@ -1049,6 +1069,7 @@ describe("Compaction", () => {
 
 		it("uses the latest successful compaction summary after a failed compaction row", () => {
 			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+ refreshResultViewRendering: async () => {},
 				state: {
 					storage: {
 						sql: {
@@ -1108,6 +1129,7 @@ describe("Compaction", () => {
 			});
 			const replaceEventPayloadWithoutBroadcast = vi.fn();
 			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+ refreshResultViewRendering: async () => {},
 				env: {},
 				state: {
 					storage: {
@@ -1218,6 +1240,7 @@ describe("Compaction", () => {
 			let summaryVisible = false;
 			const broadcastControl = vi.fn();
 			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+ refreshResultViewRendering: async () => {},
 				env: {},
 				state: {
 					storage: {
@@ -1364,6 +1387,7 @@ describe("Compaction", () => {
 				rawResponse: "{}",
 			}));
 			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+ refreshResultViewRendering: async () => {},
 				env: {},
 				state: {
 					storage: {
@@ -1472,6 +1496,7 @@ describe("Compaction", () => {
 					const replaceEventPayloadWithoutBroadcast = vi.fn();
 					const recordProviderTokenCalibrationSample = vi.fn();
 					const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+ refreshResultViewRendering: async () => {},
 						env: { BICKR_SIMULATION_MODE: "provider" },
 					state: {
 						storage: {
@@ -1603,6 +1628,7 @@ describe("Compaction", () => {
 			try {
 				const replaceEventPayloadWithoutBroadcast = vi.fn();
 				const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+ refreshResultViewRendering: async () => {},
 					env: { BICKR_SIMULATION_MODE: "provider" },
 					state: {
 					storage: {
@@ -1699,6 +1725,7 @@ describe("Compaction", () => {
 			);
 			let promptTokens = expectedLimits.nextCompactionTokens;
 			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+ refreshResultViewRendering: async () => {},
 				activeProviderRequestMessages: () => [{ role: "system", content: "System." }, { role: "assistant", content: "Old context." }],
 				currentCompactionContextEstimate: () => ({ totalTokens: 4, rowTokens: 4, rows: [{ row, tokens: 4 }], calibration }),
 				compactionRowsForEstimatedBudget: () => [row],
@@ -1799,6 +1826,7 @@ describe("Compaction", () => {
 			};
 			const recordLoopMessageLog = vi.fn();
 			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+ refreshResultViewRendering: async () => {},
 				state: { storage: { sql } },
 				recordLoopMessageLog,
 			});
@@ -1941,6 +1969,7 @@ describe("Compaction", () => {
 		const recordInferenceSubmission = vi.fn();
 		const compactedRows: unknown[][] = [];
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+ refreshResultViewRendering: async () => {},
 			activeLoopMessagesForProvider: () => activeMessages,
 			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) => {
 				events.push({ type, payload });
@@ -2024,6 +2053,7 @@ describe("Compaction", () => {
 		let compactionSelectionCalls = 0;
 		const compactionMetrics: Array<Record<string, unknown>> = [];
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+ refreshResultViewRendering: async () => {},
 			activeLoopMessagesForProvider: () => activeMessages,
 			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) => {
 				events.push({ type, payload });
@@ -2159,6 +2189,7 @@ describe("Compaction", () => {
 		const compactedSeqs: number[][] = [];
 		let compacted = false;
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+ refreshResultViewRendering: async () => {},
 			activeLoopMessageRows: () => rows,
 			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) => {
 				events.push({ type, payload });
@@ -2213,6 +2244,7 @@ describe("Compaction", () => {
 		const calibration = { tokensPerCharacter: 0.25, sampleCount: 0 };
 		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+ refreshResultViewRendering: async () => {},
 			activeLoopMessagesForProvider: () => [],
 			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) => {
 				events.push({ type, payload });
@@ -2258,6 +2290,7 @@ describe("Compaction", () => {
 		const limits = providerCompactionSummaryLimitsForChat(bot, [], calibration, toolDefinitionsForProviderRound(englishInstructions));
 		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+ refreshResultViewRendering: async () => {},
 			activeLoopMessagesForProvider: () => [],
 			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) => {
 				events.push({ type, payload });
@@ -2310,6 +2343,7 @@ describe("Compaction", () => {
 		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
 		let compactCalls = 0;
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+ refreshResultViewRendering: async () => {},
 			activeLoopMessagesForProvider: () => [{ role: "assistant", content: "Still too large after compaction." }],
 			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) => {
 				events.push({ type, payload });
@@ -2366,6 +2400,7 @@ describe("Compaction", () => {
 		const callProvider = vi.fn();
 		const recordInferenceSubmission = vi.fn();
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+ refreshResultViewRendering: async () => {},
 			activeLoopMessagesForProvider: () => [{ role: "assistant", content: "Current setup is already too large." }],
 			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) => {
 				events.push({ type, payload });

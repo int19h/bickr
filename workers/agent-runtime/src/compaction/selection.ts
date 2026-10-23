@@ -1,9 +1,10 @@
+import { renderStoredLoopMessage, type StoredResultViewColumns } from '../runtime/result-messages';
 import type { BotInferenceSubmissionMessage } from '@bickr/shared/model';
 import { compactionRowTokenFraction, estimateChatMessageTokens, type TextTokenCalibration } from './limits';
 
 type ChatMessage = BotInferenceSubmissionMessage;
 
-export type CompactionMessageRow = {
+export type CompactionMessageRow = StoredResultViewColumns & {
 	message_json: string;
 };
 
@@ -166,8 +167,8 @@ function loopMessageCompactionGroups<Row extends CompactionMessageRow>(
 	return groups;
 }
 
-export function loopMessageChatMessageFromRow(row: Pick<CompactionMessageRow, 'message_json'>): ChatMessage {
-	const parsed = JSON.parse(row.message_json) as unknown;
+export function loopMessageChatMessageFromRow(row: CompactionMessageRow): ChatMessage {
+	const parsed = renderStoredLoopMessage(row);
 	const record = runtimeRecord(parsed);
 	const role = record.role;
 	if (role !== 'system' && role !== 'user' && role !== 'assistant' && role !== 'tool') {

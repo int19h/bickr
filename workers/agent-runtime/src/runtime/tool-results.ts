@@ -42,6 +42,22 @@ export function providerToolResultPayload(
 	const text = context.text;
 	const canonical = canonicalToolName(name);
 	const semanticResult = envelope ?? legacyToolResultEnvelope(canonical, result, args);
+	// New writers supply a complete discriminant. Only the marked legacy path
+	// below can infer a result shape from its tool name and record fields.
+	switch (semanticResult.kind) {
+		case 'forums_listed': return pruneProviderArrayForBudget(semanticResult.forums.map(forum => providerForum(runtimeRecord(forum))), options.tokenBudget).items;
+		case 'threads_listed': return pruneProviderArrayForBudget(semanticResult.threads.map(thread => providerThreadSummary(runtimeRecord(thread), context, { includeForum: semanticResult.order === 'hot' })), options.tokenBudget).items;
+		case 'posts_searched': return pruneProviderArrayForBudget(semanticResult.posts.map(post => providerSearchPost(runtimeRecord(post), context)), options.tokenBudget).items;
+		case 'posts_read': return providerTypedReadResult(semanticResult.read, context);
+		case 'profiles_searched': return pruneProviderArrayForBudget(semanticResult.profiles.map(profile => providerProfile(runtimeRecord(profile))), options.tokenBudget).items;
+		case 'profiles_listed': return providerProfileListResult(runtimeRecord(semanticResult.page), options.tokenBudget);
+		case 'notifications_checked': return providerCheckNotificationsResult(semanticResult.events, context, options.tokenBudget);
+		case 'activity_viewed': return providerActivityFeedResult(text, runtimeRecord(semanticResult.feed), options.tokenBudget);
+		case 'followers_queried': return providerFollowerQueryResult(runtimeRecord(semanticResult.result));
+		case 'logged_off': return { ok: true, status: 'finished', message: text.format('tool.log_off.finished') };
+	}
+	// Legacy adapter: after a census of active rows without views, force
+	// compaction (WI-F), advance the view schema version, and delete this branch.
 	if (canonical === 'check_notifications') {
 		const record = runtimeRecord(result);
 		return providerCheckNotificationsResult(Array.isArray(record.events) ? record.events : [], context, options.tokenBudget);
@@ -271,7 +287,7 @@ export function providerToolResultUsesTokenBudget(name: string): boolean {
 	);
 }
 
-export type ProviderContextContentScope = {
+export type LegacyProviderContentScope = {
 	commentsWithText: Set<string>;
 	threadsWithText: Set<string>;
 };
@@ -296,25 +312,25 @@ export { providerSelfAuthor };
 export type ProviderSerializationContext = {
 	readonly text: BotText;
 	readonly self: ProviderSelfParticipant;
-	readonly content: ProviderContextContentScope;
+	readonly content: LegacyProviderContentScope;
 };
 
 export function providerSerializationContext(
 	text: BotText,
 	self: ProviderSelfParticipant,
-	content: ProviderContextContentScope = emptyProviderContextContentScope(),
+	content: LegacyProviderContentScope = emptyProviderContextContentScope(),
 ): ProviderSerializationContext {
 	return { text, self, content };
 }
 
-export function emptyProviderContextContentScope(): ProviderContextContentScope {
+export function emptyProviderContextContentScope(): LegacyProviderContentScope {
 	return {
 		commentsWithText: new Set(),
 		threadsWithText: new Set(),
 	};
 }
 
-export function cloneProviderContextContentScope(scope: ProviderContextContentScope): ProviderContextContentScope {
+export function cloneProviderContextContentScope(scope: LegacyProviderContentScope): LegacyProviderContentScope {
 	return {
 		commentsWithText: new Set(scope.commentsWithText),
 		threadsWithText: new Set(scope.threadsWithText),
@@ -540,6 +556,10 @@ function mergedProviderNotificationEventGroups(events: StoredNotificationEvent[]
  * first notice, so delivery order is preserved. Every merged notification id travels with it: the
  * inclusion list is what the caller deletes, and a lost id would leave an undeliverable row behind.
  */
+export function providerNotificationGroups(events: StoredNotificationEvent[]): ProviderNotificationEventGroup[] {
+	return coalescedCommentNoticeGroups(mergedProviderNotificationEventGroups(events));
+}
+
 function coalescedCommentNoticeGroups(groups: ProviderNotificationEventGroup[]): ProviderNotificationEventGroup[] {
 	const noticesByActor = new Map<string, Array<{ index: number; group: ProviderNotificationEventGroup; event: CommentNoticeEvent }>>();
 	groups.forEach((group, index) => {
@@ -567,9 +587,10 @@ function coalescedCommentNoticeGroups(groups: ProviderNotificationEventGroup[]):
 		coalesced.set(first.index, {
 			event: {
 				kind: 'coalesced_comment_notice',
+				createdAt: first.event.createdAt,
 				type: 'comment_created',
 				actor: first.event.actor,
-				notices: notices.map((notice) => ({ thread: notice.event.thread, comment: notice.event.comment })),
+				notices: notices.map((notice) => ({ createdAt: notice.event.createdAt, thread: notice.event.thread, comment: notice.event.comment })),
 			},
 			deliveryReasons: orderedProviderDeliveryReasons(notices.flatMap((notice) => notice.group.deliveryReasons)),
 			notificationIds: notices.flatMap((notice) => notice.group.notificationIds),
@@ -869,7 +890,7 @@ export function orderedProviderDeliveryReasons(reasons: string[]): string[] {
 	];
 }
 
-export function collectProviderContextContentFromValue(value: unknown, scope: ProviderContextContentScope): void {
+export function collectProviderContextContentFromValue(value: unknown, scope: LegacyProviderContentScope): void {
 	if (typeof value === 'string') {
 		let parsed: unknown;
 		try {
@@ -1289,6 +1310,49 @@ function providerFollowerQueryResult(record: Record<string, unknown>): BotFollow
 	};
 }
 
+type TypedProviderReadComment = {
+	commentRef?: string; author?: string; title?: string; body?: string;
+	focused?: true; focusDescription?: string; ancestorOnly?: true;
+	replies: TypedProviderReadComment[] | number;
+};
+
+function providerTypedReadContentTree(content: ReadContentItem[], context: ProviderSerializationContext): TypedProviderReadComment[] {
+	const renderComment = (item: ReadContentItem): TypedProviderReadComment => {
+		const body = stringValue(item.body);
+		const includeBody = Boolean(body && !context.content.commentsWithText.has(item.id));
+		if (body) context.content.commentsWithText.add(item.id);
+		const username = item.authorHandle ? providerUsername(item.authorHandle) : undefined;
+		return {
+			commentRef: providerCommentRef(item.id),
+			author: item.authorBotId === context.self.botId ? username ? `${username} (${providerSelfAuthor})` : providerSelfAuthor : username,
+			...(stringValue(item.title) ? { title: stringValue(item.title) } : {}),
+			...(includeBody ? { body } : {}),
+			...(item.focused ? { focused: true, focusDescription: context.text.format('read.focus.description') } : {}),
+			...(item.ancestorOnly ? { ancestorOnly: true } : {}),
+			replies: typeof item.replies === 'number' ? Math.max(0, Math.floor(item.replies)) : (item.replies ?? []).map(renderComment),
+		};
+	};
+	return content.map(renderComment);
+}
+
+/** Typed reads use the declared comment IDs and reply structure. */
+export function providerTypedReadResult(read: import('@bickr/shared/tool-results').ToolResultRead, context: ProviderSerializationContext): Record<string, unknown> {
+	const content = providerTypedReadContentTree(read.content, context);
+	const counts = (items: TypedProviderReadComment[]): { collapsed: number; trimmed: number } => items.reduce((total, item) => {
+		const children = typeof item.replies === 'number' ? { collapsed: item.replies, trimmed: 0 } : counts(item.replies);
+		return { collapsed: total.collapsed + children.collapsed, trimmed: total.trimmed + children.trimmed + (item.body?.endsWith('…') ? 1 : 0) };
+	}, { collapsed: 0, trimmed: 0 });
+	const { collapsed, trimmed } = counts(content);
+	return {
+		operation: read.operation,
+		context: providerReadContextWithGuidance(context.text, read.context, read.contextGuidance.collapsedReplies ? 0 : collapsed, read.contextGuidance.trimmedBodies ? 0 : trimmed),
+		thread: providerThreadSummary(runtimeRecord(read.thread), context),
+		...(read.targetCommentId ? { targetCommentRef: providerCommentRef(read.targetCommentId) } : {}),
+		content,
+	};
+}
+
+/** Legacy read adapter. Remove after the active-row census, WI-F compaction, and view schema version change. */
 export function providerReadResult(record: Record<string, unknown>, context: ProviderSerializationContext): Record<string, unknown> {
 	const content = Array.isArray(record.content) ? providerReadContentTree(record.content.map(runtimeRecord), context) : [];
 	const collapsedReplyCount = providerCollapsedReplyCount(content);
@@ -1309,7 +1373,7 @@ function providerReadContentTree(records: Record<string, unknown>[], context: Pr
 	const comments: Record<string, unknown>[] = [];
 	for (const record of records) {
 		const item = providerReadContent(record, context);
-		if (isProviderComment(item)) {
+		if (isLegacyProviderComment(item)) {
 			comments.push(item);
 		} else {
 			roots.push(item);
@@ -1352,7 +1416,7 @@ function providerReadReplies(value: unknown, context: ProviderSerializationConte
 	if (typeof value === 'number' && Number.isFinite(value)) {
 		return Math.max(0, Math.floor(value));
 	}
-	return Array.isArray(value) ? providerReadContentTree(value.map(runtimeRecord), context).filter(isProviderComment) : [];
+	return Array.isArray(value) ? providerReadContentTree(value.map(runtimeRecord), context).filter(isLegacyProviderComment) : [];
 }
 
 function providerNestedCommentList(comments: Record<string, unknown>[]): Record<string, unknown>[] {
@@ -1362,7 +1426,7 @@ function providerNestedCommentList(comments: Record<string, unknown>[]): Record<
 			...comment,
 			replies: providerNestedReplies(comment.replies),
 		};
-		const id = providerCommentId(node);
+		const id = legacyProviderCommentId(node);
 		if (id) {
 			byId.set(id, node);
 		}
@@ -1398,7 +1462,7 @@ function providerNestedReplies(value: unknown): Record<string, unknown>[] | numb
 		return Math.max(0, Math.floor(value));
 	}
 	return Array.isArray(value)
-		? value.map(runtimeRecord).filter(isProviderComment).map(providerCommentWithoutInternalNestingMetadata)
+		? value.map(runtimeRecord).filter(isLegacyProviderComment).map(providerCommentWithoutInternalNestingMetadata)
 		: [];
 }
 
@@ -1438,25 +1502,25 @@ function providerReadContextWithGuidance(text: BotText, baseContext: string, col
 
 function pushProviderReply(parent: Record<string, unknown>, reply: Record<string, unknown>): void {
 	const replies = providerCommentReplies(parent);
-	const replyId = providerCommentId(reply);
-	if (!replyId || !replies.some((existing) => providerCommentId(existing) === replyId)) {
+	const replyId = legacyProviderCommentId(reply);
+	if (!replyId || !replies.some((existing) => legacyProviderCommentId(existing) === replyId)) {
 		replies.push(reply);
 	}
 	parent.replies = replies;
 }
 
-function isProviderComment(record: Record<string, unknown>): boolean {
+function isLegacyProviderComment(record: Record<string, unknown>): boolean {
 	return (
 		stringValue(record.type) === 'comment' || Boolean(parseCommentRef(stringValue(record.commentRef)) ?? stringValue(record.commentId))
 	);
 }
 
-function providerCommentId(record: Record<string, unknown>): string | undefined {
+function legacyProviderCommentId(record: Record<string, unknown>): string | undefined {
 	return parseCommentRef(stringValue(record.commentRef)) ?? stringValue(record.commentId) ?? stringValue(record.id);
 }
 
 function providerCommentReference(thread: Record<string, unknown>, comment: Record<string, unknown>): Record<string, unknown> {
-	const commentId = providerCommentId(comment);
+	const commentId = legacyProviderCommentId(comment);
 	const threadId = stringValue(comment.threadId) ?? stringValue(thread.id) ?? stringValue(thread.threadId);
 	return removeUndefinedProperties({
 		commentRef: providerCommentRef(commentId),
@@ -1905,14 +1969,10 @@ function collapsedReadReplyCount(content: ReadContentItem[]): number {
 	}, 0);
 }
 
-// The budget estimate renders through the same serializer as emission — including the longer
-// `u/<handle> (MYSELF)` label and its standalone fallback. Self-heavy trees may therefore prune at a
-// slightly earlier threshold, but the emitted tree still fits the budget computed for it.
+// The budget estimate uses the typed serializer and includes the MYSELF label.
+// The emitted tree therefore fits the same budget as the preview.
 function providerReadContentTreeTokenEstimate(text: BotText, content: ReadContentItem[], self: ProviderSelfParticipant): number {
-	const providerContent = providerReadContentTree(
-		content.map((item) => item as unknown as Record<string, unknown>),
-		providerSerializationContext(text, self),
-	);
+	const providerContent = providerTypedReadContentTree(content, providerSerializationContext(text, self));
 	return estimateTextTokens(JSON.stringify(providerContent));
 }
 
