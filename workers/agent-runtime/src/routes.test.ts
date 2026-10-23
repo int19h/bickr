@@ -40,6 +40,7 @@ const routeCases = [
 	{ method: 'DELETE', path: '/users/user-1/inference-configurations/config-1', handlerId: 'delete-inference-configuration' },
 	{ method: 'GET', path: '/users/user-1/inference-translation/annotation', handlerId: 'get-inference-translation-annotation' },
 	{ method: 'POST', path: '/maintenance/tool-result-handles', handlerId: 'deleted-reference-handle-backfill' },
+	{ method: 'POST', path: '/maintenance/legacy-history/census', handlerId: 'legacy-history-maintenance' },
 	{ method: 'POST', path: '/maintenance/instruction-localization/runtime', handlerId: 'instruction-localization-sweep' },
 	{ method: 'GET', path: '/inference-graph/provider-default-barrier-sweep/status', handlerId: 'inference-provider-default-barrier-sweep-fleet-status' },
 	{ method: 'POST', path: '/inference-graph/provider-default-barrier-sweep', handlerId: 'run-inference-provider-default-barrier-sweep-fleet' },
@@ -93,6 +94,10 @@ const routeCases = [
 describe('agent runtime route matching', () => {
 	it.each(routeCases)('$method $path resolves to $handlerId', ({ method, path, handlerId }) => {
 		expect(matchAgentRuntimeRoute(path, method)?.handlerId).toBe(handlerId);
+	});
+
+	it('matches the forced history compaction route', () => {
+		expect(matchAgentRuntimeRoute('/maintenance/legacy-history/compact', 'POST')?.handlerId).toBe('legacy-history-maintenance');
 	});
 
 	it('has one path-and-method assertion for every declarative route entry', () => {

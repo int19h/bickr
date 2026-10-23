@@ -134,7 +134,7 @@ export function reducedCompactionRowsAfterOutputLimit<Row extends CompactionMess
 	return selectedGroups.flatMap((group) => group.rows);
 }
 
-function loopMessageCompactionGroups<Row extends CompactionMessageRow>(
+export function loopMessageCompactionGroups<Row extends CompactionMessageRow>(
 	rows: readonly CompactionCandidateEstimate<Row>[],
 ): Array<{ rows: Row[]; tokens: number }> {
 	const groups: Array<{ rows: Row[]; tokens: number }> = [];

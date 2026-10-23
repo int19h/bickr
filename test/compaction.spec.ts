@@ -1,3 +1,4 @@
+import type { LegacyHistoryCost } from '../workers/agent-runtime/src/runtime/legacy-history-maintenance';
 import { testResultContext } from '../workers/agent-runtime/src/runtime/result-render-context.test-support';
 import type { RuntimeBotDocument } from "../workers/agent-runtime/src/types";
 import type { LocalizedProviderSettings } from "../workers/agent-runtime/src/provider-requests";
@@ -1442,7 +1443,8 @@ describe("Compaction", () => {
 			}));
 		});
 
-		it("shrinks the compaction row batch after provider output length exhaustion", async () => {
+		it.each([false, true])("shrinks the compaction row batch after provider output length exhaustion with legacy accounting: %s", async (legacy) => {
+			const cost: LegacyHistoryCost | undefined = legacy ? { providerCalls: 0, promptTokens: 0, completionTokens: 0, totalTokens: 0, usageMissingCalls: 0 } : undefined;
 			const originalFetch = globalThis.fetch;
 			const large = (label: string) => `${label} ${"x".repeat(4_000)}`;
 			const rows = [
@@ -1527,6 +1529,7 @@ describe("Compaction", () => {
 						rows: unknown[],
 						mode: "auto" | "manual",
 						metrics: Record<string, unknown>,
+						legacyCost?: LegacyHistoryCost,
 					) => Promise<void>;
 				}).compactLoopMessageRows.bind(runtime, testResultContext);
 
@@ -1538,9 +1541,11 @@ describe("Compaction", () => {
 					rows,
 					"auto",
 					{},
+					cost,
 				);
 
 				expect(fetchMock).toHaveBeenCalledTimes(2);
+				if (cost) expect(cost).toEqual({ providerCalls: 2, promptTokens: 180, completionTokens: 112, totalTokens: 292, usageMissingCalls: 0 });
 				const firstBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as { messages: BotInferenceSubmissionMessage[] };
 				const secondBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)) as { messages: BotInferenceSubmissionMessage[] };
 				expect(JSON.stringify(firstBody.messages)).toContain("Old context three");

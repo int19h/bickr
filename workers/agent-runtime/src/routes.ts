@@ -1,3 +1,4 @@
+import { legacyHistoryCursor, legacyHistoryFleetPage } from './runtime/legacy-history-maintenance';
 import { backfillDeletedReferenceHandles, type DeletedHandleBackfillCursor } from '@bickr/shared/deleted-reference-handles';
 import { migrateParticipantTime } from "@bickr/shared/participant-time-migration";
 import { normalizeKvDocuments, isDocumentNormalizationOutcome, isWithinKvNormalizationQuietPeriod } from "@bickr/shared/kv-normalization-sweep";
@@ -1172,6 +1173,21 @@ export const agentRuntimeRouteTable = [
 			}
 			const repair = accountIndexRepairEnvironment(context.env).repairOwnedObject;
 			return ok({ page: await backfillDeletedReferenceHandles(context.env.BICKR_D1, repair, cursor) });
+		},
+	},
+	{
+		// Retire after a zero active-row census and the next view schema version.
+		id: 'legacy-history-maintenance',
+		method: 'POST',
+		pattern: /^\/maintenance\/legacy-history\/(census|compact)$/,
+		dispatch: 'direct',
+		handler: async (context) => {
+			if (!isTrustedInternalServiceRequest(context.request, context.env.INTERNAL_SERVICE_SECRET)) throw new RepositoryError('unauthorized', 'Authentication is required.', 401);
+			requireSchedulerServiceRequest(context.request);
+			const body = requiredRecord(await readOptionalJsonBody(context.request));
+			const cursor = legacyHistoryCursor(body.cursor);
+			if (!context.env.BOT_RUNTIME) throw new RepositoryError('server_error', 'Runtime binding is unavailable.', 500);
+			return ok({ page: await legacyHistoryFleetPage({ ...context.env, BOT_RUNTIME: context.env.BOT_RUNTIME }, context.match[1] === 'census' ? 'census' : 'compact', cursor, body.limit) });
 		},
 	},
 	{
