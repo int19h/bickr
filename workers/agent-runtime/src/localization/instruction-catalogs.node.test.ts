@@ -72,10 +72,89 @@ function catalogSourceFingerprint(): string {
 	return createHash('sha256').update(JSON.stringify(sourceRecords)).digest('hex');
 }
 
+type LeadTranslation = {
+	provenance: 'lead_translation';
+	lead: string;
+	reviewerSessions: { reviewer: string; session: string }[];
+	reviewedCommit: string;
+	leadReason: string;
+	reviewerReason: string;
+};
+type FourDraftDecision = {
+	provenance?: 'four_draft';
+	leadReason: string;
+	candidateReason: string;
+	opusReason: string;
+	grokReason: string;
+};
+type ReviewDecision = { finalValueHash: string } & (LeadTranslation | FourDraftDecision);
+type ReviewGroup = { finalTemplateHash: string; decisions: Record<string, ReviewDecision> } & (
+	LeadTranslation | { provenance?: 'four_draft'; draftHashes: Record<string, string> }
+);
+type IncrementalReview = LeadTranslation & {
+	sourceCommit: string;
+	catalogSourceHash: string;
+	units: string[];
+	status: string;
+	reviewedDraftCommit: string;
+	reportHash: string;
+	uncertainties: string[];
+};
+
+function assertLeadTranslation(record: LeadTranslation): void {
+	expect(record.provenance).toBe('lead_translation');
+	expect(record.lead.trim()).not.toBe('');
+	expect(record.reviewedCommit).toMatch(/^[a-f0-9]{40}$/);
+	expect(record.reviewerSessions.length).toBeGreaterThan(0);
+	const sessions = record.reviewerSessions.map(reviewer => reviewer.session);
+	expect(new Set(sessions).size).toBe(sessions.length);
+	for (const reviewer of record.reviewerSessions) {
+		expect(reviewer.reviewer.trim()).not.toBe('');
+		expect(reviewer.session).toMatch(/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/);
+		expect(reviewer.reviewer).not.toBe(record.lead);
+	}
+	for (const reason of [record.leadReason, record.reviewerReason]) expect(reason.trim().length).toBeGreaterThan(0);
+	for (const field of ['draftHashes', 'candidateReason', 'opusReason', 'grokReason']) expect(record).not.toHaveProperty(field);
+}
+
+function assertFourDraftGroup(record: Exclude<ReviewGroup, LeadTranslation>): void {
+	expect([undefined, 'four_draft']).toContain(record.provenance);
+	expect(Object.keys(record.draftHashes).sort()).toEqual(['codex', 'gemini', 'grok', 'opus']);
+	for (const value of Object.values(record.draftHashes)) expect(value).toMatch(/^[a-f0-9]{64}$/);
+}
+
+function assertDecision(record: ReviewDecision): void {
+	if (record.provenance === 'lead_translation') {
+		assertLeadTranslation(record);
+	} else {
+		expect([undefined, 'four_draft']).toContain(record.provenance);
+		for (const reason of [record.leadReason, record.candidateReason, record.opusReason, record.grokReason]) {
+			expect(reason.trim().length).toBeGreaterThan(0);
+		}
+	}
+}
+
 describe('reviewed instruction catalogs', () => {
-	it('keeps changed Markdown messages pending until translation review', () => {
-		expect(inventory.pendingTranslationKeys).toEqual(expect.arrayContaining(['report.timestamp.relative', 'report.timestamp.absolute', 'result.reference.deleted', 'result.comment.reply', 'system.main']));
+	it('closes the pending state after the Markdown translation review', () => {
+		expect(inventory.pendingTranslationKeys).toEqual([]);
+		expect(pendingUnits).toEqual([]);
 	});
+	it('rejects incomplete or mixed lead-translation evidence', () => {
+		const valid: LeadTranslation = {
+			provenance: 'lead_translation', lead: 'claude-opus',
+			reviewerSessions: [{ reviewer: 'codex', session: '01a1698f-3e28-78e0-95fe-3f5136e1da61' }],
+			reviewedCommit: 'ecdf29b7baaf31b02cc2bdbf1f514b545c38143d',
+			leadReason: 'The lead applied every finding.', reviewerReason: 'Codex reviewed the translation.',
+		};
+		assertLeadTranslation(valid);
+		for (const invalid of [
+			{ ...valid, reviewerSessions: [] }, { ...valid, reviewedCommit: 'unknown' },
+			{ ...valid, leadReason: '' }, { ...valid, reviewerReason: '' },
+			{ ...valid, draftHashes: {} }, { ...valid, opusReason: 'No review.' },
+			{ ...valid, grokReason: 'No review.' }, { ...valid, provenance: 'unknown' },
+		]) expect(() => assertLeadTranslation(invalid as LeadTranslation)).toThrow();
+	});
+
 	it.each(instructionLocales)('keeps deliberate prompt separators in %s', (locale) => {
 		const group = catalogPart(`workers/agent-runtime/src/localization/${locale}/system.yaml`);
 		expect(group['system.plan']).toMatch(/[^\n]\n\n$/);
@@ -93,38 +172,58 @@ describe('reviewed instruction catalogs', () => {
 		const approval = JSON.parse(readFileSync(`${root}/docs/prompt-localization/reviews/${locale}.json`, 'utf8')) as {
 			sourceHash: string; catalogSourceHash: string; locale: string; status: string;
 			reviewers: { opus: unknown; grok: unknown };
-			groups: Record<string, {
-				status?: string; pendingTranslationKeys?: string[]; finalTemplateHash: string; draftHashes: Record<string, string>;
-				decisions: Record<string, { finalValueHash: string; leadReason: string; candidateReason: string; opusReason: string; grokReason: string }>;
-			}>;
+			groups: Record<string, ReviewGroup>;
+			incrementalReviews: ({ provenance?: undefined } | IncrementalReview)[];
 		};
-		expect(approval).toMatchObject({ sourceHash: inventory.sourceHash, catalogSourceHash: sourceHash, locale, status: 'partially_pending_translation' });
+		expect(approval).toMatchObject({ sourceHash: inventory.sourceHash, catalogSourceHash: sourceHash, locale, status: inventory.pendingTranslationKeys.length ? 'partially_pending_translation' : 'approved' });
 		expect(approval.reviewers.opus).toBeTruthy();
 		expect(approval.reviewers.grok).toBeTruthy();
 		expect(Object.keys(approval.groups).sort()).toEqual(inventory.groups.map((group) => group.group).sort());
 		for (const group of inventory.groups) {
-			const first = units.find((unit) => unit.definition.file.endsWith(`/en/${group.group.replace(/^shared\//, '')}.yaml`))!;
+			const groupInventory = JSON.parse(readFileSync(`${root}/docs/prompt-localization/inventory/${group.file}`, 'utf8')) as { units: InventoryUnit[] };
+			const first = groupInventory.units[0]!;
 			const ids = new Set(reviewedUnits.filter(unit => unit.definition.file === first.definition.file).map(unit => unit.id));
 			const target = Object.fromEntries(Object.entries(catalogPart(first.definition.file.replace('/en/', `/${locale}/`))).filter(([id]) => ids.has(id as keyof typeof messageParameters)));
 			expect(createHash('sha256').update(JSON.stringify(target)).digest('hex'), group.group).toBe(approval.groups[group.group]!.finalTemplateHash);
-			expect(Object.keys(approval.groups[group.group]!.draftHashes).sort()).toEqual(['codex', 'gemini', 'grok', 'opus']);
-			for (const value of Object.values(approval.groups[group.group]!.draftHashes)) expect(value).toMatch(/^[a-f0-9]{64}$/);
+			const record = approval.groups[group.group]!;
+			if (record.provenance === 'lead_translation') assertLeadTranslation(record);
+			else assertFourDraftGroup(record);
 			const decisions = approval.groups[group.group]!.decisions;
-			const pending: string[] = [];
-			if (pending.length) expect(approval.groups[group.group]).toMatchObject({ status: 'pending_translation', pendingTranslationKeys: pending });
-			expect(Object.keys(decisions).sort()).toEqual(Object.keys(target).filter(key => !pending.includes(key)).sort());
+			expect(record).not.toHaveProperty('status');
+			expect(record).not.toHaveProperty('pendingTranslationKeys');
+			expect(Object.keys(decisions).sort()).toEqual(Object.keys(target).sort());
 			for (const [id, value] of Object.entries(target)) {
-				if (pending.includes(id)) {
-					expect(value, id).toEqual(catalogPart(first.definition.file)[id]);
-					expect(decisions[id], id).toBeUndefined();
-					continue;
-				}
 				const decision = decisions[id]!;
 				expect(decision.finalValueHash, id).toBe(createHash('sha256').update(JSON.stringify(value)).digest('hex'));
-				for (const reason of [decision.leadReason, decision.candidateReason, decision.opusReason, decision.grokReason]) {
-					expect(reason.trim().length, id).toBeGreaterThan(0);
+				assertDecision(decision);
+				if (record.provenance === 'lead_translation') {
+					expect(decision).toMatchObject({
+						provenance: 'lead_translation', lead: record.lead,
+						reviewerSessions: record.reviewerSessions, reviewedCommit: record.reviewedCommit,
+					});
+				}
+				if (decision.provenance === 'lead_translation') {
+					const update = approval.incrementalReviews.findLast(entry => entry.provenance === 'lead_translation'
+						&& entry.reviewedCommit === decision.reviewedCommit && entry.units.includes(id)) as IncrementalReview | undefined;
+					expect(update, id).toBeDefined();
+					expect(decision.lead, id).toBe(update!.lead);
+					expect(decision.reviewerSessions, id).toEqual(update!.reviewerSessions);
 				}
 			}
+		}
+		const update = approval.incrementalReviews.at(-1) as IncrementalReview;
+		assertLeadTranslation(update);
+		expect(update.catalogSourceHash).toBe(sourceHash);
+		expect(update.sourceCommit).toMatch(/^[a-f0-9]{40}$/);
+		expect(update.reviewedDraftCommit).toMatch(/^[a-f0-9]{40}$/);
+		expect(update.reportHash).toMatch(/^[a-f0-9]{64}$/);
+		expect(update.status).toBe('accepted_by_lead');
+		const leadDecisions = Object.values(approval.groups).flatMap(group => Object.entries(group.decisions))
+			.filter(([, decision]) => decision.provenance === 'lead_translation').map(([id]) => id);
+		expect(update.units.sort()).toEqual(leadDecisions.sort());
+		if (locale === 'ga') {
+			expect(update.uncertainties.join(' ')).toContain('best effort');
+			expect(update.uncertainties.join(' ')).toContain('tócain téacs');
 		}
 	});
 

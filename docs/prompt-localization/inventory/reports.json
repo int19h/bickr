@@ -1,0 +1,37 @@
+{
+  "group": "reports",
+  "units": [
+    {
+      "id": "report.timestamp.relative",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/reports.yaml",
+        "line": 1
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
+          "line": 6344,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "f9a8daeca7040e3ef1201e3b6fd6548715394b6a7dd920f57f9f7bc674990f03"
+    },
+    {
+      "id": "report.timestamp.absolute",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/reports.yaml",
+        "line": 4
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
+          "line": 6344,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "582bed23df4f7396c96fab94d08a7f31a3b0a20ed01e304ee18227e9a33884c1"
+    }
+  ]
+}

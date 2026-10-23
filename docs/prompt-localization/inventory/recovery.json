@@ -877,6 +877,22 @@
       ],
       "protectedTokens": [],
       "sourceTemplateHash": "3ab0747e58a16dff5c7fbf8dea64c11f3779a89972067076867f75073a25a162"
+    },
+    {
+      "id": "recovery.batch.guidance",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/recovery.yaml",
+        "line": 142
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-views.ts",
+          "line": 582,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "af52e0ab91c734562ca03db81f6a3a85e532be144e486c9a687adae9954c9f0f"
     }
   ]
 }
