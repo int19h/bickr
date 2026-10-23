@@ -1,8 +1,8 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "catalogSourceHash": "1ea4d0935facacfea35be251f30fc67822b5de7e36d4075fd21c7595bffff89e",
+  "catalogSourceHash": "569c6dc99760c3c93e1594717e4078e6e25111ee4b5b788935ef32b6d2cb5cab",
   "locale": "ru",
-  "status": "accepted_by_lead",
+  "status": "partially_pending_translation",
   "leadReason": "Accept the Russian catalog after both reviewers accept the exact final follow-up. Prompt terminology separates the complete persona prompt from a marked instruction. Guillemets wrap inserted titles without changing authored bytes. All initial comma, gender-neutral narration, entity-case, and count-bound choices preserve the source.",
   "terminologyDecisions": {
     "prompt": "Use промпт for the technical instruction document. Do not confuse it with a provider request or the character description.",
@@ -3210,7 +3210,7 @@
     },
     "serialization": {
       "finalHash": "6e9a60999a378cd33127b9fd4094ba3ef6d45f7d63e46e57f226dd4ab5dee161",
-      "finalTemplateHash": "537a3f98cd93f82941582119717c1b30168f54bf3405db08ece372661f85f8f3",
+      "finalTemplateHash": "440fd3030ebb28daee6a6e6cdc3a11f148313c09e308f08004715a10735fc10a",
       "draftHashes": {
         "codex": "2b7e64746ce24af7a69c65181ff755c3f40660c0c4c72b882bcc4ac7adc560cd",
         "opus": "57a2503c2e30529f3ab7c9ad5992af8aee7a8863ac3ac5302e1c6244e38a5b43",
@@ -3222,149 +3222,6 @@
         "grok": "b946ed5ba22c7184ac0453cd9c10b8cf5db6319f2785ed2c81f6da1d256a2799"
       },
       "decisions": {
-        "time.just_now": {
-          "finalValueHash": "64a6b011c144047cbc2e4859bf79b6796e00826651f8b061731002ef596f6db8",
-          "chosenFrom": "grok",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All four agree on the just-now time label.",
-          "opusDecision": "accept",
-          "opusReason": "All drafts agree.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Relative time uses год/года/лет and the matching forms. other is genitive singular for fractions. First person stays on my operation. Matches codex, opus, grok, gemini. English checked: just now",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "time.year.future": {
-          "finalValueHash": "1df0459b2139d35be3c86789e4d2fcf179ae2cb4b8f42ddd3dcbbb9bad47d4e5",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All four categories of future year time were compared. Codex and Opus agree on native integer and decimal forms. Grok replaces the other category with an unnatural directional label; Gemini uses a plural genitive for decimal counts.",
-          "opusDecision": "accept",
-          "opusReason": "Correct forms for 1/21, 2-4, 5-20/0/100, and genitive singular for fractions.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Relative time uses год/года/лет and the matching forms. other is genitive singular for fractions. First person stays on my operation. Matches codex, opus. English checked: in {{count}} year",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "time.year.past": {
-          "finalValueHash": "e1a27b9c583a5e9fa526ba6637046eb531f7c174d8cbe5ae8a14fde186537e28",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All four categories of past year time were compared. Codex and Opus agree on native integer and decimal forms. Grok replaces the other category with an unnatural directional label; Gemini uses a plural genitive for decimal counts.",
-          "opusDecision": "accept",
-          "opusReason": "Correct forms in every category.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Relative time uses год/года/лет and the matching forms. other is genitive singular for fractions. First person stays on my operation. Matches codex, opus. English checked: {{count}} year ago",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "time.month.future": {
-          "finalValueHash": "b1634f5c0d405d83380d4c7598da454aac386e820cb3247a07a9c4bcad2801c9",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All four categories of future month time were compared. Codex and Opus agree on native integer and decimal forms. Grok replaces the other category with an unnatural directional label; Gemini uses a plural genitive for decimal counts.",
-          "opusDecision": "accept",
-          "opusReason": "Correct forms in every category.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Relative time uses год/года/лет and the matching forms. other is genitive singular for fractions. First person stays on my operation. Matches codex, opus. English checked: in {{count}} month",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "time.month.past": {
-          "finalValueHash": "30951b4cc8bfd888b7f5c13e7c4ba93823f80be9ee4493b84766a970d740148c",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All four categories of past month time were compared. Codex and Opus agree on native integer and decimal forms. Grok replaces the other category with an unnatural directional label; Gemini uses a plural genitive for decimal counts.",
-          "opusDecision": "accept",
-          "opusReason": "Correct forms in every category.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Relative time uses год/года/лет and the matching forms. other is genitive singular for fractions. First person stays on my operation. Matches codex, opus. English checked: {{count}} month ago",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "time.day.future": {
-          "finalValueHash": "ce4bcafa0bf553c4fb4e2b009c7b03071256152ff41a4c4b1b55117562e2cac1",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All four categories of future day time were compared. Codex and Opus agree on native integer and decimal forms. Grok replaces the other category with an unnatural directional label; Gemini uses a plural genitive for decimal counts.",
-          "opusDecision": "accept",
-          "opusReason": "Correct forms in every category.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Relative time uses год/года/лет and the matching forms. other is genitive singular for fractions. First person stays on my operation. Matches codex, opus. English checked: in {{count}} day",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "time.day.past": {
-          "finalValueHash": "8f9d97de7bebe99d47063b7a067b65e059660cfd861cb10b664ebddb3af9d93a",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All four categories of past day time were compared. Codex and Opus agree on native integer and decimal forms. Grok replaces the other category with an unnatural directional label; Gemini uses a plural genitive for decimal counts.",
-          "opusDecision": "accept",
-          "opusReason": "Correct forms in every category.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Relative time uses год/года/лет and the matching forms. other is genitive singular for fractions. First person stays on my operation. Matches codex, opus. English checked: {{count}} day ago",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "time.hour.future": {
-          "finalValueHash": "a27f4751a35fc3d9e3a0b4a31cf6186ea609df7032a4ae86251eeddf70e0ddd7",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All four categories of future hour time were compared. Codex and Opus agree on native integer and decimal forms. Grok replaces the other category with an unnatural directional label; Gemini uses a plural genitive for decimal counts.",
-          "opusDecision": "accept",
-          "opusReason": "Correct forms in every category.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Relative time uses год/года/лет and the matching forms. other is genitive singular for fractions. First person stays on my operation. Matches codex, opus. English checked: in {{count}} hour",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "time.hour.past": {
-          "finalValueHash": "4d5b9be518310683bc9a4b7d04076ecd4bc63bfa5779ee3aa2aba3f91b40f4cf",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All four categories of past hour time were compared. Codex and Opus agree on native integer and decimal forms. Grok replaces the other category with an unnatural directional label; Gemini uses a plural genitive for decimal counts.",
-          "opusDecision": "accept",
-          "opusReason": "Correct forms in every category.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Relative time uses год/года/лет and the matching forms. other is genitive singular for fractions. First person stays on my operation. Matches codex, opus. English checked: {{count}} hour ago",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "time.minute.future": {
-          "finalValueHash": "b16b053d27da18aa4024c50122f51f979feccd4bc223ccee8d085f738a32f5f9",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All four categories of future minute time were compared. Codex and Opus agree on native integer and decimal forms. Grok replaces the other category with an unnatural directional label; Gemini uses a plural genitive for decimal counts.",
-          "opusDecision": "accept",
-          "opusReason": "Accusative минуту/минуты/минут correct in every category.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Relative time uses год/года/лет and the matching forms. other is genitive singular for fractions. First person stays on my operation. Matches codex, opus. English checked: in {{count}} minute",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "time.minute.past": {
-          "finalValueHash": "7ebb76cce5d222aab41ec7b6e2e0c9ff8f97c1cb884abda230cced1b0fd07760",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All four categories of past minute time were compared. Codex and Opus agree on native integer and decimal forms. Grok replaces the other category with an unnatural directional label; Gemini uses a plural genitive for decimal counts.",
-          "opusDecision": "accept",
-          "opusReason": "Correct forms in every category.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Relative time uses год/года/лет and the matching forms. other is genitive singular for fractions. First person stays on my operation. Matches codex, opus. English checked: {{count}} minute ago",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
         "read.context.basic": {
           "finalValueHash": "1ab030fca0e57b482fa5a14468fc6efaa6bffe9c3d3ac2ba6de8de47e5bdf65a",
           "chosenFrom": "gemini",
@@ -3979,7 +3836,7 @@
     },
     "reports": {
       "finalHash": "b049cc7d9c0679ad7ccce9afa9fa1e4be8b6d33511a8eb952a03ca3ae495c9bf",
-      "finalTemplateHash": "e4dd30004906bb8aa4c8b5f7e2a04bb3b3f3b4404f2c1566a3837d824ec86329",
+      "finalTemplateHash": "c235daf236aaefbf2f2ac729e55f54493b3f02fb8e450438dcaf29fe31d1e9c8",
       "draftHashes": {
         "codex": "b049cc7d9c0679ad7ccce9afa9fa1e4be8b6d33511a8eb952a03ca3ae495c9bf",
         "opus": "941c9f5d1fc666f134caa3afb5737066fb6c7cfdbfa57d86b5cb4ac6447c67de",
@@ -3990,73 +3847,12 @@
         "opus": "d51fa89be217eab5a507be44faa34ffab27213414b9e9f2235bd4296d6e9ed43",
         "grok": "81cd8cf50f6c45d16128fa1202b20a6bcd9e7edeeeebff90a69f09e2868df951"
       },
-      "decisions": {
-        "report.elapsed.moment": {
-          "finalValueHash": "4ce8d2edebb1208b59ac351417f081a66d0e01092f72bd84037083b3bd083984",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Codex and Opus agree on a passed moment since the previous visit. Grok changes both terms and Gemini adds a redundant since-the-moment phrase.",
-          "opusDecision": "accept",
-          "opusReason": "Natural app report.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Elapsed reports are app reports. one/few/many/other agreement matches Russian, including fractional other. Matches codex, opus. English checked: A moment passed since your previous visit.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "report.elapsed.second": {
-          "finalValueHash": "94726b6ac9d7f8d8c3433a5ec113e7720d4794bde53ef175640087b04755ede6",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All four categories of elapsed second time were inspected. Codex keeps elapsed time since your previous visit with native integer and decimal forms. Opus uses plural elapsed agreement for few, Grok uses a neutral other label and Gemini uses the wrong decimal noun form.",
-          "opusDecision": "accept",
-          "opusReason": "Correct agreement: прошла (one), прошло (few/many), genitive singular for fractions.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Elapsed reports are app reports. one/few/many/other agreement matches Russian, including fractional other. Matches codex. English checked: {{count}} second passed since your previous visit.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "report.elapsed.minute": {
-          "finalValueHash": "84ac8c78a644660ae1a41350cadf3c986af30bf61185bbc47305cfc4968ba4f0",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All four categories of elapsed minute time were inspected. Codex keeps elapsed time since your previous visit with native integer and decimal forms. Opus uses plural elapsed agreement for few, Grok uses a neutral other label and Gemini uses the wrong decimal noun form.",
-          "opusDecision": "accept",
-          "opusReason": "Correct agreement in every category.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Elapsed reports are app reports. one/few/many/other agreement matches Russian, including fractional other. Matches codex. English checked: {{count}} minute passed since your previous visit.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "report.elapsed.hour": {
-          "finalValueHash": "17ba94e040ad7d20b8b56d1862f827c90a3913c128cc2b9b1f4e5c45829a8f69",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All four categories of elapsed hour time were inspected. Codex keeps elapsed time since your previous visit with native integer and decimal forms. Opus uses plural elapsed agreement for few, Grok uses a neutral other label and Gemini uses the wrong decimal noun form.",
-          "opusDecision": "accept",
-          "opusReason": "Correct agreement in every category.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Elapsed reports are app reports. one/few/many/other agreement matches Russian, including fractional other. Matches codex. English checked: {{count}} hour passed since your previous visit.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "report.elapsed.day": {
-          "finalValueHash": "01cf132e8172a559af61d2a136496b2111734e1b0e4e1e7f0dc5fd1495d6c653",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All four categories of elapsed day time were inspected. Codex keeps elapsed time since your previous visit with native integer and decimal forms. Opus uses plural elapsed agreement for few, Grok uses a neutral other label and Gemini uses the wrong decimal noun form.",
-          "opusDecision": "accept",
-          "opusReason": "Correct agreement in every category.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Elapsed reports are app reports. one/few/many/other agreement matches Russian, including fractional other. Matches codex. English checked: {{count}} day passed since your previous visit.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        }
-      }
+      "decisions": {},
+      "status": "pending_translation",
+      "pendingTranslationKeys": [
+        "report.timestamp.relative",
+        "report.timestamp.absolute"
+      ]
     },
     "recovery": {
       "finalHash": "0a0d04100c131c7b1ecdf97d7d442e02ad32d0945ffd4c86bbab9d71f2b0ca8d",

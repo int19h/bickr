@@ -7,11 +7,13 @@ import { describe, expect, it, vi } from 'vitest';
 import type { BotProfileRelationshipSummary, ForumSummary, LanguageTag, ThreadDocument, ThreadSummary } from '@bickr/shared/model';
 import type { ToolResultEnvelope, ToolResultReadContentItem } from '@bickr/shared/tool-results';
 import { botText } from '../localization';
-import { providerSerializationContext, providerToolResultPayload, pruneReadContentTreeForProviderBudget, readResultContext } from './tool-result-golden-builders.test-support';
+import { providerSerializationContext as oldSerializationContext, providerToolResultPayload, pruneReadContentTreeForProviderBudget, readResultContext } from './tool-result-golden-builders.test-support';
 import { buildToolResultView, renderToolResultView, failureResultView, settlementResultView, batchResultView, type ViewBuildContext } from './tool-result-views';
 import { ResultContextScope } from './result-context-scope';
 
 const text = botText('en');
+const time = { settings: { mode: 'relative' as const, timezone: 'UTC' }, createdAt: '2026-10-01T00:00:00Z' };
+const providerSerializationContext = (text: Parameters<typeof oldSerializationContext>[0], self: Parameters<typeof oldSerializationContext>[1]) => oldSerializationContext(text, self, undefined, time);
 const writtenAt = '2026-10-23T10:00:00.000Z';
 const en = 'en' as LanguageTag;
 const authored = (text: string) => ({ text, lang: en });
@@ -77,7 +79,7 @@ const activities: import('@bickr/shared/model').BotActivityItem[] = [
 	{ type: 'unfollow', id: 'unfollow-activity', bot: profile, createdAt: writtenAt },
 ];
 for (const activity of activities) cases.push({ name: 'view_activity', raw: { bot: profile, activities: [activity] }, envelope: { kind: 'activity_viewed', feed: { bot: profile, activities: [activity] } } });
-function context(scope = new ResultContextScope()): ViewBuildContext { return { text, selfId: 'reader', scope, writtenAt, references: new Map([['f/general', forum.id], ['u/alice', profile.id]]) }; }
+function context(scope = new ResultContextScope()): ViewBuildContext { return { time, text, selfId: 'reader', scope, writtenAt, references: new Map([['f/general', forum.id], ['u/alice', profile.id]]) }; }
 describe('JSON result views', () => {
 	it.each(cases.flatMap(test => [undefined, 1, 30, 100].map(budget => ({ ...test, budget }))))('matches the old $name builder with budget $budget', async ({ name, raw, envelope, budget }) => {
 		vi.useFakeTimers(); vi.setSystemTime(new Date(writtenAt));

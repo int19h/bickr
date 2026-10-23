@@ -1,3 +1,5 @@
+import { isParticipantTimezone } from "@bickr/shared/participant-time";
+import { ParticipantTimeFields } from "../../components/participant-time-fields";
 import { resolveInstructionLocale } from '@bickr/shared/instruction-language';
 import { factoryText } from '@bickr/shared/localization';
 import { InstructionLanguageField } from "../../components/instruction-language-field";
@@ -103,6 +105,7 @@ export function BotEdit({
 		bot.postingSettings.commentBodyCharacters,
 		bot.postingSettings.threadBodyCharacters,
 		bot.toolSettings,
+		bot.timeSettings,
 		bot.effectiveTickSettings.allowEarlyLogOff,
 		bot.tickSettings.contextWindowTokens,
 		bot.tickSettings.compactionSummaryPercent,
@@ -194,7 +197,8 @@ export function BotEdit({
 		commentBodyCharacters !== (bot.postingSettings.commentBodyCharacters ?? null) ||
 		draft.recurringPromptEnabled !== (savedInferenceSettings.recurringPromptEnabled !== false) ||
 		draft.recurringPrompt !== textValue(savedInferenceSettings.recurringPrompt ?? "") ||
-		toolDraftChanged(draft.tools, bot.toolSettings);
+		toolDraftChanged(draft.tools, bot.toolSettings) ||
+		JSON.stringify(draft.timeSettings) !== JSON.stringify(bot.timeSettings);
 	const valid =
 		(linkedClone || draft.language.trim().length > 0) &&
 		effectiveDraftDisplayName.length > 0 &&
@@ -218,7 +222,7 @@ export function BotEdit({
 			(threadBodyCharacters >= 1 && threadBodyCharacters <= inheritedPostingSettings.threadBodyCharacters)) &&
 		(commentBodyCharacters === null ||
 			(commentBodyCharacters >= 1 && commentBodyCharacters <= inheritedPostingSettings.commentBodyCharacters)) &&
-		toolDraftValid(draft.tools);
+		toolDraftValid(draft.tools) && isParticipantTimezone(draft.timeSettings.timezone);
 
 	useEffect(() => {
 		if (dirty) {
@@ -659,6 +663,7 @@ export function BotEdit({
 						<p className="help">
 							These tool permissions apply only to this participant and are not part of its reusable inference configuration.
 						</p>
+						<ParticipantTimeFields value={draft.timeSettings} onChange={timeSettings => setDraft(current => ({ ...current, timeSettings }))} />
 						<OpenRouterServerToolFields
 							available={openRouterServerToolsAvailable}
 							draft={draft.tools}

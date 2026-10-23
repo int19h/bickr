@@ -5,7 +5,7 @@ import { BotRuntime } from './bot-runtime';
 import { RuntimeMessageStore } from './message-store';
 import { createRuntimeTestStorage, type RuntimeTestStorage } from './sqlite-test-helper';
 import { attachToolResultView, renderStoredLoopMessage, toolResultViewFromRow } from './result-messages';
-import { buildToolResultView, renderToolResultView, retainKnownProfiles, resultViewFacetArrays } from './tool-result-views';
+import { buildToolResultView, renderToolResultView, retainKnownProfiles, resultViewFacetArrays, resultViewBase, type ToolResultView } from './tool-result-views';
 import { ResultContextScope, hydrateResultFacets } from './result-context-scope';
 import { resultHandleKey } from './result-handles';
 
@@ -77,6 +77,19 @@ describe('stored tool result views', () => {
 		expect(anchor!.facets.every(facet => facet.state === 'known')).toBe(true);
 		expect(hydrateResultFacets(shown!.facets, resultViewFacetArrays(anchor!))).toBe(2);
 		expect(anchor!.facets.every(facet => facet.state === 'shown')).toBe(true);
+	});
+	it('renders one stored row with the current participant time configuration', () => {
+		const { store } = fixture();
+		const ref = { kind: 'participant' as const, entityId: 'alice', handle: 'alice' };
+		const view: ToolResultView = { ...resultViewBase(text), kind: 'view_activity', profile: ref, activities: [{ kind: 'follow', profile: ref, when: { instant: '2026-10-02T00:00:00Z', writtenAt: '2026-10-23T00:00:00Z' } }] };
+		const message = store.appendLoopMessage('run', attachToolResultView({ role: 'tool', tool_call_id: 'time', content: '' }, view), 'tool_result');
+		const row = store.loopMessageRow(message.seq)!;
+		const time = { settings: { mode: 'relative' as const, timezone: 'UTC' }, createdAt: '2026-10-01T00:00:00Z' };
+		const render = () => renderStoredLoopMessage(row, view => renderToolResultView(view, text, new Map(), time)).content;
+		expect(render()).toContain('1d0h0m');
+		expect(render()).toBe(render());
+		const absolute = renderStoredLoopMessage(row, view => renderToolResultView(view, text, new Map(), { ...time, settings: { mode: 'absolute', timezone: 'America/Los_Angeles' } })).content;
+		expect(absolute).toContain('2026-10-01T17:00-07:00');
 	});
 	it('keeps old rows unchanged and rejects unsupported view versions', () => {
 		const old = { message_json: JSON.stringify({ role: 'tool', tool_call_id: 'old', content: '{"old":true}' }) };

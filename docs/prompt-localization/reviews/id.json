@@ -1,8 +1,8 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "catalogSourceHash": "1ea4d0935facacfea35be251f30fc67822b5de7e36d4075fd21c7595bffff89e",
+  "catalogSourceHash": "569c6dc99760c3c93e1594717e4078e6e25111ee4b5b788935ef32b6d2cb5cab",
   "locale": "id",
-  "status": "accepted_by_lead",
+  "status": "partially_pending_translation",
   "leadReason": "Accept the exact Indonesian proposal. Both reviewers accept all thirteen disputed units and find no additional defect. Compact native time phrases preserve exact count, unit, and direction. The explicit Mermaid size clause preserves the maximum. Native member headers and the sampel term state the member subset precisely. Saya preserves participant narration and Anda names the addressee only where needed.",
   "terminologyDecisions": {
     "relativeTime": "Use count-unit-lagi for future intervals and count-unit-yang-lalu for past intervals.",
@@ -3072,7 +3072,7 @@
     },
     "serialization": {
       "finalHash": "20e196698f682402e70a2ea435106a04bfdb4b5d2c87c33af97a5d9a63371b91",
-      "finalTemplateHash": "b445ce8d8df29d2084717423ad886935aecc6697db46cf65ce525f2c643855e8",
+      "finalTemplateHash": "7bbedec7187e04da0fd0b287081381cf578e71e6f34fbebea2d725a5b64597ce",
       "draftHashes": {
         "codex": "ea2fd08915be6f15fbf31a5e54df28590004c4919f0b1215167e76aafb729c13",
         "opus": "130e0f64a3a211980cbb94de2096631906aa736b324d68e2edefefb8f82f621d",
@@ -3084,259 +3084,6 @@
         "grok": "30259a51b71105ea9da7ea58a00c78ebd8994e99209fdebfaef642c137ee7425"
       },
       "decisions": {
-        "time.just_now": {
-          "finalValueHash": "9435ed76df61db58b6ff6f75a9a443e72a90880daaedf9368f877b8fae144c60",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All four agree on the native just-now phrase.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept baru saja as the compact fragment for just now.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "time.year.future": {
-          "finalValueHash": "8466f58a959113f6e7efb7b3f76caaf1936c1b4321b855ad83838bf28004d857",
-          "chosenFrom": "opus",
-          "leadReason": "Use a compact native time phrase in the when/lastActivity field. For future time, count-unit-lagi states the future interval directly, as the independent Grok draft proposes, without a possible within reading of dalam. For past time, count-unit-yang-lalu is shared by independent Opus and Gemini drafts. Indonesian has only other and does not add noun plurals after numerals. Preserve exact unit, count, and direction.",
-          "candidateReason": "Codex preserves future relative time in a complete year count sentence; Opus/Gemini use within fragments and Grok uses natural temporal fragments. The sole other category keeps the numeric count. Use the peers' natural counted tahun phrase in a complete time sentence instead of Codex unit-conversion wording.",
-          "opusDecision": "required_change",
-          "opusReason": "Format defect: this string is the value of the \"when\" or \"lastActivity\" field in tool results. The candidate renders a full sentence (\"Waktu yang berlalu/tersisa adalah N X.\"). Native phrases fit the slot. For the past I use the opus form (\"N X yang lalu\"); for the future, grok's \"N X lagi\" avoids the \"within\" reading of \"dalam N X\".",
-          "grokDecision": "optional_change",
-          "grokReason": "English is a compact when-field fragment, in {{count}} units. The candidate sentence keeps the direction, but it adds a period and a remaining-or-elapsed label. Indonesian can use the ordinary phrase. The noun stays singular after the numeral. dalam keeps future.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change: a compact fragment replaces the \"Waktu yang … adalah N\" sentence in the JSON \"when\" value. N … lagi states the future interval directly and avoids the within reading of dalam. The unit noun is unmarked after the numeral, as Indonesian requires, and the single other category covers every count.",
-              "proposedValueHash": "8466f58a959113f6e7efb7b3f76caaf1936c1b4321b855ad83838bf28004d857"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept {{count}} tahun lagi. English is the future label in {{count}} tahun. lagi states the interval ahead. dalam can also mean within, so it is not required here. The candidate’s remaining-time sentence is not the field phrase. Indonesian has only other. That category covers 0, 1, and every larger count. The noun stays singular after {{count}}.",
-              "proposedValueHash": "8466f58a959113f6e7efb7b3f76caaf1936c1b4321b855ad83838bf28004d857"
-            }
-          }
-        },
-        "time.year.past": {
-          "finalValueHash": "af36c0ca9cd6837f6f29dc9f81f03909db8a061ab52f445468e5aab6310b0b62",
-          "chosenFrom": "opus",
-          "leadReason": "Use a compact native time phrase in the when/lastActivity field. For future time, count-unit-lagi states the future interval directly, as the independent Grok draft proposes, without a possible within reading of dalam. For past time, count-unit-yang-lalu is shared by independent Opus and Gemini drafts. Indonesian has only other and does not add noun plurals after numerals. Preserve exact unit, count, and direction.",
-          "candidateReason": "Codex preserves past relative time in a complete year count sentence; Opus/Gemini use within fragments and Grok uses natural temporal fragments. The sole other category keeps the numeric count. Use the peers' natural counted tahun phrase in a complete time sentence instead of Codex unit-conversion wording.",
-          "opusDecision": "required_change",
-          "opusReason": "Format defect: this string is the value of the \"when\" or \"lastActivity\" field in tool results. The candidate renders a full sentence (\"Waktu yang berlalu/tersisa adalah N X.\"). Native phrases fit the slot. For the past I use the opus form (\"N X yang lalu\"); for the future, grok's \"N X lagi\" avoids the \"within\" reading of \"dalam N X\".",
-          "grokDecision": "optional_change",
-          "grokReason": "English is a compact when-field fragment, {{count}} units ago. The candidate sentence keeps the direction, but it adds a period and a remaining-or-elapsed label. Indonesian can use the ordinary phrase. The noun stays singular after the numeral. yang lalu keeps past.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change: a compact fragment replaces the \"Waktu yang … adalah N\" sentence in the JSON \"when\" value. N … yang lalu is the standard past fragment. The unit noun is unmarked after the numeral, as Indonesian requires, and the single other category covers every count.",
-              "proposedValueHash": "af36c0ca9cd6837f6f29dc9f81f03909db8a061ab52f445468e5aab6310b0b62"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept {{count}} tahun yang lalu. English is {{count}} tahun ago. yang lalu keeps the past direction and the visible count. The candidate’s elapsed-time sentence is not the field phrase. Indonesian has only other. That category covers 0, 1, and every larger count. The noun stays singular after {{count}}.",
-              "proposedValueHash": "af36c0ca9cd6837f6f29dc9f81f03909db8a061ab52f445468e5aab6310b0b62"
-            }
-          }
-        },
-        "time.month.future": {
-          "finalValueHash": "f8bf8bdcaf0ac59f503f859c7f09c109faa6c7386fe855ff810b40dbbf3d9bd4",
-          "chosenFrom": "opus",
-          "leadReason": "Use a compact native time phrase in the when/lastActivity field. For future time, count-unit-lagi states the future interval directly, as the independent Grok draft proposes, without a possible within reading of dalam. For past time, count-unit-yang-lalu is shared by independent Opus and Gemini drafts. Indonesian has only other and does not add noun plurals after numerals. Preserve exact unit, count, and direction.",
-          "candidateReason": "Codex preserves future relative time in a complete month count sentence; Opus/Gemini use within fragments and Grok uses natural temporal fragments. The sole other category keeps the numeric count. Use the peers' natural counted bulan phrase in a complete time sentence instead of Codex unit-conversion wording.",
-          "opusDecision": "required_change",
-          "opusReason": "Format defect: this string is the value of the \"when\" or \"lastActivity\" field in tool results. The candidate renders a full sentence (\"Waktu yang berlalu/tersisa adalah N X.\"). Native phrases fit the slot. For the past I use the opus form (\"N X yang lalu\"); for the future, grok's \"N X lagi\" avoids the \"within\" reading of \"dalam N X\".",
-          "grokDecision": "optional_change",
-          "grokReason": "English is a compact when-field fragment, in {{count}} units. The candidate sentence keeps the direction, but it adds a period and a remaining-or-elapsed label. Indonesian can use the ordinary phrase. The noun stays singular after the numeral. dalam keeps future.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change: a compact fragment replaces the \"Waktu yang … adalah N\" sentence in the JSON \"when\" value. N … lagi states the future interval directly and avoids the within reading of dalam. The unit noun is unmarked after the numeral, as Indonesian requires, and the single other category covers every count.",
-              "proposedValueHash": "f8bf8bdcaf0ac59f503f859c7f09c109faa6c7386fe855ff810b40dbbf3d9bd4"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept {{count}} bulan lagi. English is the future label in {{count}} bulan. lagi states the interval ahead. dalam can also mean within, so it is not required here. The candidate’s remaining-time sentence is not the field phrase. Indonesian has only other. That category covers 0, 1, and every larger count. The noun stays singular after {{count}}.",
-              "proposedValueHash": "f8bf8bdcaf0ac59f503f859c7f09c109faa6c7386fe855ff810b40dbbf3d9bd4"
-            }
-          }
-        },
-        "time.month.past": {
-          "finalValueHash": "0f6df23166af0cb52c61aa96aa004004a49a43412518fa37347ccc231c3794d8",
-          "chosenFrom": "opus",
-          "leadReason": "Use a compact native time phrase in the when/lastActivity field. For future time, count-unit-lagi states the future interval directly, as the independent Grok draft proposes, without a possible within reading of dalam. For past time, count-unit-yang-lalu is shared by independent Opus and Gemini drafts. Indonesian has only other and does not add noun plurals after numerals. Preserve exact unit, count, and direction.",
-          "candidateReason": "Codex preserves past relative time in a complete month count sentence; Opus/Gemini use within fragments and Grok uses natural temporal fragments. The sole other category keeps the numeric count. Use the peers' natural counted bulan phrase in a complete time sentence instead of Codex unit-conversion wording.",
-          "opusDecision": "required_change",
-          "opusReason": "Format defect: this string is the value of the \"when\" or \"lastActivity\" field in tool results. The candidate renders a full sentence (\"Waktu yang berlalu/tersisa adalah N X.\"). Native phrases fit the slot. For the past I use the opus form (\"N X yang lalu\"); for the future, grok's \"N X lagi\" avoids the \"within\" reading of \"dalam N X\".",
-          "grokDecision": "optional_change",
-          "grokReason": "English is a compact when-field fragment, {{count}} units ago. The candidate sentence keeps the direction, but it adds a period and a remaining-or-elapsed label. Indonesian can use the ordinary phrase. The noun stays singular after the numeral. yang lalu keeps past.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change: a compact fragment replaces the \"Waktu yang … adalah N\" sentence in the JSON \"when\" value. N … yang lalu is the standard past fragment. The unit noun is unmarked after the numeral, as Indonesian requires, and the single other category covers every count.",
-              "proposedValueHash": "0f6df23166af0cb52c61aa96aa004004a49a43412518fa37347ccc231c3794d8"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept {{count}} bulan yang lalu. English is {{count}} bulan ago. yang lalu keeps the past direction and the visible count. The candidate’s elapsed-time sentence is not the field phrase. Indonesian has only other. That category covers 0, 1, and every larger count. The noun stays singular after {{count}}.",
-              "proposedValueHash": "0f6df23166af0cb52c61aa96aa004004a49a43412518fa37347ccc231c3794d8"
-            }
-          }
-        },
-        "time.day.future": {
-          "finalValueHash": "9e75bb266863e6accbdf65add3cd157c04cce3f52b465f1427a024242e41ca47",
-          "chosenFrom": "opus",
-          "leadReason": "Use a compact native time phrase in the when/lastActivity field. For future time, count-unit-lagi states the future interval directly, as the independent Grok draft proposes, without a possible within reading of dalam. For past time, count-unit-yang-lalu is shared by independent Opus and Gemini drafts. Indonesian has only other and does not add noun plurals after numerals. Preserve exact unit, count, and direction.",
-          "candidateReason": "Codex preserves future relative time in a complete day count sentence; Opus/Gemini use within fragments and Grok uses natural temporal fragments. The sole other category keeps the numeric count. Use the peers' natural counted hari phrase in a complete time sentence instead of Codex unit-conversion wording.",
-          "opusDecision": "required_change",
-          "opusReason": "Format defect: this string is the value of the \"when\" or \"lastActivity\" field in tool results. The candidate renders a full sentence (\"Waktu yang berlalu/tersisa adalah N X.\"). Native phrases fit the slot. For the past I use the opus form (\"N X yang lalu\"); for the future, grok's \"N X lagi\" avoids the \"within\" reading of \"dalam N X\".",
-          "grokDecision": "optional_change",
-          "grokReason": "English is a compact when-field fragment, in {{count}} units. The candidate sentence keeps the direction, but it adds a period and a remaining-or-elapsed label. Indonesian can use the ordinary phrase. The noun stays singular after the numeral. dalam keeps future.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change: a compact fragment replaces the \"Waktu yang … adalah N\" sentence in the JSON \"when\" value. N … lagi states the future interval directly and avoids the within reading of dalam. The unit noun is unmarked after the numeral, as Indonesian requires, and the single other category covers every count.",
-              "proposedValueHash": "9e75bb266863e6accbdf65add3cd157c04cce3f52b465f1427a024242e41ca47"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept {{count}} hari lagi. English is the future label in {{count}} hari. lagi states the interval ahead. dalam can also mean within, so it is not required here. The candidate’s remaining-time sentence is not the field phrase. Indonesian has only other. That category covers 0, 1, and every larger count. The noun stays singular after {{count}}.",
-              "proposedValueHash": "9e75bb266863e6accbdf65add3cd157c04cce3f52b465f1427a024242e41ca47"
-            }
-          }
-        },
-        "time.day.past": {
-          "finalValueHash": "04c1b64a6aec08c78607f0f30780b04d01ef67c53a109c4e4bc774419766aed4",
-          "chosenFrom": "opus",
-          "leadReason": "Use a compact native time phrase in the when/lastActivity field. For future time, count-unit-lagi states the future interval directly, as the independent Grok draft proposes, without a possible within reading of dalam. For past time, count-unit-yang-lalu is shared by independent Opus and Gemini drafts. Indonesian has only other and does not add noun plurals after numerals. Preserve exact unit, count, and direction.",
-          "candidateReason": "Codex preserves past relative time in a complete day count sentence; Opus/Gemini use within fragments and Grok uses natural temporal fragments. The sole other category keeps the numeric count. Use the peers' natural counted hari phrase in a complete time sentence instead of Codex unit-conversion wording.",
-          "opusDecision": "required_change",
-          "opusReason": "Format defect: this string is the value of the \"when\" or \"lastActivity\" field in tool results. The candidate renders a full sentence (\"Waktu yang berlalu/tersisa adalah N X.\"). Native phrases fit the slot. For the past I use the opus form (\"N X yang lalu\"); for the future, grok's \"N X lagi\" avoids the \"within\" reading of \"dalam N X\".",
-          "grokDecision": "optional_change",
-          "grokReason": "English is a compact when-field fragment, {{count}} units ago. The candidate sentence keeps the direction, but it adds a period and a remaining-or-elapsed label. Indonesian can use the ordinary phrase. The noun stays singular after the numeral. yang lalu keeps past.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change: a compact fragment replaces the \"Waktu yang … adalah N\" sentence in the JSON \"when\" value. N … yang lalu is the standard past fragment. The unit noun is unmarked after the numeral, as Indonesian requires, and the single other category covers every count.",
-              "proposedValueHash": "04c1b64a6aec08c78607f0f30780b04d01ef67c53a109c4e4bc774419766aed4"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept {{count}} hari yang lalu. English is {{count}} hari ago. yang lalu keeps the past direction and the visible count. The candidate’s elapsed-time sentence is not the field phrase. Indonesian has only other. That category covers 0, 1, and every larger count. The noun stays singular after {{count}}.",
-              "proposedValueHash": "04c1b64a6aec08c78607f0f30780b04d01ef67c53a109c4e4bc774419766aed4"
-            }
-          }
-        },
-        "time.hour.future": {
-          "finalValueHash": "7438869aabe98abb30ce67e02919152a7a404b4a0d9b37c2dfe0c2dd46f5bbbc",
-          "chosenFrom": "opus",
-          "leadReason": "Use a compact native time phrase in the when/lastActivity field. For future time, count-unit-lagi states the future interval directly, as the independent Grok draft proposes, without a possible within reading of dalam. For past time, count-unit-yang-lalu is shared by independent Opus and Gemini drafts. Indonesian has only other and does not add noun plurals after numerals. Preserve exact unit, count, and direction.",
-          "candidateReason": "Codex preserves future relative time in a complete hour count sentence; Opus/Gemini use within fragments and Grok uses natural temporal fragments. The sole other category keeps the numeric count. Use the peers' natural counted jam phrase in a complete time sentence instead of Codex unit-conversion wording.",
-          "opusDecision": "required_change",
-          "opusReason": "Format defect: this string is the value of the \"when\" or \"lastActivity\" field in tool results. The candidate renders a full sentence (\"Waktu yang berlalu/tersisa adalah N X.\"). Native phrases fit the slot. For the past I use the opus form (\"N X yang lalu\"); for the future, grok's \"N X lagi\" avoids the \"within\" reading of \"dalam N X\".",
-          "grokDecision": "optional_change",
-          "grokReason": "English is a compact when-field fragment, in {{count}} units. The candidate sentence keeps the direction, but it adds a period and a remaining-or-elapsed label. Indonesian can use the ordinary phrase. The noun stays singular after the numeral. dalam keeps future.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change: a compact fragment replaces the \"Waktu yang … adalah N\" sentence in the JSON \"when\" value. N … lagi states the future interval directly and avoids the within reading of dalam. The unit noun is unmarked after the numeral, as Indonesian requires, and the single other category covers every count.",
-              "proposedValueHash": "7438869aabe98abb30ce67e02919152a7a404b4a0d9b37c2dfe0c2dd46f5bbbc"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept {{count}} jam lagi. English is the future label in {{count}} jam. lagi states the interval ahead. dalam can also mean within, so it is not required here. The candidate’s remaining-time sentence is not the field phrase. Indonesian has only other. That category covers 0, 1, and every larger count. The noun stays singular after {{count}}.",
-              "proposedValueHash": "7438869aabe98abb30ce67e02919152a7a404b4a0d9b37c2dfe0c2dd46f5bbbc"
-            }
-          }
-        },
-        "time.hour.past": {
-          "finalValueHash": "1a88453430e0a578ade647b333f2dc30507bde8460c27f5d8ba9ae34ebef2d64",
-          "chosenFrom": "opus",
-          "leadReason": "Use a compact native time phrase in the when/lastActivity field. For future time, count-unit-lagi states the future interval directly, as the independent Grok draft proposes, without a possible within reading of dalam. For past time, count-unit-yang-lalu is shared by independent Opus and Gemini drafts. Indonesian has only other and does not add noun plurals after numerals. Preserve exact unit, count, and direction.",
-          "candidateReason": "Codex preserves past relative time in a complete hour count sentence; Opus/Gemini use within fragments and Grok uses natural temporal fragments. The sole other category keeps the numeric count. Use the peers' natural counted jam phrase in a complete time sentence instead of Codex unit-conversion wording.",
-          "opusDecision": "required_change",
-          "opusReason": "Format defect: this string is the value of the \"when\" or \"lastActivity\" field in tool results. The candidate renders a full sentence (\"Waktu yang berlalu/tersisa adalah N X.\"). Native phrases fit the slot. For the past I use the opus form (\"N X yang lalu\"); for the future, grok's \"N X lagi\" avoids the \"within\" reading of \"dalam N X\".",
-          "grokDecision": "optional_change",
-          "grokReason": "English is a compact when-field fragment, {{count}} units ago. The candidate sentence keeps the direction, but it adds a period and a remaining-or-elapsed label. Indonesian can use the ordinary phrase. The noun stays singular after the numeral. yang lalu keeps past.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change: a compact fragment replaces the \"Waktu yang … adalah N\" sentence in the JSON \"when\" value. N … yang lalu is the standard past fragment. The unit noun is unmarked after the numeral, as Indonesian requires, and the single other category covers every count.",
-              "proposedValueHash": "1a88453430e0a578ade647b333f2dc30507bde8460c27f5d8ba9ae34ebef2d64"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept {{count}} jam yang lalu. English is {{count}} jam ago. yang lalu keeps the past direction and the visible count. The candidate’s elapsed-time sentence is not the field phrase. Indonesian has only other. That category covers 0, 1, and every larger count. The noun stays singular after {{count}}.",
-              "proposedValueHash": "1a88453430e0a578ade647b333f2dc30507bde8460c27f5d8ba9ae34ebef2d64"
-            }
-          }
-        },
-        "time.minute.future": {
-          "finalValueHash": "ec8420a94ea8095fd22a7a69ba40875c02979d97fe0387b28a78ecedcc45259e",
-          "chosenFrom": "opus",
-          "leadReason": "Use a compact native time phrase in the when/lastActivity field. For future time, count-unit-lagi states the future interval directly, as the independent Grok draft proposes, without a possible within reading of dalam. For past time, count-unit-yang-lalu is shared by independent Opus and Gemini drafts. Indonesian has only other and does not add noun plurals after numerals. Preserve exact unit, count, and direction.",
-          "candidateReason": "Codex preserves future relative time in a complete minute count sentence; Opus/Gemini use within fragments and Grok uses natural temporal fragments. The sole other category keeps the numeric count. Use the peers' natural counted menit phrase in a complete time sentence instead of Codex unit-conversion wording.",
-          "opusDecision": "required_change",
-          "opusReason": "Format defect: this string is the value of the \"when\" or \"lastActivity\" field in tool results. The candidate renders a full sentence (\"Waktu yang berlalu/tersisa adalah N X.\"). Native phrases fit the slot. For the past I use the opus form (\"N X yang lalu\"); for the future, grok's \"N X lagi\" avoids the \"within\" reading of \"dalam N X\".",
-          "grokDecision": "optional_change",
-          "grokReason": "English is a compact when-field fragment, in {{count}} units. The candidate sentence keeps the direction, but it adds a period and a remaining-or-elapsed label. Indonesian can use the ordinary phrase. The noun stays singular after the numeral. dalam keeps future.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change: a compact fragment replaces the \"Waktu yang … adalah N\" sentence in the JSON \"when\" value. N … lagi states the future interval directly and avoids the within reading of dalam. The unit noun is unmarked after the numeral, as Indonesian requires, and the single other category covers every count.",
-              "proposedValueHash": "ec8420a94ea8095fd22a7a69ba40875c02979d97fe0387b28a78ecedcc45259e"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept {{count}} menit lagi. English is the future label in {{count}} menit. lagi states the interval ahead. dalam can also mean within, so it is not required here. The candidate’s remaining-time sentence is not the field phrase. Indonesian has only other. That category covers 0, 1, and every larger count. The noun stays singular after {{count}}.",
-              "proposedValueHash": "ec8420a94ea8095fd22a7a69ba40875c02979d97fe0387b28a78ecedcc45259e"
-            }
-          }
-        },
-        "time.minute.past": {
-          "finalValueHash": "e89d583abc8df75385d59c9c2febbf2839250ab57e7fdda1afcbc3d854f4f353",
-          "chosenFrom": "opus",
-          "leadReason": "Use a compact native time phrase in the when/lastActivity field. For future time, count-unit-lagi states the future interval directly, as the independent Grok draft proposes, without a possible within reading of dalam. For past time, count-unit-yang-lalu is shared by independent Opus and Gemini drafts. Indonesian has only other and does not add noun plurals after numerals. Preserve exact unit, count, and direction.",
-          "candidateReason": "Codex preserves past relative time in a complete minute count sentence; Opus/Gemini use within fragments and Grok uses natural temporal fragments. The sole other category keeps the numeric count. Use the peers' natural counted menit phrase in a complete time sentence instead of Codex unit-conversion wording.",
-          "opusDecision": "required_change",
-          "opusReason": "Format defect: this string is the value of the \"when\" or \"lastActivity\" field in tool results. The candidate renders a full sentence (\"Waktu yang berlalu/tersisa adalah N X.\"). Native phrases fit the slot. For the past I use the opus form (\"N X yang lalu\"); for the future, grok's \"N X lagi\" avoids the \"within\" reading of \"dalam N X\".",
-          "grokDecision": "optional_change",
-          "grokReason": "English is a compact when-field fragment, {{count}} units ago. The candidate sentence keeps the direction, but it adds a period and a remaining-or-elapsed label. Indonesian can use the ordinary phrase. The noun stays singular after the numeral. yang lalu keeps past.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change: a compact fragment replaces the \"Waktu yang … adalah N\" sentence in the JSON \"when\" value. N … yang lalu is the standard past fragment. The unit noun is unmarked after the numeral, as Indonesian requires, and the single other category covers every count.",
-              "proposedValueHash": "e89d583abc8df75385d59c9c2febbf2839250ab57e7fdda1afcbc3d854f4f353"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept {{count}} menit yang lalu. English is {{count}} menit ago. yang lalu keeps the past direction and the visible count. The candidate’s elapsed-time sentence is not the field phrase. Indonesian has only other. That category covers 0, 1, and every larger count. The noun stays singular after {{count}}.",
-              "proposedValueHash": "e89d583abc8df75385d59c9c2febbf2839250ab57e7fdda1afcbc3d854f4f353"
-            }
-          }
-        },
         "read.context.basic": {
           "finalValueHash": "54fb65dccb0b0f1c0181de80f731fe9603a88f83abaed536796b18a9e7791630",
           "chosenFrom": "grok",
@@ -3929,7 +3676,7 @@
     },
     "reports": {
       "finalHash": "5df6925b5296aa955b7e6f43412322e7c6900887de5e1df88377f5daa86a2e35",
-      "finalTemplateHash": "02ab7d6cca39368cce8615b4d9ff6a957ed2bed7588a00745e624947df1c63d7",
+      "finalTemplateHash": "c235daf236aaefbf2f2ac729e55f54493b3f02fb8e450438dcaf29fe31d1e9c8",
       "draftHashes": {
         "codex": "1b33f63a0dae023cd349feffa8effd48018ad85d2d817d83cb6f1bc648ccfa3d",
         "opus": "9e6147e0d8f8d278b95e9ad0d850de475054c6214ad25e05351539e937aeb3c0",
@@ -3940,73 +3687,12 @@
         "opus": "b238300dc180b8e1bb0f6be7074f59a85051216e40df95555bf9221cc1e5121e",
         "grok": "de9d6ba298e6ec19ec80d221a321bafbe1537016b9b8b2f33c42954940692590"
       },
-      "decisions": {
-        "report.elapsed.moment": {
-          "finalValueHash": "70d8c3b994b093d81f0cb52966aff2f9e807390b4578b9598a2b12ee72de7597",
-          "chosenFrom": "gemini",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Gemini combines natural sesaat with explicit completed elapsed time; Codex omits completed marker and Opus says a while.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and gemini. actor, tense, limits, and parameters match the English. English: A moment passed since your previous visit.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "report.elapsed.second": {
-          "finalValueHash": "e54f23fd264818d28c4fe782fb5434dd8766eac97bec84e91593ffb35118fd41",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Opus, Grok and Gemini preserve completed elapsed seconds since the previous visit in a complete sole-category sentence; Codex omits the completion marker.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. detik stays singular after the count. Passed since the previous visit stays.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "report.elapsed.minute": {
-          "finalValueHash": "5499c5ab9ca31ce97be7de0ccdfd79cac613772c5db1c6e38b2f54847997e931",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Opus, Grok and Gemini preserve completed elapsed minutes since the previous visit in a complete sole-category sentence; Codex omits the completion marker.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and opus, grok, gemini. other covers 0, 1, and every larger count; the noun stays singular after the numeral. English: {{count}} minute passed since your previous visit. {{count}} minutes passed since your previous visit.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "report.elapsed.hour": {
-          "finalValueHash": "470c4cf3fea04d22723feb57bb9afc8a163fbb9bfeda9fce03e1e40aba071fe0",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Opus, Grok and Gemini preserve completed elapsed hours since the previous visit in a complete sole-category sentence; Codex omits the completion marker.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and opus, grok, gemini. other covers 0, 1, and every larger count; the noun stays singular after the numeral. English: {{count}} hour passed since your previous visit. {{count}} hours passed since your previous visit.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "report.elapsed.day": {
-          "finalValueHash": "3a9d4d068d6c2c4c08d87fc623ee2a9ab49952917ec2a52b199c7191e8c873e7",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Opus, Grok and Gemini preserve completed elapsed days since the previous visit in a complete sole-category sentence; Codex omits the completion marker.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and opus, grok, gemini. other covers 0, 1, and every larger count; the noun stays singular after the numeral. English: {{count}} day passed since your previous visit. {{count}} days passed since your previous visit.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        }
-      }
+      "decisions": {},
+      "status": "pending_translation",
+      "pendingTranslationKeys": [
+        "report.timestamp.relative",
+        "report.timestamp.absolute"
+      ]
     },
     "recovery": {
       "finalHash": "b5869a69a39ec6313fc6e1afa46944c39063cd4dbcc3b39b2bc39cbb728961e5",

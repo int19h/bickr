@@ -1,8 +1,8 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "catalogSourceHash": "1ea4d0935facacfea35be251f30fc67822b5de7e36d4075fd21c7595bffff89e",
+  "catalogSourceHash": "569c6dc99760c3c93e1594717e4078e6e25111ee4b5b788935ef32b6d2cb5cab",
   "locale": "ja",
-  "status": "accepted_by_lead",
+  "status": "partially_pending_translation",
   "leadReason": "Both requested reviewers discussed every disputed Japanese unit and accepted every proposed value. Neither reviewer reported another finding or unresolved language question. The lead accepts the continuing-thread term, optional note filtering, omission condition, self-written PLAN voice, consistent technical nouns, and all protected syntax. Every other unit received the complete four-draft comparison and both initial reviews.",
   "terminologyDecisions": {
     "thread": "Use スレッド. Open threads in the memory summary are conversations that continue, rather than necessarily unsolved problems.",
@@ -2957,7 +2957,7 @@
     },
     "serialization": {
       "finalHash": "161b41f0ed9253cf0194212fd1e27c9a8c97c473281b678827915c1d90ecad95",
-      "finalTemplateHash": "0122d8ddcf79ef142504e77da316c53eeb797057ac51d38cff4c128f3d2a24f2",
+      "finalTemplateHash": "d9025164acf6a518d2fa7ce07e06f68536e13dcbacc77f2b4991c55d4b52d995",
       "draftHashes": {
         "codex": "d650136da8dba5d07a3695024d730791515a473cfb7f29e71f8b4119de7f91ce",
         "opus": "eca86c09a5cb09c88c8b372e6f8786d3e325b3b4f5efe137e0842a70761e807e",
@@ -2969,138 +2969,6 @@
         "grok": "6834cafac260b86707898b9ca65550d8ea67793ef41b73fb39f100c660718b1b"
       },
       "decisions": {
-        "time.just_now": {
-          "finalValueHash": "3e4a58678569f48b8741ff24eef89125b499057b8cabd88f4c76ff3432dab654",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All four use the same native immediate-time label.",
-          "opusDecision": "accept",
-          "opusReason": "All drafts agree.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Checked English and all four drafts (codex, opus, grok, gemini). The single other category uses a natural counter, and pending notifications stay pending. English: just now",
-          "changedAfterComparison": false,
-          "finalDiscussion": {}
-        },
-        "time.year.future": {
-          "finalValueHash": "607671fbb61db18b96c24fd7ffa622d766f3b06dd069690778a00aa1bb070212",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "The other-only year label preserves numeric count and future direction; three drafts agree and Opus differs only in spacing.",
-          "opusDecision": "accept",
-          "opusReason": "Single other variant; correct counter.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Checked English and all four drafts (codex, grok, gemini). The single other category uses a natural counter, and pending notifications stay pending. English: in {{count}} year in {{count}} years",
-          "changedAfterComparison": false,
-          "finalDiscussion": {}
-        },
-        "time.year.past": {
-          "finalValueHash": "30a728fe116a5e823c344af80cfe04acfe84cd67e2f78bf0361514e99f00b5d4",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "The other-only year label preserves numeric count and past direction; three drafts agree and Opus differs only in spacing.",
-          "opusDecision": "accept",
-          "opusReason": "Correct.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Checked English and all four drafts (codex, grok, gemini). The single other category uses a natural counter, and pending notifications stay pending. English: {{count}} year ago {{count}} years ago",
-          "changedAfterComparison": false,
-          "finalDiscussion": {}
-        },
-        "time.month.future": {
-          "finalValueHash": "a9f99bae09b3839281da8e9e7e1d11da6e828722e3a70d9239bc82b05b059e2f",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "The other-only month label preserves numeric count and future direction; three drafts agree and Opus differs only in spacing.",
-          "opusDecision": "accept",
-          "opusReason": "か月 is the standard counter.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Checked English and all four drafts (codex, grok, gemini). The single other category uses a natural counter, and pending notifications stay pending. English: in {{count}} month in {{count}} months",
-          "changedAfterComparison": false,
-          "finalDiscussion": {}
-        },
-        "time.month.past": {
-          "finalValueHash": "de7d2752bef6e88719b7c81ce6ba0d9bb6c1e3e29f43c0d15ba63e2fb12b5065",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "The other-only month label preserves numeric count and past direction; three drafts agree and Opus differs only in spacing.",
-          "opusDecision": "accept",
-          "opusReason": "Correct.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Checked English and all four drafts (codex, grok, gemini). The single other category uses a natural counter, and pending notifications stay pending. English: {{count}} month ago {{count}} months ago",
-          "changedAfterComparison": false,
-          "finalDiscussion": {}
-        },
-        "time.day.future": {
-          "finalValueHash": "dc05795a92441552b6988554df919a1398964f093d081c1398e7851e93bafd55",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "The other-only day label preserves numeric count and future direction; three drafts agree and Opus differs only in spacing.",
-          "opusDecision": "accept",
-          "opusReason": "Correct.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Checked English and all four drafts (codex, grok, gemini). The single other category uses a natural counter, and pending notifications stay pending. English: in {{count}} day in {{count}} days",
-          "changedAfterComparison": false,
-          "finalDiscussion": {}
-        },
-        "time.day.past": {
-          "finalValueHash": "a44864a8aaa287416e2cf52c5befb1dfe7fc668234ebfd70d5b6a1b07f6e8e1e",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "The other-only day label preserves numeric count and past direction; three drafts agree and Opus differs only in spacing.",
-          "opusDecision": "accept",
-          "opusReason": "Correct.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Checked English and all four drafts (codex, grok, gemini). The single other category uses a natural counter, and pending notifications stay pending. English: {{count}} day ago {{count}} days ago",
-          "changedAfterComparison": false,
-          "finalDiscussion": {}
-        },
-        "time.hour.future": {
-          "finalValueHash": "ad15a783f0056a24e4a486f78129770539a26f33fa327762958a0b33d032156f",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "The other-only hour label preserves numeric count and future direction; three drafts agree and Opus differs only in spacing.",
-          "opusDecision": "accept",
-          "opusReason": "Correct.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Checked English and all four drafts (codex, grok, gemini). The single other category uses a natural counter, and pending notifications stay pending. English: in {{count}} hour in {{count}} hours",
-          "changedAfterComparison": false,
-          "finalDiscussion": {}
-        },
-        "time.hour.past": {
-          "finalValueHash": "a4ce0725c190dca170f03c79d97a37d0e24f7b19b0e2871d592c4dc9a88783e4",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "The other-only hour label preserves numeric count and past direction; three drafts agree and Opus differs only in spacing.",
-          "opusDecision": "accept",
-          "opusReason": "Correct.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Checked English and all four drafts (codex, grok, gemini). The single other category uses a natural counter, and pending notifications stay pending. English: {{count}} hour ago {{count}} hours ago",
-          "changedAfterComparison": false,
-          "finalDiscussion": {}
-        },
-        "time.minute.future": {
-          "finalValueHash": "a828d27e43332c4594503e0e2a91fe31baf23d5595772c987f91b41fd6d9d9ac",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "The other-only minute label preserves numeric count and future direction; three drafts agree and Opus differs only in spacing.",
-          "opusDecision": "accept",
-          "opusReason": "Correct.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Checked English and all four drafts (codex, grok, gemini). The single other category uses a natural counter, and pending notifications stay pending. English: in {{count}} minute in {{count}} minutes",
-          "changedAfterComparison": false,
-          "finalDiscussion": {}
-        },
-        "time.minute.past": {
-          "finalValueHash": "684900b5a817d436e373a7f93a4ebd32a564d8fceed57698937479dc9154a20c",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "The other-only minute label preserves numeric count and past direction; three drafts agree and Opus differs only in spacing.",
-          "opusDecision": "accept",
-          "opusReason": "Correct.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Checked English and all four drafts (codex, grok, gemini). The single other category uses a natural counter, and pending notifications stay pending. English: {{count}} minute ago {{count}} minutes ago",
-          "changedAfterComparison": false,
-          "finalDiscussion": {}
-        },
         "read.context.basic": {
           "finalValueHash": "1104a7ada51e43f5213476f25b2b2daea4272420b79e9cff8b30b9b75fc37975",
           "chosenFrom": "opus",
@@ -3660,7 +3528,7 @@
     },
     "reports": {
       "finalHash": "712fae175c8d5f190f5cdf0b50f95875a7d9e694f87b8556d832361be74108ff",
-      "finalTemplateHash": "1be237b86558cce9fedb86e9b1efab24f43a0209f6407d85bf614bbf1247d79a",
+      "finalTemplateHash": "c235daf236aaefbf2f2ac729e55f54493b3f02fb8e450438dcaf29fe31d1e9c8",
       "draftHashes": {
         "codex": "6b4a807d118e1e8ee961e26bd36debaba8e174babe7affe424fc202356869a62",
         "opus": "35af38bacc6f4cc6e6328c25dc44bd922137431ad77b36a4c8e622503648fb91",
@@ -3671,68 +3539,12 @@
         "opus": "ee343bae4e26af0371fb5167ab9364a6367ae7772f164d74ca091534273bff6a",
         "grok": "30c78f65722d7eebecef2bf4b754ce27a3773398286b676fef3eb086f19d4f72"
       },
-      "decisions": {
-        "report.elapsed.moment": {
-          "finalValueHash": "09a896f8da9876a2d1622f4586d82ce165c20c04f939346a613c798d35ee49b8",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Opus gives natural elapsed-moment reporting; Codex uses an awkward small-time noun phrase.",
-          "opusDecision": "accept",
-          "opusReason": "Natural app report.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Checked English and all four drafts (opus). App reports use です／ます. A moment stays a short interval, not a counted second. English: A moment passed since your previous visit.",
-          "changedAfterComparison": false,
-          "finalDiscussion": {}
-        },
-        "report.elapsed.second": {
-          "finalValueHash": "d226a79da9f6f3d969f6df98a5b8c252f345373d6ee1248d4e1e8e13104540cf",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "The other-only second report keeps the elapsed count and previous visit; three drafts agree and Opus differs in spacing and synonymous elapsed verb.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Checked English and all four drafts (codex, grok, gemini). App reports use です／ます. A moment stays a short interval, not a counted second. English: {{count}} second passed since your previous visit. {{count}} seconds passed since your previous visit.",
-          "changedAfterComparison": false,
-          "finalDiscussion": {}
-        },
-        "report.elapsed.minute": {
-          "finalValueHash": "0d4baf7ee64e1d2963b44435282cdeded4085164c2c27867dfa65ca804fe37e5",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "The other-only minute report keeps the elapsed count and previous visit; three drafts agree and Opus differs in spacing and synonymous elapsed verb.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Checked English and all four drafts (codex, grok, gemini). App reports use です／ます. A moment stays a short interval, not a counted second. English: {{count}} minute passed since your previous visit. {{count}} minutes passed since your previous visit.",
-          "changedAfterComparison": false,
-          "finalDiscussion": {}
-        },
-        "report.elapsed.hour": {
-          "finalValueHash": "8072b61c16b992b63aa3275e26f6ccd9d88282de19f61e264ddddc857ed3c4e4",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "The other-only hour report keeps the elapsed count and previous visit; three drafts agree and Opus differs in spacing and synonymous elapsed verb.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Checked English and all four drafts (codex, grok, gemini). App reports use です／ます. A moment stays a short interval, not a counted second. English: {{count}} hour passed since your previous visit. {{count}} hours passed since your previous visit.",
-          "changedAfterComparison": false,
-          "finalDiscussion": {}
-        },
-        "report.elapsed.day": {
-          "finalValueHash": "f56bfe253ceb1ce02960ba4322d4449b6dbc284c0f5af2b44aeaa8d3face8864",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "The other-only day report keeps the elapsed count and previous visit; three drafts agree and Opus differs in spacing and synonymous elapsed verb.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Checked English and all four drafts (codex, grok, gemini). App reports use です／ます. A moment stays a short interval, not a counted second. English: {{count}} day passed since your previous visit. {{count}} days passed since your previous visit.",
-          "changedAfterComparison": false,
-          "finalDiscussion": {}
-        }
-      }
+      "decisions": {},
+      "status": "pending_translation",
+      "pendingTranslationKeys": [
+        "report.timestamp.relative",
+        "report.timestamp.absolute"
+      ]
     },
     "recovery": {
       "finalHash": "f169601701c7f80727b3fef37653f4a802d14451744a5e508da99d6f3beca295",

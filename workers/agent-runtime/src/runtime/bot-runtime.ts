@@ -4,6 +4,8 @@ import { renderStoredLoopMessage, toolResultViewFromRow, toolResultViewForMessag
 import { buildToolResultView, renderToolResultView, resultViewReferences, failureResultView, settlementResultView, batchResultView, toolResultViewPayload, notificationContentIds, retainKnownProfiles, resultViewFacetArrays } from './tool-result-views';
 import { ResultContextScope, hydrateResultFacets, facetFingerprint } from './result-context-scope';
 import { currentResultHandles, resultContentIdentities, resultForumIds, type ResultHandleMap } from './result-handles';
+import { formatParticipantTime } from "@bickr/shared/participant-time";
+import { participantTimeSettingsOf } from "@bickr/shared/participant-time-migration";
 import { RuntimeFollowerActivityDelivery } from './follower-activity-delivery';
 import type { FollowerActivitySelection, NotificationDeliveryCandidate } from '@bickr/shared/follower-activity';
 import { instructionLocalizationVersion, instructionLocalizationStateKey } from '@bickr/shared/instruction-localization-migration';
@@ -1853,6 +1855,7 @@ function pendingToolFromStoredRow(row: { key: string; value_json: string }): Pen
 
 export class BotRuntime {
 	private resultViewText?: BotText;
+	private resultViewTime?: import('./tool-result-views').ResultTimeContext;
 	private resultViewHandles: ResultHandleMap = new Map();
 	private readonly state: DurableObjectState;
 	private readonly env: Env;
@@ -2309,7 +2312,7 @@ export class BotRuntime {
 			const response = this.loopMessagesPage({ after: Number.isFinite(after) ? after : 0, page: Number.isFinite(page) ? page : 1 });
 			const rows = this.state.storage.sql.exec<LoopMessageRow>('SELECT * FROM loop_messages WHERE seq IN (SELECT value FROM json_each(?))', JSON.stringify(response.messages.map(message => message.seq))).toArray();
 			const bot = await botById(this.env.BICKR_KV, this.env.BICKR_D1, botId);
-			await this.refreshResultViewRendering(botTextFor(bot), rows);
+			await this.refreshResultViewRendering(botTextFor(bot), rows, { settings: participantTimeSettingsOf(bot), createdAt: bot.createdAt });
 			const bySeq = new Map(rows.map(row => [row.seq, row]));
 			return ok({ ...response, messages: response.messages.map(message => ({ ...message, message: this.renderLoopMessageRow(bySeq.get(message.seq)!) })) });
 		}
@@ -3955,7 +3958,7 @@ export class BotRuntime {
 				} catch (error) {
 					if (error instanceof ToolBatchOutcomeError) {
 						selfCorrectionAcknowledgements.push(...error.selfCorrectionMessages);
-						const outcomeView = await batchResultView(canonicalName, error.items, { text: bot.text, selfId: bot.id, scope: await this.resultContextScope(), writtenAt: new Date().toISOString(), references: new Map() },
+						const outcomeView = await batchResultView(canonicalName, error.items, { time: { settings: participantTimeSettingsOf(bot), createdAt: bot.createdAt }, text: bot.text, selfId: bot.id, scope: await this.resultContextScope(), writtenAt: new Date().toISOString(), references: new Map() },
 							(targetArgs, cause) => failureResultView(toolFailurePayload(bot.text, canonicalName, targetArgs, cause), bot.text, { message: toolFailureMessageText(cause), guidance: toolFailureGuidanceText(canonicalName, cause) }));
 						const outcome = toolResultViewPayload(outcomeView, bot.text);
 						const committed = error.items.filter((item) => item.kind === 'recorded' || item.kind === 'committed');
@@ -4767,7 +4770,7 @@ export class BotRuntime {
 			this.state.storage,
 			(message) => this.broadcastLoopMessage(message),
 			() => this.broadcastControl({ type: 'loop_messages_reset' }),
-			view => renderToolResultView(view, this.resultViewText ?? botText(view.instructionLocale), this.resultViewHandles),
+			view => renderToolResultView(view, this.resultViewText ?? botText(view.instructionLocale), this.resultViewHandles, this.resultViewTime ?? view.time ?? null),
 		);
 	}
 
@@ -4859,7 +4862,7 @@ export class BotRuntime {
 	}
 
 	private renderLoopMessageRow(row: LoopMessageRow): ChatMessage {
-		return renderStoredLoopMessage(row, view => renderToolResultView(view, this.resultViewText ?? botText(view.instructionLocale), this.resultViewHandles));
+		return renderStoredLoopMessage(row, view => renderToolResultView(view, this.resultViewText ?? botText(view.instructionLocale), this.resultViewHandles, this.resultViewTime ?? view.time ?? null));
 	}
 
 	private async resultContextScope(): Promise<ResultContextScope> {
@@ -4872,10 +4875,11 @@ export class BotRuntime {
 		return scope;
 	}
 
-	private async refreshResultViewRendering(text: BotText, rows = this.activeLoopMessageRows()): Promise<void> {
+	private async refreshResultViewRendering(text: BotText, rows = this.activeLoopMessageRows(), time?: import('./tool-result-views').ResultTimeContext): Promise<void> {
 		const views = rows.flatMap(row => { const view = toolResultViewFromRow(row); return view ? [view] : []; });
 		const handles = views.length > 0 ? await currentResultHandles(this.env.BICKR_D1, views.flatMap(resultViewReferences)) : new Map();
 		this.resultViewText = text;
+		this.resultViewTime = time;
 		this.resultViewHandles = handles;
 	}
 
@@ -6299,11 +6303,11 @@ export class BotRuntime {
 		const prepared: LoopMessageGroupEntry[] = [];
 		const collect = (entries: LoopMessageGroupEntry[]): void => { prepared.push(...entries); };
 		const deliveredNotificationIds = new Set<string>();
-		const elapsed =
-			setupMode === 'new_iteration' ? formatElapsedTimeSincePreviousVisit(bot.text, this.previousTerminalTickEvent(runId), inputEvent.createdAt) : '';
-		if (elapsed) {
-			prepared.push({ runId, message: { role: 'user', content: elapsed }, origin: 'input' });
-		}
+		const timeSettings = participantTimeSettingsOf(bot);
+		const timestamp = formatParticipantTime(inputEvent.createdAt, timeSettings, bot.createdAt);
+		prepared.push({ runId, message: { role: 'user', content: bot.text.format(
+			timeSettings.mode === 'relative' ? 'report.timestamp.relative' : 'report.timestamp.absolute', { timestamp },
+		) }, origin: 'input' });
 		const existingProfileUsernames = this.legacyProfileUsernamesInActiveContext();
 		const existingProviderContent = await this.resultContextScope();
 		if (input.spotlightContexts.length > 0) {
@@ -6366,7 +6370,7 @@ export class BotRuntime {
 			? await resultContentIdentities(this.env.BICKR_D1, contentIds.threadIds, contentIds.commentIds) : undefined;
 		const introForums = notifications.flatMap(event => event.kind === 'bootstrap' && event.bootstrapVersion === 2 && event.introForum ? [event.introForum] : []);
 		const references = introForums.length ? await resultForumIds(this.env.BICKR_D1, bot.homeWorldId, introForums) : new Map<string, string>();
-		const viewContext = { contentIdentities, text: bot.text, selfId: bot.id, scope: existingProviderContent.clone(), writtenAt: new Date().toISOString(), references };
+		const viewContext = { contentIdentities, time: { settings: participantTimeSettingsOf(bot), createdAt: bot.createdAt }, text: bot.text, selfId: bot.id, scope: existingProviderContent.clone(), writtenAt: new Date().toISOString(), references };
 		if (planEnabled(bot.toolSettings)) {
 			const plan = this.notes.read(bot.text, planNoteId);
 			if (plan) {
@@ -6423,7 +6427,7 @@ export class BotRuntime {
 	): Promise<void> {
 		const chains = contexts.flatMap(spotlightSyntheticToolChains);
 		const toolCalls: SyntheticToolCall[] = chains.map((chain, index) => syntheticToolCall(runId, chain.toolName, index, chain.args));
-		const viewContext = { text: bot.text, selfId: bot.id, scope: existingProviderContent.clone(), writtenAt: new Date().toISOString(), references: new Map<string, string>() };
+		const viewContext = { time: { settings: participantTimeSettingsOf(bot), createdAt: bot.createdAt }, text: bot.text, selfId: bot.id, scope: existingProviderContent.clone(), writtenAt: new Date().toISOString(), references: new Map<string, string>() };
 		const tokenBudget = await this.readCommentTreeTokenBudget(bot);
 		const results: ChatMessage[] = [];
 		for (const [index, chain] of chains.entries()) {
@@ -6576,21 +6580,6 @@ export class BotRuntime {
 		return usernames;
 	}
 
-	private previousTerminalTickEvent(runId: string): RuntimeRow | null {
-		return (
-			this.state.storage.sql
-				.exec<RuntimeRow>(
-					`SELECT seq, run_id, type, payload_json, token_estimate, compacted_by, created_at
-				 FROM events
-				 WHERE run_id != ?
-				   AND type IN ('tick_completed', 'tick_failed', 'tick_stopped')
-				 ORDER BY seq DESC
-				 LIMIT 1`,
-					runId,
-				)
-				.toArray()[0] ?? null
-		);
-	}
 
 	private currentIterationStartedSinceLastLogOff(): boolean {
 		return new RuntimeInputHistory(this.state.storage).startedAfter(this.latestSuccessfulLogOffToolResultSeq());
@@ -7079,7 +7068,7 @@ export class BotRuntime {
 			providerTools = providerToolsForBotRound(budgetBot, settings).tools;
 			const compactionMode = providerCompactionMode(settings);
 			const calibration = this.textTokenCalibration(settings.model);
-			await this.refreshResultViewRendering(budgetBot.text);
+			await this.refreshResultViewRendering(budgetBot.text, undefined, { settings: participantTimeSettingsOf(budgetBot), createdAt: budgetBot.createdAt });
 			const requestMessages = providerMessagesWithPrefillCompatibility(settings.text,
 				settings,
 				this.activeProviderRequestMessages(budgetBot, providerTools, providerToolCallsForSettings(settings)),
@@ -7695,7 +7684,7 @@ export class BotRuntime {
 		for (const item of rows) {
 			const json = JSON.stringify(item.view);
 			if (json === item.before) continue;
-			const content = renderToolResultView(item.view, this.resultViewText ?? botText(item.view.instructionLocale), this.resultViewHandles);
+			const content = renderToolResultView(item.view, this.resultViewText ?? botText(item.view.instructionLocale), this.resultViewHandles, this.resultViewTime ?? item.view.time ?? null);
 			this.state.storage.sql.exec('UPDATE loop_messages SET tool_result_view_json = ?, token_estimate = ? WHERE seq = ?', json, estimateTextTokens(content), item.row.seq);
 		}
 	}
@@ -9369,28 +9358,6 @@ function tokenUsageAverageDays(rows: ProviderUsageRow[], windowEndMs: number): n
 	return Math.min(7, Math.max(1, Math.ceil((windowEndMs - firstUsedAt) / dayMs)));
 }
 
-function formatElapsedTimeSincePreviousVisit(text: BotText, previous: Pick<RuntimeRow, 'created_at'> | null, inputCreatedAt: string): string {
-	if (!previous) {
-		return '';
-	}
-	const previousMs = Date.parse(previous.created_at);
-	const currentMs = Date.parse(inputCreatedAt);
-	if (!Number.isFinite(previousMs) || !Number.isFinite(currentMs) || currentMs < previousMs) {
-		return '';
-	}
-	return elapsedTimePhrase(text, currentMs - previousMs);
-}
-
-function elapsedTimePhrase(text: BotText, elapsedMs: number): string {
-	const seconds = Math.max(0, Math.round(elapsedMs / 1_000));
-	if (seconds < 60) return seconds <= 1 ? text.format('report.elapsed.moment') : text.format('report.elapsed.second', { count: seconds });
-	const minutes = Math.round(seconds / 60);
-	if (minutes < 60) return text.format('report.elapsed.minute', { count: minutes });
-	const hours = Math.round(minutes / 60);
-	if (hours < 24) return text.format('report.elapsed.hour', { count: hours });
-	return text.format('report.elapsed.day', { count: Math.round(hours / 24) });
-}
-
 function compactedSummaryForContext(payload: unknown): string {
 	const summary = stringValue(runtimeRecord(payload).summary);
 	if (!summary) {
@@ -9539,7 +9506,7 @@ export function formatRuntimeEventForContext(
  const quoted = (value: string) => markdownQuoteForContext(value, 700);
  // Old events can lack identity. An empty ID cannot match a stored author ID,
  // so these records retain handles without guessing which author is the reader.
- const context = providerSerializationContext(text, { botId: details.selfBotId ?? '' });
+ const context = providerSerializationContext(text, { botId: details.selfBotId ?? '' }, undefined, null);
  const data = (value: unknown) => quoted(JSON.stringify(value) ?? '');
  switch (type) {
   case 'tool_call': {

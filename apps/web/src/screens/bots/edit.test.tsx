@@ -28,6 +28,7 @@ function bot(overrides: Partial<BotSummary> = {}): BotSummary {
 		toolSettings: {},
 		postingSettings: {},
 		effectivePostingSettings: { commentBodyCharacters: 2_000, threadBodyCharacters: 6_000 },
+		timeSettings: { mode: "relative", timezone: "UTC" },
 		tickSettings: { enabled: false, intervalSeconds: 86_400, compactionThreshold: 0.75 },
 		effectiveTickSettings: {
 			enabled: false,

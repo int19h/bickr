@@ -1,8 +1,8 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "catalogSourceHash": "1ea4d0935facacfea35be251f30fc67822b5de7e36d4075fd21c7595bffff89e",
+  "catalogSourceHash": "569c6dc99760c3c93e1594717e4078e6e25111ee4b5b788935ef32b6d2cb5cab",
   "locale": "be",
-  "status": "accepted_by_lead",
+  "status": "partially_pending_translation",
   "leadReason": "Accept the Belarusian catalog after both reviewers accept the final terminology adjustment. Native time cases, explicit relationship actors, obligation style, and control/tool terminology preserve the source. The standard word мусіць is not an orthography marker. The view_activity wording uses паводле consistently.",
   "terminologyDecisions": {
     "control": "Use сродак кіравання for a Bickr control and інструмент for a tool. This distinguishes the technical roles consistently.",
@@ -3224,7 +3224,7 @@
     },
     "serialization": {
       "finalHash": "7e2e96505feac923489e93e5954f2b223930b603d5b9fd61168efba2950b30b4",
-      "finalTemplateHash": "3b51913d02dc0ac314944fe60b0c5987c4b90dbca3c53407ed85a0e1c72c5f13",
+      "finalTemplateHash": "99cf29c29c711e3b3fc90abd1a9209d0a29911b5296bb533c4e5d470cae27d10",
       "draftHashes": {
         "codex": "2cbec404d1b1424e35de7dd13710e0b302257a6ae731cc7f0b3096b4e6afb173",
         "opus": "adae849831bb2c51d3d71ba581b1b8bcc2a2d44f5e9ce37c3834552ff52d0f02",
@@ -3236,259 +3236,6 @@
         "grok": "d37369a38628a9dac215bc94603a881808059fc8960e2934937902f7756a47bc"
       },
       "decisions": {
-        "time.just_now": {
-          "finalValueHash": "12382b1d02aabbed677b7263891219b0086c150e1062343719ef51ead33ebf4c",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All four agree on the native just-now phrase.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept толькі што as the compact fragment for just now.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "time.year.future": {
-          "finalValueHash": "b8f2cfa46f20f6e90631019d1dad537aa337fb1fe86135c5f65e412d91e83830",
-          "chosenFrom": "opus",
-          "leadReason": "Use native relative-time fragments instead of interval-definition sentences. The independent Opus draft has the correct accusative гадзіну and хвіліну as well as the native one/few/many/other case forms. The Grok draft supports direct time phrases but misses those accusatives. Preserve exact count, unit, and past/future direction.",
-          "candidateReason": "Codex supplies a complete future time-count label in all four categories; Opus uses natural fragments, while Gemini uses the many ending for fractional years.",
-          "opusDecision": "required_change",
-          "opusReason": "Format defect: this string is the value of the \"when\" or \"lastActivity\" field in tool results. The candidate renders a sentence fragment with a period (\"Час, які мінуў, у днях: N.\"). Native phrases fit the slot, and the be reference asks for explicit relative-time patterns. The opus draft has correct one/few/many/other forms, including the accusative гадзіну/хвіліну that grok misses.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex. one is 1, 21, and 101; few is 2, 3, and 4; many includes 0; other is fractional; the shared count label was read for every category. English: in {{count}} year in {{count}} years",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change: a native fragment (\"праз N …\" or \"N … таму\") replaces the interval label in the JSON \"when\" value. Case forms checked: one (1, 21, 101) takes the accusative singular (год, месяц, дзень, гадзіну, хвіліну); few the nominative plural; many (including 0) the genitive plural; fractional other the genitive singular. All are correct.",
-              "proposedValueHash": "b8f2cfa46f20f6e90631019d1dad537aa337fb1fe86135c5f65e412d91e83830"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept праз {{count}} год, гады, гадоў, and года. English is the future label. праз is future and таму is past. Belarusian one covers 1, 21, and 101. few covers 2, 3, and 4. many includes 0 and the genitive plural. other is the fractional genitive singular. {{count}} stays in every category. These phrases are explicit catalog text because Intl.RelativeTimeFormat falls back to English for Belarusian.",
-              "proposedValueHash": "b8f2cfa46f20f6e90631019d1dad537aa337fb1fe86135c5f65e412d91e83830"
-            }
-          }
-        },
-        "time.year.past": {
-          "finalValueHash": "af39f854669714916c94555776ea865dd9f6147b64de60a7734f13ead1368c6c",
-          "chosenFrom": "opus",
-          "leadReason": "Use native relative-time fragments instead of interval-definition sentences. The independent Opus draft has the correct accusative гадзіну and хвіліну as well as the native one/few/many/other case forms. The Grok draft supports direct time phrases but misses those accusatives. Preserve exact count, unit, and past/future direction.",
-          "candidateReason": "Codex supplies a complete past time-count label in all four categories; Opus uses natural fragments, while Gemini uses the many ending for fractional years.",
-          "opusDecision": "required_change",
-          "opusReason": "Format defect: this string is the value of the \"when\" or \"lastActivity\" field in tool results. The candidate renders a sentence fragment with a period (\"Час, які мінуў, у днях: N.\"). Native phrases fit the slot, and the be reference asks for explicit relative-time patterns. The opus draft has correct one/few/many/other forms, including the accusative гадзіну/хвіліну that grok misses.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex. one is 1, 21, and 101; few is 2, 3, and 4; many includes 0; other is fractional; the shared count label was read for every category. English: {{count}} year ago {{count}} years ago",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change: a native fragment (\"праз N …\" or \"N … таму\") replaces the interval label in the JSON \"when\" value. Case forms checked: one (1, 21, 101) takes the accusative singular (год, месяц, дзень, гадзіну, хвіліну); few the nominative plural; many (including 0) the genitive plural; fractional other the genitive singular. All are correct.",
-              "proposedValueHash": "af39f854669714916c94555776ea865dd9f6147b64de60a7734f13ead1368c6c"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept {{count}} год таму, гады таму, гадоў таму, and года таму. English is the past label. праз is future and таму is past. Belarusian one covers 1, 21, and 101. few covers 2, 3, and 4. many includes 0 and the genitive plural. other is the fractional genitive singular. {{count}} stays in every category. These phrases are explicit catalog text because Intl.RelativeTimeFormat falls back to English for Belarusian.",
-              "proposedValueHash": "af39f854669714916c94555776ea865dd9f6147b64de60a7734f13ead1368c6c"
-            }
-          }
-        },
-        "time.month.future": {
-          "finalValueHash": "85b1e743c721986eca95a137934d2f6ea7a61f64699961c476700cf8d196de46",
-          "chosenFrom": "opus",
-          "leadReason": "Use native relative-time fragments instead of interval-definition sentences. The independent Opus draft has the correct accusative гадзіну and хвіліну as well as the native one/few/many/other case forms. The Grok draft supports direct time phrases but misses those accusatives. Preserve exact count, unit, and past/future direction.",
-          "candidateReason": "Codex supplies a complete future time-count label in all four categories; Opus uses natural fragments, while Gemini uses the many ending for fractional months.",
-          "opusDecision": "required_change",
-          "opusReason": "Format defect: this string is the value of the \"when\" or \"lastActivity\" field in tool results. The candidate renders a sentence fragment with a period (\"Час, які мінуў, у днях: N.\"). Native phrases fit the slot, and the be reference asks for explicit relative-time patterns. The opus draft has correct one/few/many/other forms, including the accusative гадзіну/хвіліну that grok misses.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex. one is 1, 21, and 101; few is 2, 3, and 4; many includes 0; other is fractional; the shared count label was read for every category. English: in {{count}} month in {{count}} months",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change: a native fragment (\"праз N …\" or \"N … таму\") replaces the interval label in the JSON \"when\" value. Case forms checked: one (1, 21, 101) takes the accusative singular (год, месяц, дзень, гадзіну, хвіліну); few the nominative plural; many (including 0) the genitive plural; fractional other the genitive singular. All are correct.",
-              "proposedValueHash": "85b1e743c721986eca95a137934d2f6ea7a61f64699961c476700cf8d196de46"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept праз {{count}} месяц, месяцы, месяцаў, and месяца. English is the future label. праз is future and таму is past. Belarusian one covers 1, 21, and 101. few covers 2, 3, and 4. many includes 0 and the genitive plural. other is the fractional genitive singular. {{count}} stays in every category. These phrases are explicit catalog text because Intl.RelativeTimeFormat falls back to English for Belarusian.",
-              "proposedValueHash": "85b1e743c721986eca95a137934d2f6ea7a61f64699961c476700cf8d196de46"
-            }
-          }
-        },
-        "time.month.past": {
-          "finalValueHash": "58ba2c527e97f6f73be966d4d190c8a57611bcc4049f9cd7763d70d435c1c9a1",
-          "chosenFrom": "opus",
-          "leadReason": "Use native relative-time fragments instead of interval-definition sentences. The independent Opus draft has the correct accusative гадзіну and хвіліну as well as the native one/few/many/other case forms. The Grok draft supports direct time phrases but misses those accusatives. Preserve exact count, unit, and past/future direction.",
-          "candidateReason": "Codex supplies a complete past time-count label in all four categories; Opus uses natural fragments, while Gemini uses the many ending for fractional months.",
-          "opusDecision": "required_change",
-          "opusReason": "Format defect: this string is the value of the \"when\" or \"lastActivity\" field in tool results. The candidate renders a sentence fragment with a period (\"Час, які мінуў, у днях: N.\"). Native phrases fit the slot, and the be reference asks for explicit relative-time patterns. The opus draft has correct one/few/many/other forms, including the accusative гадзіну/хвіліну that grok misses.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex. one is 1, 21, and 101; few is 2, 3, and 4; many includes 0; other is fractional; the shared count label was read for every category. English: {{count}} month ago {{count}} months ago",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change: a native fragment (\"праз N …\" or \"N … таму\") replaces the interval label in the JSON \"when\" value. Case forms checked: one (1, 21, 101) takes the accusative singular (год, месяц, дзень, гадзіну, хвіліну); few the nominative plural; many (including 0) the genitive plural; fractional other the genitive singular. All are correct.",
-              "proposedValueHash": "58ba2c527e97f6f73be966d4d190c8a57611bcc4049f9cd7763d70d435c1c9a1"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept {{count}} месяц таму, месяцы таму, месяцаў таму, and месяца таму. English is the past label. праз is future and таму is past. Belarusian one covers 1, 21, and 101. few covers 2, 3, and 4. many includes 0 and the genitive plural. other is the fractional genitive singular. {{count}} stays in every category. These phrases are explicit catalog text because Intl.RelativeTimeFormat falls back to English for Belarusian.",
-              "proposedValueHash": "58ba2c527e97f6f73be966d4d190c8a57611bcc4049f9cd7763d70d435c1c9a1"
-            }
-          }
-        },
-        "time.day.future": {
-          "finalValueHash": "19f376979a51c307deadfd4d912b3847a691746758b38d9e3d23c47f8a33cb31",
-          "chosenFrom": "opus",
-          "leadReason": "Use native relative-time fragments instead of interval-definition sentences. The independent Opus draft has the correct accusative гадзіну and хвіліну as well as the native one/few/many/other case forms. The Grok draft supports direct time phrases but misses those accusatives. Preserve exact count, unit, and past/future direction.",
-          "candidateReason": "Codex supplies a complete future time-count label in all four categories; Opus uses natural fragments, while Gemini uses the many ending for fractional days.",
-          "opusDecision": "required_change",
-          "opusReason": "Format defect: this string is the value of the \"when\" or \"lastActivity\" field in tool results. The candidate renders a sentence fragment with a period (\"Час, які мінуў, у днях: N.\"). Native phrases fit the slot, and the be reference asks for explicit relative-time patterns. The opus draft has correct one/few/many/other forms, including the accusative гадзіну/хвіліну that grok misses.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex. one is 1, 21, and 101; few is 2, 3, and 4; many includes 0; other is fractional; the shared count label was read for every category. English: in {{count}} day in {{count}} days",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change: a native fragment (\"праз N …\" or \"N … таму\") replaces the interval label in the JSON \"when\" value. Case forms checked: one (1, 21, 101) takes the accusative singular (год, месяц, дзень, гадзіну, хвіліну); few the nominative plural; many (including 0) the genitive plural; fractional other the genitive singular. All are correct.",
-              "proposedValueHash": "19f376979a51c307deadfd4d912b3847a691746758b38d9e3d23c47f8a33cb31"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept праз {{count}} дзень, дні, дзён, and дня. English is the future label. праз is future and таму is past. Belarusian one covers 1, 21, and 101. few covers 2, 3, and 4. many includes 0 and the genitive plural. other is the fractional genitive singular. {{count}} stays in every category. These phrases are explicit catalog text because Intl.RelativeTimeFormat falls back to English for Belarusian.",
-              "proposedValueHash": "19f376979a51c307deadfd4d912b3847a691746758b38d9e3d23c47f8a33cb31"
-            }
-          }
-        },
-        "time.day.past": {
-          "finalValueHash": "c2f20a403f9ea9dcd8ace3c6f6f9fbeabeeaa4232128d6b1120ce4f7f8d99128",
-          "chosenFrom": "opus",
-          "leadReason": "Use native relative-time fragments instead of interval-definition sentences. The independent Opus draft has the correct accusative гадзіну and хвіліну as well as the native one/few/many/other case forms. The Grok draft supports direct time phrases but misses those accusatives. Preserve exact count, unit, and past/future direction.",
-          "candidateReason": "Codex supplies a complete past time-count label in all four categories; Opus uses natural fragments, while Gemini uses the many ending for fractional days.",
-          "opusDecision": "required_change",
-          "opusReason": "Format defect: this string is the value of the \"when\" or \"lastActivity\" field in tool results. The candidate renders a sentence fragment with a period (\"Час, які мінуў, у днях: N.\"). Native phrases fit the slot, and the be reference asks for explicit relative-time patterns. The opus draft has correct one/few/many/other forms, including the accusative гадзіну/хвіліну that grok misses.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex. one is 1, 21, and 101; few is 2, 3, and 4; many includes 0; other is fractional; the shared count label was read for every category. English: {{count}} day ago {{count}} days ago",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change: a native fragment (\"праз N …\" or \"N … таму\") replaces the interval label in the JSON \"when\" value. Case forms checked: one (1, 21, 101) takes the accusative singular (год, месяц, дзень, гадзіну, хвіліну); few the nominative plural; many (including 0) the genitive plural; fractional other the genitive singular. All are correct.",
-              "proposedValueHash": "c2f20a403f9ea9dcd8ace3c6f6f9fbeabeeaa4232128d6b1120ce4f7f8d99128"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept {{count}} дзень таму, дні таму, дзён таму, and дня таму. English is the past label. праз is future and таму is past. Belarusian one covers 1, 21, and 101. few covers 2, 3, and 4. many includes 0 and the genitive plural. other is the fractional genitive singular. {{count}} stays in every category. These phrases are explicit catalog text because Intl.RelativeTimeFormat falls back to English for Belarusian.",
-              "proposedValueHash": "c2f20a403f9ea9dcd8ace3c6f6f9fbeabeeaa4232128d6b1120ce4f7f8d99128"
-            }
-          }
-        },
-        "time.hour.future": {
-          "finalValueHash": "3cf3208d4b3b718335ff290ceac48a60dda6d492ef864148a9b2a26c70a20db7",
-          "chosenFrom": "opus",
-          "leadReason": "Use native relative-time fragments instead of interval-definition sentences. The independent Opus draft has the correct accusative гадзіну and хвіліну as well as the native one/few/many/other case forms. The Grok draft supports direct time phrases but misses those accusatives. Preserve exact count, unit, and past/future direction.",
-          "candidateReason": "Codex supplies a complete future time-count label in all four categories; Opus uses natural fragments, while Grok uses nominative hour where temporal accusative is needed and Gemini misinflects fractions.",
-          "opusDecision": "required_change",
-          "opusReason": "Format defect: this string is the value of the \"when\" or \"lastActivity\" field in tool results. The candidate renders a sentence fragment with a period (\"Час, які мінуў, у днях: N.\"). Native phrases fit the slot, and the be reference asks for explicit relative-time patterns. The opus draft has correct one/few/many/other forms, including the accusative гадзіну/хвіліну that grok misses.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex. one is 1, 21, and 101; few is 2, 3, and 4; many includes 0; other is fractional; the shared count label was read for every category. English: in {{count}} hour in {{count}} hours",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change: a native fragment (\"праз N …\" or \"N … таму\") replaces the interval label in the JSON \"when\" value. Case forms checked: one (1, 21, 101) takes the accusative singular (год, месяц, дзень, гадзіну, хвіліну); few the nominative plural; many (including 0) the genitive plural; fractional other the genitive singular. All are correct.",
-              "proposedValueHash": "3cf3208d4b3b718335ff290ceac48a60dda6d492ef864148a9b2a26c70a20db7"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept праз {{count}} гадзіну, гадзіны, гадзін, and гадзіны. one uses the accusative гадзіну, which fits 1, 21, and 101. few and other share the spelling гадзіны in different cases. English is the future label. праз is future and таму is past. Belarusian one covers 1, 21, and 101. few covers 2, 3, and 4. many includes 0 and the genitive plural. other is the fractional genitive singular. {{count}} stays in every category. These phrases are explicit catalog text because Intl.RelativeTimeFormat falls back to English for Belarusian.",
-              "proposedValueHash": "3cf3208d4b3b718335ff290ceac48a60dda6d492ef864148a9b2a26c70a20db7"
-            }
-          }
-        },
-        "time.hour.past": {
-          "finalValueHash": "585335af9f2034391f7a48cb4c01ef9ede972946888c3ea0805dfde43c6db644",
-          "chosenFrom": "opus",
-          "leadReason": "Use native relative-time fragments instead of interval-definition sentences. The independent Opus draft has the correct accusative гадзіну and хвіліну as well as the native one/few/many/other case forms. The Grok draft supports direct time phrases but misses those accusatives. Preserve exact count, unit, and past/future direction.",
-          "candidateReason": "Codex supplies a complete past time-count label in all four categories; Opus uses natural fragments, while Grok uses nominative hour where temporal accusative is needed and Gemini misinflects fractions.",
-          "opusDecision": "required_change",
-          "opusReason": "Format defect: this string is the value of the \"when\" or \"lastActivity\" field in tool results. The candidate renders a sentence fragment with a period (\"Час, які мінуў, у днях: N.\"). Native phrases fit the slot, and the be reference asks for explicit relative-time patterns. The opus draft has correct one/few/many/other forms, including the accusative гадзіну/хвіліну that grok misses.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex. one is 1, 21, and 101; few is 2, 3, and 4; many includes 0; other is fractional; the shared count label was read for every category. English: {{count}} hour ago {{count}} hours ago",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change: a native fragment (\"праз N …\" or \"N … таму\") replaces the interval label in the JSON \"when\" value. Case forms checked: one (1, 21, 101) takes the accusative singular (год, месяц, дзень, гадзіну, хвіліну); few the nominative plural; many (including 0) the genitive plural; fractional other the genitive singular. All are correct.",
-              "proposedValueHash": "585335af9f2034391f7a48cb4c01ef9ede972946888c3ea0805dfde43c6db644"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept {{count}} гадзіну таму, гадзіны таму, гадзін таму, and гадзіны таму. English is the past label. праз is future and таму is past. Belarusian one covers 1, 21, and 101. few covers 2, 3, and 4. many includes 0 and the genitive plural. other is the fractional genitive singular. {{count}} stays in every category. These phrases are explicit catalog text because Intl.RelativeTimeFormat falls back to English for Belarusian.",
-              "proposedValueHash": "585335af9f2034391f7a48cb4c01ef9ede972946888c3ea0805dfde43c6db644"
-            }
-          }
-        },
-        "time.minute.future": {
-          "finalValueHash": "ca344947e98da9fc561c9b09ad81657ac95a2337d414613d94dfd0e1263018e5",
-          "chosenFrom": "opus",
-          "leadReason": "Use native relative-time fragments instead of interval-definition sentences. The independent Opus draft has the correct accusative гадзіну and хвіліну as well as the native one/few/many/other case forms. The Grok draft supports direct time phrases but misses those accusatives. Preserve exact count, unit, and past/future direction.",
-          "candidateReason": "Codex supplies a complete future time-count label in all four categories; Opus uses natural fragments, while Grok uses nominative minute where temporal accusative is needed and Gemini misinflects fractions.",
-          "opusDecision": "required_change",
-          "opusReason": "Format defect: this string is the value of the \"when\" or \"lastActivity\" field in tool results. The candidate renders a sentence fragment with a period (\"Час, які мінуў, у днях: N.\"). Native phrases fit the slot, and the be reference asks for explicit relative-time patterns. The opus draft has correct one/few/many/other forms, including the accusative гадзіну/хвіліну that grok misses.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex. one is 1, 21, and 101; few is 2, 3, and 4; many includes 0; other is fractional; the shared count label was read for every category. English: in {{count}} minute in {{count}} minutes",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change: a native fragment (\"праз N …\" or \"N … таму\") replaces the interval label in the JSON \"when\" value. Case forms checked: one (1, 21, 101) takes the accusative singular (год, месяц, дзень, гадзіну, хвіліну); few the nominative plural; many (including 0) the genitive plural; fractional other the genitive singular. All are correct.",
-              "proposedValueHash": "ca344947e98da9fc561c9b09ad81657ac95a2337d414613d94dfd0e1263018e5"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept праз {{count}} хвіліну, хвіліны, хвілін, and хвіліны. one uses the accusative хвіліну. few and other share the spelling хвіліны in different cases. English is the future label. праз is future and таму is past. Belarusian one covers 1, 21, and 101. few covers 2, 3, and 4. many includes 0 and the genitive plural. other is the fractional genitive singular. {{count}} stays in every category. These phrases are explicit catalog text because Intl.RelativeTimeFormat falls back to English for Belarusian.",
-              "proposedValueHash": "ca344947e98da9fc561c9b09ad81657ac95a2337d414613d94dfd0e1263018e5"
-            }
-          }
-        },
-        "time.minute.past": {
-          "finalValueHash": "c67751c6e58dfc15ea0b93bd885822044e2bba2e7dca86f2a9d46c993cf5458d",
-          "chosenFrom": "opus",
-          "leadReason": "Use native relative-time fragments instead of interval-definition sentences. The independent Opus draft has the correct accusative гадзіну and хвіліну as well as the native one/few/many/other case forms. The Grok draft supports direct time phrases but misses those accusatives. Preserve exact count, unit, and past/future direction.",
-          "candidateReason": "Codex supplies a complete past time-count label in all four categories; Opus uses natural fragments, while Grok uses nominative minute where temporal accusative is needed and Gemini misinflects fractions.",
-          "opusDecision": "required_change",
-          "opusReason": "Format defect: this string is the value of the \"when\" or \"lastActivity\" field in tool results. The candidate renders a sentence fragment with a period (\"Час, які мінуў, у днях: N.\"). Native phrases fit the slot, and the be reference asks for explicit relative-time patterns. The opus draft has correct one/few/many/other forms, including the accusative гадзіну/хвіліну that grok misses.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex. one is 1, 21, and 101; few is 2, 3, and 4; many includes 0; other is fractional; the shared count label was read for every category. English: {{count}} minute ago {{count}} minutes ago",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change: a native fragment (\"праз N …\" or \"N … таму\") replaces the interval label in the JSON \"when\" value. Case forms checked: one (1, 21, 101) takes the accusative singular (год, месяц, дзень, гадзіну, хвіліну); few the nominative plural; many (including 0) the genitive plural; fractional other the genitive singular. All are correct.",
-              "proposedValueHash": "c67751c6e58dfc15ea0b93bd885822044e2bba2e7dca86f2a9d46c993cf5458d"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept {{count}} хвіліну таму, хвіліны таму, хвілін таму, and хвіліны таму. English is the past label. праз is future and таму is past. Belarusian one covers 1, 21, and 101. few covers 2, 3, and 4. many includes 0 and the genitive plural. other is the fractional genitive singular. {{count}} stays in every category. These phrases are explicit catalog text because Intl.RelativeTimeFormat falls back to English for Belarusian.",
-              "proposedValueHash": "c67751c6e58dfc15ea0b93bd885822044e2bba2e7dca86f2a9d46c993cf5458d"
-            }
-          }
-        },
         "read.context.basic": {
           "finalValueHash": "d694d01aef3611c8925cc1e1310c37815ceffa1025b5e5cfdb8ceba31fb59bab",
           "chosenFrom": "opus",
@@ -4125,7 +3872,7 @@
     },
     "reports": {
       "finalHash": "d61b395f8d6f57f13a2b1ef56e375869e029ecff4b4ff72ca106ebe2783b30a4",
-      "finalTemplateHash": "cbbbfd24dcb947d97248ceb7b9b7167b46360341a7f2254aa62f3cce2c20d302",
+      "finalTemplateHash": "c235daf236aaefbf2f2ac729e55f54493b3f02fb8e450438dcaf29fe31d1e9c8",
       "draftHashes": {
         "codex": "9a096d81e59582ef510f27c6cc40205c3d6080560e9b8628f8496f4334d9baed",
         "opus": "525436ce5dc334269f29d2b73a0056bbe3e8cd5539ae1439ccffe83bc2cb3141",
@@ -4136,73 +3883,12 @@
         "opus": "e62761554ade722f6ecbbe520f085e08a12e983d9d8e9f20b7de66fbd0b41e12",
         "grok": "5e14815ec175bb372a53c7f76ab2caa42a3afb8b76adea63a16e007fc1cc5a2e"
       },
-      "decisions": {
-        "report.elapsed.moment": {
-          "finalValueHash": "25789a93634fbacd9e28ec5f6621721e35ad6378cf2be3051d52a620987c1c22",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Codex preserves the elapsed moment naturally; Gemini repeats moment and Grok uses a different starting preposition.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex. actor, tense, limits, and parameters match the English. English: A moment passed since your previous visit.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "report.elapsed.second": {
-          "finalValueHash": "d7b9817e41e5efc0272d816df7248f866f094d932630b8fdf2fedfc248a0de3f",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Opus preserves elapsed seconds since the previous visit with correct one/few/many/fraction agreement; Gemini uses many for fractions and Codex supplies longer count labels.",
-          "opusDecision": "accept",
-          "opusReason": "Correct one/few/many/other with matching verb agreement (прайшла/прайшлі/прайшло).",
-          "grokDecision": "accept",
-          "grokReason": "Accept. прайшла секунда, прайшлі секунды, прайшло секунд, and genitive singular секунды match one, few, many, and other.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "report.elapsed.minute": {
-          "finalValueHash": "69d70f50b41a865ed89f9e7c781cd71f3bd0b577b21c0e3a5bfb3fba85f75201",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Opus preserves elapsed minutes since the previous visit with correct one/few/many/fraction agreement; Gemini uses many for fractions and Codex supplies longer count labels.",
-          "opusDecision": "accept",
-          "opusReason": "Correct one/few/many/other with matching verb agreement (прайшла/прайшлі/прайшло).",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and opus. one is nominative singular, few is nominative plural, many is genitive plural including 0, and other is genitive singular. English: {{count}} minute passed since your previous visit. {{count}} minutes passed since your previous visit.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "report.elapsed.hour": {
-          "finalValueHash": "22035ac668911a402ce83d17ecbee81c05896b5173e0c4d82e004bce584dfb62",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Opus preserves elapsed hours since the previous visit with correct one/few/many/fraction agreement; Gemini uses many for fractions and Codex supplies longer count labels.",
-          "opusDecision": "accept",
-          "opusReason": "Correct one/few/many/other with matching verb agreement (прайшла/прайшлі/прайшло).",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and opus. one is nominative singular, few is nominative plural, many is genitive plural including 0, and other is genitive singular. English: {{count}} hour passed since your previous visit. {{count}} hours passed since your previous visit.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "report.elapsed.day": {
-          "finalValueHash": "132f768d16fbc0a812d57a91090841163176ef270773572e799b2b3fdda2e6cf",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Opus preserves elapsed days since the previous visit with correct one/few/many/fraction agreement; Gemini uses many for fractions and Codex supplies longer count labels.",
-          "opusDecision": "accept",
-          "opusReason": "Correct one/few/many/other with matching verb agreement (прайшла/прайшлі/прайшло).",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and opus. one is nominative singular, few is nominative plural, many is genitive plural including 0, and other is genitive singular. English: {{count}} day passed since your previous visit. {{count}} days passed since your previous visit.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        }
-      }
+      "decisions": {},
+      "status": "pending_translation",
+      "pendingTranslationKeys": [
+        "report.timestamp.relative",
+        "report.timestamp.absolute"
+      ]
     },
     "recovery": {
       "finalHash": "54bd71748fd261f86bcd00c3e63f1746bd478ac46b8a6a25e5379a7d32899809",

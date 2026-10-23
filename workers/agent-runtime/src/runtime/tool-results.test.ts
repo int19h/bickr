@@ -17,7 +17,7 @@ const enLang = "en" as LanguageTag;
 const en = (text: string): RequiredLocalizedText => ({ lang: enLang, text });
 
 const selfBotId = "bot_self";
-const readingParticipant = () => providerSerializationContext(text, { botId: selfBotId });
+const readingParticipant = () => providerSerializationContext(text, { botId: selfBotId }, undefined, { settings: { mode: "relative", timezone: "UTC" }, createdAt: "2026-01-01T00:00:00Z" });
 
 describe("provider-facing text preservation", () => {
 	it('omits missing authored names and titles without changing literal placeholder words', () => {
@@ -946,7 +946,7 @@ describe('bounded follower summaries', () => {
 		try {
 			const result = providerCheckNotificationsResultWithInclusions([digest()],readingParticipant());
 			const events = result.payload.events as Array<{activities:Record<string,unknown>[]} >;
-			expect(events[0]!.activities[0]).toMatchObject({when:text.format('time.minute.past',{count:5})});
+			expect(events[0]!.activities[0]).toMatchObject({when:'9m15d0h0m'});
 			expect(events[0]!.activities[0]).not.toHaveProperty('createdAt');
 		} finally { clock.mockRestore(); }
 	});

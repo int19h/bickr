@@ -1,4 +1,6 @@
 import { backfillDeletedReferenceHandles, type DeletedHandleBackfillCursor } from '@bickr/shared/deleted-reference-handles';
+import { migrateParticipantTime } from "@bickr/shared/participant-time-migration";
+import { normalizeKvDocuments, isDocumentNormalizationOutcome, isWithinKvNormalizationQuietPeriod } from "@bickr/shared/kv-normalization-sweep";
 import { accountExportPage, parseAccountExportSection } from "@bickr/shared/account-export-repository";
 import { sweepBootstrapLocalization } from '@bickr/shared/instruction-localization-migration';
 import { sweepRuntimeLocalization } from './runtime/instruction-localization-sweep';
@@ -109,7 +111,7 @@ import {
 	runInferenceGraphMigrationStep,
 	runInferenceProviderDefaultBarrierSweepStep,
 } from '@bickr/shared/inference-configuration-migration';
-import { internalServiceUrl, isTrustedInternalServiceRequest } from '@bickr/shared/internal-service';
+import { addInternalServiceAuthHeader, internalServiceUrl, isTrustedInternalServiceRequest } from '@bickr/shared/internal-service';
 import { isExplicitMaintenanceRequest, mutationMaintenanceResponse, readMaintenanceState } from '@bickr/shared/maintenance';
 import {
 	botByHandle,
@@ -240,7 +242,7 @@ import {
 	recoverDueLifecycleOwners,
 	resumeDueUserLifecycleOperation,
 } from './lifecycle/recovery';
-import { kvKeys, readJson } from '@bickr/shared/storage';
+import { kvKeys, readJson, writeJson } from '@bickr/shared/storage';
 import { authProviders, type AuthProvider, type AvatarCrop, type AvatarImage, type BotDocument, type BotImageGenerationSettings, type BotInferenceSettings, type BotTranslationSettingsInput, type InferenceGraphErrorCause, type PublicBotEffectiveModel, type WorldDocument } from '@bickr/shared/model';
 
 const {
@@ -1746,6 +1748,49 @@ export const agentRuntimeRouteTable = [
 				botId: decodeURIComponent(context.match[4] ?? ''),
 			});
 			return ok({ group: requiredBotGroupMutationResult(result, 'bot_group_updated'), coordinator: context.objectId });
+		},
+	},
+	{
+		id: 'participant-time-sweep',
+		method: 'POST',
+		pattern: /^\/maintenance\/participant-time$/,
+		dispatch: 'direct',
+		handler: async (context) => {
+			requireSchedulerServiceRequest(context.request);
+			if (!context.env.USER_BOTS) throw new RepositoryError('server_error', 'Owner coordinator binding is unavailable.', 500);
+			const owners = context.env.USER_BOTS;
+			return ok({ sweep: await normalizeKvDocuments({ ...context.env, normalizeBot: async input => {
+				const headers = new Headers({ 'content-type': 'application/json', 'x-bickr-scheduler': '1', 'x-bickr-user-id': input.ownerUserId });
+				addInternalServiceAuthHeader(headers, context.env.INTERNAL_SERVICE_SECRET);
+				const response = await owners.get(owners.idFromName(input.ownerUserId)).fetch(new Request(internalServiceUrl(`/users/${encodeURIComponent(input.ownerUserId)}/bots/${encodeURIComponent(input.botId)}/normalize-time`), {
+					method: 'POST', headers, body: JSON.stringify({ expectedRevision: input.expectedRevision, expectedUpdatedAt: input.expectedUpdatedAt }),
+				}));
+				if (!response.ok) throw new RepositoryError('server_error', 'Participant time migration failed.', 500);
+				const payload = await response.json() as { data?: { normalization?: unknown } };
+				if (!isDocumentNormalizationOutcome(payload.data?.normalization)) throw new RepositoryError('server_error', 'Participant time migration returned an invalid outcome.', 500);
+				return payload.data.normalization;
+			} }, 'bot', { purpose: 'participant_time' }) });
+		},
+	},
+	{
+		id: 'normalize-bot-time',
+		method: 'POST',
+		pattern: /^\/users\/([^/]+)\/bots\/([^/]+)\/normalize-time$/,
+		dispatch: 'user-coordinator',
+		handler: async (context) => {
+			requireSchedulerServiceRequest(context.request);
+			const userId = requireUserMatch(context.request, decodeURIComponent(context.match[1] ?? ''));
+			const botId = decodeURIComponent(context.match[2] ?? '');
+			const input = requiredRecord(await readJsonBody(context.request));
+			const document = await readJson<BotDocument>(context.env.BICKR_KV, kvKeys.bot(botId));
+			if (!document || document.id !== botId || document.type !== 'bot' || document.ownerUserId !== userId) throw new RepositoryError('not_found', 'Participant not found.', 404);
+			if (document.revision !== input.expectedRevision || document.updatedAt !== input.expectedUpdatedAt) return ok({ normalization: { kind: 'skipped_changed' } });
+			if (isWithinKvNormalizationQuietPeriod(document.updatedAt)) return ok({ normalization: { kind: 'skipped_recently_updated' } });
+			const normalized = normalizeBotDefaults(migrateParticipantTime(document));
+			if (JSON.stringify(document) === JSON.stringify(normalized)) return ok({ normalization: { kind: 'unchanged' } });
+			// The owner queue covers the KV read and write. No configuration edit can interrupt this operation.
+			await writeJson(context.env.BICKR_KV, kvKeys.bot(botId), normalized);
+			return ok({ normalization: { kind: 'rewritten' } });
 		},
 	},
 	{

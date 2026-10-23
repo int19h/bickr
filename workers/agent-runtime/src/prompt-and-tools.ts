@@ -188,7 +188,7 @@ export type OpenRouterServerToolParameters = Record<
 >;
 
 export type OpenRouterServerToolDefinition = {
-	type: "openrouter:datetime" | "openrouter:web_search" | "openrouter:web_fetch";
+	type: "openrouter:web_search" | "openrouter:web_fetch";
 	parameters?: OpenRouterServerToolParameters;
 };
 
@@ -685,7 +685,6 @@ export function openRouterServerToolSelection(
 function enabledOpenRouterServerToolNames(settings: BotToolSettings | undefined): string[] {
 	const openRouter = settings?.openRouter;
 	return [
-		...(openRouter?.datetime?.enabled ? ["openrouter:datetime"] : []),
 		...(openRouter?.webSearch?.enabled ? ["openrouter:web_search"] : []),
 		...(openRouter?.webFetch?.enabled ? ["openrouter:web_fetch"] : []),
 	];
@@ -694,11 +693,6 @@ function enabledOpenRouterServerToolNames(settings: BotToolSettings | undefined)
 function openRouterServerToolDefinitions(settings: BotToolSettings | undefined): OpenRouterServerToolDefinition[] {
 	const openRouter = settings?.openRouter;
 	const tools: OpenRouterServerToolDefinition[] = [];
-	if (openRouter?.datetime?.enabled) {
-		tools.push(openRouterServerTool("openrouter:datetime", {
-			...(openRouter.datetime.timezone ? { timezone: openRouter.datetime.timezone } : {}),
-		}));
-	}
 	if (openRouter?.webSearch?.enabled) {
 		const search = openRouter.webSearch;
 		tools.push(openRouterServerTool("openrouter:web_search", {

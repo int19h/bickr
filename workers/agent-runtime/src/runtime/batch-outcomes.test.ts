@@ -67,7 +67,7 @@ describe('per-target batch outcomes', () => {
 			{ kind: 'unknown', target: 'c/b', scope: { related: false, unrelated: false }, error: new Error('Secret transport diagnostic') },
 			{ kind: 'not_attempted', target: 'c/c' },
 		];
-		const result = providerBatchOutcome(text, 'vote', items, providerSerializationContext(text, { botId: 'bot_test' }), (args, error) => toolFailurePayload(text, 'vote', args, error));
+		const result = providerBatchOutcome(text, 'vote', items, providerSerializationContext(text, { botId: 'bot_test' }, undefined, { settings: { mode: "relative", timezone: "UTC" }, createdAt: "2026-01-01T00:00:00Z" }), (args, error) => toolFailurePayload(text, 'vote', args, error));
 		expect(result.items[0]).toMatchObject({ target: 'c/a', message: 'Comment not found.' });
 		expect(JSON.stringify(result)).not.toContain('Secret');
 		expect(result.items[1]).toMatchObject({ target: 'c/b', message: expect.stringContaining('do not repeat') });

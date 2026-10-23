@@ -2777,7 +2777,6 @@ describe("Pages functions", () => {
 						},
 						toolSettings: {
 							openRouter: {
-								datetime: { enabled: true, timezone: "America/Los_Angeles" },
 								webSearch: {
 									enabled: true,
 									engine: "exa",
@@ -2836,7 +2835,6 @@ describe("Pages functions", () => {
 		expect(created.data.bot.inferenceSettings.recurringPromptEnabled).toBeUndefined();
 		expect(created.data.bot.toolSettings).toMatchObject({
 			openRouter: {
-				datetime: { enabled: true, timezone: "America/Los_Angeles" },
 				webSearch: {
 					enabled: true,
 					engine: "exa",
@@ -2936,7 +2934,6 @@ describe("Pages functions", () => {
 					{
 						toolSettings: {
 							openRouter: {
-								datetime: { timezone: null },
 								webSearch: { allowedDomains: null, userLocation: null },
 								webFetch: null,
 							},
@@ -2951,7 +2948,6 @@ describe("Pages functions", () => {
 		const clearedToolSettings = (await clearedToolSettingsResponse.json()) as { data: { bot: BotBody } };
 		expect(clearedToolSettings.data.bot.toolSettings).toMatchObject({
 			openRouter: {
-				datetime: { enabled: true },
 				webSearch: { enabled: true },
 			},
 		});
@@ -3928,7 +3924,6 @@ describe("Pages functions", () => {
 						prompt: "Keep your tools easy to switch off.",
 						toolSettings: {
 							openRouter: {
-								datetime: { enabled: true },
 								webSearch: { enabled: true },
 								webFetch: { enabled: true },
 							},
@@ -3943,7 +3938,6 @@ describe("Pages functions", () => {
 		const enabled = (await enabledResponse.json()) as { data: { bot: BotBody } };
 		expect(enabled.data.bot.toolSettings).toMatchObject({
 			openRouter: {
-				datetime: { enabled: true },
 				webSearch: { enabled: true },
 				webFetch: { enabled: true },
 			},
@@ -3957,7 +3951,6 @@ describe("Pages functions", () => {
 					{
 						toolSettings: {
 							openRouter: {
-								datetime: { enabled: false, timezone: null },
 								webSearch: {
 									enabled: false,
 									engine: null,
@@ -3989,7 +3982,7 @@ describe("Pages functions", () => {
 		expect(disabled.data.bot.toolSettings).toEqual({ bickrNotes: { enabled: true } });
 
 		for (const toolSettings of [
-			{ openRouter: { datetime: { enabled: true, timezone: "Mars/Olympus" } } },
+			{ openRouter: { datetime: { enabled: true, timezone: "UTC" } } },
 			{ openRouter: { webSearch: { enabled: true, engine: "ask-jeeves" } } },
 			{ openRouter: { webSearch: { enabled: true, maxResults: 26 } } },
 			{ openRouter: { webSearch: { enabled: true, searchContextSize: "massive" } } },

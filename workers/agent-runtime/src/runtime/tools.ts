@@ -1,6 +1,7 @@
 import { buildToolResultView, toolResultViewPayload } from './tool-result-views';
 import { resultContentIdentities } from './result-handles';
 import type { ResultContextScope } from './result-context-scope';
+import { participantTimeSettingsOf } from "@bickr/shared/participant-time-migration";
 import { isCommittedBotServiceIssue } from '@bickr/shared/bot-service-issues';
 import { isAbortError } from '../provider/sse';
 import { TickStoppedError } from '../errors';
@@ -475,7 +476,7 @@ export class RuntimeTools {
 		}
 		const contentIdentities = await resultContentIdentities(this.runtime.env.BICKR_D1, threadIds, commentIds);
 		const references = new Map<string, string>();
-		const view = await buildToolResultView(envelope, { text: bot.text, selfId: bot.id, scope: await this.runtime.resultContextScope(), writtenAt: new Date().toISOString(), references, contentIdentities }, providerResultTokenBudget);
+		const view = await buildToolResultView(envelope, { time: { settings: participantTimeSettingsOf(bot), createdAt: bot.createdAt }, text: bot.text, selfId: bot.id, scope: await this.runtime.resultContextScope(), writtenAt: new Date().toISOString(), references, contentIdentities }, providerResultTokenBudget);
 		if (!view) throw new Error('The tool result has no typed view.');
 		const providerResult: unknown = toolResultViewPayload(view, bot.text);
 		const toolResultPayload = {

@@ -110,11 +110,11 @@ describe("Bickr function tools", () => {
 
 	it("keeps native OpenRouter server tools native", () => {
 		const selection = openRouterServerToolSelection("https://openrouter.ai/api/v1", {
-			openRouter: { datetime: { enabled: true, timezone: "UTC" } },
+			openRouter: { webFetch: { enabled: true } },
 		});
 
 		expect(selection.tools).toEqual([
-			{ type: "openrouter:datetime", parameters: { timezone: "UTC" } },
+			{ type: "openrouter:web_fetch" },
 		]);
 	});
 });

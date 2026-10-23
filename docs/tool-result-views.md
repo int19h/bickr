@@ -86,10 +86,10 @@ The legacy profile reader examines only tool rows without views.
 The old JSON builders in the golden test module record the baseline output for comparison.
 WI-D removes that module and its golden comparisons when it replaces JSON with Markdown.
 
-## Time dependency
+## Participant time
 
-The integration branch does not yet contain WI-A.
-The interim renderer keeps UTC instants and the time of the write.
-Its marked formatter preserves the existing relative phrases and gives stable output.
-After WI-A merges into the integration branch, merge that branch here and use its participant time formatter.
-The participant time configuration remains open until that merge.
+The renderer uses WI-A's `formatParticipantTime` function.
+A view keeps UTC instants and the account creation time.
+Each provider request supplies the current participant time configuration.
+A configuration change re-renders the timestamps in stored views.
+Old rows retain their stored text.

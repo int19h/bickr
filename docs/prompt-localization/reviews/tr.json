@@ -1,8 +1,8 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "catalogSourceHash": "1ea4d0935facacfea35be251f30fc67822b5de7e36d4075fd21c7595bffff89e",
+  "catalogSourceHash": "569c6dc99760c3c93e1594717e4078e6e25111ee4b5b788935ef32b6d2cb5cab",
   "locale": "tr",
-  "status": "accepted_by_lead",
+  "status": "partially_pending_translation",
   "leadReason": "Accept the Turkish catalog after both reviewers accept the exact three terminology follow-ups. Relative time uses count plus a singular unit and sonra or önce. Parenthesized member headings preserve singular and plural labels. Tool arguments consistently use argüman, with suffixes on native head nouns. All conditions, roles, limits, and protected identifiers remain intact.",
   "terminologyDecisions": {
     "time": "count + singular unit + sonra/önce",
@@ -3232,7 +3232,7 @@
     },
     "serialization": {
       "finalHash": "d11cc5ec9987915cc31d32ab161676d32328ab710d99536b662294b02f1fefce",
-      "finalTemplateHash": "b2936dbf871685551b9ef8e4e143e7a515e199fa8cdc057bd957d6669de167df",
+      "finalTemplateHash": "5b1550232171e6ce8b6e626c23a234c6e3854978f04a40bd402a2b10e8991a9b",
       "draftHashes": {
         "codex": "5fbd16a361d2a1f38c114ff7edd84391f2bbc4f6ea7c9760b05f9d68d4aec16e",
         "opus": "6fd2ec9b9c8188dd28fe8a993606b4729c0b885f1caa256c1cc3f3511f3c365d",
@@ -3244,259 +3244,6 @@
         "grok": "277aa0452d8e6a0d4416c10253ceb78b26e83aa24a247ee8d3a36aef8f95e8f7"
       },
       "decisions": {
-        "time.just_now": {
-          "finalValueHash": "5253478eeb77f144ec91e0672c85898778677697378eecba3b70a09ddc7a6bce",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All four agree on the immediate-past expression.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept az önce as the compact fragment for just now. It is not the durative -dır form.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "time.year.future": {
-          "finalValueHash": "8e4a46b7bf26e108f74601fd0d3bc9fcaacd96a2febdd5d528ef3e46530bd957",
-          "chosenFrom": "opus",
-          "leadReason": "Use the native relative time phrase before or after the count interval. A durative sentence can describe an ongoing duration. Preserve the exact count, unit, and direction. Turkish uses a singular unit after the numeral in both categories. The independent Opus and Grok drafts agree.",
-          "candidateReason": "Both categories use a complete count sentence with a singular noun after the numeral. Opus and Grok use fragments; Gemini changes after to within.",
-          "opusDecision": "required_change",
-          "opusReason": "Format defect: this string is the value of the \"when\" or \"lastActivity\" field in tool results. The candidate renders a sentence (\"Geçen/Kalan süre N gündür.\"), and \"N gündür\" can also read as \"for N days (ongoing)\". The opus draft gives the native phrases (\"N gün önce\", \"N gün sonra\") with the singular noun after the count, as the tr reference requires.",
-          "grokDecision": "required_change",
-          "grokReason": "The when-field value is a relative phrase, in {{count}} units. yıldır, aydır, gündür, saattir, and dakikadır are the durative for-that-long forms. Kalan süre and Geçen süre do not make that clitic mean in or ago. sonra keeps a future point. The noun stays singular after the count in both one and other. No suffix is attached to {{count}}.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "Both reviewers agree, and so do I. \"Kalan/Geçen süre N …dır\" can read as a durative (\"for N … now\") and is a sentence in a JSON \"when\" value. \"N … sonra\" is the native relative fragment, and the unit stays singular after the numeral in both one and other, as Turkish requires.",
-              "proposedValueHash": "8e4a46b7bf26e108f74601fd0d3bc9fcaacd96a2febdd5d528ef3e46530bd957"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept {{count}} yıl sonra in both one and other. English is the future field phrase in {{count}} yıl. sonra names the point after the interval. Gemini’s içinde can mean within and is not the same relation. The candidate’s Kalan süre … -dır sentence is durative, for that long, and is not the field phrase. Opus and Grok both use this sonra phrase. Turkish one is exactly 1. other covers 0, 2, and every larger count. The noun stays singular after the visible numeral. No suffix attaches to {{count}}.",
-              "proposedValueHash": "8e4a46b7bf26e108f74601fd0d3bc9fcaacd96a2febdd5d528ef3e46530bd957"
-            }
-          }
-        },
-        "time.year.past": {
-          "finalValueHash": "534eded771cdd4f5e1b1c9a6ae3707055a9de5c20fd84acc70d55c2f9ef94e09",
-          "chosenFrom": "opus",
-          "leadReason": "Use the native relative time phrase before or after the count interval. A durative sentence can describe an ongoing duration. Preserve the exact count, unit, and direction. Turkish uses a singular unit after the numeral in both categories. The independent Opus and Grok drafts agree.",
-          "candidateReason": "Both categories use a complete count sentence with a singular noun after the numeral. Opus and Grok use fragments; Gemini also uses a fragment.",
-          "opusDecision": "required_change",
-          "opusReason": "Format defect: this string is the value of the \"when\" or \"lastActivity\" field in tool results. The candidate renders a sentence (\"Geçen/Kalan süre N gündür.\"), and \"N gündür\" can also read as \"for N days (ongoing)\". The opus draft gives the native phrases (\"N gün önce\", \"N gün sonra\") with the singular noun after the count, as the tr reference requires.",
-          "grokDecision": "required_change",
-          "grokReason": "The when-field value is a relative phrase, {{count}} units ago. yıldır, aydır, gündür, saattir, and dakikadır are the durative for-that-long forms. Kalan süre and Geçen süre do not make that clitic mean in or ago. önce keeps a past point. The noun stays singular after the count in both one and other. No suffix is attached to {{count}}.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "Both reviewers agree, and so do I. \"Kalan/Geçen süre N …dır\" can read as a durative (\"for N … now\") and is a sentence in a JSON \"when\" value. \"N … önce\" is the native relative fragment, and the unit stays singular after the numeral in both one and other, as Turkish requires.",
-              "proposedValueHash": "534eded771cdd4f5e1b1c9a6ae3707055a9de5c20fd84acc70d55c2f9ef94e09"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept {{count}} yıl önce in both one and other. English is {{count}} yıl ago. önce names the point before now. The candidate’s Geçen süre … -dır sentence is durative, for that long, and is not the field phrase. Opus, Grok, and Gemini use this önce phrase. Turkish one is exactly 1. other covers 0, 2, and every larger count. The noun stays singular after the visible numeral. No suffix attaches to {{count}}.",
-              "proposedValueHash": "534eded771cdd4f5e1b1c9a6ae3707055a9de5c20fd84acc70d55c2f9ef94e09"
-            }
-          }
-        },
-        "time.month.future": {
-          "finalValueHash": "dbb49f688f0bbb4b43690f2c5edbf472be6e565b8c87a571b0e9d1e164e0bc9c",
-          "chosenFrom": "opus",
-          "leadReason": "Use the native relative time phrase before or after the count interval. A durative sentence can describe an ongoing duration. Preserve the exact count, unit, and direction. Turkish uses a singular unit after the numeral in both categories. The independent Opus and Grok drafts agree.",
-          "candidateReason": "Both categories use a complete count sentence with a singular noun after the numeral. Opus and Grok use fragments; Gemini changes after to within.",
-          "opusDecision": "required_change",
-          "opusReason": "Format defect: this string is the value of the \"when\" or \"lastActivity\" field in tool results. The candidate renders a sentence (\"Geçen/Kalan süre N gündür.\"), and \"N gündür\" can also read as \"for N days (ongoing)\". The opus draft gives the native phrases (\"N gün önce\", \"N gün sonra\") with the singular noun after the count, as the tr reference requires.",
-          "grokDecision": "required_change",
-          "grokReason": "The when-field value is a relative phrase, in {{count}} units. yıldır, aydır, gündür, saattir, and dakikadır are the durative for-that-long forms. Kalan süre and Geçen süre do not make that clitic mean in or ago. sonra keeps a future point. The noun stays singular after the count in both one and other. No suffix is attached to {{count}}.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "Both reviewers agree, and so do I. \"Kalan/Geçen süre N …dır\" can read as a durative (\"for N … now\") and is a sentence in a JSON \"when\" value. \"N … sonra\" is the native relative fragment, and the unit stays singular after the numeral in both one and other, as Turkish requires.",
-              "proposedValueHash": "dbb49f688f0bbb4b43690f2c5edbf472be6e565b8c87a571b0e9d1e164e0bc9c"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept {{count}} ay sonra in both one and other. English is the future field phrase in {{count}} ay. sonra names the point after the interval. Gemini’s içinde can mean within and is not the same relation. The candidate’s Kalan süre … -dır sentence is durative, for that long, and is not the field phrase. Opus and Grok both use this sonra phrase. Turkish one is exactly 1. other covers 0, 2, and every larger count. The noun stays singular after the visible numeral. No suffix attaches to {{count}}.",
-              "proposedValueHash": "dbb49f688f0bbb4b43690f2c5edbf472be6e565b8c87a571b0e9d1e164e0bc9c"
-            }
-          }
-        },
-        "time.month.past": {
-          "finalValueHash": "55aef82016fd1dd6a686ed0040239193dec81dcce3007eb8fefb14a9bdd603ef",
-          "chosenFrom": "opus",
-          "leadReason": "Use the native relative time phrase before or after the count interval. A durative sentence can describe an ongoing duration. Preserve the exact count, unit, and direction. Turkish uses a singular unit after the numeral in both categories. The independent Opus and Grok drafts agree.",
-          "candidateReason": "Both categories use a complete count sentence with a singular noun after the numeral. Opus and Grok use fragments; Gemini also uses a fragment.",
-          "opusDecision": "required_change",
-          "opusReason": "Format defect: this string is the value of the \"when\" or \"lastActivity\" field in tool results. The candidate renders a sentence (\"Geçen/Kalan süre N gündür.\"), and \"N gündür\" can also read as \"for N days (ongoing)\". The opus draft gives the native phrases (\"N gün önce\", \"N gün sonra\") with the singular noun after the count, as the tr reference requires.",
-          "grokDecision": "required_change",
-          "grokReason": "The when-field value is a relative phrase, {{count}} units ago. yıldır, aydır, gündür, saattir, and dakikadır are the durative for-that-long forms. Kalan süre and Geçen süre do not make that clitic mean in or ago. önce keeps a past point. The noun stays singular after the count in both one and other. No suffix is attached to {{count}}.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "Both reviewers agree, and so do I. \"Kalan/Geçen süre N …dır\" can read as a durative (\"for N … now\") and is a sentence in a JSON \"when\" value. \"N … önce\" is the native relative fragment, and the unit stays singular after the numeral in both one and other, as Turkish requires.",
-              "proposedValueHash": "55aef82016fd1dd6a686ed0040239193dec81dcce3007eb8fefb14a9bdd603ef"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept {{count}} ay önce in both one and other. English is {{count}} ay ago. önce names the point before now. The candidate’s Geçen süre … -dır sentence is durative, for that long, and is not the field phrase. Opus, Grok, and Gemini use this önce phrase. Turkish one is exactly 1. other covers 0, 2, and every larger count. The noun stays singular after the visible numeral. No suffix attaches to {{count}}.",
-              "proposedValueHash": "55aef82016fd1dd6a686ed0040239193dec81dcce3007eb8fefb14a9bdd603ef"
-            }
-          }
-        },
-        "time.day.future": {
-          "finalValueHash": "d8f7debd2259e792f48a5311e0efc75b1cff01f9726a3ad60513c771f7d12937",
-          "chosenFrom": "opus",
-          "leadReason": "Use the native relative time phrase before or after the count interval. A durative sentence can describe an ongoing duration. Preserve the exact count, unit, and direction. Turkish uses a singular unit after the numeral in both categories. The independent Opus and Grok drafts agree.",
-          "candidateReason": "Both categories use a complete count sentence with a singular noun after the numeral. Opus and Grok use fragments; Gemini changes after to within.",
-          "opusDecision": "required_change",
-          "opusReason": "Format defect: this string is the value of the \"when\" or \"lastActivity\" field in tool results. The candidate renders a sentence (\"Geçen/Kalan süre N gündür.\"), and \"N gündür\" can also read as \"for N days (ongoing)\". The opus draft gives the native phrases (\"N gün önce\", \"N gün sonra\") with the singular noun after the count, as the tr reference requires.",
-          "grokDecision": "required_change",
-          "grokReason": "The when-field value is a relative phrase, in {{count}} units. yıldır, aydır, gündür, saattir, and dakikadır are the durative for-that-long forms. Kalan süre and Geçen süre do not make that clitic mean in or ago. sonra keeps a future point. The noun stays singular after the count in both one and other. No suffix is attached to {{count}}.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "Both reviewers agree, and so do I. \"Kalan/Geçen süre N …dır\" can read as a durative (\"for N … now\") and is a sentence in a JSON \"when\" value. \"N … sonra\" is the native relative fragment, and the unit stays singular after the numeral in both one and other, as Turkish requires.",
-              "proposedValueHash": "d8f7debd2259e792f48a5311e0efc75b1cff01f9726a3ad60513c771f7d12937"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept {{count}} gün sonra in both one and other. English is the future field phrase in {{count}} gün. sonra names the point after the interval. Gemini’s içinde can mean within and is not the same relation. The candidate’s Kalan süre … -dır sentence is durative, for that long, and is not the field phrase. Opus and Grok both use this sonra phrase. Turkish one is exactly 1. other covers 0, 2, and every larger count. The noun stays singular after the visible numeral. No suffix attaches to {{count}}.",
-              "proposedValueHash": "d8f7debd2259e792f48a5311e0efc75b1cff01f9726a3ad60513c771f7d12937"
-            }
-          }
-        },
-        "time.day.past": {
-          "finalValueHash": "2e3f4c1813db553246ab8fdea73b45eb2069da2022c7e451de8acc1a44d3318f",
-          "chosenFrom": "opus",
-          "leadReason": "Use the native relative time phrase before or after the count interval. A durative sentence can describe an ongoing duration. Preserve the exact count, unit, and direction. Turkish uses a singular unit after the numeral in both categories. The independent Opus and Grok drafts agree.",
-          "candidateReason": "Both categories use a complete count sentence with a singular noun after the numeral. Opus and Grok use fragments; Gemini also uses a fragment.",
-          "opusDecision": "required_change",
-          "opusReason": "Format defect: this string is the value of the \"when\" or \"lastActivity\" field in tool results. The candidate renders a sentence (\"Geçen/Kalan süre N gündür.\"), and \"N gündür\" can also read as \"for N days (ongoing)\". The opus draft gives the native phrases (\"N gün önce\", \"N gün sonra\") with the singular noun after the count, as the tr reference requires.",
-          "grokDecision": "required_change",
-          "grokReason": "The when-field value is a relative phrase, {{count}} units ago. yıldır, aydır, gündür, saattir, and dakikadır are the durative for-that-long forms. Kalan süre and Geçen süre do not make that clitic mean in or ago. önce keeps a past point. The noun stays singular after the count in both one and other. No suffix is attached to {{count}}.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "Both reviewers agree, and so do I. \"Kalan/Geçen süre N …dır\" can read as a durative (\"for N … now\") and is a sentence in a JSON \"when\" value. \"N … önce\" is the native relative fragment, and the unit stays singular after the numeral in both one and other, as Turkish requires.",
-              "proposedValueHash": "2e3f4c1813db553246ab8fdea73b45eb2069da2022c7e451de8acc1a44d3318f"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept {{count}} gün önce in both one and other. English is {{count}} gün ago. önce names the point before now. The candidate’s Geçen süre … -dır sentence is durative, for that long, and is not the field phrase. Opus, Grok, and Gemini use this önce phrase. Turkish one is exactly 1. other covers 0, 2, and every larger count. The noun stays singular after the visible numeral. No suffix attaches to {{count}}.",
-              "proposedValueHash": "2e3f4c1813db553246ab8fdea73b45eb2069da2022c7e451de8acc1a44d3318f"
-            }
-          }
-        },
-        "time.hour.future": {
-          "finalValueHash": "83016da9c08758f8c447ffa1189cf23ead6c757de16db2cfa384d5e479a6b778",
-          "chosenFrom": "opus",
-          "leadReason": "Use the native relative time phrase before or after the count interval. A durative sentence can describe an ongoing duration. Preserve the exact count, unit, and direction. Turkish uses a singular unit after the numeral in both categories. The independent Opus and Grok drafts agree.",
-          "candidateReason": "Both categories use a complete count sentence with a singular noun after the numeral. Opus and Grok use fragments; Gemini changes after to within.",
-          "opusDecision": "required_change",
-          "opusReason": "Format defect: this string is the value of the \"when\" or \"lastActivity\" field in tool results. The candidate renders a sentence (\"Geçen/Kalan süre N gündür.\"), and \"N gündür\" can also read as \"for N days (ongoing)\". The opus draft gives the native phrases (\"N gün önce\", \"N gün sonra\") with the singular noun after the count, as the tr reference requires.",
-          "grokDecision": "required_change",
-          "grokReason": "The when-field value is a relative phrase, in {{count}} units. yıldır, aydır, gündür, saattir, and dakikadır are the durative for-that-long forms. Kalan süre and Geçen süre do not make that clitic mean in or ago. sonra keeps a future point. The noun stays singular after the count in both one and other. No suffix is attached to {{count}}.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "Both reviewers agree, and so do I. \"Kalan/Geçen süre N …dır\" can read as a durative (\"for N … now\") and is a sentence in a JSON \"when\" value. \"N … sonra\" is the native relative fragment, and the unit stays singular after the numeral in both one and other, as Turkish requires.",
-              "proposedValueHash": "83016da9c08758f8c447ffa1189cf23ead6c757de16db2cfa384d5e479a6b778"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept {{count}} saat sonra in both one and other. English is the future field phrase in {{count}} saat. sonra names the point after the interval. Gemini’s içinde can mean within and is not the same relation. The candidate’s Kalan süre … -dır sentence is durative, for that long, and is not the field phrase. Opus and Grok both use this sonra phrase. Turkish one is exactly 1. other covers 0, 2, and every larger count. The noun stays singular after the visible numeral. No suffix attaches to {{count}}.",
-              "proposedValueHash": "83016da9c08758f8c447ffa1189cf23ead6c757de16db2cfa384d5e479a6b778"
-            }
-          }
-        },
-        "time.hour.past": {
-          "finalValueHash": "24fd8d5e7ff91b378bcc36cc6adf5e2e4dec6af08687f48eb14c6e81bf92fe88",
-          "chosenFrom": "opus",
-          "leadReason": "Use the native relative time phrase before or after the count interval. A durative sentence can describe an ongoing duration. Preserve the exact count, unit, and direction. Turkish uses a singular unit after the numeral in both categories. The independent Opus and Grok drafts agree.",
-          "candidateReason": "Both categories use a complete count sentence with a singular noun after the numeral. Opus and Grok use fragments; Gemini also uses a fragment.",
-          "opusDecision": "required_change",
-          "opusReason": "Format defect: this string is the value of the \"when\" or \"lastActivity\" field in tool results. The candidate renders a sentence (\"Geçen/Kalan süre N gündür.\"), and \"N gündür\" can also read as \"for N days (ongoing)\". The opus draft gives the native phrases (\"N gün önce\", \"N gün sonra\") with the singular noun after the count, as the tr reference requires.",
-          "grokDecision": "required_change",
-          "grokReason": "The when-field value is a relative phrase, {{count}} units ago. yıldır, aydır, gündür, saattir, and dakikadır are the durative for-that-long forms. Kalan süre and Geçen süre do not make that clitic mean in or ago. önce keeps a past point. The noun stays singular after the count in both one and other. No suffix is attached to {{count}}.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "Both reviewers agree, and so do I. \"Kalan/Geçen süre N …dır\" can read as a durative (\"for N … now\") and is a sentence in a JSON \"when\" value. \"N … önce\" is the native relative fragment, and the unit stays singular after the numeral in both one and other, as Turkish requires.",
-              "proposedValueHash": "24fd8d5e7ff91b378bcc36cc6adf5e2e4dec6af08687f48eb14c6e81bf92fe88"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept {{count}} saat önce in both one and other. English is {{count}} saat ago. önce names the point before now. The candidate’s Geçen süre … -dır sentence is durative, for that long, and is not the field phrase. Opus, Grok, and Gemini use this önce phrase. Turkish one is exactly 1. other covers 0, 2, and every larger count. The noun stays singular after the visible numeral. No suffix attaches to {{count}}.",
-              "proposedValueHash": "24fd8d5e7ff91b378bcc36cc6adf5e2e4dec6af08687f48eb14c6e81bf92fe88"
-            }
-          }
-        },
-        "time.minute.future": {
-          "finalValueHash": "fafcbbeec292a84158fc2f60eed52a70ea26a8c8030b57242af842ab62094e5f",
-          "chosenFrom": "opus",
-          "leadReason": "Use the native relative time phrase before or after the count interval. A durative sentence can describe an ongoing duration. Preserve the exact count, unit, and direction. Turkish uses a singular unit after the numeral in both categories. The independent Opus and Grok drafts agree.",
-          "candidateReason": "Both categories use a complete count sentence with a singular noun after the numeral. Opus and Grok use fragments; Gemini changes after to within.",
-          "opusDecision": "required_change",
-          "opusReason": "Format defect: this string is the value of the \"when\" or \"lastActivity\" field in tool results. The candidate renders a sentence (\"Geçen/Kalan süre N gündür.\"), and \"N gündür\" can also read as \"for N days (ongoing)\". The opus draft gives the native phrases (\"N gün önce\", \"N gün sonra\") with the singular noun after the count, as the tr reference requires.",
-          "grokDecision": "required_change",
-          "grokReason": "The when-field value is a relative phrase, in {{count}} units. yıldır, aydır, gündür, saattir, and dakikadır are the durative for-that-long forms. Kalan süre and Geçen süre do not make that clitic mean in or ago. sonra keeps a future point. The noun stays singular after the count in both one and other. No suffix is attached to {{count}}.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "Both reviewers agree, and so do I. \"Kalan/Geçen süre N …dır\" can read as a durative (\"for N … now\") and is a sentence in a JSON \"when\" value. \"N … sonra\" is the native relative fragment, and the unit stays singular after the numeral in both one and other, as Turkish requires.",
-              "proposedValueHash": "fafcbbeec292a84158fc2f60eed52a70ea26a8c8030b57242af842ab62094e5f"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept {{count}} dakika sonra in both one and other. English is the future field phrase in {{count}} dakika. sonra names the point after the interval. Gemini’s içinde can mean within and is not the same relation. The candidate’s Kalan süre … -dır sentence is durative, for that long, and is not the field phrase. Opus and Grok both use this sonra phrase. Turkish one is exactly 1. other covers 0, 2, and every larger count. The noun stays singular after the visible numeral. No suffix attaches to {{count}}.",
-              "proposedValueHash": "fafcbbeec292a84158fc2f60eed52a70ea26a8c8030b57242af842ab62094e5f"
-            }
-          }
-        },
-        "time.minute.past": {
-          "finalValueHash": "d46d672852cd9dcde08147ef6a26999f194b54ceb9aef364e8f08084b583b3f1",
-          "chosenFrom": "opus",
-          "leadReason": "Use the native relative time phrase before or after the count interval. A durative sentence can describe an ongoing duration. Preserve the exact count, unit, and direction. Turkish uses a singular unit after the numeral in both categories. The independent Opus and Grok drafts agree.",
-          "candidateReason": "Both categories use a complete count sentence with a singular noun after the numeral. Opus and Grok use fragments; Gemini also uses a fragment.",
-          "opusDecision": "required_change",
-          "opusReason": "Format defect: this string is the value of the \"when\" or \"lastActivity\" field in tool results. The candidate renders a sentence (\"Geçen/Kalan süre N gündür.\"), and \"N gündür\" can also read as \"for N days (ongoing)\". The opus draft gives the native phrases (\"N gün önce\", \"N gün sonra\") with the singular noun after the count, as the tr reference requires.",
-          "grokDecision": "required_change",
-          "grokReason": "The when-field value is a relative phrase, {{count}} units ago. yıldır, aydır, gündür, saattir, and dakikadır are the durative for-that-long forms. Kalan süre and Geçen süre do not make that clitic mean in or ago. önce keeps a past point. The noun stays singular after the count in both one and other. No suffix is attached to {{count}}.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "Both reviewers agree, and so do I. \"Kalan/Geçen süre N …dır\" can read as a durative (\"for N … now\") and is a sentence in a JSON \"when\" value. \"N … önce\" is the native relative fragment, and the unit stays singular after the numeral in both one and other, as Turkish requires.",
-              "proposedValueHash": "d46d672852cd9dcde08147ef6a26999f194b54ceb9aef364e8f08084b583b3f1"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept {{count}} dakika önce in both one and other. English is {{count}} dakika ago. önce names the point before now. The candidate’s Geçen süre … -dır sentence is durative, for that long, and is not the field phrase. Opus, Grok, and Gemini use this önce phrase. Turkish one is exactly 1. other covers 0, 2, and every larger count. The noun stays singular after the visible numeral. No suffix attaches to {{count}}.",
-              "proposedValueHash": "d46d672852cd9dcde08147ef6a26999f194b54ceb9aef364e8f08084b583b3f1"
-            }
-          }
-        },
         "read.context.basic": {
           "finalValueHash": "195b796d4159508da6a7279af39af72e0daa7cca95a57d827eae2643d15791a1",
           "chosenFrom": "codex",
@@ -4089,7 +3836,7 @@
     },
     "reports": {
       "finalHash": "10fc0ced4e8dd8a636e95d384c1e486d965a308d69605f6e2da1d7eacbc7b729",
-      "finalTemplateHash": "6055e5884ab274f24a6c0eda3bb3c92011510b067d4df07a7849eb50be194b22",
+      "finalTemplateHash": "c235daf236aaefbf2f2ac729e55f54493b3f02fb8e450438dcaf29fe31d1e9c8",
       "draftHashes": {
         "codex": "ebd94091c58ca1cd3c55a573c389a2757d3e2467a8d6dca48c1ba0621525f733",
         "opus": "429d5786e9797b3807c71acd773ab2ac161fce9e5c2fad05024f5c651d3b2b08",
@@ -4100,73 +3847,12 @@
         "opus": "27565d6f67c401b5acba442a10ffadfc8706e3b9c0a5212d68e4bbc350d7ced8",
         "grok": "3baa864e7b1abe906146be9d7694ff275cfe9dd4a48fdd67be60741773ead2ae"
       },
-      "decisions": {
-        "report.elapsed.moment": {
-          "finalValueHash": "00b931af417933c4b7c706a0c985af0e051d804853b6c5c4222de88d184bf694",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Codex and Grok preserve a moment since the prior visit. Gemini weakens moment to a short period.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex, grok. actor, tense, limits, and parameters match the English. English: A moment passed since your previous visit.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "report.elapsed.second": {
-          "finalValueHash": "943bf2d9610381e1583af17deba4b0217f569d06daa9eb7d08fd1c4069808168",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Both categories retain elapsed seconds, prior visit, numeric count, and complete sentences. All four are faithful.",
-          "opusDecision": "accept",
-          "opusReason": "Singular noun after the count; correct in both categories.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and opus, gemini. one is exactly 1 and other includes 0 and 2 or more; the shared noun stays singular after the count. English: {{count}} second passed since your previous visit. {{count}} seconds passed since your previous visit.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "report.elapsed.minute": {
-          "finalValueHash": "8b33d2a00713daaf9fa2b44a7e00d3fd2b237e9991fd637f62ec1d8c899aceb2",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Both categories retain elapsed minutes and prior visit with natural singular noun after count. Opus differs only in since wording.",
-          "opusDecision": "accept",
-          "opusReason": "Singular noun after the count; correct in both categories.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex, grok. one is exactly 1 and other includes 0 and 2 or more; the shared noun stays singular after the count. English: {{count}} minute passed since your previous visit. {{count}} minutes passed since your previous visit.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "report.elapsed.hour": {
-          "finalValueHash": "5eb62902a9f92a696f938ff7988362189fcf5c0cd16c23135eab1c8929634892",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Both categories retain elapsed hours and the prior visit. Gemini agrees; Codex and Grok use the shorter since form.",
-          "opusDecision": "accept",
-          "opusReason": "Singular noun after the count; correct in both categories.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and opus, gemini. one is exactly 1 and other includes 0 and 2 or more; the shared noun stays singular after the count. English: {{count}} hour passed since your previous visit. {{count}} hours passed since your previous visit.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "report.elapsed.day": {
-          "finalValueHash": "6a01adac8b94726d44f2a1ebb140712aacc7a45cddaf42c780c990f68ad14caa",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Both categories preserve elapsed days since the prior visit. All four retain the same report role and meaning.",
-          "opusDecision": "accept",
-          "opusReason": "Singular noun after the count; correct in both categories.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex, grok. one is exactly 1 and other includes 0 and 2 or more; the shared noun stays singular after the count. English: {{count}} day passed since your previous visit. {{count}} days passed since your previous visit.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        }
-      }
+      "decisions": {},
+      "status": "pending_translation",
+      "pendingTranslationKeys": [
+        "report.timestamp.relative",
+        "report.timestamp.absolute"
+      ]
     },
     "recovery": {
       "finalHash": "0a5192c0bfdef9f21ae718f1a3fc2633abac71e2ea6312c8b3941c580f3ee67c",

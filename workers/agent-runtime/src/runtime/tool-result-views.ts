@@ -1,3 +1,4 @@
+import { formatParticipantTime } from "@bickr/shared/participant-time";
 import { pruneReadView } from './read-view-budget';
 import { facetFingerprint } from './result-context-scope';
 import { providerToolArgs } from './tool-args';
@@ -11,6 +12,7 @@ import { ResultContextScope, type ResultFacetValue, type ResultFacet } from './r
 import { resultHandleKey, type ResultEntityReference, type ResultHandleMap, type ResultContentIdentities } from './result-handles';
 
 export const toolResultViewSchemaVersion = 1;
+export type ResultTimeContext = { settings: import('@bickr/shared/model').ParticipantTimeSettings; createdAt: string };
 export type ResultInstant = { instant: string; writtenAt: string };
 type Facet = number;
 type Author = { ref: ResultEntityReference; self: boolean; displayName?: Facet };
@@ -26,7 +28,7 @@ type ProfileView = {
 	ref: ResultEntityReference; displayName?: Facet; bio: Facet; isFollowedByMe: boolean; isFollowingMe: boolean; followers: number;
 	myNoteIds?: string[]; totalMyNoteCount?: number; omittedMyNoteIdCount?: number;
 };
-type ViewBase = { instructionLocale: import('@bickr/shared/instruction-language').InstructionLocale; schemaVersion: 1; writtenAt: string; facets: ResultFacetValue[]; omittedCount: number; contextProfiles?: ProfileView[] };
+type ViewBase = { instructionLocale: import('@bickr/shared/instruction-language').InstructionLocale; schemaVersion: 1; writtenAt: string; facets: ResultFacetValue[]; omittedCount: number; contextProfiles?: ProfileView[]; time?: ResultTimeContext };
 export type ForumListView = ViewBase & { kind: 'list_accessible_forums'; forums: { ref: ResultEntityReference; description: Facet; readOnly: boolean }[] };
 export type ThreadListView = ViewBase & { kind: 'list_threads'; includeForum: boolean; threads: ThreadView[] };
 export type ReadThreadView = ViewBase & { kind: 'read_thread'; operation: string; context: ResultText; pruning: { tokenBudget: number; omittedReplyCount: number; trimmedBodyCount: number } | null; thread: ThreadView; targetCommentId?: string; content: CommentView[] };
@@ -85,6 +87,7 @@ export type ViewBuildContext = {
 	references: ReadonlyMap<string, string>;
 	contentIdentities?: ResultContentIdentities;
  retainKnownBodyValues?: boolean;
+ time?: ResultTimeContext;
 };
 export class UnresolvedResultReferenceError extends Error {
 	readonly entityKind: ResultEntityReference['kind'];
@@ -105,7 +108,7 @@ function value(text: LocalizedText | string | undefined): string | undefined {
 }
 function instant(timestamp: string, context: ViewBuildContext): ResultInstant { return { instant: timestamp, writtenAt: context.writtenAt }; }
 export function resultViewBase(text: BotText, writtenAt = new Date().toISOString()): ViewBase { return { instructionLocale: text.locale, schemaVersion: 1, writtenAt, facets: [], omittedCount: 0 }; }
-function base(context: ViewBuildContext): ViewBase { return resultViewBase(context.text, context.writtenAt); }
+function base(context: ViewBuildContext): ViewBase { return { ...resultViewBase(context.text, context.writtenAt), ...(context.time ? { time: { settings: { mode: context.time.settings.mode, timezone: context.time.settings.timezone }, createdAt: context.time.createdAt } } : {}) }; }
 async function facet(entityId: string, kind: ResultFacet, text: string, context: ViewBuildContext, facets: ResultFacetValue[]): Promise<Facet> {
 	const entry = await context.scope.observe({ entityId, facet: kind }, text);
 	const index = facets.length;
@@ -342,7 +345,7 @@ export function renderResultReference(reference: ResultEntityReference, handles:
 	return `${reference.kind === 'participant' ? 'u' : 'f'}/${current?.handle ?? reference.handle}${current?.deleted ? deletedMark : ''}`;
 }
 
-export function toolResultViewPayload(view: ToolResultView, text: BotText, handles: ResultHandleMap = new Map()): unknown {
+export function toolResultViewPayload(view: ToolResultView, text: BotText, handles: ResultHandleMap = new Map(), time: ResultTimeContext | null = view.time ?? null): unknown {
 	const facetValue = (index: Facet): string | undefined => view.facets[index]?.value;
 	const shown = (index: Facet): boolean => view.facets[index]?.state === 'shown';
 	const reference = (item: ResultEntityReference): string => renderResultReference(item, handles, ` ${text.format('result.reference.deleted')}`);
@@ -352,7 +355,7 @@ export function toolResultViewPayload(view: ToolResultView, text: BotText, handl
 		...(item.title !== undefined ? { title: facetValue(item.title) } : {}), ...(item.author ? { author: authorRef(item.author) } : {}),
 		...(item.commentCount !== undefined ? { commentCount: item.commentCount } : {}),
 		...(item.lock ? { locked: true, commentLimit: item.lock.limit } : {}), ...(item.voteScore !== undefined ? { voteScore: item.voteScore } : {}),
-		...(item.lastActivity ? { lastActivity: relativeTime(item.lastActivity, text) } : {}),
+		...(item.lastActivity ? { lastActivity: participantTimestamp(item.lastActivity, time) } : {}),
 	});
 	const commentData = (item: CommentView): object => ({
 		commentRef: formatCommentRef(item.id), author: authorRef(item.author), ...(item.title ? { title: item.title } : {}),
@@ -379,17 +382,17 @@ export function toolResultViewPayload(view: ToolResultView, text: BotText, handl
 			case 'follow':
 			case 'unfollow': return { ...header, actor: reference(item.actor) };
 			case 'follower_activity_digest': return { ...header, actor: reference(item.actor), olderActivityOmitted: item.olderActivityOmitted,
-				activities: item.activities.map(activity => ({ kind: activity.kind, when: relativeTime(activity.when, text), threadRef: formatThreadRef(activity.threadId), ...(!item.titlesOmitted && activity.title !== undefined ? { title: facetValue(activity.title) } : {}), ...(activity.commentId ? { commentRef: formatCommentRef(activity.commentId) } : {}) })), ...(item.titlesOmitted ? { titlesOmitted: true } : {}) };
+				activities: item.activities.map(activity => ({ kind: activity.kind, when: participantTimestamp(activity.when, time), threadRef: formatThreadRef(activity.threadId), ...(!item.titlesOmitted && activity.title !== undefined ? { title: facetValue(activity.title) } : {}), ...(activity.commentId ? { commentRef: formatCommentRef(activity.commentId) } : {}) })), ...(item.titlesOmitted ? { titlesOmitted: true } : {}) };
 		}
 	};
 	const activityCommentData = (item: ActivityCommentView | undefined, includeCommentId = true): object | undefined => item ? { ...(includeCommentId ? { commentRef: formatCommentRef(item.id) } : {}), ...(item.author ? { author: reference(item.author) } : {}), ...(item.bodyPreview ? { bodyPreview: item.bodyPreview } : {}) } : undefined;
 	const activityData = (item: ActivityView): object => {
 		switch (item.kind) {
-			case 'thread': return { type: 'thread', threadRef: formatThreadRef(item.id), forum: item.forum ? reference(item.forum) : undefined, title: item.title !== undefined ? facetValue(item.title) : undefined, bodyPreview: item.bodyPreview, voteScore: item.voteScore, commentCount: item.commentCount, when: relativeTime(item.when, text) };
-			case 'comment': return { type: 'comment', commentRef: formatCommentRef(item.id), forum: item.forum ? reference(item.forum) : undefined, bodyPreview: item.bodyPreview, replyTo: activityCommentData(item.replyTo, false), when: relativeTime(item.when, text) };
-			case 'vote': return { type: 'vote', commentRef: formatCommentRef(item.id), value: item.value, threadRef: item.threadId ? formatThreadRef(item.threadId) : undefined, forum: item.forum ? reference(item.forum) : undefined, title: item.title, ...(item.reason ? { reason: item.reason } : {}), targetComment: activityCommentData(item.targetComment), when: relativeTime(item.when, text) };
+			case 'thread': return { type: 'thread', threadRef: formatThreadRef(item.id), forum: item.forum ? reference(item.forum) : undefined, title: item.title !== undefined ? facetValue(item.title) : undefined, bodyPreview: item.bodyPreview, voteScore: item.voteScore, commentCount: item.commentCount, when: participantTimestamp(item.when, time) };
+			case 'comment': return { type: 'comment', commentRef: formatCommentRef(item.id), forum: item.forum ? reference(item.forum) : undefined, bodyPreview: item.bodyPreview, replyTo: activityCommentData(item.replyTo, false), when: participantTimestamp(item.when, time) };
+			case 'vote': return { type: 'vote', commentRef: formatCommentRef(item.id), value: item.value, threadRef: item.threadId ? formatThreadRef(item.threadId) : undefined, forum: item.forum ? reference(item.forum) : undefined, title: item.title, ...(item.reason ? { reason: item.reason } : {}), targetComment: activityCommentData(item.targetComment), when: participantTimestamp(item.when, time) };
 			case 'follow':
-			case 'unfollow': return { type: item.kind, profile: reference(item.profile), ...(item.reason ? { reason: item.reason } : {}), when: relativeTime(item.when, text) };
+			case 'unfollow': return { type: item.kind, profile: reference(item.profile), ...(item.reason ? { reason: item.reason } : {}), when: participantTimestamp(item.when, time) };
 		}
 	};
 	let payload: unknown;
@@ -408,12 +411,12 @@ export function toolResultViewPayload(view: ToolResultView, text: BotText, handl
 			break;
 		}
 		case 'settlement': payload = view.outcome.kind === 'not_dispatched' || view.outcome.kind === 'interrupted' || view.outcome.kind === 'result_unavailable' ? { ok: false, code: view.outcome.kind, message: renderResultText(view.outcome.message, text) } : { kind: view.outcome.kind, message: renderResultText(view.outcome.message, text) }; break;
-		case 'batch_outcome': payload = { kind: 'batch_outcome', items: view.items.map(item => item.kind === 'recorded' ? { kind: 'recorded', target: item.targetRef ? reference(item.targetRef) : item.target, result: toolResultViewPayload(item.view, text, handles) } : item.kind === 'refused' ? { kind: item.kind, target: item.targetRef ? reference(item.targetRef) : item.target, message: renderResultText(item.message, text), ...(item.guidance ? { guidance: renderResultText(item.guidance, text) } : {}) } : { kind: item.kind, target: item.targetRef ? reference(item.targetRef) : item.target, message: renderResultText(item.message, text) }), guidance: renderResultText(view.guidance, text) }; break;
+		case 'batch_outcome': payload = { kind: 'batch_outcome', items: view.items.map(item => item.kind === 'recorded' ? { kind: 'recorded', target: item.targetRef ? reference(item.targetRef) : item.target, result: toolResultViewPayload(item.view, text, handles, time ?? item.view.time ?? null) } : item.kind === 'refused' ? { kind: item.kind, target: item.targetRef ? reference(item.targetRef) : item.target, message: renderResultText(item.message, text), ...(item.guidance ? { guidance: renderResultText(item.guidance, text) } : {}) } : { kind: item.kind, target: item.targetRef ? reference(item.targetRef) : item.target, message: renderResultText(item.message, text) }), guidance: renderResultText(view.guidance, text) }; break;
 		case 'list_accessible_forums': payload = view.forums.map(forum => ({ forum: reference(forum.ref), description: facetValue(forum.description), readOnly: forum.readOnly })); break;
 		case 'list_threads': payload = view.threads.map(item => threadData(item, view.includeForum)); break;
 		case 'read_thread':
 		case 'read_comment_by_id': payload = { operation: view.operation, context: renderResultText(view.context, text), thread: threadData(view.thread), ...(view.targetCommentId ? { targetCommentRef: formatCommentRef(view.targetCommentId) } : {}), content: view.content.map(commentData) }; break;
-		case 'search_threads': payload = view.posts.map(post => ({ threadRef: formatThreadRef(post.threadId), ...(post.commentId ? { commentRef: formatCommentRef(post.commentId) } : {}), forum: reference(post.forum), ...(post.title !== undefined ? { title: facetValue(post.title) } : {}), ...(post.snippet !== undefined && shown(post.snippet) ? { snippet: facetValue(post.snippet) } : {}), author: authorRef(post.author), when: relativeTime(post.when, text) })); break;
+		case 'search_threads': payload = view.posts.map(post => ({ threadRef: formatThreadRef(post.threadId), ...(post.commentId ? { commentRef: formatCommentRef(post.commentId) } : {}), forum: reference(post.forum), ...(post.title !== undefined ? { title: facetValue(post.title) } : {}), ...(post.snippet !== undefined && shown(post.snippet) ? { snippet: facetValue(post.snippet) } : {}), author: authorRef(post.author), when: participantTimestamp(post.when, time) })); break;
 		case 'read_note': payload = { id: view.id, content: view.content, links: noteLinks(view.links) }; break;
 		case 'write_note': payload = { outcome: view.outcome, id: view.id, links: noteLinks(view.links), unknownReferences: view.unknownReferences.map(reference => reference) }; break;
 		case 'list_notes': payload = { ids: view.ids.map(id => id), nextCursor: view.nextCursor, total: view.total, unknownFilters: view.unknownFilters.map(filter => filter) }; break;
@@ -439,21 +442,13 @@ export function toolResultViewPayload(view: ToolResultView, text: BotText, handl
 	return payload;
 }
 
-export function renderToolResultView(view: ToolResultView, text: BotText, handles: ResultHandleMap = new Map()): string {
-	return JSON.stringify(toolResultViewPayload(view, text, handles));
+export function renderToolResultView(view: ToolResultView, text: BotText, handles: ResultHandleMap = new Map(), time: ResultTimeContext | null = view.time ?? null): string {
+	return JSON.stringify(toolResultViewPayload(view, text, handles, time));
 }
 
-// WI-A replaces this formatter with participant time configuration.
-// The write instant keeps the interim result stable across renders.
-function relativeTime(timestamp: ResultInstant, text: BotText): string | undefined {
-	if (!timestamp.instant) return undefined;
-	const time = Date.parse(timestamp.instant);
-	if (!Number.isFinite(time)) return timestamp.instant;
-	const diff = Date.parse(timestamp.writtenAt) - time, absolute = Math.abs(diff);
-	if (absolute < 60_000) return text.format('time.just_now');
-	const units = [{ name: 'year', ms: 365 * 86400_000 }, { name: 'month', ms: 30 * 86400_000 }, { name: 'day', ms: 86400_000 }, { name: 'hour', ms: 3600_000 }, { name: 'minute', ms: 60_000 }] as const;
-	const unit = units.find(unit => absolute >= unit.ms) ?? units.at(-1)!;
-	return text.format(`time.${unit.name}.${diff < 0 ? 'future' : 'past'}`, { count: Math.max(1, Math.floor(absolute / unit.ms)) });
+function participantTimestamp(timestamp: ResultInstant, time: ResultTimeContext | null): string | undefined {
+	if (!time || !Number.isFinite(Date.parse(timestamp.instant))) return undefined;
+	return formatParticipantTime(timestamp.instant, time.settings, time.createdAt);
 }
 
 /** Each view kind declares the facet indexes that it can hold. */
