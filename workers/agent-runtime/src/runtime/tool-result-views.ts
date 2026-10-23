@@ -9,10 +9,10 @@ import type { ToolResultEnvelope, ToolResultReadContentItem } from '@bickr/share
 import type { BotProfileRelationshipSummary, LocalizedText } from '@bickr/shared/model';
 import { formatCommentRef, formatThreadRef, parseCommentRef, parseThreadRef } from '@bickr/shared/ids';
 import { ResultContextScope, type ResultFacetValue, type ResultFacet } from './result-context-scope';
-import { resultHandleKey, type ResultEntityReference, type ResultHandleMap, type ResultContentIdentities } from './result-handles';
+import { resolveResultHandle, resultHandleKey, type CurrentResultHandle, type ResultEntityReference, type ResultHandleMap, type ResultContentIdentities } from './result-handles';
 
 export const toolResultViewSchemaVersion = 1;
-export type ResultRenderContext = Readonly<{ text: BotText; time: ResultTimeContext; handles: ReadonlyMap<string, Readonly<{ handle: string; deleted: boolean }>> }>;
+export type ResultRenderContext = Readonly<{ text: BotText; time: ResultTimeContext; handles: ResultHandleMap }>;
 export type ResultTimeContext = Readonly<{ settings: Readonly<import('@bickr/shared/model').ParticipantTimeSettings>; createdAt: string }>;
 export type ResultInstant = { instant: string; writtenAt: string };
 type Facet = number;
@@ -342,8 +342,7 @@ async function buildUnprunedToolResultView(envelope: ToolResultEnvelope, context
 }
 
 export function renderResultReference(reference: ResultEntityReference, handles: ResultHandleMap, deletedMark: string): string {
-	const current = handles.get(resultHandleKey(reference));
-	if (!current?.handle) throw new Error('The render context has no handle for this reference.');
+	const current = resolveResultHandle(reference, handles);
 	return `${reference.kind === 'participant' ? 'u' : 'f'}/${current.handle}${current.deleted ? deletedMark : ''}`;
 }
 
@@ -367,8 +366,7 @@ export function toolResultViewPayload(view: ToolResultView, context: ResultRende
 		replies: typeof item.replies === 'number' ? item.replies : item.replies.map(commentData),
 	});
 	const noteLinks = (items: NoteLinkView[]): object[] => items.map(link => {
-		const current = handles.get(resultHandleKey(link.ref));
-		if (!current?.handle) throw new Error('The render context has no handle for this reference.');
+		const current = resolveResultHandle(link.ref, handles);
 		return { kind: link.ref.kind, handle: current.handle, deleted: current.deleted };
 	});
 	const notificationThreadData = (item: NotificationThreadView): object => ({ threadRef: parseThreadRef(item.id) ? formatThreadRef(item.id) : undefined, ...(item.title !== undefined ? { title: facetValue(item.title) } : {}), ...(item.author ? { author: authorRef(item.author) } : {}), ...(item.body !== undefined && shown(item.body) ? { text: facetValue(item.body) } : {}) });
@@ -709,12 +707,12 @@ export function resultViewBuildRenderContext(view: ToolResultView, input: Pick<V
 
 /** The first render uses references from the new result, before it enters history. */
 export function producedResultHandles(view: ToolResultView): ResultRenderContext['handles'] {
-	const handles: Map<string, Readonly<{ handle: string; deleted: boolean }>> = new Map(resultViewReferences(view).map(ref => [resultHandleKey(ref), Object.freeze({ handle: ref.handle, deleted: false })]));
+	const handles: Map<string, CurrentResultHandle> = new Map(resultViewReferences(view).map(ref => [resultHandleKey(ref), Object.freeze({ kind: 'current' as const, handle: ref.handle })]));
 	if (view.kind === 'read_note' || view.kind === 'write_note') {
-		for (const link of view.links) handles.set(resultHandleKey(link.ref), Object.freeze({ handle: link.ref.handle, deleted: link.deleted }));
+		for (const link of view.links) handles.set(resultHandleKey(link.ref), Object.freeze({ kind: link.deleted ? 'deleted' : 'current', handle: link.ref.handle }));
 	}
 	if (view.kind === 'batch_outcome') for (const item of view.items) {
-		if (item.kind === 'recorded') for (const [key, handle] of producedResultHandles(item.view)) handles.set(key, Object.freeze({ handle: handle.handle, deleted: handle.deleted }));
+		if (item.kind === 'recorded') for (const [key, handle] of producedResultHandles(item.view)) handles.set(key, handle);
 	}
 	return handles;
 }

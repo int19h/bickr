@@ -86,11 +86,11 @@ describe('stored tool result views', () => {
 	});
 
 
-	it('requires every referenced handle and keeps produced references across a batch', () => {
+	it('keeps produced references across a batch', () => {
 		const makeView = (id: string, handle: string): ToolResultView => ({ ...resultViewBase(text), kind: 'read_note', id, content: 'A note', links: [{ ref: { kind: 'participant', entityId: id, handle }, deleted: false }] });
 		const first = makeView('first', 'first-name');
 		const second = makeView('second', 'second-name');
-		expect(() => renderToolResultView(first, testResultContext)).toThrow('The render context has no handle');
+		expect(JSON.parse(renderToolResultView(first, testResultContext)).links).toEqual([{ kind: 'participant', handle: 'first-name', deleted: true }]);
 		const once = contextWithProducedReferences(testResultContext, [first]);
 		const twice = contextWithProducedReferences(once, [second]);
 		expect(renderToolResultView(first, twice)).toBe(renderToolResultView(first, once));
@@ -128,7 +128,7 @@ describe('stored tool result views', () => {
 		const view = await buildToolResultView({ kind: 'note_read', id: 'one', content: 'u/before stays authored', links: [{ ...reference, deleted: false }] }, context());
 		const written = store.appendLoopMessage(testViewRenderContext(view!, text), 'run', attachToolResultView({ role: 'tool', tool_call_id: 'call', content: renderToolResultView(view!, testViewRenderContext(view!, text)) }, view!), 'tool_result');
 		const row = store.loopMessageRow(written.seq)!;
-		const handles = new Map([[resultHandleKey(reference), { handle: 'after', deleted: true }]]);
+		const handles = new Map([[resultHandleKey(reference), { kind: 'deleted' as const, handle: 'after' }]]);
 		const rendered = renderStoredLoopMessage(row, testViewRenderContext(toolResultViewFromRow(row)!, text, handles));
 		expect(rendered.content).toContain('u/before stays authored');
 		expect(rendered.content).toContain('"handle":"after","deleted":true');

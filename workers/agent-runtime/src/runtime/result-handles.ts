@@ -1,7 +1,7 @@
 import type { D1DatabaseLike } from '@bickr/shared/storage';
 
 export type ResultEntityReference = { kind: 'participant' | 'forum'; entityId: string; handle: string };
-export type CurrentResultHandle = Readonly<{ handle?: string; deleted: boolean }>;
+export type CurrentResultHandle = Readonly<{ kind: 'current'; handle: string } | { kind: 'deleted'; handle?: string }>;
 export type ResultHandleMap = ReadonlyMap<string, CurrentResultHandle>;
 
 export function resultHandleKey(ref: Pick<ResultEntityReference, 'kind' | 'entityId'>): string {
@@ -25,9 +25,9 @@ export async function currentResultHandles(db: D1DatabaseLike, refs: readonly Re
 	for (const [index, rows] of queries.entries()) {
 		for (const row of rows) {
 			const deleted = row.deleted_at !== null;
-			// The backfill fills missing deletion handles before a reader renders these refs.
+			// Readers can run before the backfill. A missing deletion handle stays explicit.
 			const handle = deleted ? row.handle_at_deletion : row.handle;
-			handles.set(resultHandleKey({ kind: index === 0 ? 'participant' : 'forum', entityId: row.id }), { ...(handle ? { handle } : {}), deleted });
+			handles.set(resultHandleKey({ kind: index === 0 ? 'participant' : 'forum', entityId: row.id }), deleted ? { kind: 'deleted', ...(handle ? { handle } : {}) } : { kind: 'current', handle: row.handle });
 		}
 	}
 	return handles;
@@ -49,4 +49,14 @@ export async function resultForumIds(db: D1DatabaseLike, worldId: string, handle
 		.bind(worldId, JSON.stringify([...new Set(handles.map(handle => handle.replace(/^f\//u, '')))]))
 		.all<{ id: string; handle: string }>();
 	return new Map((rows.results ?? []).map(row => [`f/${row.handle}`, row.id]));
+}
+
+/** Missing rows and missing deletion handles use the handle that the view saved. */
+export function resolveResultHandle(reference: ResultEntityReference, handles: ResultHandleMap): { handle: string; deleted: boolean } {
+	const state = handles.get(resultHandleKey(reference));
+	switch (state?.kind) {
+		case 'current': return { handle: state.handle, deleted: false };
+		case 'deleted': return { handle: state.handle ?? reference.handle, deleted: true };
+		case undefined: return { handle: reference.handle, deleted: true };
+	}
 }

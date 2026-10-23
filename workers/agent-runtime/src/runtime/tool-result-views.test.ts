@@ -111,7 +111,7 @@ describe('JSON result views', () => {
 	});
 	it('re-renders generated bootstrap forum advice after a rename', async () => {
 		const view = await buildToolResultView({ kind: 'notifications_checked', events: [notificationPayloads[0]!] }, context());
-		const handle = new Map([[JSON.stringify(['forum', forum.id]), { handle: 'renamed', deleted: false }]]);
+		const handle = new Map([[JSON.stringify(['forum', forum.id]), { kind: 'current' as const, handle: 'renamed' }]]);
 		expect(renderToolResultView(view!, testViewRenderContext(view!, text, handle))).toContain('f/renamed');
 		expect(JSON.stringify(view)).not.toContain('SECRET');
 	});
@@ -146,7 +146,7 @@ describe('failure and settlement views', () => {
 		original.existingForumHandle = 'old';
 		const view = failureResultView(original, text, { message: resultMessage('recovery.genericError') });
 		view.existingForum = { kind: 'forum', entityId: forum.id, handle: 'old' };
-		const handles = new Map([[JSON.stringify(['forum', forum.id]), { handle: 'new', deleted: true }]]);
+		const handles = new Map([[JSON.stringify(['forum', forum.id]), { kind: 'deleted' as const, handle: 'new' }]]);
 		expect(JSON.parse(renderToolResultView(view, testViewRenderContext(view, text, handles))).existingForumHandle).toBe('new (deleted)');
 		expect(JSON.parse(renderToolResultView(view, testViewRenderContext(view, text, handles))).args.forumHandle).toBe('old');
 	});
@@ -169,7 +169,7 @@ describe('failure and settlement views', () => {
 			{ kind: 'not_attempted', target: 'u/alice', targetParticipant },
 		];
 		const view = await batchResultView('follow_profile', items, context(), () => { throw new Error('Unexpected refusal'); });
-		const handles = new Map([[JSON.stringify(['participant', profile.id]), { handle: 'renamed', deleted: false }]]);
+		const handles = new Map([[JSON.stringify(['participant', profile.id]), { kind: 'current' as const, handle: 'renamed' }]]);
 		expect(JSON.parse(renderToolResultView(view, testViewRenderContext(view, text, handles))).items.map((item: { target: string }) => item.target)).toEqual(['u/renamed', 'u/renamed', 'u/renamed']);
 		expect(JSON.stringify(view)).not.toContain('SECRET');
 	});

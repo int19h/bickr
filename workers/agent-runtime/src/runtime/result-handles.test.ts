@@ -1,3 +1,7 @@
+import { botText } from '../localization';
+import { buildResultRenderContext, contextWithProducedReferences } from './result-render-context';
+import { renderResultReference, renderToolResultView, resultViewBase, type ToolResultView } from './tool-result-views';
+import type { EffectiveBotDocument } from '@bickr/shared/model';
 import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { D1DatabaseLike, D1PreparedStatementLike, KVNamespaceLike } from '@bickr/shared/storage';
@@ -34,14 +38,39 @@ describe('current handles for result views', () => {
 		expect(first.get(resultHandleKey(refs[0]!))?.handle).toBe('before0');
 		expect(second.get(resultHandleKey(refs[0]!))?.handle).toBe('after');
 	});
+
+	it.each((['participant', 'forum'] as const).flatMap(entityKind => [
+		{ entityKind, label: 'current row', row: { handle: 'renamed', deletionHandle: null, deletedAt: null }, expectedState: { kind: 'current', handle: 'renamed' }, expectedHandle: 'renamed', deleted: false },
+		{ entityKind, label: 'deleted row with a deletion handle', row: { handle: 'deleted-one', deletionHandle: 'last-name', deletedAt: '2026-10-23' }, expectedState: { kind: 'deleted', handle: 'last-name' }, expectedHandle: 'last-name', deleted: true },
+		{ entityKind, label: 'deleted row before backfill', row: { handle: 'deleted-one', deletionHandle: null, deletedAt: '2026-10-23' }, expectedState: { kind: 'deleted' }, expectedHandle: 'saved-name', deleted: true },
+		{ entityKind, label: 'missing index row', row: null, expectedState: undefined, expectedHandle: 'saved-name', deleted: true },
+	]))('renders $entityKind with $label', async ({ entityKind, row, expectedState, expectedHandle, deleted }) => {
+		const f = fixture();
+		if (row) {
+			const table = entityKind === 'participant' ? 'bots_index' : 'forums_index';
+			f.database.prepare(`INSERT INTO ${table} VALUES (?,?,?,?)`).run('one', row.handle, row.deletionHandle, row.deletedAt);
+		}
+		const ref = { kind: entityKind, entityId: 'one', handle: 'saved-name' };
+		const handles = await currentResultHandles(f.db, [ref]);
+		expect(handles.get(resultHandleKey(ref))).toEqual(expectedState);
+		const text = botText('en');
+		const mark = ` ${text.format('result.reference.deleted')}`;
+		expect(renderResultReference(ref, handles, mark)).toBe(`${entityKind === 'participant' ? 'u' : 'f'}/${expectedHandle}${deleted ? mark : ''}`);
+		const view: ToolResultView = { ...resultViewBase(text), kind: 'read_note', id: 'one', content: 'Authored u/saved-name', links: [{ ref, deleted: false }] };
+		const context = await buildResultRenderContext(f.db, { instructionLocale: 'en', createdAt: '2026-10-01' } as EffectiveBotDocument, [view]);
+		const payload = JSON.parse(renderToolResultView(view, context));
+		expect(payload).toEqual({ id: 'one', content: 'Authored u/saved-name', links: [{ kind: entityKind, handle: expectedHandle, deleted }] });
+		expect(renderToolResultView(view, contextWithProducedReferences(context, [view]))).toBe(JSON.stringify(payload));
+		expect(f.calls).toHaveLength(2);
+	});
 	it('uses the deletion handle and falls back to the view when a backfill is still missing', async () => {
 		const f = fixture();
 		f.database.prepare("INSERT INTO bots_index VALUES ('one','deleted-one','alice','2026-10-23'),('two','deleted-two',NULL,'2026-10-23')").run();
 		const one = { kind: 'participant' as const, entityId: 'one', handle: 'alice' };
 		const two = { kind: 'participant' as const, entityId: 'two', handle: 'bob' };
 		const handles = await currentResultHandles(f.db, [one, two]);
-		expect(handles.get(resultHandleKey(one))).toEqual({ handle: 'alice', deleted: true });
-		expect(handles.get(resultHandleKey(two))).toEqual({ deleted: true });
+		expect(handles.get(resultHandleKey(one))).toEqual({ kind: 'deleted', handle: 'alice' });
+		expect(handles.get(resultHandleKey(two))).toEqual({ kind: 'deleted' });
 	});
 });
 describe('deletion handle backfill', () => {

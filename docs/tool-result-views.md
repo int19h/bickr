@@ -24,8 +24,11 @@ Remove the legacy notification adapter after its notification census also reache
 `buildResultRenderContext` builds it from the participant document and the views that the reader will render.
 The context and its time data are read-only.
 Every renderer requires a context.
-A missing current handle stops the render.
-The renderer never uses stored language, time configuration, or handles as a fallback.
+
+Current rows supply their current handles.
+Deleted rows supply their deletion handles when those handles exist.
+For a missing row or deletion handle, the renderer uses the saved handle and marks the reference as deleted.
+The renderer never uses stored language or time configuration as a fallback.
 
 Each provider request builds one context for its active history.
 Owner pages, log responses, and monitor backfill each build a separate context for their selected rows.
