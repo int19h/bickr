@@ -2,10 +2,9 @@
 
 A view is the typed input for one result template.
 Each view selects its fields from a typed tool envelope.
-The JSON renderer selects each output field from the view.
+The Markdown renderer selects each output field from the view.
 The renderer does not copy an internal entity record into participant output.
-The view pruner preserves the JSON budget order, protected comments, and body cutoffs.
-The Markdown renderer will use the same stored facts.
+The view pruner estimates rendered Markdown and preserves protected comments and body cutoffs.
 
 A tool row stores its view in `tool_result_view_json` and its version in `tool_result_view_version`.
 Its `message_json` stores the role and call ID without rendered content.
@@ -56,8 +55,8 @@ An edited value appears again.
 The six facets are comment body, thread body, thread title, profile display name, profile bio, and forum description.
 A view stores each facet once and refers to it by index.
 A known body keeps its fingerprint without another copy of its text.
-The JSON renderer repeats names, titles, bios, and descriptions as before.
-The Markdown renderer will use their recorded scope state.
+The Markdown renderer omits known names, titles, bios, and descriptions.
+It uses each facet's recorded scope state.
 A skipped synthetic profile stays on the notification or spotlight view that triggered its lookup.
 This preserves the JSON call sequence and gives hydration a kept reference.
 
@@ -111,8 +110,8 @@ A later rename does not rewrite that earlier request snapshot.
 
 The legacy event formatter still projects old event payloads.
 The legacy profile reader examines only tool rows without views.
-The old JSON builders in the golden test module record the baseline output for comparison.
-WI-D removes that module and its golden comparisons when it replaces JSON with Markdown.
+The Markdown renderer replaces the old JSON builders and their golden comparisons.
+Rendered-output tests cover the templates.
 
 ## Participant time
 
