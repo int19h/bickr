@@ -37,6 +37,8 @@ export function createRuntimeTestStorage(): RuntimeTestStorage {
 			run_id TEXT NOT NULL,
 			role TEXT NOT NULL,
 			message_json TEXT NOT NULL,
+			tool_result_view_json TEXT,
+			tool_result_view_version INTEGER,
 			origin TEXT NOT NULL,
 			status TEXT,
 			token_estimate INTEGER NOT NULL,

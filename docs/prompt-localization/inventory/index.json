@@ -1,6 +1,6 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "sourceUnitCount": 424,
+  "sourceUnitCount": 425,
   "catalogSourceHash": "569c6dc99760c3c93e1594717e4078e6e25111ee4b5b788935ef32b6d2cb5cab",
   "baseCommit": "cd3c3d2db56d1ab7281a11bfbfc37eafac2ea62a",
   "groups": [
@@ -374,5 +374,24 @@
   "pendingTranslationKeys": [
     "report.timestamp.relative",
     "report.timestamp.absolute"
+  ],
+  "pendingUnits": [
+    {
+      "id": "result.reference.deleted",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 1
+      },
+      "protectedTokens": [],
+      "sourceTemplateHash": "539d7bd31eadd664039719bfb066ac3a6948e667fb880d129a3b175c2866f659",
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-views.ts",
+          "line": 351,
+          "kind": "direct"
+        }
+      ],
+      "status": "english_placeholder"
+    }
   ]
 }

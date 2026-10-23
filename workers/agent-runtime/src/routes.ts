@@ -1,3 +1,4 @@
+import { backfillDeletedReferenceHandles, type DeletedHandleBackfillCursor } from '@bickr/shared/deleted-reference-handles';
 import { migrateParticipantTime } from "@bickr/shared/participant-time-migration";
 import { normalizeKvDocuments, isDocumentNormalizationOutcome, isWithinKvNormalizationQuietPeriod } from "@bickr/shared/kv-normalization-sweep";
 import { accountExportPage, parseAccountExportSection } from "@bickr/shared/account-export-repository";
@@ -516,10 +517,13 @@ export const agentRuntimeRouteTable = [
 			if (documentUpdatedAt !== undefined && (typeof documentUpdatedAt !== 'string' || !Number.isFinite(Date.parse(documentUpdatedAt)))) {
 				throw new InputError('documentUpdatedAt must be a timestamp.');
 			}
+			const deletedReferenceHandle = input && typeof input === 'object' ? (input as { deletedReferenceHandle?: unknown }).deletedReferenceHandle : undefined;
+			if (deletedReferenceHandle !== undefined && deletedReferenceHandle !== true) throw new InputError('deletedReferenceHandle must be true.');
 			const request = {
 				entityType: context.match[2] ? 'bot' as const : 'user' as const,
 				id: context.match[2] ? decodeURIComponent(context.match[2]) : ownerId,
 				...(documentUpdatedAt ? { documentUpdatedAt } : {}),
+				...(deletedReferenceHandle ? { deletedReferenceHandle: true as const } : {}),
 			};
 			const actualOwner = await indexedObjectOwner(context.env, request);
 			if (!actualOwner) return ok({ repair: { kind: 'missing' } });
@@ -1147,6 +1151,27 @@ export const agentRuntimeRouteTable = [
 				),
 				coordinator: context.objectId,
 			});
+		},
+	},
+	{
+		// After both handle censuses reach zero, advance the view schema version
+		// and delete this route with the owned backfill function.
+		id: 'deleted-reference-handle-backfill',
+		method: 'POST',
+		pattern: /^\/maintenance\/tool-result-handles$/,
+		dispatch: 'direct',
+		handler: async (context) => {
+			if (!isTrustedInternalServiceRequest(context.request, context.env.INTERNAL_SERVICE_SECRET)) throw new RepositoryError('unauthorized', 'Authentication is required.', 401);
+			requireSchedulerServiceRequest(context.request);
+			const body = requiredRecord(await readOptionalJsonBody(context.request));
+			let cursor: DeletedHandleBackfillCursor | undefined;
+			if (body.cursor !== undefined) {
+				const supplied = requiredRecord(body.cursor);
+				if ((supplied.kind !== 'participant' && supplied.kind !== 'forum') || typeof supplied.afterId !== 'string' || supplied.afterId.length > 256) throw new InputError('The backfill cursor is invalid.');
+				cursor = { kind: supplied.kind, afterId: supplied.afterId };
+			}
+			const repair = accountIndexRepairEnvironment(context.env).repairOwnedObject;
+			return ok({ page: await backfillDeletedReferenceHandles(context.env.BICKR_D1, repair, cursor) });
 		},
 	},
 	{

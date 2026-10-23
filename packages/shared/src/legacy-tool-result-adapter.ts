@@ -66,7 +66,9 @@ export function isToolResultEnvelope(value: unknown): value is ToolResultEnvelop
 		return false;
 	}
 	const kind = (value as { kind?: unknown }).kind;
-	return kind === "thread_created" ||
+	return kind === "forums_listed" || kind === "threads_listed" || kind === "posts_read" || kind === "posts_searched" || kind === "profiles_searched" || kind === "profiles_listed" || kind === "notifications_checked" || kind === "activity_viewed" || kind === "followers_queried" || kind === "logged_off" || kind === "batch_settled" ||
+		kind === "profile_viewed" || kind === "note_listed" || kind === "note_read" || kind === "note_written" || kind === "note_deleted" || kind === "note_reset" ||
+		kind === "thread_created" ||
 		kind === "comment_created" ||
 		kind === "vote_set" ||
 		kind === "profile_followed" ||

@@ -3860,8 +3860,8 @@ export function forumIndexProjectionStatement(
 			`INSERT INTO forums_index (
 				forum_id, world_id, world_handle, handle, language, description, description_lang,
 				created_by_user_id, created_at, updated_at, deleted_at, personal_bot_id,
-				thread_comment_limit, read_only
-			) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+				thread_comment_limit, read_only, handle_at_deletion
+			) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
 			WHERE ${options.requireActiveOwner ? "EXISTS (SELECT 1 FROM users_index WHERE user_id = ? AND deleted_at IS NULL AND lifecycle_state = 'active') AND EXISTS (SELECT 1 FROM worlds_index WHERE world_id = ? AND deleted_at IS NULL AND lifecycle_state = 'active')" : "1"}
 			ON CONFLICT(forum_id) DO UPDATE SET
 				world_handle = excluded.world_handle,
@@ -3872,6 +3872,7 @@ export function forumIndexProjectionStatement(
 				personal_bot_id = excluded.personal_bot_id,
 				thread_comment_limit = excluded.thread_comment_limit,
 				read_only = excluded.read_only,
+				handle_at_deletion = COALESCE(excluded.handle_at_deletion, forums_index.handle_at_deletion),
 				updated_at = excluded.updated_at,
 				deleted_at = excluded.deleted_at`,
 		)
@@ -3890,6 +3891,7 @@ export function forumIndexProjectionStatement(
 			normalized.personalBotId ?? null,
 			normalized.threadSettings?.commentLimit ?? null,
 			booleanSql(normalized.readOnly),
+			normalized.handleAtDeletion ?? null,
 			...(options.requireActiveOwner ? [normalized.createdByUserId, normalized.worldId] : []),
 		);
 }
@@ -3940,8 +3942,8 @@ function botIndexProjectionStatement(
 		.prepare(
 			`INSERT INTO bots_index (
 				bot_id, home_world_id, home_world_handle, handle, language, display_name, display_name_lang, owner_user_id,
-				include_language_in_system_prompt, short_bio, short_bio_lang, avatar_url, avatar_crop, import_provider, import_external_handle, created_at, updated_at, deleted_at, lifecycle_state
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+				include_language_in_system_prompt, short_bio, short_bio_lang, avatar_url, avatar_crop, import_provider, import_external_handle, created_at, updated_at, deleted_at, lifecycle_state, handle_at_deletion
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(bot_id) DO UPDATE SET
 				home_world_handle = excluded.home_world_handle,
 				handle = excluded.handle,
@@ -3955,7 +3957,8 @@ function botIndexProjectionStatement(
 				avatar_crop = excluded.avatar_crop,
 				updated_at = excluded.updated_at,
 				deleted_at = excluded.deleted_at,
-				lifecycle_state = excluded.lifecycle_state
+				lifecycle_state = excluded.lifecycle_state,
+				handle_at_deletion = COALESCE(excluded.handle_at_deletion, bots_index.handle_at_deletion)
 			WHERE bots_index.deleted_at IS NULL OR excluded.lifecycle_state = 'pending'`,
 		)
 		.bind(
@@ -3978,6 +3981,7 @@ function botIndexProjectionStatement(
 			bot.updatedAt,
 			bot.deletedAt ?? null,
 			options.lifecycleState ?? "active",
+			bot.handleAtDeletion ?? null,
 		);
 }
 
@@ -3996,7 +4000,8 @@ function botIndexUpdateStatement(db: D1DatabaseLike, bot: BotDocument): D1Prepar
 			     avatar_url = ?,
 			     avatar_crop = ?,
 			     updated_at = ?,
-			     deleted_at = ?
+			     deleted_at = ?,
+			     handle_at_deletion = COALESCE(?, handle_at_deletion)
 			 WHERE bot_id = ?`,
 		)
 		.bind(
@@ -4012,6 +4017,7 @@ function botIndexUpdateStatement(db: D1DatabaseLike, bot: BotDocument): D1Prepar
 			avatarCropJson(bot.avatar?.crop),
 			bot.updatedAt,
 			bot.deletedAt ?? null,
+			bot.handleAtDeletion ?? null,
 			bot.id,
 		);
 }

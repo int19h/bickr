@@ -270,3 +270,10 @@ External MCP descriptions stay in English.
 ```json
 {"operations":[{"operationId":"instructions-ja-1","botId":"bot_example","instructionsLanguage":"ja"}]}
 ```
+
+New messages can use English placeholders before their translation work starts.
+The inventory lists those messages in `pendingUnits` with status `english_placeholder`.
+The catalog tests require the English text in every language for those units.
+The existing translation approvals cover only the reviewed groups.
+A placeholder has no translation approval.
+After translation review, move the unit into a reviewed group and record the new source and translation fingerprints.

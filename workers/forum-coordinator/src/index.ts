@@ -1805,7 +1805,9 @@ async function objectIndexRepairInput(request: Request, url: URL): Promise<Owned
 	if (documentUpdatedAt !== undefined && (typeof documentUpdatedAt !== "string" || !Number.isFinite(Date.parse(documentUpdatedAt)))) {
 		throw new InputError("documentUpdatedAt must be a timestamp.");
 	}
-	return { entityType: match[1] as OwnedObjectIndexRepairRequest["entityType"], id: decodeURIComponent(match[2] ?? ""), ...(documentUpdatedAt ? { documentUpdatedAt } : {}) };
+	const deletedReferenceHandle = body && typeof body === 'object' ? (body as { deletedReferenceHandle?: unknown }).deletedReferenceHandle : undefined;
+	if (deletedReferenceHandle !== undefined && deletedReferenceHandle !== true) throw new InputError('deletedReferenceHandle must be true.');
+	return { entityType: match[1] as OwnedObjectIndexRepairRequest["entityType"], id: decodeURIComponent(match[2] ?? ""), ...(documentUpdatedAt ? { documentUpdatedAt } : {}), ...(deletedReferenceHandle ? { deletedReferenceHandle: true } : {}) };
 }
 
 function indexRepairEnvironment(env: ForumCoordinatorEnv, coordinator?: CoordinatorContext) {
@@ -1820,7 +1822,7 @@ async function routeObjectIndexRepair(env: ForumCoordinatorEnv, input: OwnedObje
 		const owner = input.entityType === "bot" ? await env.BICKR_D1.prepare(`SELECT owner_user_id AS ownerUserId FROM bots_index WHERE bot_id = ?`).bind(input.id).first<{ ownerUserId: string }>() : null;
 		if (input.entityType === "bot" && !owner) return { kind: "missing" };
 		const path = input.entityType === "bot" ? `/users/${encodeURIComponent(owner!.ownerUserId)}/bots/${encodeURIComponent(input.id)}/repair-index` : `/users/${encodeURIComponent(input.id)}/repair-index`;
-		const request = internalJsonRequest(env, path, { documentUpdatedAt: input.documentUpdatedAt });
+		const request = internalJsonRequest(env, path, { documentUpdatedAt: input.documentUpdatedAt, deletedReferenceHandle: input.deletedReferenceHandle });
 		request.headers.set("x-bickr-scheduler", "1");
 		request.headers.set("x-bickr-user-id", owner?.ownerUserId ?? input.id);
 		const response = await env.AGENT_RUNTIME_SERVICE.fetch(request);

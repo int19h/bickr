@@ -1,3 +1,4 @@
+import { backfillOwnedDeletedReferenceHandle } from "./deleted-reference-handles";
 import { migrateParticipantTime } from "./participant-time-migration";
 import { addInternalServiceAuthHeader, internalServiceUrl } from "./internal-service";
 import { entityIndexVersions, type IndexedEntityType } from "./index-versions";
@@ -64,7 +65,9 @@ export type ObjectIndexRepairOwnerEnv = SearchVectorEnv & {
 	BICKR_KV: KVNamespaceLike;
 };
 
-export type OwnedObjectIndexRepairRequest = { entityType: IndexedEntityType; id: string; documentUpdatedAt?: string };
+// Remove deletedReferenceHandle after both handle censuses reach zero and the
+// tool-result view schema version advances. Delete its backfill reader with it.
+export type OwnedObjectIndexRepairRequest = { entityType: IndexedEntityType; id: string; documentUpdatedAt?: string; deletedReferenceHandle?: true };
 export type OwnedObjectIndexRepairResult =
 	| { kind: "missing" | "unchanged" }
 	| { kind: "repaired"; document: IndexedDocument };
@@ -178,6 +181,7 @@ export async function repairOwnedObjectIndex(
 	request: OwnedObjectIndexRepairRequest,
 	options: { document?: IndexedDocument } = {},
 ): Promise<OwnedObjectIndexRepairResult> {
+	if (request.deletedReferenceHandle) return backfillOwnedDeletedReferenceHandle(env.BICKR_KV, env.BICKR_D1, request);
 	const row = (await loadObjectIndexChunk(env.BICKR_D1, undefined, 1, undefined, request.id)).items[0];
 	if (!row || row.objectType !== request.entityType) return { kind: "missing" };
 	// Lifecycle transitions publish their visibility fence before KV. Only the
@@ -500,7 +504,7 @@ export async function requestObjectIndexRepair(
 	const headers = new Headers({ "content-type": "application/json" });
 	addInternalServiceAuthHeader(headers, secret);
 	const response = await service.fetch(new Request(internalServiceUrl(`/maintenance/indexes/${request.entityType}/${encodeURIComponent(request.id)}`), {
-		method: "POST", headers, body: JSON.stringify({ documentUpdatedAt: request.documentUpdatedAt }),
+		method: "POST", headers, body: JSON.stringify({ documentUpdatedAt: request.documentUpdatedAt, deletedReferenceHandle: request.deletedReferenceHandle }),
 	}));
 	if (!response.ok) throw new Error(`Object index repair coordinator returned HTTP ${response.status}.`);
 	const payload = await response.json() as { data?: { repair?: OwnedObjectIndexRepairResult } };

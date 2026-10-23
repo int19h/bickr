@@ -1,7 +1,7 @@
 import { sharedMessageDefinitions } from '@bickr/shared/localization/messages';
 import { agentIssueMessageDefinitions } from './issues.ts';
 import { botServiceIssueMessageDefinitions } from '@bickr/shared/bot-service-issues';
-export const messageParameters = { ...sharedMessageDefinitions, ...agentIssueMessageDefinitions, ...botServiceIssueMessageDefinitions, ...({
+export const messageParameters = { "result.reference.deleted": { kind: "text", parameters: [] }, ...sharedMessageDefinitions, ...agentIssueMessageDefinitions, ...botServiceIssueMessageDefinitions, ...({
 	"system.nativeLanguage": {
 		"kind": "text",
 		"parameters": [

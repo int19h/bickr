@@ -1,3 +1,5 @@
+import { testResultContext } from './result-render-context.test-support';
+import { ResultContextScope } from './result-context-scope';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { botById, RepositoryError } from '@bickr/shared/repository';
 import { forumByHandle, botPublicProfilesByHandles, followedBotIdSet, readThread, followBot, unfollowBot } from '@bickr/shared/social';
@@ -56,7 +58,7 @@ function harness(name: string, args: Record<string, unknown>) {
 		markToolDispatched: beforeWrite, markToolReading: () => runtime.markPendingToolReading('run', call.id),
 		recordMutationIdentity: (identity) => { if (identity) storage.sql.exec("UPDATE runtime_state SET value_json = json_set(value_json, '$.mutationIdentity', json(?)) WHERE key = 'pending_tool_v3'", JSON.stringify(identity)); },
 		readCommentTreeTokenBudget: async () => 10_000, vectorSearchBots: async () => [],
-		providerContentInActiveContext: () => ({ commentsWithText: new Set(), threadsWithText: new Set() }),
+		resultContextScope: async () => new ResultContextScope(),
 		recentToolResultRows: () => storage.sql.exec("SELECT * FROM events WHERE type = 'tool_result'").toArray() as ReturnType<RuntimeToolsRuntime['recentToolResultRows']>,
 		setLastSuccessfulLogOffSeq: () => {},
 		writeNote: (id, content, links) => notes.write(id, content, links, undefined, beforeWrite),
@@ -65,9 +67,9 @@ function harness(name: string, args: Record<string, unknown>) {
 		viewProfiles: async () => { throw new Error('Unused.'); },
 	};
 	const tools = new RuntimeTools(capabilities);
-	const execute = () => tools.executeTool(bot, 'run', name, args, { mode: 'normal', setupMode: 'new_iteration', signal: signal.signal }, (result) => store.appendProviderToolResult({ runId: 'run', message: assistant, origin: 'provider_response', status: 'complete' }, { runId: 'run', message: { role: 'tool', tool_call_id: call.id, content: JSON.stringify(result.providerResult) }, origin: 'tool_result', status: 'complete' }, null));
+	const execute = () => tools.executeTool(bot, 'run', name, args, { mode: 'normal', setupMode: 'new_iteration', signal: signal.signal }, (result) => store.appendProviderToolResult(testResultContext, { runId: 'run', message: assistant, origin: 'provider_response', status: 'complete' }, { runId: 'run', message: { role: 'tool', tool_call_id: call.id, content: JSON.stringify(result.providerResult) }, origin: 'tool_result', status: 'complete' }, null));
 	const journal = () => JSON.parse(storage.sql.exec<{ value_json: string }>("SELECT value_json FROM runtime_state WHERE key = 'pending_tool_v3'").one().value_json);
-	const settle = () => { runtime.settlePendingTool('run'); return JSON.parse(String(store.loopMessagesAfter(0).at(-1)?.message.content)); };
+	const settle = () => { runtime.settlePendingTool({ ...testResultContext, text: bot.text }, 'run'); return JSON.parse(String(store.loopMessagesAfter({ ...testResultContext, text: bot.text }, 0).at(-1)?.message.content)); };
 	return { runtime, capabilities, signal, call, assistant, statement, fetch, execute, journal, settle, store, notes, events };
 }
 
@@ -168,9 +170,9 @@ describe('actual preparation and send boundaries', () => {
 	it('keeps a mutation receipt recorded before a later Stop', async () => {
 		const h = harness('create_thread', { forumHandle: 'f/forum', title: lt('Title'), body: lt('Body') });
 		await expect(h.execute()).resolves.toMatchObject({ name: 'create_thread', envelope: { kind: 'thread_created', thread: { id: thread.id } } });
-		const before = h.store.loopMessagesAfter(0);
-		h.signal.abort(); h.runtime.settlePendingTool('run');
-		expect(h.store.loopMessagesAfter(0)).toEqual(before);
+		const before = h.store.loopMessagesAfter({ ...testResultContext, text: bot.text }, 0);
+		h.signal.abort(); h.runtime.settlePendingTool({ ...testResultContext, text: bot.text }, 'run');
+		expect(h.store.loopMessagesAfter({ ...testResultContext, text: bot.text }, 0)).toEqual(before);
 		expect(before.at(-1)?.message.content).toContain('t/thr_thread');
 		expect(storage.sql.exec("SELECT * FROM runtime_state WHERE key = 'pending_tool_v3'").toArray()).toEqual([]);
 	});
@@ -228,7 +230,7 @@ it('keeps the journal and both message rows when recovery event persistence fail
 	storage.database.exec("CREATE TRIGGER fail_event BEFORE INSERT ON events BEGIN SELECT RAISE(ABORT, 'event write failed'); END");
 	expect(() => h.settle()).toThrow('event write failed');
 	expect(h.journal().stage).toBe('prepared');
-	expect(h.store.loopMessagesAfter(0)).toEqual([]);
+	expect(h.store.loopMessagesAfter({ ...testResultContext, text: bot.text }, 0)).toEqual([]);
 	expect(storage.sql.exec('SELECT * FROM loop_message_logs').toArray()).toEqual([]);
 	expect(broadcast).not.toHaveBeenCalled();
 });
@@ -241,13 +243,13 @@ it.each(['prepared', 'reading', 'dispatched'] as const)('uses a captured %s jour
 	let group: number | null = null;
 	// The sibling is paired first to prove that the journal delete cannot lose
 	// the active call's language or phase.
-	h.runtime.appendInterruptedToolMessages(botText('en'), 'run', [sibling, h.call], new Set([sibling.id, h.call.id]), (call: ToolCall, message: ChatMessage, _content: string, commit: () => void) => {
-		group = h.store.appendProviderToolResult({ runId: 'run', message: { ...h.assistant, tool_calls: [call] }, origin: 'provider_response', status: 'interrupted' }, { runId: 'run', message, origin: 'tool_failure', status: 'interrupted' }, group, commit).seq;
+	h.runtime.appendInterruptedToolMessages(testResultContext, botText('en'), 'run', [sibling, h.call], new Set([sibling.id, h.call.id]), (call: ToolCall, message: ChatMessage, _content: string, commit: () => void) => {
+		group = h.store.appendProviderToolResult(testResultContext, { runId: 'run', message: { ...h.assistant, tool_calls: [call] }, origin: 'provider_response', status: 'interrupted' }, { runId: 'run', message, origin: 'tool_failure', status: 'interrupted' }, group, commit).seq;
 	});
-	const messages = h.store.loopMessagesAfter(0).map((row) => row.message);
+	const messages = h.store.loopMessagesAfter({ ...testResultContext, text: bot.text }, 0).map((row) => row.message);
 	expect(messages.map((message) => message.role)).toEqual(['assistant', 'tool', 'tool']);
 	expect(messages[0]?.reasoning_details).toEqual(reasoning);
-	expect(JSON.parse(String(messages[1]?.content))).toMatchObject({ code: 'not_dispatched', message: botText('en').format('recovery.notDispatched') });
+	expect(JSON.parse(String(messages[1]?.content))).toMatchObject({ code: 'not_dispatched', message: text.format('recovery.notDispatched') });
 	const active = JSON.parse(String(messages[2]?.content));
 	expect(active).toMatchObject(stage === 'dispatched' ? { kind: 'outcome_unknown' } : { code: stage === 'prepared' ? 'not_dispatched' : 'interrupted', message: text.format(stage === 'prepared' ? 'recovery.notDispatched' : 'recovery.interrupted') });
 	const outcomes = storage.sql.exec<{ payload_json: string }>('SELECT payload_json FROM events ORDER BY seq').toArray().map((row) => JSON.parse(row.payload_json).outcome);
@@ -283,7 +285,7 @@ it('uses the real runtime wiring to persist the exact request identity before se
 	Object.assign(h.runtime, {
 		liveness: { progress: () => {} },
 		readCommentTreeTokenBudget: async () => 10_000,
-		providerContentInActiveContext: () => ({ commentsWithText: new Set(), threadsWithText: new Set() }),
+		resultContextScope: async () => new ResultContextScope(),
 	});
 	const pending = h.runtime.executeTool(bot, 'run', h.call.function.name, args, { mode: 'normal', setupMode: 'new_iteration', signal: h.signal.signal, toolCallId: h.call.id, toolInvocationId: 'run:request:call' }).catch((error: unknown) => error);
 	await vi.waitFor(() => expect(h.fetch).toHaveBeenCalled());

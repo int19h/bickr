@@ -1,3 +1,4 @@
+import { ResultContextScope } from './result-context-scope';
 import { botText } from '../localization';
 const text = botText('en');
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -36,7 +37,7 @@ function harness() {
 		throwIfStopped: () => { if (signal.signal.aborted) throw new TickStoppedError(); },
 		forumService: async <T>() => await service() as T,
 		vectorSearchBots: async () => [], readCommentTreeTokenBudget: async () => 10_000,
-		providerContentInActiveContext: () => ({ commentsWithText: new Set(), threadsWithText: new Set() }),
+		resultContextScope: async () => new ResultContextScope(),
 		markToolDispatched: () => {},
 		markToolReading: () => {},
 		recordMutationIdentity: () => {},

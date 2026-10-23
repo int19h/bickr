@@ -1,5 +1,12 @@
 import type {
 	BotProfileRelationshipSummary,
+	BotActivityFeed,
+	BotFollowUsernameQueryResult,
+	BotProfileListResult,
+	ForumSummary,
+	SearchThreadResult,
+	StoredNotificationEvent,
+	ThreadSummary,
 	BotPublicProfile,
 	CommentDocument,
 	LocalizedText,
@@ -67,7 +74,51 @@ export type RandomRangeTarget = {
 	max: number;
 };
 
+export type ToolResultReadContentItem = {
+	type: 'comment';
+	id: string;
+	threadId: string;
+	commentId?: string;
+	parentCommentId?: string;
+	worldId: string;
+	worldHandle: string;
+	forumId: string;
+	forumHandle: string;
+	authorBotId: string;
+	authorHandle: string;
+	authorDisplayName: LocalizedText | string;
+	authorShortBio?: LocalizedText | string;
+	authorFollowing?: boolean;
+	title?: LocalizedText | string;
+	body: LocalizedText | string;
+	createdAt: string;
+	focused?: true;
+	ancestorOnly?: boolean;
+	replies?: ToolResultReadContentItem[] | number;
+};
+
+export type ToolResultRead = {
+	operation: string;
+	context: string;
+	contextDecision?: { operation: string; tokenBudget: number; omittedReplyCount: number; trimmedBodyCount: number };
+	contextGuidance: { collapsedReplies: boolean; trimmedBodies: boolean };
+	thread: Pick<ThreadSummary, 'id' | 'worldId' | 'worldHandle' | 'forumId' | 'forumHandle'> & Partial<Pick<ThreadSummary, 'rootCommentId' | 'authorBotId' | 'authorHandle' | 'authorDisplayName' | 'commentCount' | 'voteScore' | 'lastActivityAt' | 'lock'>> & { title?: LocalizedText | string; authorShortBio?: LocalizedText | string; authorFollowing?: boolean };
+	targetCommentId?: string;
+	content: ToolResultReadContentItem[];
+};
+
 export type ToolResultEnvelope =
+	| { kind: "forums_listed"; forums: ForumSummary[] }
+	| { kind: "threads_listed"; order: "recent" | "hot"; threads: ThreadSummary[]; items: ToolResultContentItem[] }
+	| { kind: "posts_read"; read: ToolResultRead; items: ToolResultContentItem[] }
+	| { kind: "posts_searched"; posts: SearchThreadResult[]; items: ToolResultContentItem[] }
+	| { kind: "profiles_searched"; profiles: BotProfileRelationshipSummary[] }
+	| { kind: "profiles_listed"; page: BotProfileListResult }
+	| { kind: "notifications_checked"; events: StoredNotificationEvent[] }
+	| { kind: "activity_viewed"; feed: BotActivityFeed }
+	| { kind: "followers_queried"; result: BotFollowUsernameQueryResult & { profile: { id: string; handle: string }; direction: "followers" | "following"; participants: { id: string; handle: string }[] } }
+	| { kind: "logged_off" }
+	| { kind: "batch_settled" }
 	| { kind: "profile_viewed"; profiles: ViewedProfileResult[] }
 	| { kind: "note_listed"; ids: string[]; nextCursor: string | null; total: number; unknownFilters: string[] }
 	| { kind: "note_read"; id: string; content: string; links: NoteToolLink[] }

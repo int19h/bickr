@@ -1,3 +1,5 @@
+import { testResultContext } from '../workers/agent-runtime/src/runtime/result-render-context.test-support';
+import { renderStoredLoopMessage } from "../workers/agent-runtime/src/runtime/result-messages";
 import { BotRuntime, describe, expect, fakeBotDocument, it, providerResponseWithToolCalls, testToolExecutor, toolDefinitionsForProviderRound, withTestRunLiveness, withRuntimeSqliteForTest } from './helpers/index-harness';
 import { ToolBatchOutcomeError, ToolOutcomeUnknownError, TickStoppedError } from '../workers/agent-runtime/src/errors';
 import { botText } from '../workers/agent-runtime/src/localization';
@@ -22,7 +24,7 @@ function fixture(errors: readonly unknown[], state: DurableObjectState) {
 				{ id: `sibling-${round}`, name: 'read_thread', args: { threadId: 'thread' } },
 			]);
 		},
-		ensureProviderPromptWithinBudget: async () => ({ allowedPromptTokens: 13_500, providerTools: toolDefinitionsForProviderRound(text), promptTokens: 100, requestMessages: [{ role: 'assistant', content: 'Ready' }] }),
+		ensureProviderPromptWithinBudget: async () => ({renderContext: testResultContext,  allowedPromptTokens: 13_500, providerTools: toolDefinitionsForProviderRound(text), promptTokens: 100, requestMessages: [{ role: 'assistant', content: 'Ready' }] }),
 		executeTool: testToolExecutor(async (_bot: unknown, runId: string, name: string, _args: unknown, context: RunContext) => {
 			executed.push(name);
 			if (name === 'vote') { runtime.markPendingToolDispatched(runId, context.toolCallId); throw errors[round - 1]; }
@@ -36,7 +38,7 @@ function fixture(errors: readonly unknown[], state: DurableObjectState) {
 	const run = () => loop({  ...fakeBotDocument(), tickSettings: { ...fakeBotDocument().tickSettings, maxToolCallsPerTick: 4 } },
 		{ text, baseUrl: 'https://openrouter.ai/api/v1', model: 'test-model', temperature: 0.2 } as LocalizedProviderSettings,
 		'run-outcomes', [], { mode: 'normal', setupMode: 'new_iteration', signal: new AbortController().signal });
-	return { run, executed, events, messages: () => state.storage.sql.exec<{ message_json: string }>('SELECT message_json FROM loop_messages ORDER BY seq').toArray().map((row) => JSON.parse(row.message_json) as ChatMessage) };
+	return { run, executed, events, messages: () => state.storage.sql.exec<{ message_json: string }>('SELECT * FROM loop_messages ORDER BY seq').toArray().map(row => renderStoredLoopMessage(row, testResultContext)) };
 }
 
 describe('unknown tool outcome visit recovery', () => {

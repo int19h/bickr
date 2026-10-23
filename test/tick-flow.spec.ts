@@ -1,3 +1,5 @@
+import { testResultContext } from '../workers/agent-runtime/src/runtime/result-render-context.test-support';
+import { renderStoredLoopMessage } from "../workers/agent-runtime/src/runtime/result-messages";
 import type { RuntimeBotDocument } from "../workers/agent-runtime/src/types";
 import type { LocalizedProviderSettings } from "../workers/agent-runtime/src/provider-requests";
 import { botText as testBotText } from "../workers/agent-runtime/src/localization";
@@ -77,7 +79,7 @@ function attachInputHistoryStorage(runtime: object): void {
 
 type TerminalRaceMethods = {
 	renewProgressLease(botId: string, runId: string, signal: AbortSignal): Promise<void>;
-	finalizeRun(runId: string, type: 'tick_completed', payload: Record<string, unknown>): Promise<boolean>;
+	finalizeRun(_context: typeof testResultContext, runId: string, type: 'tick_completed', payload: Record<string, unknown>): Promise<boolean>;
 	runAdmittedTick(
 		botId: string,
 		trigger: "spotlight",
@@ -160,7 +162,7 @@ describe("Tick flow", () => {
 				events.push(event);
 				return event;
 			},
-			appendLoopMessage: (runId: string, message: Record<string, unknown>, origin: string) => ({
+			appendLoopMessage: (_context: typeof testResultContext, runId: string, message: Record<string, unknown>, origin: string) => ({
 				seq: eventSeq + 1,
 				runId,
 				role: message.role,
@@ -221,7 +223,7 @@ describe("Tick flow", () => {
 			appendLoopMessageGroup: () => [],
 			appendProviderMessages: async () => {},
 			callProvider,
-			ensureProviderPromptWithinBudget: async () => ({
+			ensureProviderPromptWithinBudget: async () => ({renderContext: testResultContext,
 				allowedPromptTokens: 13_500,
 				maxCompletionTokens: 5_000,
 				promptTokens: 100,
@@ -292,11 +294,11 @@ describe("Tick flow", () => {
 		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
 			appendEvent: (runId: string, type: BotRuntimeEvent["type"], payload: unknown) =>
 				runtimeEvent(++eventSeq, runId, type, payload),
-			appendLoopMessage: (_runId: string, message: BotInferenceSubmissionMessage, origin: string, status?: string) => {
+			appendLoopMessage: (_context: typeof testResultContext, _runId: string, message: BotInferenceSubmissionMessage, origin: string, status?: string) => {
 				appended.push({ message, origin, status });
 				return { seq: appended.length, message, origin, status };
 			},
-			appendLoopMessageGroup: (items: Array<{ message: BotInferenceSubmissionMessage; origin: string; status?: string }>) => {
+			appendLoopMessageGroup: (_context: typeof testResultContext, items: Array<{ message: BotInferenceSubmissionMessage; origin: string; status?: string }>) => {
 				appended.push(...items);
 				return [];
 			},
@@ -305,7 +307,7 @@ describe("Tick flow", () => {
 				controller.abort();
 				return providerResponseWithContent("The streamed answer remains visible.");
 			},
-			ensureProviderPromptWithinBudget: async () => ({
+			ensureProviderPromptWithinBudget: async () => ({renderContext: testResultContext,
 				allowedPromptTokens: 13_500,
 				maxCompletionTokens: 5_000,
 				promptTokens: 100,
@@ -358,7 +360,7 @@ describe("Tick flow", () => {
 					{ id: "call-first", name: "read_thread", args: { threadId: "thr_first" } },
 					{ id: "call-second", name: "read_thread", args: { threadId: "thr_second" } },
 				]),
-				ensureProviderPromptWithinBudget: async () => ({
+				ensureProviderPromptWithinBudget: async () => ({renderContext: testResultContext,
 					allowedPromptTokens: 13_500,
 					maxCompletionTokens: 5_000,
 					promptTokens: 100,
@@ -393,7 +395,7 @@ describe("Tick flow", () => {
 				{ mode: "normal", signal: controller.signal },
 			)).rejects.toBeInstanceOf(TickStoppedError);
 			expect(executed).toEqual(["read_thread"]);
-			const toolRows = state.storage.sql.exec<{ message_json: string; origin: string; status: string }>("SELECT message_json, origin, status FROM loop_messages WHERE role = 'tool' ORDER BY seq").toArray().map(({ message_json, ...metadata }) => ({ ...metadata, message: JSON.parse(message_json) }));
+			const toolRows = state.storage.sql.exec<{ message_json: string; origin: string; status: string }>("SELECT * FROM loop_messages WHERE role = 'tool' ORDER BY seq").toArray().map((row) => ({ ...row, message: renderStoredLoopMessage(row, testResultContext) }));
 			expect(toolRows).toEqual([
 				expect.objectContaining({ origin: "tool_result", status: "complete", message: expect.objectContaining({ tool_call_id: "call-first" }) }),
 				expect.objectContaining({ origin: "tool_failure", status: "interrupted", message: expect.objectContaining({ tool_call_id: "call-second" }) }),
@@ -656,7 +658,7 @@ describe("Tick flow", () => {
 			{ role: "assistant", content: "I should look for the changelog next." },
 		];
 		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
-			appendLoopMessage: (_runId: string, message: { role: string; content?: string | null }) => {
+			appendLoopMessage: (_context: typeof testResultContext, _runId: string, message: { role: string; content?: string | null }) => {
 				ledgerMessages.push(message);
 				return {
 					seq: ledgerMessages.length,
@@ -670,7 +672,7 @@ describe("Tick flow", () => {
 			},
 			activeLoopMessagesForProvider: () => ledgerMessages,
 			activeLoopMessageRows: () => [],
-			profileUsernamesInActiveContext: () => new Set<string>(),
+			legacyProfileUsernamesInActiveContext: () => new Set<string>(),
 		}));
 		attachInputHistoryStorage(runtime);
 		const buildMessages = (BotRuntime.prototype as unknown as {
@@ -718,7 +720,7 @@ describe("Tick flow", () => {
 		const ledgerMessages: Array<{ role: string; content?: string | null }> = [];
 		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
 			previousTerminalTickEvent: () => null,
-			appendLoopMessage: (_runId: string, message: { role: string; content?: string | null }) => {
+			appendLoopMessage: (_context: typeof testResultContext, _runId: string, message: { role: string; content?: string | null }) => {
 				ledgerMessages.push(message);
 				return {
 					seq: ledgerMessages.length,
@@ -732,7 +734,7 @@ describe("Tick flow", () => {
 			},
 			activeLoopMessagesForProvider: () => ledgerMessages,
 			activeLoopMessageRows: () => [],
-			profileUsernamesInActiveContext: () => new Set<string>(),
+			legacyProfileUsernamesInActiveContext: () => new Set<string>(),
 		}));
 		attachInputHistoryStorage(runtime);
 		const buildMessages = (BotRuntime.prototype as unknown as {
@@ -794,7 +796,7 @@ describe("Tick flow", () => {
 		const ledgerMessages: Array<{ role: string; content?: string | null }> = [];
 		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
 			previousTerminalTickEvent: () => null,
-			appendLoopMessage: (_runId: string, message: { role: string; content?: string | null }) => {
+			appendLoopMessage: (_context: typeof testResultContext, _runId: string, message: { role: string; content?: string | null }) => {
 				ledgerMessages.push(message);
 				return {
 					seq: ledgerMessages.length,
@@ -808,7 +810,7 @@ describe("Tick flow", () => {
 			},
 			activeLoopMessagesForProvider: () => ledgerMessages,
 			activeLoopMessageRows: () => [],
-			profileUsernamesInActiveContext: () => new Set<string>(),
+			legacyProfileUsernamesInActiveContext: () => new Set<string>(),
 		}));
 		attachInputHistoryStorage(runtime);
 		const buildMessages = (BotRuntime.prototype as unknown as {
@@ -885,7 +887,7 @@ describe("Tick flow", () => {
 			{ role: "assistant", content: "I am already in the middle of reading Bickr." },
 		];
 		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
-			appendLoopMessage: (_runId: string, message: { role: string; content?: string | null }) => {
+			appendLoopMessage: (_context: typeof testResultContext, _runId: string, message: { role: string; content?: string | null }) => {
 				ledgerMessages.push(message);
 				return {
 					seq: ledgerMessages.length,
@@ -899,7 +901,7 @@ describe("Tick flow", () => {
 			},
 			activeLoopMessagesForProvider: () => ledgerMessages,
 			activeLoopMessageRows: () => [],
-			profileUsernamesInActiveContext: () => new Set<string>(),
+			legacyProfileUsernamesInActiveContext: () => new Set<string>(),
 		}));
 		attachInputHistoryStorage(runtime);
 		const buildMessages = (BotRuntime.prototype as unknown as {
@@ -959,7 +961,7 @@ describe("Tick flow", () => {
 			actor: {
 				id: referencedProfile.id,
 				username: `u/${referencedProfile.handle}`,
-				displayName: lt(referencedProfile.displayName),
+				displayName: lt(localizedTextString(referencedProfile.displayName)),
 			},
 			thread: { id: "thr_profile_context", title: lt("Notice thread") },
 			comment: { id: "cmt_profile_context", threadId: "thr_profile_context" },
@@ -976,7 +978,7 @@ describe("Tick flow", () => {
 					profiles: [
 						{
 							username: `u/${referencedProfile.handle}`,
-							displayName: lt(referencedProfile.displayName),
+							displayName: lt(localizedTextString(referencedProfile.displayName)),
 							shortBio: "Already active.",
 						},
 					],
@@ -999,7 +1001,7 @@ describe("Tick flow", () => {
 				},
 				notes: { idsForEntity: () => ({ ids: ['notice-note'], total: 1 }) },
 				previousTerminalTickEvent: () => null,
-				appendLoopMessage: (_runId: string, message: Record<string, unknown>) => {
+				appendLoopMessage: (_context: typeof testResultContext, _runId: string, message: Record<string, unknown>) => {
 					messages.push(message);
 					seq += 1;
 					return { seq, runId: "run-profile-context", role: message.role, message };
@@ -1082,7 +1084,7 @@ describe("Tick flow", () => {
 		const author = {
 			id: referencedProfile.id,
 			username: `u/${referencedProfile.handle}`,
-			displayName: lt(referencedProfile.displayName),
+			displayName: lt(localizedTextString(referencedProfile.displayName)),
 		};
 		const baseEvent = {
 			type: "comment_created" as const,
@@ -1148,7 +1150,7 @@ describe("Tick flow", () => {
 					role: "tool",
 					tool_call_id: "call_profiles",
 					content: JSON.stringify({
-						profiles: [{ username: `u/${referencedProfile.handle}`, displayName: lt(referencedProfile.displayName), shortBio: "Already active." }],
+						profiles: [{ username: `u/${referencedProfile.handle}`, displayName: lt(localizedTextString(referencedProfile.displayName)), shortBio: "Already active." }],
 					}),
 				}),
 				origin: "tool_result",
@@ -1194,7 +1196,7 @@ describe("Tick flow", () => {
 				BICKR_KV: testEnv.BICKR_KV,
 			},
 			previousTerminalTickEvent: () => null,
-			appendLoopMessage: (_runId: string, message: Record<string, unknown>) => {
+			appendLoopMessage: (_context: typeof testResultContext, _runId: string, message: Record<string, unknown>) => {
 				messages.push(message);
 				seq += 1;
 				return { seq, runId: "run-notification-dedupe", role: message.role, message };
@@ -1252,7 +1254,7 @@ describe("Tick flow", () => {
 			const selfProfile = await createBotForTest(cookie, "notice-budget-self");
 			const bot = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, selfProfile.id);
 			const tokenBudget = 260;
-		const author = { id: selfProfile.id, username: `u/${selfProfile.handle}`, displayName: lt(selfProfile.displayName) };
+		const author = { id: selfProfile.id, username: `u/${selfProfile.handle}`, displayName: lt(localizedTextString(selfProfile.displayName)) };
 		const messages: Array<Record<string, unknown>> = [];
 		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
 			env: {
@@ -1260,7 +1262,7 @@ describe("Tick flow", () => {
 				BICKR_KV: testEnv.BICKR_KV,
 			},
 			previousTerminalTickEvent: () => null,
-			appendLoopMessage: (_runId: string, message: Record<string, unknown>) => {
+			appendLoopMessage: (_context: typeof testResultContext, _runId: string, message: Record<string, unknown>) => {
 				messages.push(message);
 				return { seq: messages.length, runId: "run-notification-budget", role: message.role, message };
 			},
@@ -1316,7 +1318,7 @@ describe("Tick flow", () => {
 			const selfProfile = await createBotForTest(cookie, "notice-drop-self");
 			const bot = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, selfProfile.id);
 			const tokenBudget = 300;
-			const author = { id: selfProfile.id, username: `u/${selfProfile.handle}`, displayName: lt(selfProfile.displayName) };
+			const author = { id: selfProfile.id, username: `u/${selfProfile.handle}`, displayName: lt(localizedTextString(selfProfile.displayName)) };
 		const messages: Array<Record<string, unknown>> = [];
 		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
 			env: {
@@ -1324,7 +1326,7 @@ describe("Tick flow", () => {
 				BICKR_KV: testEnv.BICKR_KV,
 			},
 			previousTerminalTickEvent: () => null,
-			appendLoopMessage: (_runId: string, message: Record<string, unknown>) => {
+			appendLoopMessage: (_context: typeof testResultContext, _runId: string, message: Record<string, unknown>) => {
 				messages.push(message);
 				return { seq: messages.length, runId: "run-notification-drop", role: message.role, message };
 			},
@@ -1843,7 +1845,7 @@ describe("Tick flow", () => {
 			},
 			notes: { idsForEntity: () => ({ ids: [], total: 0 }) },
 			previousTerminalTickEvent: () => null,
-			appendLoopMessage: (_runId: string, message: Record<string, unknown>) => {
+			appendLoopMessage: (_context: typeof testResultContext, _runId: string, message: Record<string, unknown>) => {
 				messages.push(message);
 				return { seq: messages.length, runId: "run-spotlight-context", role: message.role, message };
 			},
@@ -1947,7 +1949,7 @@ describe("Tick flow", () => {
 					title: lt("My own thread"),
 					authorBotId: selfProfile.id,
 					authorHandle: selfProfile.handle,
-					authorDisplayName: lt(selfProfile.displayName),
+					authorDisplayName: lt(localizedTextString(selfProfile.displayName)),
 					body: lt("My root post."),
 					createdAt: "2026-05-01T00:00:00.000Z",
 					ancestorOnly: true,
@@ -1960,7 +1962,7 @@ describe("Tick flow", () => {
 					parentCommentId: "cmt_self_root",
 					authorBotId: otherProfile.id,
 					authorHandle: otherProfile.handle,
-					authorDisplayName: lt(otherProfile.displayName),
+					authorDisplayName: lt(localizedTextString(otherProfile.displayName)),
 					body: lt("Their reply."),
 					createdAt: "2026-05-01T00:01:00.000Z",
 					ancestorOnly: true,
@@ -1973,7 +1975,7 @@ describe("Tick flow", () => {
 					parentCommentId: "cmt_other_reply",
 					authorBotId: selfProfile.id,
 					authorHandle: selfProfile.handle,
-					authorDisplayName: lt(selfProfile.displayName),
+					authorDisplayName: lt(localizedTextString(selfProfile.displayName)),
 					body: lt("My follow-up."),
 					createdAt: "2026-05-01T00:02:00.000Z",
 					focused: true,
@@ -1985,7 +1987,7 @@ describe("Tick flow", () => {
 			env: { BICKR_D1: testEnv.BICKR_D1, BICKR_KV: testEnv.BICKR_KV },
 			notes: { idsForEntity: () => ({ ids: ['spotlight-note'], total: 1 }) },
 			previousTerminalTickEvent: () => null,
-			appendLoopMessage: (_runId: string, message: Record<string, unknown>) => {
+			appendLoopMessage: (_context: typeof testResultContext, _runId: string, message: Record<string, unknown>) => {
 				messages.push(message);
 				return { seq: messages.length, runId: "run-spotlight-self", role: message.role, message };
 			},
@@ -2060,7 +2062,7 @@ describe("Tick flow", () => {
 				...(index > 0 ? { parentCommentId: `cmt_deep_spotlight_${index - 1}` } : {}),
 					authorBotId: authorProfile.id,
 					authorHandle: authorProfile.handle,
-					authorDisplayName: lt(authorProfile.displayName),
+					authorDisplayName: lt(localizedTextString(authorProfile.displayName)),
 					body: lt(`Deep spotlight context ${index}. ${"z".repeat(800)}`),
 				createdAt: `2026-05-01T00:${String(index).padStart(2, "0")}:00.000Z`,
 				...(index === chainLength - 1 ? { focused: true as const } : { ancestorOnly: true }),
@@ -2087,7 +2089,7 @@ describe("Tick flow", () => {
 				BICKR_KV: testEnv.BICKR_KV,
 			},
 			previousTerminalTickEvent: () => null,
-			appendLoopMessage: (_runId: string, message: Record<string, unknown>) => {
+			appendLoopMessage: (_context: typeof testResultContext, _runId: string, message: Record<string, unknown>) => {
 				messages.push(message);
 				return { seq: messages.length, runId: "run-deep-spotlight", role: message.role, message };
 			},
@@ -2210,7 +2212,7 @@ describe("Tick flow", () => {
 			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) =>
 				runtimeEvent(type === "provider_request" ? 123 : 124, runId, type as BotRuntimeEvent["type"], payload),
 			appendLoopMessage: (
-				_runId: string,
+				_context: typeof testResultContext, _runId: string,
 				message: Record<string, unknown>,
 				origin: string,
 			) => {
@@ -2237,7 +2239,7 @@ describe("Tick flow", () => {
 				_runId: string,
 				_signal: AbortSignal,
 				tools: ProviderToolDefinition[],
-			) => ({
+			) => ({renderContext: testResultContext,
 				allowedPromptTokens: 13_500,
 				providerTools: tools,
 				promptTokens: 100,
@@ -2292,7 +2294,7 @@ describe("Tick flow", () => {
 				events.push({ type, payload });
 				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
 			},
-			appendLoopMessage: (_runId: string, message: Record<string, unknown>, origin: string) => {
+			appendLoopMessage: (_context: typeof testResultContext, _runId: string, message: Record<string, unknown>, origin: string) => {
 				appendedLoopMessages.push({ message, origin });
 				return {
 					seq: appendedLoopMessages.length,
@@ -2306,7 +2308,7 @@ describe("Tick flow", () => {
 			},
 			appendProviderMessages: async () => {},
 			callProvider,
-			ensureProviderPromptWithinBudget: async () => ({
+			ensureProviderPromptWithinBudget: async () => ({renderContext: testResultContext,
 				allowedPromptTokens: 13_500,
 				providerTools: toolDefinitionsForProviderRound(englishInstructions),
 				promptTokens: 100,
@@ -2371,14 +2373,14 @@ describe("Tick flow", () => {
 				events.push({ type, payload });
 				return runtimeEvent(events.length, runId, type as BotRuntimeEvent['type'], payload);
 			},
-			appendLoopMessage: (_runId: string, message: Record<string, unknown>, origin: string) => {
+			appendLoopMessage: (_context: typeof testResultContext, _runId: string, message: Record<string, unknown>, origin: string) => {
 				messages.push({ message, origin });
 				return { seq: messages.length, runId: 'run-disabled-note', role: message.role, message, origin,
 					tokenEstimate: 0, createdAt: new Date().toISOString() };
 			},
 			appendProviderMessages: async () => {},
 			callProvider,
-			ensureProviderPromptWithinBudget: async () => ({
+			ensureProviderPromptWithinBudget: async () => ({renderContext: testResultContext,
 				allowedPromptTokens: 13_500,
 				providerTools: toolDefinitionsForProviderRound(englishInstructions, 4_000, { includeNotesTools: false }),
 				promptTokens: 100,
@@ -2422,7 +2424,7 @@ describe("Tick flow", () => {
 				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
 			},
 			appendLoopMessage: (
-				_runId: string,
+				_context: typeof testResultContext, _runId: string,
 				message: Record<string, unknown>,
 				origin: string,
 			) => {
@@ -2442,7 +2444,7 @@ describe("Tick flow", () => {
 				{ id: "call-log-off", name: "log_off", arguments: "{\"reason\":\"done\"}" },
 				{ id: "call-bad", name: "read_thread", arguments: "{\"threadId\":" },
 			]),
-			ensureProviderPromptWithinBudget: async () => ({
+			ensureProviderPromptWithinBudget: async () => ({renderContext: testResultContext,
 				allowedPromptTokens: 13_500,
 				providerTools: toolDefinitionsForProviderRound(englishInstructions),
 				promptTokens: 100,
@@ -2525,7 +2527,7 @@ describe("Tick flow", () => {
 				events.push({ type, payload });
 				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
 			},
-			appendLoopMessage: (_runId: string, message: BotInferenceSubmissionMessage, origin: string) => {
+			appendLoopMessage: (_context: typeof testResultContext, _runId: string, message: BotInferenceSubmissionMessage, origin: string) => {
 				appendedLoopMessages.push({ message, origin });
 				return {
 					seq: appendedLoopMessages.length,
@@ -2541,7 +2543,7 @@ describe("Tick flow", () => {
 			callProvider,
 			ensureProviderPromptWithinBudget: async () => {
 				const history = providerHistory();
-				return {
+				return {renderContext: testResultContext,
 					allowedPromptTokens: 13_500,
 					providerTools: toolDefinitionsForProviderRound(englishInstructions),
 					promptTokens: 100,
@@ -2613,7 +2615,7 @@ describe("Tick flow", () => {
 		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
 			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) =>
 				runtimeEvent(appendedLoopMessages.length + callProvider.mock.calls.length + 1, runId, type as BotRuntimeEvent["type"], payload),
-			appendLoopMessage: (_runId: string, message: BotInferenceSubmissionMessage, origin: string) => {
+			appendLoopMessage: (_context: typeof testResultContext, _runId: string, message: BotInferenceSubmissionMessage, origin: string) => {
 				appendedLoopMessages.push({ message, origin });
 				return {
 					seq: appendedLoopMessages.length,
@@ -2627,7 +2629,7 @@ describe("Tick flow", () => {
 			},
 			appendProviderMessages: async () => {},
 			callProvider,
-			ensureProviderPromptWithinBudget: async () => ({
+			ensureProviderPromptWithinBudget: async () => ({renderContext: testResultContext,
 				allowedPromptTokens: 13_500,
 				providerTools: toolDefinitionsForProviderRound(englishInstructions),
 				promptTokens: 100,
@@ -2695,7 +2697,7 @@ describe("Tick flow", () => {
 				events.push({ type, payload });
 				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
 			},
-			appendLoopMessage: (_runId: string, message: Record<string, unknown>, origin: string) => {
+			appendLoopMessage: (_context: typeof testResultContext, _runId: string, message: Record<string, unknown>, origin: string) => {
 				appendedLoopMessages.push({ message, origin });
 				return {
 					seq: appendedLoopMessages.length,
@@ -2709,7 +2711,7 @@ describe("Tick flow", () => {
 			},
 			appendProviderMessages: async () => {},
 			callProvider,
-			ensureProviderPromptWithinBudget: async () => ({
+			ensureProviderPromptWithinBudget: async () => ({renderContext: testResultContext,
 				allowedPromptTokens: 13_500,
 				providerTools: toolDefinitionsForProviderRound(englishInstructions),
 				promptTokens: 100,
@@ -2796,7 +2798,7 @@ describe("Tick flow", () => {
 		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
 			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) =>
 				runtimeEvent(type === "provider_request" ? callProvider.mock.calls.length : appendedLoopMessages.length + executedTools.length + 1, runId, type as BotRuntimeEvent["type"], payload),
-			appendLoopMessage: (_runId: string, message: Record<string, unknown>, origin: string) => {
+			appendLoopMessage: (_context: typeof testResultContext, _runId: string, message: Record<string, unknown>, origin: string) => {
 				appendedLoopMessages.push({ message, origin });
 				return {
 					seq: appendedLoopMessages.length,
@@ -2810,7 +2812,7 @@ describe("Tick flow", () => {
 			},
 			appendProviderMessages: async () => {},
 			callProvider,
-			ensureProviderPromptWithinBudget: async () => ({
+			ensureProviderPromptWithinBudget: async () => ({renderContext: testResultContext,
 				allowedPromptTokens: 13_500,
 				providerTools: toolDefinitionsForProviderRound(englishInstructions),
 				promptTokens: 100,
@@ -2886,7 +2888,7 @@ describe("Tick flow", () => {
 				events.push({ type, payload });
 				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
 			},
-			appendLoopMessage: (_runId: string, message: Record<string, unknown>, origin: string) => {
+			appendLoopMessage: (_context: typeof testResultContext, _runId: string, message: Record<string, unknown>, origin: string) => {
 				appendedLoopMessages.push({ message, origin });
 				return {
 					seq: appendedLoopMessages.length,
@@ -2900,7 +2902,7 @@ describe("Tick flow", () => {
 			},
 			appendProviderMessages: async () => {},
 			callProvider,
-			ensureProviderPromptWithinBudget: async () => ({
+			ensureProviderPromptWithinBudget: async () => ({renderContext: testResultContext,
 				allowedPromptTokens: 13_500,
 				providerTools: toolDefinitionsForProviderRound(englishInstructions),
 				promptTokens: 100,
@@ -2956,7 +2958,7 @@ describe("Tick flow", () => {
 			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) =>
 				runtimeEvent(type === "provider_request" ? 1 : 2, runId, type as BotRuntimeEvent["type"], payload),
 			appendLoopMessage: (
-				_runId: string,
+				_context: typeof testResultContext, _runId: string,
 				message: Record<string, unknown>,
 				origin: string,
 			) => ({
@@ -2979,7 +2981,7 @@ describe("Tick flow", () => {
 				_runId: string,
 				_signal: AbortSignal,
 				tools: ProviderToolDefinition[],
-			) => ({
+			) => ({renderContext: testResultContext,
 				allowedPromptTokens: 13_500,
 				providerTools: tools,
 				promptTokens: 100,
@@ -3046,7 +3048,7 @@ describe("Tick flow", () => {
 				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
 			},
 			appendLoopMessage: (
-				_runId: string,
+				_context: typeof testResultContext, _runId: string,
 				message: Record<string, unknown>,
 				origin: string,
 			) => {
@@ -3063,7 +3065,7 @@ describe("Tick flow", () => {
 			},
 			appendProviderMessages: async () => {},
 			callProvider: async () => providerResponseWithToolCall("call-read", "read_thread", { threadId: "thr_test" }),
-			ensureProviderPromptWithinBudget: async () => ({
+			ensureProviderPromptWithinBudget: async () => ({renderContext: testResultContext,
 				allowedPromptTokens: 13_500,
 				providerTools: toolDefinitionsForProviderRound(englishInstructions),
 				promptTokens: 100,
@@ -3150,7 +3152,7 @@ describe("Tick flow", () => {
 				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
 			},
 			appendLoopMessage: (
-				_runId: string,
+				_context: typeof testResultContext, _runId: string,
 				message: Record<string, unknown>,
 				origin: string,
 			) => {
@@ -3167,7 +3169,7 @@ describe("Tick flow", () => {
 			},
 			appendProviderMessages: async () => {},
 			callProvider,
-			ensureProviderPromptWithinBudget: async () => ({
+			ensureProviderPromptWithinBudget: async () => ({renderContext: testResultContext,
 				allowedPromptTokens: 13_500,
 				providerTools: toolDefinitionsForProviderRound(englishInstructions),
 				promptTokens: 100,
@@ -3261,7 +3263,7 @@ describe("Tick flow", () => {
 				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
 			},
 			appendLoopMessage: (
-				_runId: string,
+				_context: typeof testResultContext, _runId: string,
 				message: Record<string, unknown>,
 				origin: string,
 			) => ({
@@ -3279,7 +3281,7 @@ describe("Tick flow", () => {
 				{ id: "call-reply", name: "reply_to_comment", args: { commentId: "cmt_spot", body: "Spotlight reply." } },
 				{ id: "call-read", name: "read_thread", args: { threadId: "thr_after" } },
 			]),
-			ensureProviderPromptWithinBudget: async () => ({
+			ensureProviderPromptWithinBudget: async () => ({renderContext: testResultContext,
 				allowedPromptTokens: 13_500,
 				providerTools: toolDefinitionsForProviderRound(englishInstructions),
 				promptTokens: 100,
@@ -3356,7 +3358,7 @@ describe("Tick flow", () => {
 				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
 			},
 			appendLoopMessage: (
-				_runId: string,
+				_context: typeof testResultContext, _runId: string,
 				message: Record<string, unknown>,
 				origin: string,
 			) => ({
@@ -3383,7 +3385,7 @@ describe("Tick flow", () => {
 				},
 				{ id: "call-read", name: "read_thread", args: { threadId: "thr_after" } },
 			]),
-			ensureProviderPromptWithinBudget: async () => ({
+			ensureProviderPromptWithinBudget: async () => ({renderContext: testResultContext,
 				allowedPromptTokens: 13_500,
 				providerTools: toolDefinitionsForProviderRound(englishInstructions),
 				promptTokens: 100,
@@ -3461,7 +3463,7 @@ describe("Tick flow", () => {
 				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
 			},
 			appendLoopMessage: (
-				_runId: string,
+				_context: typeof testResultContext, _runId: string,
 				message: Record<string, unknown>,
 				origin: string,
 			) => ({
@@ -3479,7 +3481,7 @@ describe("Tick flow", () => {
 				{ id: "call-vote", name: "vote", args: { votes: [{ commentId: "cmt_test", value: 1 }], reason: "Clear useful context." } },
 				{ id: "call-log-off", name: "log_off", args: { reason: "I hit my visit limit." } },
 			]),
-			ensureProviderPromptWithinBudget: async () => ({
+			ensureProviderPromptWithinBudget: async () => ({renderContext: testResultContext,
 				allowedPromptTokens: 13_500,
 				providerTools: toolDefinitionsForProviderRound(englishInstructions),
 				promptTokens: 100,

@@ -1,3 +1,4 @@
+import { testResultContext } from './result-render-context.test-support';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FollowerActivityReceipt, FollowerActivitySelection } from '@bickr/shared/follower-activity';
 import type { D1DatabaseLike, D1PreparedStatementLike } from '@bickr/shared/storage';
@@ -18,7 +19,7 @@ function db(batch: D1DatabaseLike['batch']): D1DatabaseLike {
 	return { prepare: () => statement, batch };
 }
 function commit(delivery: RuntimeFollowerActivityDelivery, input = selection(), fail = false) {
-	new RuntimeMessageStore(storage).appendLoopMessageGroup([{ runId:'run',origin:'input',message:{role:'user',content:'Saved activity summary'} }], () => {
+	new RuntimeMessageStore(storage).appendLoopMessageGroup(testResultContext, [{ runId:'run',origin:'input',message:{role:'user',content:'Saved activity summary'} }], () => {
 		new RuntimeInputHistory(storage).commit(9);
 		delivery.commit(input,[],new Set());
 		if (fail) throw new Error('Injected history commit failure');
@@ -55,11 +56,11 @@ describe('durable follower receipt recovery', () => {
 			event:{kind:'follower_activity_digest' as const,type:'followed_activity' as const,id:'digest',createdAt:'2026-10-16',
 				deliveryReasons:['followed_profile_activity' as const],actor:{id:'writer',username:'u/writer',displayName:{text:'Writer',lang:null}},activities:[],olderActivityOmitted:true},
 		} };
-		new RuntimeMessageStore(storage).appendLoopMessageGroup([{runId:'omitted',origin:'input',message:{role:'user',content:'Only other notices fit'}}],()=>{
+		new RuntimeMessageStore(storage).appendLoopMessageGroup(testResultContext, [{runId:'omitted',origin:'input',message:{role:'user',content:'Only other notices fit'}}],()=>{
 			delivery.commit(selection([]),[notice],new Set());
 		});
 		expect(delivery.hasPending()).toBe(false);expect(delivery.after()).toBe('writer');
-		new RuntimeMessageStore(storage).appendLoopMessageGroup([{runId:'included',origin:'input',message:{role:'user',content:'The digest fits'}}],()=>{
+		new RuntimeMessageStore(storage).appendLoopMessageGroup(testResultContext, [{runId:'included',origin:'input',message:{role:'user',content:'The digest fits'}}],()=>{
 			delivery.commit(selection([]),[notice],new Set(['digest']));
 		});
 		expect(delivery.hasPending()).toBe(true);

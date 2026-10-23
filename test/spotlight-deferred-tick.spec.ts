@@ -1,3 +1,4 @@
+import { testResultContext } from '../workers/agent-runtime/src/runtime/result-render-context.test-support';
 import { attachTestRunLiveness } from "./helpers/index-harness";
 import {
 	authCookie,
@@ -112,7 +113,7 @@ function deferredHarness(): DeferredHarness {
 			events.push(event);
 			return event;
 		},
-		appendLoopMessage: (runId: string, message: Record<string, unknown>, origin: string) => ({
+		appendLoopMessage: (_context: typeof testResultContext, runId: string, message: Record<string, unknown>, origin: string) => ({
 			seq: eventSeq + 1,
 			runId,
 			role: message.role,
