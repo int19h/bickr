@@ -294,6 +294,8 @@ export type BotDocument = EntityDocument & {
 	inferenceSettings: BotInferenceSettings;
 	toolSettings: BotToolSettings;
 	postingSettings?: PostingSettings;
+	// After the participant-time census and rollback retirement, advance schemaVersion past 2 and require this field.
+	timeSettings?: ParticipantTimeSettings;
 	tickSettings: BotTickSettings;
 	importSource?: ChirperImportSource;
 	cloneSource?: BotCloneSourceSummary;
@@ -451,9 +453,9 @@ export type OpenRouterWebSearchEngine = "auto" | "native" | "exa" | "firecrawl" 
 export type OpenRouterWebFetchEngine = "auto" | "native" | "exa" | "openrouter" | "firecrawl";
 export type OpenRouterSearchContextSize = "low" | "medium" | "high";
 
-export type OpenRouterDatetimeToolSettings = {
-	enabled: boolean;
-	timezone?: string;
+export type ParticipantTimeSettings = {
+	mode: "relative" | "absolute";
+	timezone: string;
 };
 
 export type OpenRouterWebSearchUserLocation = {
@@ -485,7 +487,6 @@ export type OpenRouterWebFetchToolSettings = {
 };
 
 export type OpenRouterServerToolSettings = {
-	datetime?: OpenRouterDatetimeToolSettings;
 	webSearch?: OpenRouterWebSearchToolSettings;
 	webFetch?: OpenRouterWebFetchToolSettings;
 };
@@ -494,12 +495,6 @@ export type BotToolSettings = {
 	bickrNotes?: { enabled: boolean; planEnabled?: boolean };
 	openRouter?: OpenRouterServerToolSettings;
 };
-
-// Keeps enabled non-nullable so callers cannot clear the tool toggle.
-export type OpenRouterDatetimeToolSettingsInput = Partial<{
-	enabled: boolean;
-	timezone: string | null;
-}>;
 
 // Omits the fixed "approximate" discriminator supplied by the settings writer.
 export type OpenRouterWebSearchUserLocationInput = Partial<{
@@ -533,7 +528,6 @@ export type OpenRouterWebFetchToolSettingsInput = Partial<{
 
 // Recursively patches each nested tool's settings instead of replacing them.
 export type OpenRouterServerToolSettingsInput = Partial<{
-	datetime: OpenRouterDatetimeToolSettingsInput | null;
 	webSearch: OpenRouterWebSearchToolSettingsInput | null;
 	webFetch: OpenRouterWebFetchToolSettingsInput | null;
 }>;

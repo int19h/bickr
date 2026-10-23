@@ -61,12 +61,12 @@ export class SelfCorrectingToolCallError extends Error {
 }
 
 export type RecordedBatchEnvelope = Extract<ToolResultEnvelope, { kind: 'vote_set' | 'profile_followed' | 'profile_unfollowed' }>;
-export type ToolBatchOutcomeItem =
+export type ToolBatchOutcomeItem = { targetParticipant?: { id: string; handle: string } } & (
 	| { kind: 'recorded'; target: string; envelope: RecordedBatchEnvelope; scope: { related: boolean; unrelated: boolean } }
 	| { kind: 'committed'; target: string; issue: BotServiceIssueForOutcome<'committed'>; scope: { related: boolean; unrelated: boolean } }
 	| { kind: 'refused'; target: string; error: unknown; args: Record<string, unknown> }
 	| { kind: 'unknown'; target: string; error: unknown; scope: { related: boolean; unrelated: boolean } }
-	| { kind: 'not_attempted'; target: string };
+	| { kind: 'not_attempted'; target: string });
 
 export class ToolBatchOutcomeError extends Error {
 	readonly items: readonly ToolBatchOutcomeItem[];

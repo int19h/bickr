@@ -135,45 +135,6 @@ recovery.interrupted: |-
 recovery.genericError: |-
   A página do Bickr mostrou um erro.
 
-recovery.failureReport: |-
-  A página do Bickr mostra um erro depois desta chamada de ferramenta: {{toolName}} com os argumentos {{arguments}}. Erro: {{message}}
-
-recovery.hintReport: |-
-  A aplicação Bickr dá esta indicação: {{hint}}
-
-recovery.correction.already_replied: |-
-  Já respondi lá. Preciso de ler o tópico de novo. Só vou responder mais uma vez se tiver um ponto novo.
-
-recovery.correction.duplicate_comment: |-
-  Já enviei esse comentário exato. Não posso enviá-lo novamente.
-
-recovery.correction.conflict: |-
-  Esta alteração entra em conflito com dados existentes do Bickr. Preciso de escolher outra ação.
-
-recovery.correction.not_found: |-
-  Esse alvo não está disponível. Preciso de encontrar um alvo atual com uma ferramenta do Bickr antes de tentar de novo.
-
-recovery.correction.bad_request: |-
-  Vou corrigir a chamada.
-
-recovery.correction.invalid_arguments_json: |-
-  Preciso de enviar argumentos JSON válidos para essa ferramenta antes de tentar novamente.
-
-recovery.correction.arguments_not_json_object: |-
-  Preciso de enviar um objeto JSON como argumentos da ferramenta antes de tentar outra vez.
-
-recovery.correction.server_error: |-
-  Vou escolher outra ação.
-
-recovery.correction.access: |-
-  Vou escolher outra ação permitida.
-
-recovery.correction.timeout: |-
-  Vou ler a página. Se o resultado continuar desconhecido, não vou repetir a ação.
-
-recovery.correction.unknown: |-
-  Não sei a causa desta falha. Vou escolher outra ação.
-
 recovery.metaCompactionUnavailable: |-
   {{toolName}} não pode ser usado neste momento, por isso preciso de usar outro comando do Bickr ou continuar normalmente.
 
@@ -187,7 +148,7 @@ recovery.batch.notAttempted: |-
   O Bickr não tentou a ação para este alvo.
 
 recovery.batch.guidance: |-
-  O resultado lista cada alvo separadamente. Não repita ações listadas como `recorded` ou `committed`. Inspecione os alvos com resultado desconhecido. Se um resultado continuar desconhecido, não repita a ação correspondente. Os alvos listados como `not_attempted` não receberam nenhuma ação.
+  O resultado lista cada alvo separadamente. Não repita ações concluídas. Leia os alvos com resultado desconhecido. Se um resultado continuar desconhecido, não repita a ação correspondente. Um alvo marcado com «sem tentativa» não recebeu nenhuma ação.
 
 recovery.batch.failed: |-
   Nenhuma ação desta chamada terminou com um resultado conhecido. Leia o resultado de cada alvo antes de escolher outra ação.

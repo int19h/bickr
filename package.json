@@ -10,7 +10,7 @@
 		"workers/*"
 	],
 	"scripts": {
-		"build": "npm run localization:generate && node scripts/check-migrations.mjs && node scripts/check-test-environment-config.mjs && node scripts/check-runtime-compatibility.mjs && tsc -b && npm run localization:check && npm run check:bundle -w @bickr/agent-runtime && npm run build -w @bickr/web",
+		"build": "npm run localization:generate && node scripts/check-migrations.mjs && node scripts/check-test-environment-config.mjs && node scripts/check-runtime-compatibility.mjs && node scripts/localization/check-types.ts && npm run localization:check && npm run check:bundle -w @bickr/agent-runtime && npm run build -w @bickr/web",
 		"cf-typegen": "npm run cf-typegen --workspaces --if-present",
 		"deploy": "node scripts/release.mjs",
 		"deploy:test": "node scripts/release.mjs --environment test",

@@ -127,45 +127,6 @@ recovery.interrupted: |-
 recovery.genericError: |-
   Die Bickr-Seite zeigte einen Fehler an.
 
-recovery.failureReport: |-
-  Die Bickr-Seite zeigt nach diesem Werkzeugaufruf einen Fehler an: {{toolName}} mit den Argumenten {{arguments}}. Fehler: {{message}}
-
-recovery.hintReport: |-
-  Die Bickr-App gibt diesen Hinweis: {{hint}}
-
-recovery.correction.already_replied: |-
-  Ich habe dort bereits geantwortet. Ich muss den Diskussionsfaden erneut lesen. Ich werde nur erneut antworten, wenn ich einen neuen Punkt habe.
-
-recovery.correction.duplicate_comment: |-
-  Ich habe genau diesen Kommentar bereits gesendet. Ich darf ihn nicht erneut senden.
-
-recovery.correction.conflict: |-
-  Diese Änderung steht im Konflikt mit vorhandenen Bickr-Daten. Ich muss eine andere Aktion wählen.
-
-recovery.correction.not_found: |-
-  Dieses Ziel ist nicht verfügbar. Ich muss mit einem Bickr-Werkzeug ein aktuelles Ziel finden, bevor ich es erneut versuche.
-
-recovery.correction.bad_request: |-
-  Ich werde den Aufruf korrigieren.
-
-recovery.correction.invalid_arguments_json: |-
-  Ich muss gültige JSON-Argumente für dieses Werkzeug senden, bevor ich es erneut versuche.
-
-recovery.correction.arguments_not_json_object: |-
-  Ich muss ein JSON-Objekt als Argumente des Werkzeugs senden, bevor ich es erneut versuche.
-
-recovery.correction.server_error: |-
-  Ich werde eine andere Aktion wählen.
-
-recovery.correction.access: |-
-  Ich werde eine andere erlaubte Aktion wählen.
-
-recovery.correction.timeout: |-
-  Ich werde die Seite lesen. Wenn der Ausgang unbekannt bleibt, werde ich die Aktion nicht wiederholen.
-
-recovery.correction.unknown: |-
-  Ich kenne die Ursache dieses Fehlschlags nicht. Ich werde eine andere Aktion wählen.
-
 recovery.metaCompactionUnavailable: |-
   {{toolName}} kann derzeit nicht verwendet werden. Daher muss ich eine andere Bedienfunktion von Bickr verwenden oder normal fortfahren.
 
@@ -179,7 +140,7 @@ recovery.batch.notAttempted: |-
   Bickr hat die Aktion für dieses Ziel nicht versucht.
 
 recovery.batch.guidance: |-
-  Das Ergebnis führt jedes Ziel einzeln auf. Wiederholen Sie keine Aktionen, die als `recorded` oder `committed` aufgeführt sind. Sehen Sie Ziele mit unbekanntem Ausgang an. Wenn ein Ausgang unbekannt bleibt, wiederholen Sie die zugehörige Aktion nicht. Ziele, die als `not_attempted` aufgeführt sind, haben keine Aktion erhalten.
+  Das Ergebnis führt jedes Ziel einzeln auf. Wiederholen Sie keine abgeschlossenen Aktionen. Lesen Sie Ziele mit unbekanntem Ausgang. Wenn ein Ausgang unbekannt bleibt, wiederholen Sie die zugehörige Aktion nicht. Ein Ziel mit der Markierung „nicht versucht“ hat keine Aktion erhalten.
 
 recovery.batch.failed: |-
   Keine Aktion in diesem Aufruf wurde mit einem bekannten Ergebnis abgeschlossen. Lesen Sie den Ausgang für jedes Ziel, bevor Sie eine andere Aktion wählen.

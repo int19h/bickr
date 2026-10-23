@@ -1,3 +1,4 @@
+import { ResultContextScope } from './result-context-scope';
 import { botText } from '../localization';
 const text = botText('en');
 import { describe, expect, it } from "vitest";
@@ -224,8 +225,8 @@ describe("draw_random_integers execution", () => {
 		expect(numbers[0]).toBeLessThanOrEqual(6);
 		expect(numbers[1]).toBeGreaterThanOrEqual(0);
 		expect(numbers[1]).toBeLessThanOrEqual(1);
-		// The provider sees the bare array, exactly as the control promises.
-		expect(result.providerResult).toEqual(numbers);
+		// The provider sees each draw beside its range.
+		expect(result.providerResult).toBe(`- 1 to 6: ${numbers[0]}\n- 0 to 1: ${numbers[1]}`);
 		expect(result.envelope).toEqual({
 			kind: "random_integers_drawn",
 			ranges: [{ min: 1, max: 6 }, { min: 0, max: 1 }],
@@ -378,7 +379,7 @@ function toolExecutionRecorder() {
 		forumService: unreachable("the forum coordinator"),
 		vectorSearchBots: unreachable("vector search"),
 		readCommentTreeTokenBudget: unreachable("the comment-tree token budget"),
-		providerContentInActiveContext: () => ({ commentsWithText: new Set(), threadsWithText: new Set() }),
+		resultContextScope: async () => new ResultContextScope(),
 		markToolDispatched: () => {},
 		markToolReading: () => {},
 		recordMutationIdentity: () => {},
@@ -707,7 +708,7 @@ describe('note tool cursor fallback', () => {
 		const args = { cursor: 7 };
 		const error = await new RuntimeTools(recorder.runtime).executeTool(randomDrawParticipant(), 'run-note', 'list_notes', args,
 			{ mode: 'normal', setupMode: 'new_iteration', signal: new AbortController().signal }).catch((error: unknown) => error);
-		expect(toolFailurePayload(text, 'list_notes', args, error)).toMatchObject({ code: 'bad_request', message: expect.stringContaining('cursor must be text. Copy nextCursor') });
+		expect(toolFailurePayload(text, 'list_notes', args, error)).toMatchObject({ code: 'bad_request', message: expect.stringContaining('cursor must be text. Use the cursor from the previous list_notes result') });
 	});
 });
 

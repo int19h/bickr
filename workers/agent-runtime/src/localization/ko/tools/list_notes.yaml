@@ -5,4 +5,4 @@ tools.list_notes.properties.entities.description: |-
   선택적인 u/name 또는 f/name 참조 목록입니다. 목록의 어느 대상이든 일치하는 메모가 반환됩니다.
 
 tools.list_notes.properties.cursor.description: |-
-  ID 목록을 계속 보려면 이전 페이지의 nextCursor를 사용하세요.
+  목록을 계속 보려면 이전 list_notes 결과의 cursor를 사용하세요.

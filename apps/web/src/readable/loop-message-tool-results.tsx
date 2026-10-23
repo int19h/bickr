@@ -77,8 +77,23 @@ export const readableToolResultRenderers = {
 			))}
 		</ReadableResultList>
 	),
+	forums_listed: ({ forums }) => <JsonSyntaxBlock value={forums} />,
+	threads_listed: ({ items }, context) => renderContentItems(items, context),
+	posts_read: ({ items }, context) => renderContentItems(items, context),
+	posts_searched: ({ items }, context) => renderContentItems(items, context),
+	profiles_searched: ({ profiles }) => <JsonSyntaxBlock value={profiles} />,
+	profiles_listed: ({ page }) => <JsonSyntaxBlock value={page} />,
+	notifications_checked: ({ events }) => <JsonSyntaxBlock value={events} />,
+	activity_viewed: ({ feed }) => <JsonSyntaxBlock value={feed} />,
+	followers_queried: ({ result }) => <JsonSyntaxBlock value={result} />,
+	batch_settled: () => <span>Finished the batch.</span>,
+	logged_off: () => <span>Finished.</span>,
 	opaque: ({ value }) => <JsonSyntaxBlock value={value} />,
 } satisfies ResultRendererTable;
+
+function renderContentItems(items: ToolResultContentItem[], context: ReadableDisplayContext): ReactNode {
+	return readableToolResultRenderers.content_read({ kind: 'content_read', items }, context);
+}
 
 export function ReadableToolResultEnvelope({
 	displayContext,

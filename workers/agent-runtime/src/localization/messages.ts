@@ -1,7 +1,8 @@
+import { resultMessageDefinitions } from './result-messages.ts';
 import { sharedMessageDefinitions } from '@bickr/shared/localization/messages';
 import { agentIssueMessageDefinitions } from './issues.ts';
 import { botServiceIssueMessageDefinitions } from '@bickr/shared/bot-service-issues';
-export const messageParameters = { ...sharedMessageDefinitions, ...agentIssueMessageDefinitions, ...botServiceIssueMessageDefinitions, ...({
+export const messageParameters = { ...resultMessageDefinitions, "result.reference.deleted": { kind: "text", parameters: [] }, ...sharedMessageDefinitions, ...agentIssueMessageDefinitions, ...botServiceIssueMessageDefinitions, ...({
 	"system.nativeLanguage": {
 		"kind": "text",
 		"parameters": [
@@ -899,80 +900,6 @@ export const messageParameters = { ...sharedMessageDefinitions, ...agentIssueMes
 			"toolName"
 		]
 	},
-	"time.just_now": {
-		"kind": "text",
-		"parameters": []
-	},
-	"time.year.future": {
-		"kind": "plural",
-		"parameters": [
-			"count"
-		],
-		"count": "count"
-	},
-	"time.year.past": {
-		"kind": "plural",
-		"parameters": [
-			"count"
-		],
-		"count": "count"
-	},
-	"time.month.future": {
-		"kind": "plural",
-		"parameters": [
-			"count"
-		],
-		"count": "count"
-	},
-	"time.month.past": {
-		"kind": "plural",
-		"parameters": [
-			"count"
-		],
-		"count": "count"
-	},
-	"time.day.future": {
-		"kind": "plural",
-		"parameters": [
-			"count"
-		],
-		"count": "count"
-	},
-	"time.day.past": {
-		"kind": "plural",
-		"parameters": [
-			"count"
-		],
-		"count": "count"
-	},
-	"time.hour.future": {
-		"kind": "plural",
-		"parameters": [
-			"count"
-		],
-		"count": "count"
-	},
-	"time.hour.past": {
-		"kind": "plural",
-		"parameters": [
-			"count"
-		],
-		"count": "count"
-	},
-	"time.minute.future": {
-		"kind": "plural",
-		"parameters": [
-			"count"
-		],
-		"count": "count"
-	},
-	"time.minute.past": {
-		"kind": "plural",
-		"parameters": [
-			"count"
-		],
-		"count": "count"
-	},
 	"read.context.basic": {
 		"kind": "text",
 		"parameters": [
@@ -1197,38 +1124,8 @@ export const messageParameters = { ...sharedMessageDefinitions, ...agentIssueMes
 		],
 		"count": "count"
 	},
-	"report.elapsed.moment": {
-		"kind": "text",
-		"parameters": []
-	},
-	"report.elapsed.second": {
-		"kind": "plural",
-		"parameters": [
-			"count"
-		],
-		"count": "count"
-	},
-	"report.elapsed.minute": {
-		"kind": "plural",
-		"parameters": [
-			"count"
-		],
-		"count": "count"
-	},
-	"report.elapsed.hour": {
-		"kind": "plural",
-		"parameters": [
-			"count"
-		],
-		"count": "count"
-	},
-	"report.elapsed.day": {
-		"kind": "plural",
-		"parameters": [
-			"count"
-		],
-		"count": "count"
-	},
+	"report.timestamp.relative": { "kind": "text", "parameters": ["timestamp"] },
+	"report.timestamp.absolute": { "kind": "text", "parameters": ["timestamp"] },
 	"synthetic.reasoning.read_note": {
 		"kind": "text",
 		"parameters": []
@@ -1469,64 +1366,6 @@ export const messageParameters = { ...sharedMessageDefinitions, ...agentIssueMes
 		"parameters": []
 	},
 	"recovery.genericError": {
-		"kind": "text",
-		"parameters": []
-	},
-	"recovery.failureReport": {
-		"kind": "text",
-		"parameters": [
-			"toolName",
-			"arguments",
-			"message"
-		]
-	},
-	"recovery.hintReport": {
-		"kind": "text",
-		"parameters": [
-			"hint"
-		]
-	},
-	"recovery.correction.already_replied": {
-		"kind": "text",
-		"parameters": []
-	},
-	"recovery.correction.duplicate_comment": {
-		"kind": "text",
-		"parameters": []
-	},
-	"recovery.correction.conflict": {
-		"kind": "text",
-		"parameters": []
-	},
-	"recovery.correction.not_found": {
-		"kind": "text",
-		"parameters": []
-	},
-	"recovery.correction.bad_request": {
-		"kind": "text",
-		"parameters": []
-	},
-	"recovery.correction.invalid_arguments_json": {
-		"kind": "text",
-		"parameters": []
-	},
-	"recovery.correction.arguments_not_json_object": {
-		"kind": "text",
-		"parameters": []
-	},
-	"recovery.correction.server_error": {
-		"kind": "text",
-		"parameters": []
-	},
-	"recovery.correction.access": {
-		"kind": "text",
-		"parameters": []
-	},
-	"recovery.correction.timeout": {
-		"kind": "text",
-		"parameters": []
-	},
-	"recovery.correction.unknown": {
 		"kind": "text",
 		"parameters": []
 	},

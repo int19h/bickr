@@ -1,3 +1,4 @@
+import { testResultContext } from './result-render-context.test-support';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { BotInferenceSubmissionMessage, BotLoopMessage } from '@bickr/shared/model';
 import {
@@ -25,7 +26,7 @@ describe('RuntimeMessageStore', () => {
 			insertMessage(storage, seq, seq);
 		}
 
-		const messages = store.loopMessagesAfter(0, runtimeMonitorInitialBackfillLimit);
+		const messages = store.loopMessagesAfter(testResultContext, 0, runtimeMonitorInitialBackfillLimit);
 
 		expect(messages).toHaveLength(runtimeMonitorInitialBackfillLimit);
 		expect(messages[0]?.seq).toBe(51);
@@ -37,7 +38,7 @@ describe('RuntimeMessageStore', () => {
 			insertMessage(storage, seq, seq);
 		}
 
-		expect(store.loopMessagesAfter(120).map((message) => message.seq)).toEqual(range(121, 150));
+		expect(store.loopMessagesAfter(testResultContext, 120).map((message) => message.seq)).toEqual(range(121, 150));
 	});
 
 	it('constructs nested compaction pages from active history to the oldest source', () => {
@@ -55,7 +56,7 @@ describe('RuntimeMessageStore', () => {
 			{ page: 3, sourceCompactionSeq: 2, newerPage: 2 },
 		]);
 		expect([...pageIndex.compactionPageBySeq.entries()]).toEqual([[10, 2], [2, 3]]);
-		expect(store.loopMessagesPage({ page: 2 }).messages.map((message) => message.seq)).toEqual([1, 2]);
+		expect(store.loopMessagesPage(testResultContext, { page: 2 }).messages.map((message) => message.seq)).toEqual([1, 2]);
 	});
 
 	it('restores compacted children before soft-deleting their summary', () => {
@@ -78,7 +79,7 @@ describe('RuntimeMessageStore', () => {
 			{ page: 2, sourceCompactionSeq: 2, newerPage: 1 },
 		]);
 		const reachableSeqs = store.loopMessagePageIndex().descriptors
-			.flatMap((descriptor) => store.loopMessagesPage({ page: descriptor.page }).messages.map((message) => message.seq))
+			.flatMap((descriptor) => store.loopMessagesPage(testResultContext, { page: descriptor.page }).messages.map((message) => message.seq))
 			.sort((left, right) => left - right);
 		const liveSeqs = storage.database
 			.prepare(`SELECT seq FROM loop_messages WHERE deleted_at IS NULL ORDER BY seq ASC`)
@@ -173,9 +174,9 @@ describe('RuntimeMessageStore', () => {
 		});
 
 		it('materializes surviving delta logs before deleting the messages their base belongs to', () => {
-			const base = store.appendLoopMessage('run-1', { role: 'assistant', content: `${'A'.repeat(400)} base tail` }, 'provider_response');
+			const base = store.appendLoopMessage(testResultContext, 'run-1', { role: 'assistant', content: `${'A'.repeat(400)} base tail` }, 'provider_response');
 			const dependent = store.appendLoopMessage(
-				'run-2',
+				testResultContext, 'run-2',
 				{ role: 'assistant', content: `${'A'.repeat(400)} dependent tail` },
 				'provider_response',
 			);
@@ -198,7 +199,7 @@ describe('RuntimeMessageStore', () => {
 			const seeded: number[] = [];
 			for (let index = 0; index < runtimeDiagnosticLoopMessageRetentionCount; index += 1) {
 				seeded.push(store.appendLoopMessage(
-					'run-diagnostic',
+					testResultContext, 'run-diagnostic',
 					{ role: 'user', content: `The Bickr app reported failure ${index}.` },
 					'runtime_error',
 				).seq);
@@ -210,7 +211,7 @@ describe('RuntimeMessageStore', () => {
 			storage.database.prepare(`UPDATE loop_messages SET compacted_by = 900 WHERE seq = ?`).run(oldest);
 
 			store.appendLoopMessage(
-				'run-diagnostic',
+				testResultContext, 'run-diagnostic',
 				{ role: 'user', content: 'The Bickr app reported one more failure.' },
 				'runtime_error',
 			);
@@ -416,7 +417,7 @@ describe('RuntimeMessageStore', () => {
 		store.recordLoopMessageLog(1, 'provider_response', responseBase);
 		store.recordLoopMessageLog(1, 'provider_response', responseReplacement);
 
-		const logs = store.loopMessageLogsForSeq(1).logs;
+		const logs = store.loopMessageLogsForSeq(testResultContext, 1).logs;
 		expect(logs.map((log) => log.encoding)).toEqual(['full', 'append', 'full', 'replace_tail']);
 		expect(logs.map((log) => log.text)).toEqual([requestBase, requestAppend, responseBase, responseReplacement]);
 		expect(logs[1]?.baseLogId).toBe(logs[0]?.id);
@@ -430,7 +431,7 @@ describe('RuntimeMessageStore', () => {
 			resetCount += 1;
 		});
 		const normal = retentionStore.appendLoopMessage(
-			'run-normal',
+			testResultContext, 'run-normal',
 			{ role: 'assistant', content: 'Provider-visible history remains intact.' },
 			'provider_response',
 		);
@@ -448,7 +449,7 @@ describe('RuntimeMessageStore', () => {
 		});
 		const appendInvalidAttempt = (index: number): BotLoopMessage => {
 			const message = invalidMessage(index);
-			const inserted = retentionStore.appendLoopMessageGroup([{
+			const inserted = retentionStore.appendLoopMessageGroup(testResultContext, [{
 				runId: 'run-invalid',
 				message,
 				origin: 'dropped_provider_response',
@@ -513,7 +514,7 @@ describe('RuntimeMessageStore', () => {
 
 		for (let index = 1; index <= runtimeDiagnosticLoopMessageRetentionCount + 1; index += 1) {
 			retentionStore.appendLoopMessage(
-				'run-error',
+				testResultContext, 'run-error',
 				{ role: 'user', content: `The Bickr app reported runtime failure ${index}.` },
 				'runtime_error',
 			);
@@ -529,7 +530,7 @@ describe('RuntimeMessageStore', () => {
 		let expiredSeq = 0;
 		for (let index = 0; index < runtimeDiagnosticLoopMessageRetentionCount; index += 1) {
 			const inserted = store.appendLoopMessage(
-				'run-invalid-page-seed',
+				testResultContext, 'run-invalid-page-seed',
 				{
 					role: 'assistant',
 					content: null,
@@ -546,7 +547,7 @@ describe('RuntimeMessageStore', () => {
 		}
 		const rawArguments = '{"commentRef":"c/parent","body":"unterminated';
 		const retained = store.appendLoopMessage(
-			'run-invalid-page',
+			testResultContext, 'run-invalid-page',
 			{
 				role: 'assistant',
 				content: null,
@@ -561,7 +562,7 @@ describe('RuntimeMessageStore', () => {
 		);
 
 		const rows = store.loopMessageRowsForPage(null, 0);
-		const page = store.loopMessagesPage({ page: 1 });
+		const page = store.loopMessagesPage(testResultContext, { page: 1 });
 
 		expect(rows.map((row) => row.seq)).not.toContain(expiredSeq);
 		expect(rows.map((row) => row.seq)).toContain(retained.seq);
@@ -599,7 +600,7 @@ describe('RuntimeMessageStore', () => {
 		const seededRuntimeErrors: BotLoopMessage[] = [];
 		for (let index = 0; index < runtimeDiagnosticLoopMessageRetentionCount; index += 1) {
 			seededDropped.push(retentionStore.appendLoopMessage(
-				'run-seed-dropped',
+				testResultContext, 'run-seed-dropped',
 				{
 					role: 'assistant',
 					content: null,
@@ -613,7 +614,7 @@ describe('RuntimeMessageStore', () => {
 				'invalid',
 			));
 			seededRuntimeErrors.push(retentionStore.appendLoopMessage(
-				'run-seed-error',
+				testResultContext, 'run-seed-error',
 				{ role: 'user', content: `The Bickr app reported seeded failure ${index}.` },
 				'runtime_error',
 			));
@@ -631,7 +632,7 @@ describe('RuntimeMessageStore', () => {
 			message: BotInferenceSubmissionMessage,
 			droppedReason: ProviderToolCallDropReason,
 		): void => {
-			retentionStore.appendLoopMessageGroup([{
+			retentionStore.appendLoopMessageGroup(testResultContext, [{
 				runId: 'run-no-correction',
 				message,
 				origin: 'dropped_provider_response',
@@ -653,7 +654,7 @@ describe('RuntimeMessageStore', () => {
 			}],
 		}, 'arguments_not_json_object');
 		retentionStore.appendLoopMessage(
-			'run-no-correction',
+			testResultContext, 'run-no-correction',
 			{ role: 'user', content: 'The Bickr app reported the failed retry.' },
 			'runtime_error',
 		);
@@ -661,7 +662,7 @@ describe('RuntimeMessageStore', () => {
 		const retrySubmission = [
 			{ role: 'assistant' as const, content: 'I am ready.' },
 			...retentionStore.activeLoopMessageRows()
-				.map(loopMessageFromRow)
+				.map(row => loopMessageFromRow(row, testResultContext))
 				.filter(({ message, origin }) => loopMessageContributesToProviderHistory(origin, message))
 				.map(({ message }) => message),
 		];

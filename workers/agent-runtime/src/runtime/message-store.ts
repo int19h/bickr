@@ -1,7 +1,8 @@
+import { renderToolResultView, type ResultRenderContext } from './tool-result-views';
+import { renderStoredLoopMessage, toolResultViewForMessage } from './result-messages';
 import { approximateTextTokens } from '@bickr/shared/text-token-estimate';
 import { loopMessageContributesToProviderHistory } from '../provider/sanitize';
 import type {
-	BotInferenceSubmissionMessage,
 	BotLoopMessage,
 	BotLoopMessageDisplay,
 	BotLoopMessageLog,
@@ -82,13 +83,14 @@ export class RuntimeMessageStore {
 	}
 
 	appendLoopMessage(
+		context: ResultRenderContext,
 		runId: string,
 		message: ChatMessage,
 		origin: LoopMessageGroupEntry['origin'],
 		status: BotLoopMessageStatus = 'complete',
 		options: { streamSeq?: number; displayEventSeq?: number } = {},
 	): BotLoopMessage {
-		const inserted = this.appendLoopMessageGroup([{
+		const inserted = this.appendLoopMessageGroup(context, [{
 			runId,
 			message,
 			origin,
@@ -104,12 +106,12 @@ export class RuntimeMessageStore {
 	// Each result atomically extends the original assistant response. Keeping its
 	// reasoning once preserves both thinking-mode requirements and opaque signatures;
 	// persisting only settled calls keeps interrupted histories protocol-complete.
-	appendProviderToolResult(assistant: LoopMessageGroupEntry, result: LoopMessageGroupEntry, assistantSeq: number | null, commit?: () => void): BotLoopMessage {
+	appendProviderToolResult(context: ResultRenderContext, assistant: LoopMessageGroupEntry, result: LoopMessageGroupEntry, assistantSeq: number | null, commit?: () => void): BotLoopMessage {
 		const call = assistant.message.tool_calls?.[0];
 		if (assistant.origin !== 'provider_response' || assistant.message.role !== 'assistant' || result.message.role !== 'tool' || assistant.runId !== result.runId || !call || assistant.message.tool_calls?.length !== 1 || result.message.tool_call_id !== call.id) {
 			throw new Error('A provider group extension requires one matching tool request and result.');
 		}
-		const written = this.writeLoopMessageGroup(assistantSeq === null ? [assistant, result] : [result], {
+		const written = this.writeLoopMessageGroup(context, assistantSeq === null ? [assistant, result] : [result], {
 			clearPendingRunId: assistant.runId,
 			commit,
 			...(assistantSeq === null ? {} : { extend: { seq: assistantSeq, call, runId: assistant.runId } }),
@@ -117,11 +119,11 @@ export class RuntimeMessageStore {
 		return written[0]!;
 	}
 
-	appendLoopMessageGroup(entries: LoopMessageGroupEntry[], commit?: () => void): BotLoopMessage[] {
-		return this.writeLoopMessageGroup(entries, { commit });
+	appendLoopMessageGroup(context: ResultRenderContext, entries: LoopMessageGroupEntry[], commit?: () => void): BotLoopMessage[] {
+		return this.writeLoopMessageGroup(context, entries, { commit });
 	}
 
-	private writeLoopMessageGroup(entries: LoopMessageGroupEntry[], options: {
+	private writeLoopMessageGroup(context: ResultRenderContext, entries: LoopMessageGroupEntry[], options: {
 		extend?: { seq: number; call: ToolCall; runId: string };
 		clearPendingRunId?: string;
 		commit?: () => void;
@@ -129,9 +131,9 @@ export class RuntimeMessageStore {
 		const inserted: BotLoopMessage[] = [];
 		let prunedDiagnosticCount = 0;
 		const appendEntries = (): void => {
-			if (options.extend) inserted.push(this.extendProviderResponseGroup(options.extend));
+			if (options.extend) inserted.push(this.extendProviderResponseGroup(context, options.extend));
 			for (const entry of entries) {
-				const loopMessage = this.insertLoopMessage({
+				const loopMessage = this.insertLoopMessage(context, {
 					runId: entry.runId,
 					message: entry.message,
 					origin: entry.origin,
@@ -164,12 +166,12 @@ export class RuntimeMessageStore {
 		return inserted;
 	}
 
-	private extendProviderResponseGroup(extension: { seq: number; call: ToolCall; runId: string }): BotLoopMessage {
+	private extendProviderResponseGroup(context: ResultRenderContext, extension: { seq: number; call: ToolCall; runId: string }): BotLoopMessage {
 		const row = this.loopMessageRow(extension.seq);
 		if (!row || row.run_id !== extension.runId || row.origin !== 'provider_response' || row.compacted_by !== null || row.deleted_at !== null) {
 			throw new Error('Cannot extend an inactive or unrelated provider response group.');
 		}
-		const message = loopMessageFromRow(row);
+		const message = loopMessageFromRow(row, context);
 		const calls = message.message.tool_calls ?? [];
 		if (message.role !== 'assistant' || calls.length === 0 || calls.some((call) => call.id === extension.call.id)) {
 			throw new Error('Cannot extend an invalid or already settled provider response group.');
@@ -180,7 +182,7 @@ export class RuntimeMessageStore {
 			`SELECT * FROM loop_messages WHERE deleted_at IS NULL AND compacted_by IS NULL
 			 AND (position > ? OR (position = ? AND seq > ?)) ORDER BY position, seq LIMIT ?`,
 			row.position, row.position, row.seq, calls.length + runtimeDiagnosticLoopMessageRetentionCount + 1,
-		).toArray().map(loopMessageFromRow).filter((item) => loopMessageContributesToProviderHistory(item.origin, item.message));
+		).toArray().map(row => loopMessageFromRow(row, context)).filter((item) => loopMessageContributesToProviderHistory(item.origin, item.message));
 		if (following.length !== calls.length || following.some((item, index) => item.role !== 'tool' || item.message.tool_call_id !== calls[index]?.id)) {
 			throw new Error('Provider response results must remain contiguous when extending their group.');
 		}
@@ -191,7 +193,7 @@ export class RuntimeMessageStore {
 		return { ...message, message: updated, tokenEstimate: estimateTextTokens(json) };
 	}
 
-	insertLoopMessage(input: {
+	insertLoopMessage(context: ResultRenderContext, input: {
 		runId: string;
 		message: ChatMessage;
 		origin: LoopMessageGroupEntry['origin'];
@@ -203,17 +205,21 @@ export class RuntimeMessageStore {
 		broadcast: boolean;
 	}): BotLoopMessage {
 		const now = input.createdAt ?? new Date().toISOString();
-		const messageJson = JSON.stringify(input.message);
-		const tokenEstimate = estimateTextTokens(messageJson);
+		const view = toolResultViewForMessage(input.message);
+		const viewJson = view ? JSON.stringify(view) : null;
+		const messageJson = JSON.stringify(view ? { role: 'tool', tool_call_id: input.message.tool_call_id } : input.message);
+		const tokenEstimate = view ? estimateTextTokens(renderToolResultView(view, context)) : estimateTextTokens(messageJson);
 		const position = input.position ?? this.nextLoopMessagePosition();
 		const displayEvent = this.loopMessageDisplayEventRow(input.displayEventSeq);
 		this.storage.sql.exec(
-			`INSERT INTO loop_messages (position, run_id, role, message_json, origin, status, token_estimate, stream_seq, display_event_seq, compacted_by, created_at)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
+			`INSERT INTO loop_messages (position, run_id, role, message_json, tool_result_view_json, tool_result_view_version, origin, status, token_estimate, stream_seq, display_event_seq, compacted_by, created_at)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
 			position,
 			input.runId,
 			input.message.role,
 			messageJson,
+			viewJson,
+			view?.schemaVersion ?? null,
 			input.origin,
 			input.status ?? null,
 			tokenEstimate,
@@ -228,6 +234,8 @@ export class RuntimeMessageStore {
 			run_id: input.runId,
 			role: input.message.role,
 			message_json: messageJson,
+			tool_result_view_json: viewJson,
+			tool_result_view_version: view?.schemaVersion ?? null,
 			origin: input.origin,
 			status: input.status ?? null,
 			token_estimate: tokenEstimate,
@@ -239,7 +247,7 @@ export class RuntimeMessageStore {
 			deleted_at: null,
 			created_at: now,
 			has_logs: 0,
-		});
+		}, context);
 		if (input.broadcast) {
 			this.broadcastLoopMessage(message);
 		}
@@ -249,7 +257,7 @@ export class RuntimeMessageStore {
 	activeLoopMessageRows(): LoopMessageRow[] {
 		return this.storage.sql
 			.exec<LoopMessageRow>(
-				`SELECT m.seq, m.position, m.run_id, m.role, m.message_json, m.origin, m.status,
+				`SELECT m.seq, m.position, m.run_id, m.role, m.message_json, m.tool_result_view_json, m.tool_result_view_version, m.origin, m.status,
 				        m.token_estimate, m.stream_seq, m.compacted_by, m.deleted_at, m.created_at,
 				        CASE WHEN EXISTS (SELECT 1 FROM loop_message_logs l WHERE l.message_seq = m.seq) THEN 1 ELSE 0 END AS has_logs
 				 FROM loop_messages m
@@ -332,11 +340,16 @@ export class RuntimeMessageStore {
 		}
 	}
 
-	loopMessagesAfter(afterSeq: number, initialLimit?: number): BotLoopMessage[] {
-		return this.loopMessageRowsForPage(null, Math.max(0, Math.floor(afterSeq)), initialLimit).map(loopMessageFromRow);
+	loopMessagesAfter(context: ResultRenderContext, afterSeq: number, initialLimit?: number): BotLoopMessage[] {
+		return this.loopMessageRowsForPage(null, Math.max(0, Math.floor(afterSeq)), initialLimit).map(row => loopMessageFromRow(row, context));
 	}
 
-	loopMessagesPage(input: { page: number; after?: number }): BotLoopMessagesResponse {
+	loopMessagesPage(context: ResultRenderContext, input: { page: number; after?: number }): BotLoopMessagesResponse {
+		const { rows, page } = this.loopMessagePageRows(input);
+		return { messages: rows.map(row => loopMessageFromRow(row, context)), page };
+	}
+
+	loopMessagePageRows(input: { page: number; after?: number }): { rows: LoopMessageRow[]; page: BotLoopMessagesResponse['page'] } {
 		const pageIndex = this.loopMessagePageIndex();
 		const requestedPage = Math.max(1, Math.floor(input.page));
 		const currentDescriptor = pageIndex.descriptors.find((descriptor) => descriptor.page === requestedPage) ??
@@ -346,7 +359,7 @@ export class RuntimeMessageStore {
 		const summaries = this.loopMessagePageSummaries(pageIndex);
 		const currentSummary = summaries.find((summary) => summary.page === currentDescriptor.page);
 		return {
-			messages: rows.map(loopMessageFromRow),
+			rows,
 			page: {
 				currentPage: currentDescriptor.page,
 				pageCount: pageIndex.descriptors.length,
@@ -402,7 +415,7 @@ export class RuntimeMessageStore {
 					.exec<LoopMessageRow>(
 						`SELECT *
 						 FROM (
-							SELECT m.seq, m.position, m.run_id, m.role, m.message_json, m.origin, m.status,
+							SELECT m.seq, m.position, m.run_id, m.role, m.message_json, m.tool_result_view_json, m.tool_result_view_version, m.origin, m.status,
 							       m.token_estimate, m.stream_seq, m.display_event_seq, display.type AS display_event_type,
 							       display.payload_json AS display_event_payload_json, m.compacted_by, m.deleted_at, m.created_at,
 							       CASE WHEN EXISTS (SELECT 1 FROM loop_message_logs l WHERE l.message_seq = m.seq) THEN 1 ELSE 0 END AS has_logs
@@ -420,7 +433,7 @@ export class RuntimeMessageStore {
 			}
 			return this.storage.sql
 				.exec<LoopMessageRow>(
-					`SELECT m.seq, m.position, m.run_id, m.role, m.message_json, m.origin, m.status,
+					`SELECT m.seq, m.position, m.run_id, m.role, m.message_json, m.tool_result_view_json, m.tool_result_view_version, m.origin, m.status,
 					        m.token_estimate, m.stream_seq, m.display_event_seq, display.type AS display_event_type,
 					        display.payload_json AS display_event_payload_json, m.compacted_by, m.deleted_at, m.created_at,
 					        CASE WHEN EXISTS (SELECT 1 FROM loop_message_logs l WHERE l.message_seq = m.seq) THEN 1 ELSE 0 END AS has_logs
@@ -435,7 +448,7 @@ export class RuntimeMessageStore {
 		}
 		return this.storage.sql
 			.exec<LoopMessageRow>(
-				`SELECT m.seq, m.position, m.run_id, m.role, m.message_json, m.origin, m.status,
+				`SELECT m.seq, m.position, m.run_id, m.role, m.message_json, m.tool_result_view_json, m.tool_result_view_version, m.origin, m.status,
 				        m.token_estimate, m.stream_seq, m.display_event_seq, display.type AS display_event_type,
 				        display.payload_json AS display_event_payload_json, m.compacted_by, m.deleted_at, m.created_at,
 				        CASE WHEN EXISTS (SELECT 1 FROM loop_message_logs l WHERE l.message_seq = m.seq) THEN 1 ELSE 0 END AS has_logs
@@ -474,7 +487,7 @@ export class RuntimeMessageStore {
 		return { messageSeq: row.message_seq, requestSeq, created_at: row.created_at };
 	}
 
-	loopMessageLogsForSeq(seq: number): BotLoopMessageLogsResponse {
+	loopMessageLogsForSeq(context: ResultRenderContext, seq: number): BotLoopMessageLogsResponse {
 		if (!Number.isInteger(seq) || seq <= 0) {
 			throw new RepositoryError('bad_request', 'Loop message sequence is invalid.', 400);
 		}
@@ -492,13 +505,13 @@ export class RuntimeMessageStore {
 			)
 			.toArray()
 			.map((log) => loopMessageLogFromRow(log, this.reconstructLoopMessageLogText(log.id)));
-		return { message: loopMessageFromRow(row), logs };
+		return { message: loopMessageFromRow(row, context), logs };
 	}
 
 	loopMessageRow(seq: number): LoopMessageRow | undefined {
 		return this.storage.sql
 			.exec<LoopMessageRow>(
-				`SELECT m.seq, m.position, m.run_id, m.role, m.message_json, m.origin, m.status,
+				`SELECT m.seq, m.position, m.run_id, m.role, m.message_json, m.tool_result_view_json, m.tool_result_view_version, m.origin, m.status,
 				        m.token_estimate, m.stream_seq, m.display_event_seq, display.type AS display_event_type,
 				        display.payload_json AS display_event_payload_json, m.compacted_by, m.deleted_at,
 				        m.ledger_pruned_at, m.created_at,
@@ -1141,14 +1154,14 @@ function isRuntimeDiagnosticLoopMessageOrigin(
 	return runtimeDiagnosticLoopMessageOrigins.some((diagnosticOrigin) => diagnosticOrigin === origin);
 }
 
-export function loopMessageFromRow(row: LoopMessageRow): BotLoopMessage {
+export function loopMessageFromRow(row: LoopMessageRow, context: ResultRenderContext): BotLoopMessage {
 	const display = loopMessageDisplayFromRow(row);
 	return {
 		seq: row.seq,
 		position: row.position,
 		runId: row.run_id,
 		role: row.role,
-		message: loopMessageChatMessageFromRow(row),
+		message: renderStoredLoopMessage(row, context),
 		...(display ? { display } : {}),
 		origin: row.origin,
 		tokenEstimate: row.token_estimate,
@@ -1219,10 +1232,6 @@ function loopMessageLogFromRow(row: LoopMessageLogRow, text: string): BotLoopMes
 		...(row.base_log_id ? { baseLogId: row.base_log_id } : {}),
 		...(row.prefix_length !== null ? { prefixLength: row.prefix_length } : {}),
 	};
-}
-
-function loopMessageChatMessageFromRow(row: LoopMessageRow): BotInferenceSubmissionMessage {
-	return JSON.parse(row.message_json) as BotInferenceSubmissionMessage;
 }
 
 function commonPrefixLength(left: string, right: string): number {

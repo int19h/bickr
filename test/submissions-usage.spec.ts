@@ -1,3 +1,4 @@
+import { testResultContext } from '../workers/agent-runtime/src/runtime/result-render-context.test-support';
 import type { RuntimeBotDocument } from "../workers/agent-runtime/src/types";
 import type { LocalizedProviderSettings } from "../workers/agent-runtime/src/provider-requests";
 import { botText as testBotText } from "../workers/agent-runtime/src/localization";
@@ -87,8 +88,8 @@ describe("Submissions and usage", () => {
 			latestLoopProviderUsage: () => null,
 		});
 		const tokenUsageStats = (BotRuntime.prototype as unknown as {
-			tokenUsageStats: (bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>, now?: Date) => BotTokenUsageStats;
-		}).tokenUsageStats.bind(runtime);
+			tokenUsageStats: (_context: typeof testResultContext, bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>, now?: Date) => BotTokenUsageStats;
+		}).tokenUsageStats.bind(runtime, testResultContext);
 
 		const usage = tokenUsageStats(fakeBotDocument({ contextWindowTokens: 16_000 }), new Date("2026-05-01T01:00:00.000Z"));
 
@@ -642,7 +643,7 @@ describe("Submissions and usage", () => {
 					new Error("Provider stream ended unexpectedly."),
 				);
 			},
-			ensureProviderPromptWithinBudget: async () => ({
+			ensureProviderPromptWithinBudget: async () => ({renderContext: testResultContext,
 				allowedPromptTokens: 13_500,
 				maxCompletionTokens: 5_000,
 				promptTokens: 100,
@@ -731,8 +732,8 @@ describe("Submissions and usage", () => {
 				firstLoopProviderUsageAfterSeq: vi.fn(() => baseline),
 			});
 			const tokenUsageStats = (BotRuntime.prototype as unknown as {
-				tokenUsageStats: (bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>, now?: Date) => BotTokenUsageStats;
-			}).tokenUsageStats.bind(runtime);
+				tokenUsageStats: (_context: typeof testResultContext, bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>, now?: Date) => BotTokenUsageStats;
+			}).tokenUsageStats.bind(runtime, testResultContext);
 
 			const usage = tokenUsageStats(bot);
 
@@ -761,8 +762,8 @@ describe("Submissions and usage", () => {
 				firstLoopProviderUsageAfterSeq: vi.fn(),
 			});
 			const tokenUsageStats = (BotRuntime.prototype as unknown as {
-				tokenUsageStats: (bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>, now?: Date) => BotTokenUsageStats;
-			}).tokenUsageStats.bind(runtime);
+				tokenUsageStats: (_context: typeof testResultContext, bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>, now?: Date) => BotTokenUsageStats;
+			}).tokenUsageStats.bind(runtime, testResultContext);
 
 			const usage = tokenUsageStats(fakeBotDocument({ contextWindowTokens: 16_000 }));
 
@@ -781,8 +782,8 @@ describe("Submissions and usage", () => {
 				firstLoopProviderUsageAfterSeq,
 			});
 			const tokenUsageStats = (BotRuntime.prototype as unknown as {
-				tokenUsageStats: (bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>, now?: Date) => BotTokenUsageStats;
-			}).tokenUsageStats.bind(runtime);
+				tokenUsageStats: (_context: typeof testResultContext, bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>, now?: Date) => BotTokenUsageStats;
+			}).tokenUsageStats.bind(runtime, testResultContext);
 
 			const usage = tokenUsageStats(fakeBotDocument({ contextWindowTokens: 16_000 }));
 
@@ -967,6 +968,8 @@ describe("Submissions and usage", () => {
 			let activeLoopMessages = baselineLoopMessages;
 			const events: BotRuntimeEvent[] = [];
 			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				env: { BICKR_D1: {} },
+				activeLoopMessageRows: () => [],
 				state: {
 					storage: {
 						sql,
@@ -984,8 +987,8 @@ describe("Submissions and usage", () => {
 			const settings = promptEstimateSettings();
 			const bot = fakeBotDocument({ contextWindowTokens: 80_000 });
 			const activeProviderRequestMessages = (BotRuntime.prototype as unknown as {
-				activeProviderRequestMessages: (bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>) => BotInferenceSubmissionMessage[];
-			}).activeProviderRequestMessages.bind(runtime);
+				activeProviderRequestMessages: (_context: typeof testResultContext, bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>) => BotInferenceSubmissionMessage[];
+			}).activeProviderRequestMessages.bind(runtime, testResultContext);
 			const recordInferenceSubmission = (BotRuntime.prototype as unknown as {
 				recordInferenceSubmission: (input: {
 					seq: number;

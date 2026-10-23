@@ -1,3 +1,4 @@
+import { testResultContext } from '../workers/agent-runtime/src/runtime/result-render-context.test-support';
 import { runInDurableObject } from 'cloudflare:test';
 import { describe, expect, it, vi, testEnv, fakeBotDocument } from './helpers/index-harness';
 import { providerCompactionSummaryLimitsForChat, estimateChatMessagesTokens, chatMessagesCharacterCount } from '../workers/agent-runtime/src/compaction/limits';
@@ -13,7 +14,7 @@ type InspectRuntime = {
 	recordInferenceSubmission(input: unknown): void;
 	recordProviderTokenCalibrationSample(input: unknown): void;
 	estimateProviderPromptTokens(settings: LocalizedProviderSettings, messages: ChatMessage[], tools: []): Estimate;
-	compactionCandidateEstimates(calibration: { tokensPerCharacter: number; sampleCount: number }): Array<{ tokens: number }>;
+	compactionCandidateEstimates(_context: typeof testResultContext, calibration: { tokensPerCharacter: number; sampleCount: number }): Array<{ tokens: number }>;
 	ensureProviderPromptWithinBudget(bot: RuntimeBotDocument, settings: LocalizedProviderSettings, runId: string, signal: AbortSignal, tools: []): Promise<unknown>;
 	throwIfStopped(runId: string, signal: AbortSignal): void;
 	renewProgressLease(...args: unknown[]): Promise<void>;
@@ -88,7 +89,7 @@ describe('token estimates in a constructed SQLite Durable Object', () => {
 			// Old rows remain stored, but their former byte-floor estimates cannot drive compaction.
 			state.storage.sql.exec(`INSERT INTO loop_messages (position, run_id, role, message_json, origin, token_estimate, created_at)
 				VALUES (1, 'old', 'assistant', ?, 'provider_response', 999999, ?)`, JSON.stringify(compacted[1]), createdAt);
-			expect(runtime.compactionCandidateEstimates({ tokensPerCharacter: 0.1, sampleCount: 1 })[0]?.tokens).toBeLessThan(110);
+			expect(runtime.compactionCandidateEstimates(testResultContext, { tokensPerCharacter: 0.1, sampleCount: 1 })[0]?.tokens).toBeLessThan(110);
 		});
 	});
 

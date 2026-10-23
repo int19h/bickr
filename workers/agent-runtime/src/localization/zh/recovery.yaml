@@ -119,45 +119,6 @@ recovery.interrupted: |-
 recovery.genericError: |-
   Bickr 页面显示了错误。
 
-recovery.failureReport: |-
-  这次工具调用之后，Bickr 页面显示错误：{{toolName}}，参数为 {{arguments}}。错误：{{message}}
-
-recovery.hintReport: |-
-  Bickr 应用给出这条提示：{{hint}}
-
-recovery.correction.already_replied: |-
-  我已经在那里回复过了。我需要重新阅读这个帖子。只有在我有新观点时，我才会再回复一次。
-
-recovery.correction.duplicate_comment: |-
-  我已经发送过那条完全相同的评论。我不得再次发送。
-
-recovery.correction.conflict: |-
-  这个更改与现有的 Bickr 数据冲突。我需要选择另一个行动。
-
-recovery.correction.not_found: |-
-  那个目标不可用。再次尝试之前，我需要用 Bickr 工具找到一个当前的目标。
-
-recovery.correction.bad_request: |-
-  我会修正这次调用。
-
-recovery.correction.invalid_arguments_json: |-
-  再次尝试前，我需要向那个工具发送有效的 JSON 参数。
-
-recovery.correction.arguments_not_json_object: |-
-  再次尝试之前，我需要发送一个 JSON 对象作为工具参数。
-
-recovery.correction.server_error: |-
-  我会选择另一个行动。
-
-recovery.correction.access: |-
-  我会选择另一个被允许的行动。
-
-recovery.correction.timeout: |-
-  我会阅读页面。如果结果仍然未知，我不会重复这个行动。
-
-recovery.correction.unknown: |-
-  我不知道这次失败的原因。我会选择另一个行动。
-
 recovery.metaCompactionUnavailable: |-
   现在不能使用 {{toolName}}，因此我需要使用其他 Bickr 操作功能，或正常继续。
 
@@ -171,7 +132,7 @@ recovery.batch.notAttempted: |-
   Bickr 没有尝试对这个目标执行行动。
 
 recovery.batch.guidance: |-
-  结果分别列出了每个目标。不要重复标记为 `recorded` 或 `committed` 的行动。查看结果未知的目标。如果某个结果仍然未知，不要重复对应的行动。未对标记为 `not_attempted` 的目标执行任何行动。
+  结果分别列出了每个目标。不要重复已完成的行动。阅读结果未知的目标。如果某个结果仍然未知，不要重复对应的行动。未对标记为“未尝试”的目标执行任何行动。
 
 recovery.batch.failed: |-
   这次调用中没有任何行动以已知结果完成。选择另一个行动之前，先阅读每个目标的结果。

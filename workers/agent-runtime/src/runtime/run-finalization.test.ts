@@ -1,3 +1,4 @@
+import { testResultContext } from './result-render-context.test-support';
 import { botText } from '../localization';
 const text = botText('en');
 import { SelfCorrectingToolCallError } from '../errors';
@@ -19,6 +20,7 @@ async function harness() {
 	const statement = { bind: () => statement, run: release };
 	const runtime = Object.assign(Object.create(BotRuntime.prototype), {
 		state: { storage, getWebSockets: () => [], abort: vi.fn() },
+		resultRenderContextForRows: async () => testResultContext,
 		env: { BICKR_D1: { prepare: () => statement } },
 		liveness: new RunLiveness(storage), activeRunId: 'run', activeAbortController: controller,
 		runtimeStorageClearedAt: null,
@@ -84,6 +86,7 @@ describe('run finalization fault injection', () => {
 		vi.useFakeTimers();
 		const h = await harness();
 		const successor = vi.fn(async () => {});
+		h.runtime.setPendingTool(text, 'run', { id: 'pending', type: 'function', function: { name: 'read_note', arguments: '{}' } }, {}, { role: 'assistant' }, null);
 		void h.runtime.runtimeTransitionQueue().run(() => new Promise(() => {}));
 		void h.runtime.runtimeTransitionQueue().run(successor);
 		await vi.advanceTimersByTimeAsync(transitionTimeoutMs);
@@ -91,6 +94,15 @@ describe('run finalization fault injection', () => {
 		expect(h.runtime.state.abort).toHaveBeenCalledTimes(1);
 		expect(successor).not.toHaveBeenCalled();
 		expect(h.storage.setAlarm).toHaveBeenCalled();
+		expect(h.storage.sql.exec("SELECT seq FROM events WHERE type = 'tick_failed'").toArray()).toHaveLength(0);
+		const current = { ...testResultContext, text: botText('fr') };
+		h.runtime.resultRenderContextForRows = vi.fn(async () => current);
+		await h.runtime.alarm();
+		expect(h.runtime.resultRenderContextForRows).toHaveBeenCalledOnce();
+		expect(h.storage.sql.exec("SELECT seq FROM events WHERE type = 'tick_failed'").toArray()).toHaveLength(1);
+		expect(h.runtime.activeLoopMessagesForProvider(current).at(-1)?.content).toContain(botText('fr').format('recovery.notDispatched'));
+		await h.runtime.alarm();
+		expect(h.storage.sql.exec("SELECT seq FROM events WHERE type = 'tick_failed'").toArray()).toHaveLength(1);
 		h.storage.database.close();
 	});
 });
@@ -129,7 +141,7 @@ it.each([
 		prematureLogOffCorrectedSinceLastLogOff: () => false,
 		loopGeneratedTokenCountSinceLastLogOff: () => 0,
 		appendProviderMessages: async () => {}, recordInferenceSubmission: () => {},
-		ensureProviderPromptWithinBudget: async () => ({ allowedPromptTokens: 13_500, providerTools: toolDefinitionsForProviderRound(text), promptTokens: 100, requestMessages: [] }),
+		ensureProviderPromptWithinBudget: async () => ({renderContext: testResultContext,  allowedPromptTokens: 13_500, providerTools: toolDefinitionsForProviderRound(text), promptTokens: 100, requestMessages: [] }),
 		callProvider: async () => {
 			if (responses++ > 0) throw new Error('later provider failure');
 			return { content: '', reasoning: '', reasoningDetails: [], toolCalls: [{ id: 'refused-call', type: 'function', function: { name: 'reply_to_comment', arguments: JSON.stringify({ commentId: 'cmt_parent', body: { lang: 'en', text: 'hello' } }) } }] };
@@ -152,7 +164,7 @@ it('retains required pause before release through timeout and retires a supersed
   requests.push(request);
   return requests.length === 1 ? new Promise<Response>((resolve) => { complete = resolve; }) : Promise.resolve(new Response(null, { status: 412 }));
  } }) };
- const finalizing = h.runtime.finalizeRun('run', 'tick_failed', { message: 'Compaction failed', pauseRequested: true }, undefined, [], { ownerUserId: 'owner', revision: 1 });
+	const finalizing = h.runtime.finalizeRun(testResultContext, 'run', 'tick_failed', { message: 'Compaction failed', pauseRequested: true }, undefined, [], { ownerUserId: 'owner', revision: 1 });
  await vi.advanceTimersByTimeAsync(1);
  expect(h.release).not.toHaveBeenCalled();
  expect(h.runtime.liveness.read()).toMatchObject({ kind: 'finalizing', pause: { revision: 1 } });
@@ -185,7 +197,7 @@ it('does not recreate erased history when a detached execution resumes after Sto
 	h.runtime.renewProgressLease = async () => {
 		await new Promise<void>((resolve) => { resume = resolve; });
 		try {
-			h.runtime.appendLoopMessage('run', { role: 'assistant', content: 'stale' }, 'provider_response');
+			h.runtime.appendLoopMessage(testResultContext, 'run', { role: 'assistant', content: 'stale' }, 'provider_response');
 			h.runtime.appendEvent('run', 'assistant_message', { content: 'stale' });
 		} catch (error) {
 			lateError = error;
@@ -193,7 +205,7 @@ it('does not recreate erased history when a detached execution resumes after Sto
 		} finally { finished(); }
 	};
 	const run = h.run();
-	await Promise.resolve();
+	await vi.waitFor(() => expect(resume).toBeTypeOf('function'));
 	await h.runtime.stopTick('bot');
 	expect(await run).toMatchObject({ status: 'stopped' });
 	await h.runtime.clearHistory('bot');
@@ -211,8 +223,8 @@ it('constructs a dormant runtime and migrates tool pairs belonging to terminal h
 	h.runtime.liveness.clear('run');
 	h.runtime.appendEvent('historical', 'tick_completed', {});
 	const calls = ['first', 'second'].map((id) => ({ id, type: 'function', function: { name: 'read_feed', arguments: '{}' } }));
-	h.runtime.appendLoopMessage('historical', { role: 'assistant', tool_calls: calls }, 'provider_response');
-	for (const call of calls) h.runtime.appendLoopMessage('historical', { role: 'tool', tool_call_id: call.id, content: '{}' }, 'tool_result');
+	h.runtime.appendLoopMessage(testResultContext, 'historical', { role: 'assistant', tool_calls: calls }, 'provider_response');
+	for (const call of calls) h.runtime.appendLoopMessage(testResultContext, 'historical', { role: 'tool', tool_call_id: call.id, content: '{}' }, 'tool_result');
 	let initialized!: Promise<void>;
 	h.runtime.state.blockConcurrencyWhile = (initialize: () => Promise<void>) => { initialized = initialize(); return initialized; };
 	new BotRuntime(h.runtime.state, h.runtime.env);

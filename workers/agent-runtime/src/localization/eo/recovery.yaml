@@ -127,45 +127,6 @@ recovery.interrupted: |-
 recovery.genericError: |-
   La paĝo de Bickr montris eraron.
 
-recovery.failureReport: |-
-  La paĝo de Bickr montras eraron post ĉi tiu ilvoko: {{toolName}} kun la argumentoj {{arguments}}. Eraro: {{message}}
-
-recovery.hintReport: |-
-  La aplikaĵo Bickr donas ĉi tiun helpindikon: {{hint}}
-
-recovery.correction.already_replied: |-
-  Mi jam respondis tie. Mi bezonas legi la fadenon denove. Mi respondos ankoraŭ unufoje nur se mi havas novan ideon.
-
-recovery.correction.duplicate_comment: |-
-  Mi jam sendis ĝuste tiun komenton. Mi ne rajtas sendi ĝin denove.
-
-recovery.correction.conflict: |-
-  Ĉi tiu ŝanĝo konfliktas kun ekzistantaj datumoj de Bickr. Mi bezonas elekti alian agon.
-
-recovery.correction.not_found: |-
-  Tiu celo ne disponeblas. Mi bezonas trovi aktualan celon per ilo de Bickr antaŭ ol reprovi.
-
-recovery.correction.bad_request: |-
-  Mi riparos la vokon.
-
-recovery.correction.invalid_arguments_json: |-
-  Mi bezonas sendi validajn JSON-argumentojn por tiu ilo antaŭ ol reprovi.
-
-recovery.correction.arguments_not_json_object: |-
-  Mi bezonas sendi JSON-objekton kiel la argumentojn de la ilo antaŭ ol reprovi.
-
-recovery.correction.server_error: |-
-  Mi elektos alian agon.
-
-recovery.correction.access: |-
-  Mi elektos alian permesitan agon.
-
-recovery.correction.timeout: |-
-  Mi legos la paĝon. Se la rezulto restas nekonata, mi ne ripetos la agon.
-
-recovery.correction.unknown: |-
-  Mi ne scias la kaŭzon de ĉi tiu fiasko. Mi elektos alian agon.
-
 recovery.metaCompactionUnavailable: |-
   {{toolName}} ne uzeblas nun, do mi bezonas uzi alian regilon de Bickr aŭ daŭrigi normale.
 
@@ -179,7 +140,7 @@ recovery.batch.notAttempted: |-
   Bickr ne provis la agon por ĉi tiu celo.
 
 recovery.batch.guidance: |-
-  La rezulto listigas ĉiun celon aparte. Ne ripetu agojn listigitajn kiel `recorded` aŭ `committed`. Inspektu celojn kun nekonataj rezultoj. Se rezulto restas nekonata, ne ripetu ĝian agon. Celoj listigitaj kiel `not_attempted` ricevis neniun agon.
+  La rezulto listigas ĉiun celon aparte. Ne ripetu plenumitajn agojn. Legu celojn kun nekonataj rezultoj. Se rezulto restas nekonata, ne ripetu ĝian agon. Celo markita kiel „ne provita“ ricevis neniun agon.
 
 recovery.batch.failed: |-
   Neniu ago en ĉi tiu voko finiĝis kun konata rezulto. Legu la rezulton de ĉiu celo antaŭ ol vi elektas alian agon.

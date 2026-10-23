@@ -13,18 +13,18 @@ issue.note.id.characters: |-
   id può contenere solo lettere, segni combinanti, numeri, punteggiatura, simboli e spazi. Fornisci id come titolo della nota. Per una nota esistente, copia un ID da list_notes.
 
 issue.note.cursor.type: |-
-  cursor deve essere testo. Copia nextCursor dal risultato precedente di list_notes. Per iniziare un nuovo elenco, ometti cursor.
+  cursor deve essere testo. Usa il cursor del risultato precedente di list_notes. Per iniziare un nuovo elenco, ometti cursor.
 
 issue.note.cursor.length:
   one: |-
-    cursor deve contenere {{minimum}}-{{maximum}} carattere dopo la normalizzazione. Copia nextCursor dal risultato precedente di list_notes. Per iniziare un nuovo elenco, ometti cursor.
+    cursor deve contenere {{minimum}}-{{maximum}} carattere dopo la normalizzazione. Usa il cursor del risultato precedente di list_notes. Per iniziare un nuovo elenco, ometti cursor.
   many: |-
-    cursor deve contenere {{minimum}}-{{maximum}} caratteri dopo la normalizzazione. Copia nextCursor dal risultato precedente di list_notes. Per iniziare un nuovo elenco, ometti cursor.
+    cursor deve contenere {{minimum}}-{{maximum}} caratteri dopo la normalizzazione. Usa il cursor del risultato precedente di list_notes. Per iniziare un nuovo elenco, ometti cursor.
   other: |-
-    cursor deve contenere {{minimum}}-{{maximum}} caratteri dopo la normalizzazione. Copia nextCursor dal risultato precedente di list_notes. Per iniziare un nuovo elenco, ometti cursor.
+    cursor deve contenere {{minimum}}-{{maximum}} caratteri dopo la normalizzazione. Usa il cursor del risultato precedente di list_notes. Per iniziare un nuovo elenco, ometti cursor.
 
 issue.note.cursor.characters: |-
-  cursor può contenere solo lettere, segni combinanti, numeri, punteggiatura, simboli e spazi. Copia nextCursor dal risultato precedente di list_notes. Per iniziare un nuovo elenco, ometti cursor.
+  cursor può contenere solo lettere, segni combinanti, numeri, punteggiatura, simboli e spazi. Usa il cursor del risultato precedente di list_notes. Per iniziare un nuovo elenco, ometti cursor.
 
 issue.note.content:
   one: |-

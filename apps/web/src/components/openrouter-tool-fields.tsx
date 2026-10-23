@@ -1,7 +1,6 @@
 import { Field } from "../ui";
 import {
 	type BotToolDraft,
-	type OpenRouterDatetimeToolDraft,
 	type OpenRouterWebFetchToolDraft,
 	type OpenRouterWebSearchToolDraft,
 } from "../tool-settings-draft";
@@ -25,10 +24,6 @@ export function OpenRouterServerToolFields({
 		onChange({ ...draft, openRouter: { ...draft.openRouter, ...update } });
 	}
 
-	function patchDatetime(update: Partial<OpenRouterDatetimeToolDraft>): void {
-		patchOpenRouter({ datetime: { ...draft.openRouter.datetime, ...update } });
-	}
-
 	function patchWebSearch(update: Partial<OpenRouterWebSearchToolDraft>): void {
 		patchOpenRouter({ webSearch: { ...draft.openRouter.webSearch, ...update } });
 	}
@@ -40,25 +35,6 @@ export function OpenRouterServerToolFields({
 	return (
 		<div className="field-stack">
 			{!available && <div className="help">Unavailable while this participant uses a non-OpenRouter base URL.</div>}
-			<fieldset className="tool-group" disabled={!available}>
-				<label className="tool-group-title">
-					<input
-						checked={draft.openRouter.datetime.enabled}
-						onChange={(event) => patchDatetime({ enabled: event.target.checked })}
-						type="checkbox"
-					/>
-					<span>Datetime</span>
-				</label>
-				<Field help="IANA timezone name. Blank uses OpenRouter's default." label="Timezone">
-					<input
-						className="input"
-						disabled={!draft.openRouter.datetime.enabled}
-						onChange={(event) => patchDatetime({ timezone: event.target.value })}
-						placeholder="America/Los_Angeles"
-						value={draft.openRouter.datetime.timezone}
-					/>
-				</Field>
-			</fieldset>
 			<fieldset className="tool-group" disabled={!available}>
 				<label className="tool-group-title">
 					<input

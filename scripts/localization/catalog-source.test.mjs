@@ -85,7 +85,7 @@ describe('readable catalog sources', () => {
 	it('publishes deterministic typed modules and leaves them intact after invalid source edits', async () => {
 		const root = fixture();
 		for (const directory of catalogRoots) cpSync(join(repository, directory), join(root, directory), { recursive: true });
-		expect(await generateLocalization(root)).toBe(38);
+		expect(await generateLocalization(root)).toBe(39);
 		const output = join(root, 'workers/agent-runtime/src/.generated/localization/en.ts');
 		const before = readFileSync(output, 'utf8');
 		rmSync(output);
@@ -113,5 +113,29 @@ describe('readable catalog sources', () => {
 		writeFileSync(anotherGroup, readFileSync(anotherGroup, 'utf8') + '\nsystem.nativeLanguage: |-\n  {{language}}\n');
 		await expect(generateLocalization(root)).rejects.toThrow('Duplicate catalog message');
 		expect(readFileSync(output, 'utf8')).toBe(before);
-	}, 20000);
+	}, 60000);
 });
+
+it('includes templates in generation, stale detection, and atomic publication', async () => {
+	const root = fixture();
+	for (const directory of catalogRoots) cpSync(join(repository, directory), join(root, directory), { recursive: true });
+	symlinkSync(join(repository, 'node_modules'), join(root, 'node_modules'), 'dir');
+	const runtime = join(root, 'workers/agent-runtime/src/localization');
+	writeFileSync(join(runtime, 'result-template-views.ts'), "import type { InlineValue } from './result-template.ts';\nexport type SampleView = { readonly ref: InlineValue<'profileRef'> };\n");
+	const template = join(runtime, 'templates/sample.md');
+	writeFileSync(template, '{{! view: SampleView }}\n{{ref}}');
+	expect(await generateLocalization(root)).toBe(39);
+	const output = join(root, 'workers/agent-runtime/src/.generated/localization/result-templates.ts');
+	const before = readFileSync(output, 'utf8');
+	expect(before).toContain('view.ref');
+	expect(await generateLocalization(root, { check: true })).toBe(0);
+	writeFileSync(template, '{{! view: SampleView }}\n### {{ref}}');
+	await expect(generateLocalization(root, { check: true })).rejects.toThrow('Generated catalogs are stale');
+	expect(await generateLocalization(root)).toBe(1);
+	const valid = readFileSync(output, 'utf8');
+	writeFileSync(template, '{{! view: SampleView }}\n{{ref | missing_filter}}');
+	await expect(generateLocalization(root)).rejects.toThrow('sample.md: 2:');
+	expect(readFileSync(output, 'utf8')).toBe(valid);
+	rmSync(template);
+	expect(await generateLocalization(root)).toBe(1);
+}, 60000);

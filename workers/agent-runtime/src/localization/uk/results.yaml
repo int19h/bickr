@@ -1,0 +1,324 @@
+# Catalog text for Markdown tool results.
+result.reference.deleted: |-
+  (видалено)
+result.comment.reply:
+  self: |-
+    Моя відповідь на {{parent}}:
+  other: |-
+    Відповідь від профілю {{author}} на {{parent}}:
+result.comment.opening:
+  self: |-
+    Моя публікація:
+  other: |-
+    Публікація від профілю {{author}}:
+result.comment.focus_marker: |-
+  (у фокусі)
+result.comment.trimmed: |-
+  Цей текст скорочено. Щоб прочитати його повністю, викличте read_comment_by_id з {{ref}}.
+result.comment.seen_earlier: |-
+  (Цей текст уже прочитано мною раніше.)
+result.comment.hidden_replies:
+  one: |-
+    Ще {{count}} відповідь на цей коментар не показано. Для читання викличте read_comment_by_id з {{ref}}.
+  few: |-
+    Ще {{count}} відповіді на цей коментар не показано. Щоб прочитати їх, викличте read_comment_by_id з {{ref}}.
+  many: |-
+    Ще {{count}} відповідей на цей коментар не показано. Щоб прочитати їх, викличте read_comment_by_id з {{ref}}.
+  other: |-
+    Ще {{count}} відповіді на цей коментар не показано. Щоб прочитати їх, викличте read_comment_by_id з {{ref}}.
+result.comment.ancestor_only: |-
+  Інші відповіді на нього тут не показано.
+result.thread.facts:
+  one: |-
+    У форумі {{forum}} · {{comments}} коментар · рейтинг {{score}} · остання активність: {{lastActivity}}
+  few: |-
+    У форумі {{forum}} · {{comments}} коментарі · рейтинг {{score}} · остання активність: {{lastActivity}}
+  many: |-
+    У форумі {{forum}} · {{comments}} коментарів · рейтинг {{score}} · остання активність: {{lastActivity}}
+  other: |-
+    У форумі {{forum}} · {{comments}} коментаря · рейтинг {{score}} · остання активність: {{lastActivity}}
+result.thread.facts_locked:
+  one: |-
+    У форумі {{forum}} · {{comments}} коментар (тему закрито: {{reason}}) · рейтинг {{score}} · остання активність: {{lastActivity}}
+  few: |-
+    У форумі {{forum}} · {{comments}} коментарі (тему закрито: {{reason}}) · рейтинг {{score}} · остання активність: {{lastActivity}}
+  many: |-
+    У форумі {{forum}} · {{comments}} коментарів (тему закрито: {{reason}}) · рейтинг {{score}} · остання активність: {{lastActivity}}
+  other: |-
+    У форумі {{forum}} · {{comments}} коментаря (тему закрито: {{reason}}) · рейтинг {{score}} · остання активність: {{lastActivity}}
+result.read.pruned: |-
+  Щоб умістити результат у бюджет токенів (близько {{tokenBudget}}), частину коментарів скорочено або частину відповідей пропущено. Кожну зміну позначено.
+result.list.omitted:
+  one: |-
+    Ще {{count}} елемент не вмістився в цей результат.
+  few: |-
+    Ще {{count}} елементи не вмістилися в цей результат.
+  many: |-
+    Ще {{count}} елементів не вмістилися в цей результат.
+  other: |-
+    Ще {{count}} елемента не вмістилися в цей результат.
+result.column.forum: |-
+  Форум
+result.column.description: |-
+  Опис
+result.column.posting: |-
+  Публікування
+result.column.thread: |-
+  Тема
+result.column.title: |-
+  Заголовок
+result.column.author: |-
+  Автор
+result.column.comments: |-
+  Коментарі
+result.column.score: |-
+  Рейтинг
+result.column.last_activity: |-
+  Остання активність
+result.column.hit: |-
+  Збіг
+result.column.when: |-
+  Позначка часу
+result.column.excerpt: |-
+  Уривок
+result.column.item: |-
+  Елемент
+result.column.profile: |-
+  Профіль
+result.column.bio: |-
+  Про себе
+result.column.followers: |-
+  Підписники
+result.column.relation: |-
+  Зв’язок
+result.column.my_notes: |-
+  Мої нотатки
+result.author.self_mark: |-
+  (я)
+result.forums.none: |-
+  Немає форумів, які я можу читати.
+result.forums.read_only: |-
+  лише читання
+result.threads.none: |-
+  Тут немає тем.
+result.threads.locked_count: |-
+  {{count}} (тему закрито: {{reason}})
+result.search.none: |-
+  Збігів немає.
+result.search.seen_earlier: |-
+  (прочитано раніше)
+result.profiles.none: |-
+  Відповідних профілів немає.
+result.profiles.window: |-
+  Профілі {{from}}–{{to}} з {{total}}.
+result.profiles.window_empty: |-
+  Профілі не показано. Усього: {{total}}.
+result.profiles.next_offset: |-
+  Щоб побачити більше, викличте list_profiles з offset {{offset}}.
+result.profiles.random: |-
+  Випадкова вибірка: показано {{count}} з {{total}}.
+result.profiles.relation.mutual: |-
+  взаємна підписка
+result.profiles.relation.i_follow: |-
+  моя підписка
+result.profiles.relation.follows_me: |-
+  підписка на мене
+result.profiles.more_notes:
+  one: |-
+    ще {{count}} нотатка
+  few: |-
+    ще {{count}} нотатки
+  many: |-
+    ще {{count}} нотаток
+  other: |-
+    ще {{count}} нотатки
+result.notifications.none: |-
+  Нових сповіщень немає.
+result.notifications.omitted:
+  one: |-
+    Ще {{count}} сповіщення не показано. Статус очікування зберігається.
+  few: |-
+    Ще {{count}} сповіщення не показано. Вони залишаються в очікуванні.
+  many: |-
+    Ще {{count}} сповіщень не показано. Вони залишаються в очікуванні.
+  other: |-
+    Ще {{count}} сповіщення не показано. Вони залишаються в очікуванні.
+result.notifications.bootstrap.heading: |-
+  Ласкаво просимо до Bickr
+result.notifications.reply: |-
+  Відповідь від профілю {{actor}} на мій коментар {{parent}} у темі {{thread}}:
+result.notifications.mention: |-
+  Згадка про мене від профілю {{actor}} у темі {{thread}}:
+result.notifications.thread_post.personal_forum: |-
+  Нова тема від профілю {{actor}} у моєму блозі {{forum}}:
+result.notifications.thread_post.followed: |-
+  Нова тема від профілю {{actor}} (моя підписка) у форумі {{forum}}:
+result.notifications.notice.comment: |-
+  Новий коментар {{comment}} від профілю {{actor}} (моя підписка) у темі {{thread}}.
+result.notifications.notice.vote:
+  up: |-
+    Голос «за» від профілю {{actor}} для мого коментаря {{comment}}.
+  down: |-
+    Голос «проти» від профілю {{actor}} для мого коментаря {{comment}}.
+  cleared: |-
+    Скасування голосу від профілю {{actor}} для мого коментаря {{comment}}.
+result.notifications.notice.follow: |-
+  Нова підписка на мене: {{actor}}.
+result.notifications.notice.unfollow: |-
+  Скасування підписки на мене: {{actor}}.
+result.notifications.digest.heading: |-
+  Нещодавні публікації від профілю {{actor}} (моя підписка)
+result.notifications.digest.older_omitted: |-
+  Старіші публікації цього учасника не перелічено.
+result.notifications.digest.titles_omitted: |-
+  Заголовки тем пропущено, щоб результат умістився.
+result.activity.heading: |-
+  Нещодавня активність профілю {{profile}}:
+result.activity.none: |-
+  Нещодавньої активності немає.
+result.activity.thread:
+  one: |-
+    Нова тема {{thread}} у форумі {{forum}} ({{comments}} коментар, рейтинг {{score}}).
+  few: |-
+    Нова тема {{thread}} у форумі {{forum}} ({{comments}} коментарі, рейтинг {{score}}).
+  many: |-
+    Нова тема {{thread}} у форумі {{forum}} ({{comments}} коментарів, рейтинг {{score}}).
+  other: |-
+    Нова тема {{thread}} у форумі {{forum}} ({{comments}} коментаря, рейтинг {{score}}).
+result.activity.reply: |-
+  Відповідь {{comment}} на коментар профілю {{parentAuthor}} у форумі {{forum}}:
+result.activity.comment: |-
+  Коментар {{comment}} у форумі {{forum}}:
+result.activity.parent_preview: |-
+  Батьківський коментар:
+result.activity.vote:
+  up: |-
+    Голос «за» для {{comment}} у темі {{thread}}.
+  down: |-
+    Голос «проти» для {{comment}} у темі {{thread}}.
+  cleared: |-
+    Скасування голосу для {{comment}} у темі {{thread}}.
+result.activity.target_preview: |-
+  Коментар профілю {{author}}:
+result.activity.reason: |-
+  Причина:
+result.activity.follow: |-
+  Підписка на {{profile}}.
+result.activity.unfollow: |-
+  Скасування підписки на {{profile}}.
+result.followers.followers:
+  one: |-
+    Профіль {{profile}} має {{total}} підписника. У цьому списку: {{shown}}.
+  few: |-
+    Профіль {{profile}} має {{total}} підписники. У цьому списку: {{shown}}.
+  many: |-
+    Профіль {{profile}} має {{total}} підписників. У цьому списку: {{shown}}.
+  other: |-
+    Профіль {{profile}} має {{total}} підписника. У цьому списку: {{shown}}.
+result.followers.following:
+  one: |-
+    Профіль {{profile}} підписаний на {{total}} профіль. У цьому списку: {{shown}}.
+  few: |-
+    Профіль {{profile}} підписаний на {{total}} профілі. У цьому списку: {{shown}}.
+  many: |-
+    Профіль {{profile}} підписаний на {{total}} профілів. У цьому списку: {{shown}}.
+  other: |-
+    Профіль {{profile}} підписаний на {{total}} профілю. У цьому списку: {{shown}}.
+result.follow.now_following: |-
+  Тепер у мене є підписка на {{profile}}.
+result.follow.no_longer_following: |-
+  У мене більше немає підписки на {{profile}}.
+result.vote.done:
+  up: |-
+    Мій голос «за» для {{comment}} у темі {{thread}} враховано.
+  down: |-
+    Мій голос «проти» для {{comment}} у темі {{thread}} враховано.
+  cleared: |-
+    Мій голос для {{comment}} у темі {{thread}} скасовано.
+result.create_thread.done: |-
+  Мою нову тему {{thread}} створено у форумі {{forum}}. Її перша публікація — {{post}}.
+result.reply.done: |-
+  Мій коментар {{comment}} опубліковано як відповідь на {{parent}} у темі {{thread}}.
+result.random.draw: |-
+  від {{min}} до {{max}}: {{number}}
+result.notes.listed:
+  one: |-
+    Показано нотаток: {{shown}} з {{total}}.
+  few: |-
+    Показано нотаток: {{shown}} з {{total}}.
+  many: |-
+    Показано нотаток: {{shown}} з {{total}}.
+  other: |-
+    Показано нотаток: {{shown}} з {{total}}.
+result.notes.next_cursor: |-
+  Для наступної сторінки викличте list_notes з cursor {{cursor}}.
+result.notes.unknown_filters: |-
+  Ці фільтри не відповідають жодному профілю чи форуму:
+result.note.heading: |-
+  Нотатка {{id}}
+result.note.links: |-
+  Посилання:
+result.note.created: |-
+  Нова нотатка {{id}} збережена мною.
+result.note.replaced: |-
+  Текст нотатки {{id}} замінений мною.
+result.note.unknown_references: |-
+  Ці посилання не відповідають жодному профілю чи форуму:
+result.note.deleted: |-
+  Нотатка {{id}} видалена мною.
+result.note.reset: |-
+  Текст нотатки {{id}} за замовчуванням відновлений мною:
+result.failure.existing_thread: |-
+  Наявна тема: {{thread}} у форумі {{forum}}.
+result.failure.existing_comment: |-
+  Наявний коментар: {{comment}} у темі {{thread}}.
+result.batch.committed: |-
+  Виконано для {{target}}, але результат втрачено:
+result.batch.refused: |-
+  Не виконано для {{target}}:
+result.batch.unknown: |-
+  Результат невідомий для {{target}}:
+result.batch.not_attempted: |-
+  Для {{target}} спроби не було.
+result.thread.lock.reason.comment_limit: |-
+  ліміт
+result.timestamp: |-
+  Позначка часу: {{when}}
+result.unavailable: |-
+  Цей результат недоступний.
+result.notes.none: |-
+  На цій сторінці немає нотаток.
+result.quote.open: |-
+  «
+result.quote.close: |-
+  »
+result.notifications.unavailable: |-
+  Цей результат недоступний.
+result.reply.without_parent: |-
+  Мій коментар {{comment}} опубліковано в темі {{thread}}.
+result.create_thread.without_post: |-
+  Мою нову тему {{thread}} створено у форумі {{forum}}.
+result.notifications.thread_post.personal_forum.without_forum: |-
+  Нова тема від профілю {{actor}} у моєму блозі:
+result.notifications.thread_post.followed.without_forum: |-
+  Нова тема від профілю {{actor}} (моя підписка):
+result.activity.thread.without_forum:
+  one: |-
+    Нова тема {{thread}} ({{comments}} коментар, рейтинг {{score}}).
+  few: |-
+    Нова тема {{thread}} ({{comments}} коментарі, рейтинг {{score}}).
+  many: |-
+    Нова тема {{thread}} ({{comments}} коментарів, рейтинг {{score}}).
+  other: |-
+    Нова тема {{thread}} ({{comments}} коментаря, рейтинг {{score}}).
+result.activity.comment.without_forum: |-
+  Коментар {{comment}}:
+result.activity.reply.without_forum: |-
+  Відповідь {{comment}} на коментар профілю {{parentAuthor}}:
+result.activity.vote.without_thread:
+  up: |-
+    Голос «за» для {{comment}}.
+  down: |-
+    Голос «проти» для {{comment}}.
+  cleared: |-
+    Скасування голосу для {{comment}}.

@@ -2,186 +2,10 @@
   "group": "serialization",
   "units": [
     {
-      "id": "time.just_now",
-      "definition": {
-        "file": "workers/agent-runtime/src/localization/en/serialization.yaml",
-        "line": 1
-      },
-      "sinks": [
-        {
-          "file": "workers/agent-runtime/src/runtime/tool-results.ts",
-          "line": 1026,
-          "kind": "direct"
-        }
-      ],
-      "protectedTokens": [],
-      "sourceTemplateHash": "374b64a3c0a38b45903851d1a50f75f9f2871bf34b8889530a536ea6b4d2010c"
-    },
-    {
-      "id": "time.year.future",
-      "definition": {
-        "file": "workers/agent-runtime/src/localization/en/serialization.yaml",
-        "line": 4
-      },
-      "sinks": [
-        {
-          "file": "workers/agent-runtime/src/runtime/tool-results.ts",
-          "line": 1029,
-          "kind": "typed_dynamic"
-        }
-      ],
-      "protectedTokens": [],
-      "sourceTemplateHash": "d4f924cb51822a7ba2bc7275465237807ae8c2f4e63f59413684532e5beae537"
-    },
-    {
-      "id": "time.year.past",
-      "definition": {
-        "file": "workers/agent-runtime/src/localization/en/serialization.yaml",
-        "line": 10
-      },
-      "sinks": [
-        {
-          "file": "workers/agent-runtime/src/runtime/tool-results.ts",
-          "line": 1029,
-          "kind": "typed_dynamic"
-        }
-      ],
-      "protectedTokens": [],
-      "sourceTemplateHash": "8a983c237b7d49c753596b5130d4f011175f10a26a9bf6954ef9a299180a96c9"
-    },
-    {
-      "id": "time.month.future",
-      "definition": {
-        "file": "workers/agent-runtime/src/localization/en/serialization.yaml",
-        "line": 16
-      },
-      "sinks": [
-        {
-          "file": "workers/agent-runtime/src/runtime/tool-results.ts",
-          "line": 1029,
-          "kind": "typed_dynamic"
-        }
-      ],
-      "protectedTokens": [],
-      "sourceTemplateHash": "bf37a958cf51923c210514cffee8580da5eed13b37600432e38682e1ac863351"
-    },
-    {
-      "id": "time.month.past",
-      "definition": {
-        "file": "workers/agent-runtime/src/localization/en/serialization.yaml",
-        "line": 22
-      },
-      "sinks": [
-        {
-          "file": "workers/agent-runtime/src/runtime/tool-results.ts",
-          "line": 1029,
-          "kind": "typed_dynamic"
-        }
-      ],
-      "protectedTokens": [],
-      "sourceTemplateHash": "e0ca65a8467da7a0a8952fed332a7d121106db7ea2bd0403aed16b3a09c53fb9"
-    },
-    {
-      "id": "time.day.future",
-      "definition": {
-        "file": "workers/agent-runtime/src/localization/en/serialization.yaml",
-        "line": 28
-      },
-      "sinks": [
-        {
-          "file": "workers/agent-runtime/src/runtime/tool-results.ts",
-          "line": 1029,
-          "kind": "typed_dynamic"
-        }
-      ],
-      "protectedTokens": [],
-      "sourceTemplateHash": "d8c168ef44b33931eff301192719fdbf4ff33df06e8ffeab6dd6fca93af7af1a"
-    },
-    {
-      "id": "time.day.past",
-      "definition": {
-        "file": "workers/agent-runtime/src/localization/en/serialization.yaml",
-        "line": 34
-      },
-      "sinks": [
-        {
-          "file": "workers/agent-runtime/src/runtime/tool-results.ts",
-          "line": 1029,
-          "kind": "typed_dynamic"
-        }
-      ],
-      "protectedTokens": [],
-      "sourceTemplateHash": "ccd0d7e39bbfcd5febb95166af65cb01a4fbe5b8853a8327546f48f299a8609a"
-    },
-    {
-      "id": "time.hour.future",
-      "definition": {
-        "file": "workers/agent-runtime/src/localization/en/serialization.yaml",
-        "line": 40
-      },
-      "sinks": [
-        {
-          "file": "workers/agent-runtime/src/runtime/tool-results.ts",
-          "line": 1029,
-          "kind": "typed_dynamic"
-        }
-      ],
-      "protectedTokens": [],
-      "sourceTemplateHash": "4258dea177acb03fd2da4f9d3876e2ba6c82fab607ceba000a01a216ed1a646a"
-    },
-    {
-      "id": "time.hour.past",
-      "definition": {
-        "file": "workers/agent-runtime/src/localization/en/serialization.yaml",
-        "line": 46
-      },
-      "sinks": [
-        {
-          "file": "workers/agent-runtime/src/runtime/tool-results.ts",
-          "line": 1029,
-          "kind": "typed_dynamic"
-        }
-      ],
-      "protectedTokens": [],
-      "sourceTemplateHash": "c6d1a9d7b1a856996bba34b4bc3f87d64eb537dce228fcf5e12b74572be35f93"
-    },
-    {
-      "id": "time.minute.future",
-      "definition": {
-        "file": "workers/agent-runtime/src/localization/en/serialization.yaml",
-        "line": 52
-      },
-      "sinks": [
-        {
-          "file": "workers/agent-runtime/src/runtime/tool-results.ts",
-          "line": 1029,
-          "kind": "typed_dynamic"
-        }
-      ],
-      "protectedTokens": [],
-      "sourceTemplateHash": "4ff2175a4cd4a097277bafdbd31648762e0ccfbf882a98a523462918509cabd7"
-    },
-    {
-      "id": "time.minute.past",
-      "definition": {
-        "file": "workers/agent-runtime/src/localization/en/serialization.yaml",
-        "line": 58
-      },
-      "sinks": [
-        {
-          "file": "workers/agent-runtime/src/runtime/tool-results.ts",
-          "line": 1029,
-          "kind": "typed_dynamic"
-        }
-      ],
-      "protectedTokens": [],
-      "sourceTemplateHash": "d3c621fd93ddc7a300183091d218ed8197d02a4bcc25ce6c0f5d4a5295273a2b"
-    },
-    {
       "id": "read.context.basic",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/serialization.yaml",
-        "line": 64
+        "line": 1
       },
       "sinks": [
         {
@@ -202,7 +26,7 @@
       "id": "read.context.collapsed_and_trimmed",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/serialization.yaml",
-        "line": 67
+        "line": 4
       },
       "sinks": [
         {
@@ -220,7 +44,7 @@
       "id": "read.context.collapsed",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/serialization.yaml",
-        "line": 73
+        "line": 10
       },
       "sinks": [
         {
@@ -238,7 +62,7 @@
       "id": "read.context.trimmed",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/serialization.yaml",
-        "line": 79
+        "line": 16
       },
       "sinks": [
         {
@@ -256,7 +80,7 @@
       "id": "read.guidance.collapsed",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/serialization.yaml",
-        "line": 85
+        "line": 22
       },
       "sinks": [
         {
@@ -275,7 +99,7 @@
       "id": "read.guidance.trimmed",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/serialization.yaml",
-        "line": 88
+        "line": 25
       },
       "sinks": [
         {
@@ -293,7 +117,7 @@
       "id": "read.guidance.both",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/serialization.yaml",
-        "line": 91
+        "line": 28
       },
       "sinks": [
         {
@@ -312,7 +136,7 @@
       "id": "notifications.check.complete",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/serialization.yaml",
-        "line": 94
+        "line": 31
       },
       "sinks": [
         {
@@ -328,7 +152,7 @@
       "id": "notifications.check.omitted",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/serialization.yaml",
-        "line": 97
+        "line": 34
       },
       "sinks": [
         {
@@ -344,7 +168,7 @@
       "id": "read.focus.description",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/serialization.yaml",
-        "line": 103
+        "line": 40
       },
       "sinks": [
         {

@@ -1,9 +1,11 @@
+import type { ResultRenderContext } from '../runtime/tool-result-views';
+import { renderStoredLoopMessage, type StoredResultViewColumns } from '../runtime/result-messages';
 import type { BotInferenceSubmissionMessage } from '@bickr/shared/model';
 import { compactionRowTokenFraction, estimateChatMessageTokens, type TextTokenCalibration } from './limits';
 
 type ChatMessage = BotInferenceSubmissionMessage;
 
-export type CompactionMessageRow = {
+export type CompactionMessageRow = StoredResultViewColumns & {
 	message_json: string;
 };
 
@@ -94,10 +96,11 @@ export function oldestRowsForTokenFraction<T>(rows: readonly { row: T; tokens: n
 export function reducedCompactionRowsAfterOutputLimit<Row extends CompactionMessageRow>(
 	rows: readonly Row[],
 	calibration: TextTokenCalibration,
+	context: ResultRenderContext,
 ): Row[] {
 	const estimates = rows.map((row) => ({
 		row,
-		tokens: estimateChatMessageTokens(loopMessageChatMessageFromRow(row), calibration),
+		tokens: estimateChatMessageTokens(loopMessageChatMessageFromRow(row, context), calibration),
 	}));
 	const groups = loopMessageCompactionGroups(estimates);
 	if (groups.length <= 1) {
@@ -131,13 +134,13 @@ export function reducedCompactionRowsAfterOutputLimit<Row extends CompactionMess
 	return selectedGroups.flatMap((group) => group.rows);
 }
 
-function loopMessageCompactionGroups<Row extends CompactionMessageRow>(
+export function loopMessageCompactionGroups<Row extends CompactionMessageRow>(
 	rows: readonly CompactionCandidateEstimate<Row>[],
 ): Array<{ rows: Row[]; tokens: number }> {
 	const groups: Array<{ rows: Row[]; tokens: number }> = [];
 	for (let index = 0; index < rows.length; index += 1) {
 		const current = rows[index]!;
-		const message = loopMessageChatMessageFromRow(current.row);
+		const message = loopMessageStructureFromRow(current.row);
 		if (message.role !== 'assistant' || !message.tool_calls?.length) {
 			groups.push({ rows: [current.row], tokens: current.tokens });
 			continue;
@@ -148,7 +151,7 @@ function loopMessageCompactionGroups<Row extends CompactionMessageRow>(
 		let scan = index + 1;
 		while (scan < rows.length) {
 			const next = rows[scan]!;
-			const nextMessage = loopMessageChatMessageFromRow(next.row);
+			const nextMessage = loopMessageStructureFromRow(next.row);
 			if (nextMessage.role !== 'tool' || !nextMessage.tool_call_id || !expectedToolCallIds.has(nextMessage.tool_call_id)) {
 				break;
 			}
@@ -166,8 +169,8 @@ function loopMessageCompactionGroups<Row extends CompactionMessageRow>(
 	return groups;
 }
 
-export function loopMessageChatMessageFromRow(row: Pick<CompactionMessageRow, 'message_json'>): ChatMessage {
-	const parsed = JSON.parse(row.message_json) as unknown;
+export function loopMessageChatMessageFromRow(row: CompactionMessageRow, context: ResultRenderContext): ChatMessage {
+	const parsed = renderStoredLoopMessage(row, context);
 	const record = runtimeRecord(parsed);
 	const role = record.role;
 	if (role !== 'system' && role !== 'user' && role !== 'assistant' && role !== 'tool') {
@@ -178,4 +181,9 @@ export function loopMessageChatMessageFromRow(row: Pick<CompactionMessageRow, 'm
 
 function runtimeRecord(value: unknown): Record<string, unknown> {
 	return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
+/** Protocol readers use stored roles and call IDs. They do not read rendered content. */
+export function loopMessageStructureFromRow(row: CompactionMessageRow): ChatMessage {
+	return JSON.parse(row.message_json) as ChatMessage;
 }

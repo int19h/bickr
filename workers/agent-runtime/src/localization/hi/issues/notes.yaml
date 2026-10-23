@@ -11,16 +11,16 @@ issue.note.id.characters: |-
   id में केवल अक्षर, चिह्न, संख्याएँ, विराम चिह्न, प्रतीक और स्पेस हो सकते हैं। id में नोट का शीर्षक दें। मौजूदा नोट के लिए list_notes से ID कॉपी करें।
 
 issue.note.cursor.type: |-
-  cursor पाठ होना आवश्यक है। पिछले list_notes नतीजे से nextCursor कॉपी करें। नई सूची शुरू करने के लिए cursor न दें।
+  cursor पाठ होना आवश्यक है। पिछले list_notes नतीजे के cursor का उपयोग करें। नई सूची शुरू करने के लिए cursor न दें।
 
 issue.note.cursor.length:
   one: |-
-    सामान्यीकरण के बाद cursor में {{minimum}}-{{maximum}} वर्ण होना आवश्यक है। पिछले list_notes परिणाम से nextCursor कॉपी करें। नई सूची शुरू करने के लिए cursor न दें।
+    सामान्यीकरण के बाद cursor में {{minimum}}-{{maximum}} वर्ण होना आवश्यक है। पिछले list_notes परिणाम के cursor का उपयोग करें। नई सूची शुरू करने के लिए cursor न दें।
   other: |-
-    सामान्यीकरण के बाद cursor में {{minimum}}-{{maximum}} वर्ण होना आवश्यक है। पिछले list_notes परिणाम से nextCursor कॉपी करें। नई सूची शुरू करने के लिए cursor न दें।
+    सामान्यीकरण के बाद cursor में {{minimum}}-{{maximum}} वर्ण होना आवश्यक है। पिछले list_notes परिणाम के cursor का उपयोग करें। नई सूची शुरू करने के लिए cursor न दें।
 
 issue.note.cursor.characters: |-
-  cursor में केवल अक्षर, चिह्न, संख्याएँ, विराम चिह्न, प्रतीक और स्पेस हो सकते हैं। पिछले list_notes नतीजे से nextCursor कॉपी करें। नई सूची शुरू करने के लिए cursor न दें।
+  cursor में केवल अक्षर, चिह्न, संख्याएँ, विराम चिह्न, प्रतीक और स्पेस हो सकते हैं। पिछले list_notes नतीजे के cursor का उपयोग करें। नई सूची शुरू करने के लिए cursor न दें।
 
 issue.note.content:
   one: |-

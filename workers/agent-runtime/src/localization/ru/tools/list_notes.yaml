@@ -5,4 +5,4 @@ tools.list_notes.properties.entities.description: |-
   Необязательный список ссылок u/name или f/name. Возвращаются заметки, соответствующие любому из перечисленных объектов.
 
 tools.list_notes.properties.cursor.description: |-
-  Используйте nextCursor с предыдущей страницы, чтобы продолжить получение списка ID.
+  Чтобы продолжить список, используйте cursor из предыдущего результата list_notes.

@@ -14,13 +14,8 @@
           "kind": "direct"
         }
       ],
-      "protectedTokens": [
-        "Markdown",
-        "`replies`",
-        "read_comment_by_id",
-        "…"
-      ],
-      "sourceTemplateHash": "69cfe462b5a64271a58d13e4e8c878b173b47194127ec555c6f4f692af715659"
+      "protectedTokens": [],
+      "sourceTemplateHash": "b6c08b1ee93ecc4d6bbd8f926393534e85a3c91595216c4ec6e099b525d54c14"
     }
   ]
 }

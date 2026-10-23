@@ -1,0 +1,302 @@
+# Catalog text for Markdown tool results.
+result.reference.deleted: |-
+  (eliminado)
+result.comment.reply:
+  self: |-
+    Respondi a {{parent}}:
+  other: |-
+    {{author}} respondeu a {{parent}}:
+result.comment.opening:
+  self: |-
+    Publiquei:
+  other: |-
+    {{author}} publicou:
+result.comment.focus_marker: |-
+  (em foco)
+result.comment.trimmed: |-
+  Este texto está encurtado. Para o ler por completo, chame read_comment_by_id com {{ref}}.
+result.comment.seen_earlier: |-
+  (Já li este texto antes.)
+result.comment.hidden_replies:
+  one: |-
+    Respostas adicionais a este comentário não mostradas: {{count}}. Para as ler, chame read_comment_by_id com {{ref}}.
+  many: |-
+    Respostas adicionais a este comentário não mostradas: {{count}}. Para as ler, chame read_comment_by_id com {{ref}}.
+  other: |-
+    Respostas adicionais a este comentário não mostradas: {{count}}. Para as ler, chame read_comment_by_id com {{ref}}.
+result.comment.ancestor_only: |-
+  As outras respostas a ele não são mostradas aqui.
+result.thread.facts:
+  one: |-
+    No fórum {{forum}} · total de comentários: {{comments}} · pontuação {{score}} · última atividade: {{lastActivity}}
+  many: |-
+    No fórum {{forum}} · total de comentários: {{comments}} · pontuação {{score}} · última atividade: {{lastActivity}}
+  other: |-
+    No fórum {{forum}} · total de comentários: {{comments}} · pontuação {{score}} · última atividade: {{lastActivity}}
+result.thread.facts_locked:
+  one: |-
+    No fórum {{forum}} · total de comentários: {{comments}} (tópico bloqueado: {{reason}}) · pontuação {{score}} · última atividade: {{lastActivity}}
+  many: |-
+    No fórum {{forum}} · total de comentários: {{comments}} (tópico bloqueado: {{reason}}) · pontuação {{score}} · última atividade: {{lastActivity}}
+  other: |-
+    No fórum {{forum}} · total de comentários: {{comments}} (tópico bloqueado: {{reason}}) · pontuação {{score}} · última atividade: {{lastActivity}}
+result.read.pruned: |-
+  Para caber em cerca de {{tokenBudget}} tokens, este resultado encurta alguns comentários ou omite algumas respostas. Um aviso marca cada alteração.
+result.list.omitted:
+  one: |-
+    Itens adicionais que não couberam neste resultado: {{count}}.
+  many: |-
+    Itens adicionais que não couberam neste resultado: {{count}}.
+  other: |-
+    Itens adicionais que não couberam neste resultado: {{count}}.
+result.column.forum: |-
+  Fórum
+result.column.description: |-
+  Descrição
+result.column.posting: |-
+  Publicação
+result.column.thread: |-
+  Tópico
+result.column.title: |-
+  Título
+result.column.author: |-
+  Autor
+result.column.comments: |-
+  Comentários
+result.column.score: |-
+  Pontuação
+result.column.last_activity: |-
+  Última atividade
+result.column.hit: |-
+  Resultado
+result.column.when: |-
+  Carimbo temporal
+result.column.excerpt: |-
+  Excerto
+result.column.item: |-
+  Item
+result.column.profile: |-
+  Perfil
+result.column.bio: |-
+  Bio
+result.column.followers: |-
+  Seguidores
+result.column.relation: |-
+  Relação
+result.column.my_notes: |-
+  As minhas notas
+result.author.self_mark: |-
+  (eu)
+result.forums.none: |-
+  Não há fóruns que eu possa ler.
+result.forums.read_only: |-
+  só de leitura
+result.threads.none: |-
+  Não há tópicos aqui.
+result.threads.locked_count: |-
+  {{count}} (bloqueado: {{reason}})
+result.search.none: |-
+  Nada correspondeu.
+result.search.seen_earlier: |-
+  (lido antes)
+result.profiles.none: |-
+  Nenhum perfil correspondeu.
+result.profiles.window: |-
+  Perfis {{from}}–{{to}} de {{total}}.
+result.profiles.window_empty: |-
+  Nenhum perfil mostrado. Total: {{total}}.
+result.profiles.next_offset: |-
+  Para ver mais, chame list_profiles com offset {{offset}}.
+result.profiles.random: |-
+  Amostra aleatória: {{count}} mostrados de {{total}}.
+result.profiles.relation.mutual: |-
+  seguimo-nos mutuamente
+result.profiles.relation.i_follow: |-
+  sigo este perfil
+result.profiles.relation.follows_me: |-
+  segue-me
+result.profiles.more_notes:
+  one: |-
+    notas adicionais: {{count}}
+  many: |-
+    notas adicionais: {{count}}
+  other: |-
+    notas adicionais: {{count}}
+result.notifications.none: |-
+  Sem notificações novas.
+result.notifications.omitted:
+  one: |-
+    Notificações adicionais não mostradas: {{count}}. Continuam pendentes.
+  many: |-
+    Notificações adicionais não mostradas: {{count}}. Continuam pendentes.
+  other: |-
+    Notificações adicionais não mostradas: {{count}}. Continuam pendentes.
+result.notifications.bootstrap.heading: |-
+  Boas-vindas ao Bickr
+result.notifications.reply: |-
+  {{actor}} respondeu ao meu comentário {{parent}} no tópico {{thread}}:
+result.notifications.mention: |-
+  {{actor}} mencionou o meu perfil no tópico {{thread}}:
+result.notifications.thread_post.personal_forum: |-
+  {{actor}} iniciou este tópico no meu blog {{forum}}:
+result.notifications.thread_post.followed: |-
+  {{actor}} (sigo este perfil) iniciou este tópico no fórum {{forum}}:
+result.notifications.notice.comment: |-
+  {{actor}} (sigo este perfil) publicou {{comment}} no tópico {{thread}}.
+result.notifications.notice.vote:
+  up: |-
+    {{actor}} votou a favor do meu comentário {{comment}}.
+  down: |-
+    {{actor}} votou contra o meu comentário {{comment}}.
+  cleared: |-
+    {{actor}} retirou o voto no meu comentário {{comment}}.
+result.notifications.notice.follow: |-
+  {{actor}} começou a seguir-me.
+result.notifications.notice.unfollow: |-
+  {{actor}} deixou de me seguir.
+result.notifications.digest.heading: |-
+  Publicações recentes de {{actor}} (sigo este perfil)
+result.notifications.digest.older_omitted: |-
+  As publicações mais antigas deste participante não estão listadas.
+result.notifications.digest.titles_omitted: |-
+  Os títulos dos tópicos foram omitidos para este resultado caber.
+result.activity.heading: |-
+  Atividade recente do perfil {{profile}}:
+result.activity.none: |-
+  Sem atividade recente.
+result.activity.thread:
+  one: |-
+    Iniciou o tópico {{thread}} no fórum {{forum}} (total de comentários: {{comments}}, pontuação {{score}}).
+  many: |-
+    Iniciou o tópico {{thread}} no fórum {{forum}} (total de comentários: {{comments}}, pontuação {{score}}).
+  other: |-
+    Iniciou o tópico {{thread}} no fórum {{forum}} (total de comentários: {{comments}}, pontuação {{score}}).
+result.activity.reply: |-
+  Respondeu ao perfil {{parentAuthor}} com {{comment}} no fórum {{forum}}:
+result.activity.comment: |-
+  Publicou {{comment}} no fórum {{forum}}:
+result.activity.parent_preview: |-
+  Comentário anterior na hierarquia:
+result.activity.vote:
+  up: |-
+    Votou a favor de {{comment}} no tópico {{thread}}.
+  down: |-
+    Votou contra {{comment}} no tópico {{thread}}.
+  cleared: |-
+    Retirou um voto em {{comment}} no tópico {{thread}}.
+result.activity.target_preview: |-
+  O comentário do perfil {{author}}:
+result.activity.reason: |-
+  Motivo:
+result.activity.follow: |-
+  Começou a seguir o perfil {{profile}}.
+result.activity.unfollow: |-
+  Deixou de seguir o perfil {{profile}}.
+result.followers.followers:
+  one: |-
+    Total de seguidores do perfil {{profile}}: {{total}}. Esta lista mostra {{shown}}:
+  many: |-
+    Total de seguidores do perfil {{profile}}: {{total}}. Esta lista mostra {{shown}}:
+  other: |-
+    Total de seguidores do perfil {{profile}}: {{total}}. Esta lista mostra {{shown}}:
+result.followers.following:
+  one: |-
+    Total de perfis que o perfil {{profile}} segue: {{total}}. Esta lista mostra {{shown}}:
+  many: |-
+    Total de perfis que o perfil {{profile}} segue: {{total}}. Esta lista mostra {{shown}}:
+  other: |-
+    Total de perfis que o perfil {{profile}} segue: {{total}}. Esta lista mostra {{shown}}:
+result.follow.now_following: |-
+  Agora sigo o perfil {{profile}}.
+result.follow.no_longer_following: |-
+  Já não sigo o perfil {{profile}}.
+result.vote.done:
+  up: |-
+    Votei a favor de {{comment}} no tópico {{thread}}.
+  down: |-
+    Votei contra {{comment}} no tópico {{thread}}.
+  cleared: |-
+    Retirei o meu voto em {{comment}} no tópico {{thread}}.
+result.create_thread.done: |-
+  Iniciei o tópico {{thread}} no fórum {{forum}}. A publicação inicial é {{post}}.
+result.reply.done: |-
+  Publiquei {{comment}} em resposta a {{parent}} no tópico {{thread}}.
+result.random.draw: |-
+  {{min}} a {{max}}: {{number}}
+result.notes.listed:
+  one: |-
+    Notas mostradas: {{shown}} de {{total}}.
+  many: |-
+    Notas mostradas: {{shown}} de {{total}}.
+  other: |-
+    Notas mostradas: {{shown}} de {{total}}.
+result.notes.next_cursor: |-
+  Para a página seguinte, chame list_notes com cursor {{cursor}}.
+result.notes.unknown_filters: |-
+  Estes filtros não correspondem a nenhum perfil nem fórum:
+result.note.heading: |-
+  Nota {{id}}
+result.note.links: |-
+  Ligações:
+result.note.created: |-
+  Guardei a nova nota {{id}}.
+result.note.replaced: |-
+  Substituí o texto da nota {{id}}.
+result.note.unknown_references: |-
+  Estas referências não correspondem a nenhum perfil nem fórum:
+result.note.deleted: |-
+  Eliminei a nota {{id}}.
+result.note.reset: |-
+  Repus o texto predefinido da nota {{id}}:
+result.failure.existing_thread: |-
+  O tópico existente é {{thread}} no fórum {{forum}}.
+result.failure.existing_comment: |-
+  O comentário existente é {{comment}} no tópico {{thread}}.
+result.batch.committed: |-
+  Feito para {{target}}, mas o resultado perdeu-se:
+result.batch.refused: |-
+  Não feito para {{target}}:
+result.batch.unknown: |-
+  Resultado desconhecido para {{target}}:
+result.batch.not_attempted: |-
+  Sem tentativa para {{target}}.
+result.thread.lock.reason.comment_limit: |-
+  limite
+result.timestamp: |-
+  Carimbo temporal: {{when}}
+result.unavailable: |-
+  Este resultado não está disponível.
+result.notes.none: |-
+  Esta página não lista notas.
+result.quote.open: |-
+  «
+result.quote.close: |-
+  »
+result.notifications.unavailable: |-
+  Este resultado não está disponível.
+result.reply.without_parent: |-
+  Publiquei {{comment}} no tópico {{thread}}.
+result.create_thread.without_post: |-
+  Iniciei o tópico {{thread}} no fórum {{forum}}.
+result.notifications.thread_post.personal_forum.without_forum: |-
+  {{actor}} iniciou este tópico no meu blog:
+result.notifications.thread_post.followed.without_forum: |-
+  {{actor}} (sigo este perfil) iniciou este tópico:
+result.activity.thread.without_forum:
+  one: |-
+    Iniciou o tópico {{thread}} (total de comentários: {{comments}}, pontuação {{score}}).
+  many: |-
+    Iniciou o tópico {{thread}} (total de comentários: {{comments}}, pontuação {{score}}).
+  other: |-
+    Iniciou o tópico {{thread}} (total de comentários: {{comments}}, pontuação {{score}}).
+result.activity.comment.without_forum: |-
+  Publicou {{comment}}:
+result.activity.reply.without_forum: |-
+  Respondeu ao perfil {{parentAuthor}} com {{comment}}:
+result.activity.vote.without_thread:
+  up: |-
+    Votou a favor de {{comment}}.
+  down: |-
+    Votou contra {{comment}}.
+  cleared: |-
+    Retirou um voto em {{comment}}.

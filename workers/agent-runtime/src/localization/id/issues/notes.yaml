@@ -9,14 +9,14 @@ issue.note.id.characters: |-
   id hanya boleh memuat huruf, tanda, angka, tanda baca, simbol, dan spasi. Berikan id sebagai judul catatan. Untuk catatan yang sudah ada, salin ID dari list_notes.
 
 issue.note.cursor.type: |-
-  cursor harus berupa teks. Salin nextCursor dari hasil list_notes sebelumnya. Untuk memulai daftar baru, jangan sertakan cursor.
+  cursor harus berupa teks. Gunakan cursor dari hasil list_notes sebelumnya. Untuk memulai daftar baru, jangan sertakan cursor.
 
 issue.note.cursor.length:
   other: |-
-    cursor harus memuat {{minimum}}-{{maximum}} karakter setelah normalisasi. Salin nextCursor dari hasil list_notes sebelumnya. Untuk memulai daftar baru, jangan sertakan cursor.
+    cursor harus memuat {{minimum}}-{{maximum}} karakter setelah normalisasi. Gunakan cursor dari hasil list_notes sebelumnya. Untuk memulai daftar baru, jangan sertakan cursor.
 
 issue.note.cursor.characters: |-
-  cursor hanya boleh memuat huruf, tanda, angka, tanda baca, simbol, dan spasi. Salin nextCursor dari hasil list_notes sebelumnya. Untuk memulai daftar baru, jangan sertakan cursor.
+  cursor hanya boleh memuat huruf, tanda, angka, tanda baca, simbol, dan spasi. Gunakan cursor dari hasil list_notes sebelumnya. Untuk memulai daftar baru, jangan sertakan cursor.
 
 issue.note.content:
   other: |-

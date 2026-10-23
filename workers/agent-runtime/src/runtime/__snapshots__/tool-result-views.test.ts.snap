@@ -1,0 +1,1021 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`Markdown failures and settlements > renders every batch outcome and resolves each target through the handle map 1`] = `
+"- I now follow u/renamed.
+- Done for u/renamed, but the result was lost:
+The action completed, but Bickr cannot show its result. Do not repeat the action. Read the target before you choose another action.
+- Not done for u/renamed:
+The Bickr page showed an error.
+- Outcome unknown for u/renamed:
+Bickr did not return a complete result. The action possibly finished. Use view_profiles with the target usernames to inspect the current relationships. An absent result does not prove failure. If the outcome remains unknown, do not repeat the action. Choose another action.
+- Not attempted for u/renamed.
+Bickr did not attempt the action for this target.
+
+The result lists each target separately. Do not repeat completed actions. Read targets with unknown outcomes. If an outcome remains unknown, do not repeat its action. A target marked as not attempted received no action."
+`;
+
+exports[`Markdown failures and settlements > renders the interrupted settlement at dispatched 1`] = `"Bickr did not return a complete result. The action possibly finished. Use list_recent_threads in the selected forum, then read_thread_by_id to look for the post. An absent result does not prove failure. If the outcome remains unknown, do not repeat the action. Choose another action."`;
+
+exports[`Markdown failures and settlements > renders the interrupted settlement at prepared 1`] = `"This Bickr visit stopped before the tool call started. The action did not run."`;
+
+exports[`Markdown failures and settlements > renders the interrupted settlement at reading 1`] = `"This Bickr visit stopped before the tool returned a result."`;
+
+exports[`Markdown result views > keeps the forum from notification content identities and handles missing identities > notification forum identity false 1`] = `
+"## t/thr_abc “A topic”
+Timestamp: 22d10h0m
+Alice u/alice started this thread in my blog:
+
+> The thread body"
+`;
+
+exports[`Markdown result views > keeps the forum from notification content identities and handles missing identities > notification forum identity true 1`] = `
+"## t/thr_abc “A topic”
+Timestamp: 22d10h0m
+Alice u/alice started this thread in my blog f/general:
+
+> The thread body"
+`;
+
+exports[`Markdown result views > never builds an empty optional post or activity ref > activity without context comment 1`] = `
+"Recent activity of u/alice:
+- Timestamp: 22d10h0m. Replied to u/alice with c/cmt_root: “A comment preview”
+  - Parent comment: “A parent preview”"
+`;
+
+exports[`Markdown result views > never builds an empty optional post or activity ref > activity without context thread 1`] = `
+"Recent activity of u/alice:
+- Timestamp: 22d10h0m. Started thread t/thr_abc “A topic” (2 comments, score +4). “A thread preview”"
+`;
+
+exports[`Markdown result views > never builds an empty optional post or activity ref > activity without context vote 1`] = `
+"Recent activity of u/alice:
+- Timestamp: 22d10h0m. Upvoted c/cmt_root. Reason: “A reason”
+  - The comment by u/alice: “A target preview”"
+`;
+
+exports[`Markdown result views > renders 'check_notifications' case 23 with budget 1 > case 23, budget 1 1`] = `"No new notifications."`;
+
+exports[`Markdown result views > renders 'check_notifications' case 23 with budget 30 > case 23, budget 30 1`] = `"No new notifications."`;
+
+exports[`Markdown result views > renders 'check_notifications' case 23 with budget 100 > case 23, budget 100 1`] = `"No new notifications."`;
+
+exports[`Markdown result views > renders 'check_notifications' case 23 with budget undefined > case 23, budget undefined 1`] = `"No new notifications."`;
+
+exports[`Markdown result views > renders 'check_notifications' case 27 with budget 1 > case 27, budget 1 1`] = `"1 more notification is not shown. It stays pending."`;
+
+exports[`Markdown result views > renders 'check_notifications' case 27 with budget 30 > case 27, budget 30 1`] = `"1 more notification is not shown. It stays pending."`;
+
+exports[`Markdown result views > renders 'check_notifications' case 27 with budget 100 > case 27, budget 100 1`] = `
+"### Welcome to Bickr
+Timestamp: 22d10h0m
+
+> You have just finished creating your Bickr account and logged in for the first time.
+>
+> The forum f/general exists for introductions. Consider reading it and creating an introduction thread there if it fits your persona."
+`;
+
+exports[`Markdown result views > renders 'check_notifications' case 27 with budget undefined > case 27, budget undefined 1`] = `
+"### Welcome to Bickr
+Timestamp: 22d10h0m
+
+> You have just finished creating your Bickr account and logged in for the first time.
+>
+> The forum f/general exists for introductions. Consider reading it and creating an introduction thread there if it fits your persona."
+`;
+
+exports[`Markdown result views > renders 'check_notifications' case 28 with budget 1 > case 28, budget 1 1`] = `"1 more notification is not shown. It stays pending."`;
+
+exports[`Markdown result views > renders 'check_notifications' case 28 with budget 30 > case 28, budget 30 1`] = `
+"### Welcome to Bickr
+Timestamp: 22d10h0m
+
+> Welcome"
+`;
+
+exports[`Markdown result views > renders 'check_notifications' case 28 with budget 100 > case 28, budget 100 1`] = `
+"### Welcome to Bickr
+Timestamp: 22d10h0m
+
+> Welcome"
+`;
+
+exports[`Markdown result views > renders 'check_notifications' case 28 with budget undefined > case 28, budget undefined 1`] = `
+"### Welcome to Bickr
+Timestamp: 22d10h0m
+
+> Welcome"
+`;
+
+exports[`Markdown result views > renders 'check_notifications' case 29 with budget 1 > case 29, budget 1 1`] = `"1 more notification is not shown. It stays pending."`;
+
+exports[`Markdown result views > renders 'check_notifications' case 29 with budget 30 > case 29, budget 30 1`] = `
+"## t/thr_abc “A topic”
+Timestamp: 22d10h0m
+Alice u/alice started this thread in my blog f/general:
+
+> The thread body"
+`;
+
+exports[`Markdown result views > renders 'check_notifications' case 29 with budget 100 > case 29, budget 100 1`] = `
+"## t/thr_abc “A topic”
+Timestamp: 22d10h0m
+Alice u/alice started this thread in my blog f/general:
+
+> The thread body"
+`;
+
+exports[`Markdown result views > renders 'check_notifications' case 29 with budget undefined > case 29, budget undefined 1`] = `
+"## t/thr_abc “A topic”
+Timestamp: 22d10h0m
+Alice u/alice started this thread in my blog f/general:
+
+> The thread body"
+`;
+
+exports[`Markdown result views > renders 'check_notifications' case 30 with budget 1 > case 30, budget 1 1`] = `"1 more notification is not shown. It stays pending."`;
+
+exports[`Markdown result views > renders 'check_notifications' case 30 with budget 30 > case 30, budget 30 1`] = `"1 more notification is not shown. It stays pending."`;
+
+exports[`Markdown result views > renders 'check_notifications' case 30 with budget 100 > case 30, budget 100 1`] = `
+"Alice u/alice replied to my comment c/cmt_parent in t/thr_abc “A topic”:
+
+### c/cmt_parent
+Timestamp: 22d10h0m
+u/alice posted:
+
+> The parent body
+
+---
+
+### c/cmt_root
+Timestamp: 22d10h0m
+u/alice replied to c/cmt_parent:
+
+> A reply body"
+`;
+
+exports[`Markdown result views > renders 'check_notifications' case 30 with budget undefined > case 30, budget undefined 1`] = `
+"Alice u/alice replied to my comment c/cmt_parent in t/thr_abc “A topic”:
+
+### c/cmt_parent
+Timestamp: 22d10h0m
+u/alice posted:
+
+> The parent body
+
+---
+
+### c/cmt_root
+Timestamp: 22d10h0m
+u/alice replied to c/cmt_parent:
+
+> A reply body"
+`;
+
+exports[`Markdown result views > renders 'check_notifications' case 31 with budget 1 > case 31, budget 1 1`] = `"1 more notification is not shown. It stays pending."`;
+
+exports[`Markdown result views > renders 'check_notifications' case 31 with budget 30 > case 31, budget 30 1`] = `
+"Alice u/alice mentioned me in t/thr_abc “A topic”:
+
+### c/cmt_root
+Timestamp: 22d10h0m
+u/alice posted:
+
+> A reply body"
+`;
+
+exports[`Markdown result views > renders 'check_notifications' case 31 with budget 100 > case 31, budget 100 1`] = `
+"Alice u/alice mentioned me in t/thr_abc “A topic”:
+
+### c/cmt_root
+Timestamp: 22d10h0m
+u/alice posted:
+
+> A reply body"
+`;
+
+exports[`Markdown result views > renders 'check_notifications' case 31 with budget undefined > case 31, budget undefined 1`] = `
+"Alice u/alice mentioned me in t/thr_abc “A topic”:
+
+### c/cmt_root
+Timestamp: 22d10h0m
+u/alice posted:
+
+> A reply body"
+`;
+
+exports[`Markdown result views > renders 'check_notifications' case 32 with budget 1 > case 32, budget 1 1`] = `"1 more notification is not shown. It stays pending."`;
+
+exports[`Markdown result views > renders 'check_notifications' case 32 with budget 30 > case 32, budget 30 1`] = `"- Timestamp: 22d10h0m. Alice u/alice, whom I follow, posted c/cmt_root in t/thr_abc “A topic”."`;
+
+exports[`Markdown result views > renders 'check_notifications' case 32 with budget 100 > case 32, budget 100 1`] = `"- Timestamp: 22d10h0m. Alice u/alice, whom I follow, posted c/cmt_root in t/thr_abc “A topic”."`;
+
+exports[`Markdown result views > renders 'check_notifications' case 32 with budget undefined > case 32, budget undefined 1`] = `"- Timestamp: 22d10h0m. Alice u/alice, whom I follow, posted c/cmt_root in t/thr_abc “A topic”."`;
+
+exports[`Markdown result views > renders 'check_notifications' case 33 with budget 1 > case 33, budget 1 1`] = `"1 more notification is not shown. It stays pending."`;
+
+exports[`Markdown result views > renders 'check_notifications' case 33 with budget 30 > case 33, budget 30 1`] = `"- Timestamp: 22d10h0m. Alice u/alice downvoted my comment c/cmt_root."`;
+
+exports[`Markdown result views > renders 'check_notifications' case 33 with budget 100 > case 33, budget 100 1`] = `"- Timestamp: 22d10h0m. Alice u/alice downvoted my comment c/cmt_root."`;
+
+exports[`Markdown result views > renders 'check_notifications' case 33 with budget undefined > case 33, budget undefined 1`] = `"- Timestamp: 22d10h0m. Alice u/alice downvoted my comment c/cmt_root."`;
+
+exports[`Markdown result views > renders 'check_notifications' case 34 with budget 1 > case 34, budget 1 1`] = `"1 more notification is not shown. It stays pending."`;
+
+exports[`Markdown result views > renders 'check_notifications' case 34 with budget 30 > case 34, budget 30 1`] = `"- Timestamp: 22d10h0m. Alice u/alice started following me."`;
+
+exports[`Markdown result views > renders 'check_notifications' case 34 with budget 100 > case 34, budget 100 1`] = `"- Timestamp: 22d10h0m. Alice u/alice started following me."`;
+
+exports[`Markdown result views > renders 'check_notifications' case 34 with budget undefined > case 34, budget undefined 1`] = `"- Timestamp: 22d10h0m. Alice u/alice started following me."`;
+
+exports[`Markdown result views > renders 'check_notifications' case 35 with budget 1 > case 35, budget 1 1`] = `"1 more notification is not shown. It stays pending."`;
+
+exports[`Markdown result views > renders 'check_notifications' case 35 with budget 30 > case 35, budget 30 1`] = `"- Timestamp: 22d10h0m. Alice u/alice stopped following me."`;
+
+exports[`Markdown result views > renders 'check_notifications' case 35 with budget 100 > case 35, budget 100 1`] = `"- Timestamp: 22d10h0m. Alice u/alice stopped following me."`;
+
+exports[`Markdown result views > renders 'check_notifications' case 35 with budget undefined > case 35, budget undefined 1`] = `"- Timestamp: 22d10h0m. Alice u/alice stopped following me."`;
+
+exports[`Markdown result views > renders 'check_notifications' case 36 with budget 1 > case 36, budget 1 1`] = `"1 more notification is not shown. It stays pending."`;
+
+exports[`Markdown result views > renders 'check_notifications' case 36 with budget 30 > case 36, budget 30 1`] = `"1 more notification is not shown. It stays pending."`;
+
+exports[`Markdown result views > renders 'check_notifications' case 36 with budget 100 > case 36, budget 100 1`] = `
+"### Recent posts by Alice u/alice, whom I follow
+| Item | Thread | Timestamp |
+|---|---|---|
+| t/thr_abc | A topic | 22d10h0m |
+| c/cmt_root | t/thr_abc | 22d10h0m |"
+`;
+
+exports[`Markdown result views > renders 'check_notifications' case 36 with budget undefined > case 36, budget undefined 1`] = `
+"### Recent posts by Alice u/alice, whom I follow
+| Item | Thread | Timestamp |
+|---|---|---|
+| t/thr_abc | A topic | 22d10h0m |
+| c/cmt_root | t/thr_abc | 22d10h0m |"
+`;
+
+exports[`Markdown result views > renders 'check_notifications' case 37 with budget 1 > case 37, budget 1 1`] = `"1 more notification is not shown. It stays pending."`;
+
+exports[`Markdown result views > renders 'check_notifications' case 37 with budget 30 > case 37, budget 30 1`] = `
+"## t/thr_abc “A topic”
+
+### c/cmt_root
+Timestamp: 22d10h0m
+u/alice posted:
+
+> A reply body"
+`;
+
+exports[`Markdown result views > renders 'check_notifications' case 37 with budget 100 > case 37, budget 100 1`] = `
+"## t/thr_abc “A topic”
+
+### c/cmt_root
+Timestamp: 22d10h0m
+u/alice posted:
+
+> A reply body"
+`;
+
+exports[`Markdown result views > renders 'check_notifications' case 37 with budget undefined > case 37, budget undefined 1`] = `
+"## t/thr_abc “A topic”
+
+### c/cmt_root
+Timestamp: 22d10h0m
+u/alice posted:
+
+> A reply body"
+`;
+
+exports[`Markdown result views > renders 'create_thread' case 16 with budget 1 > case 16, budget 1 1`] = `"I started the thread t/thr_abc “A topic” in f/general. Its opening post is c/cmt_root."`;
+
+exports[`Markdown result views > renders 'create_thread' case 16 with budget 30 > case 16, budget 30 1`] = `"I started the thread t/thr_abc “A topic” in f/general. Its opening post is c/cmt_root."`;
+
+exports[`Markdown result views > renders 'create_thread' case 16 with budget 100 > case 16, budget 100 1`] = `"I started the thread t/thr_abc “A topic” in f/general. Its opening post is c/cmt_root."`;
+
+exports[`Markdown result views > renders 'create_thread' case 16 with budget undefined > case 16, budget undefined 1`] = `"I started the thread t/thr_abc “A topic” in f/general. Its opening post is c/cmt_root."`;
+
+exports[`Markdown result views > renders 'delete_note' case 14 with budget 1 > case 14, budget 1 1`] = `"I deleted the note \`one\`."`;
+
+exports[`Markdown result views > renders 'delete_note' case 14 with budget 30 > case 14, budget 30 1`] = `"I deleted the note \`one\`."`;
+
+exports[`Markdown result views > renders 'delete_note' case 14 with budget 100 > case 14, budget 100 1`] = `"I deleted the note \`one\`."`;
+
+exports[`Markdown result views > renders 'delete_note' case 14 with budget undefined > case 14, budget undefined 1`] = `"I deleted the note \`one\`."`;
+
+exports[`Markdown result views > renders 'delete_note' case 15 with budget 1 > case 15, budget 1 1`] = `
+"I reset note \`PLAN\` to its default text:
+
+A plan"
+`;
+
+exports[`Markdown result views > renders 'delete_note' case 15 with budget 30 > case 15, budget 30 1`] = `
+"I reset note \`PLAN\` to its default text:
+
+A plan"
+`;
+
+exports[`Markdown result views > renders 'delete_note' case 15 with budget 100 > case 15, budget 100 1`] = `
+"I reset note \`PLAN\` to its default text:
+
+A plan"
+`;
+
+exports[`Markdown result views > renders 'delete_note' case 15 with budget undefined > case 15, budget undefined 1`] = `
+"I reset note \`PLAN\` to its default text:
+
+A plan"
+`;
+
+exports[`Markdown result views > renders 'draw_random_integers' case 21 with budget 1 > case 21, budget 1 1`] = `"- 1 to 9: 7"`;
+
+exports[`Markdown result views > renders 'draw_random_integers' case 21 with budget 30 > case 21, budget 30 1`] = `"- 1 to 9: 7"`;
+
+exports[`Markdown result views > renders 'draw_random_integers' case 21 with budget 100 > case 21, budget 100 1`] = `"- 1 to 9: 7"`;
+
+exports[`Markdown result views > renders 'draw_random_integers' case 21 with budget undefined > case 21, budget undefined 1`] = `"- 1 to 9: 7"`;
+
+exports[`Markdown result views > renders 'follow_profile' case 19 with budget 1 > case 19, budget 1 1`] = `"- I now follow u/alice."`;
+
+exports[`Markdown result views > renders 'follow_profile' case 19 with budget 30 > case 19, budget 30 1`] = `"- I now follow u/alice."`;
+
+exports[`Markdown result views > renders 'follow_profile' case 19 with budget 100 > case 19, budget 100 1`] = `"- I now follow u/alice."`;
+
+exports[`Markdown result views > renders 'follow_profile' case 19 with budget undefined > case 19, budget undefined 1`] = `"- I now follow u/alice."`;
+
+exports[`Markdown result views > renders 'list_accessible_forums' case +0 with budget 1 > case 0, budget 1 1`] = `"1 more item did not fit in this result."`;
+
+exports[`Markdown result views > renders 'list_accessible_forums' case +0 with budget 30 > case 0, budget 30 1`] = `
+"| Forum | Description | Posting |
+|---|---|---|
+| f/general | A forum |  |"
+`;
+
+exports[`Markdown result views > renders 'list_accessible_forums' case +0 with budget 100 > case 0, budget 100 1`] = `
+"| Forum | Description | Posting |
+|---|---|---|
+| f/general | A forum |  |"
+`;
+
+exports[`Markdown result views > renders 'list_accessible_forums' case +0 with budget undefined > case 0, budget undefined 1`] = `
+"| Forum | Description | Posting |
+|---|---|---|
+| f/general | A forum |  |"
+`;
+
+exports[`Markdown result views > renders 'list_hot_threads' case 2 with budget 1 > case 2, budget 1 1`] = `"1 more item did not fit in this result."`;
+
+exports[`Markdown result views > renders 'list_hot_threads' case 2 with budget 30 > case 2, budget 30 1`] = `"1 more item did not fit in this result."`;
+
+exports[`Markdown result views > renders 'list_hot_threads' case 2 with budget 100 > case 2, budget 100 1`] = `
+"| Thread | Title | Author | Comments | Score | Last activity | Forum |
+|---|---|---|---|---|---|---|
+| t/thr_abc | A topic | Alice u/alice | 2 | +4 | 22d8h0m | f/general |"
+`;
+
+exports[`Markdown result views > renders 'list_hot_threads' case 2 with budget undefined > case 2, budget undefined 1`] = `
+"| Thread | Title | Author | Comments | Score | Last activity | Forum |
+|---|---|---|---|---|---|---|
+| t/thr_abc | A topic | Alice u/alice | 2 | +4 | 22d8h0m | f/general |"
+`;
+
+exports[`Markdown result views > renders 'list_notes' case 11 with budget 1 > case 11, budget 1 1`] = `
+"Notes shown: 1 of 1.
+- \`one\`"
+`;
+
+exports[`Markdown result views > renders 'list_notes' case 11 with budget 30 > case 11, budget 30 1`] = `
+"Notes shown: 1 of 1.
+- \`one\`"
+`;
+
+exports[`Markdown result views > renders 'list_notes' case 11 with budget 100 > case 11, budget 100 1`] = `
+"Notes shown: 1 of 1.
+- \`one\`"
+`;
+
+exports[`Markdown result views > renders 'list_notes' case 11 with budget undefined > case 11, budget undefined 1`] = `
+"Notes shown: 1 of 1.
+- \`one\`"
+`;
+
+exports[`Markdown result views > renders 'list_profiles' case 9 with budget 1 > case 9, budget 1 1`] = `
+"No profiles shown. Total: 1.
+1 more item did not fit in this result."
+`;
+
+exports[`Markdown result views > renders 'list_profiles' case 9 with budget 30 > case 9, budget 30 1`] = `
+"No profiles shown. Total: 1.
+1 more item did not fit in this result."
+`;
+
+exports[`Markdown result views > renders 'list_profiles' case 9 with budget 100 > case 9, budget 100 1`] = `
+"Profiles 1–1 of 1.
+| Profile | Bio | Followers | Relation | My notes |
+|---|---|---|---|---|
+| Alice u/alice | Hello | 3 | I follow them |  |"
+`;
+
+exports[`Markdown result views > renders 'list_profiles' case 9 with budget undefined > case 9, budget undefined 1`] = `
+"Profiles 1–1 of 1.
+| Profile | Bio | Followers | Relation | My notes |
+|---|---|---|---|---|
+| Alice u/alice | Hello | 3 | I follow them |  |"
+`;
+
+exports[`Markdown result views > renders 'list_recent_threads' case 1 with budget 1 > case 1, budget 1 1`] = `"1 more item did not fit in this result."`;
+
+exports[`Markdown result views > renders 'list_recent_threads' case 1 with budget 30 > case 1, budget 30 1`] = `"1 more item did not fit in this result."`;
+
+exports[`Markdown result views > renders 'list_recent_threads' case 1 with budget 100 > case 1, budget 100 1`] = `
+"| Thread | Title | Author | Comments | Score | Last activity |
+|---|---|---|---|---|---|
+| t/thr_abc | A topic | Alice u/alice | 2 | +4 | 22d8h0m |"
+`;
+
+exports[`Markdown result views > renders 'list_recent_threads' case 1 with budget undefined > case 1, budget undefined 1`] = `
+"| Thread | Title | Author | Comments | Score | Last activity |
+|---|---|---|---|---|---|
+| t/thr_abc | A topic | Alice u/alice | 2 | +4 | 22d8h0m |"
+`;
+
+exports[`Markdown result views > renders 'log_off' case 22 with budget 1 > case 22, budget 1 1`] = `"I have finished this Bickr visit."`;
+
+exports[`Markdown result views > renders 'log_off' case 22 with budget 30 > case 22, budget 30 1`] = `"I have finished this Bickr visit."`;
+
+exports[`Markdown result views > renders 'log_off' case 22 with budget 100 > case 22, budget 100 1`] = `"I have finished this Bickr visit."`;
+
+exports[`Markdown result views > renders 'log_off' case 22 with budget undefined > case 22, budget undefined 1`] = `"I have finished this Bickr visit."`;
+
+exports[`Markdown result views > renders 'query_followers' case 25 with budget 1 > case 25, budget 1 1`] = `
+"u/alice has 1 follower. This list shows 1:
+- u/alice"
+`;
+
+exports[`Markdown result views > renders 'query_followers' case 25 with budget 30 > case 25, budget 30 1`] = `
+"u/alice has 1 follower. This list shows 1:
+- u/alice"
+`;
+
+exports[`Markdown result views > renders 'query_followers' case 25 with budget 100 > case 25, budget 100 1`] = `
+"u/alice has 1 follower. This list shows 1:
+- u/alice"
+`;
+
+exports[`Markdown result views > renders 'query_followers' case 25 with budget undefined > case 25, budget undefined 1`] = `
+"u/alice has 1 follower. This list shows 1:
+- u/alice"
+`;
+
+exports[`Markdown result views > renders 'read_comment_by_id' case 5 with budget 1 > case 5, budget 1 1`] = `
+"## t/thr_abc “A topic”
+In f/general · 2 comments · score +4 · last activity: 22d8h0m
+
+---
+
+### c/cmt_root
+Timestamp: 22d10h0m
+Alice u/alice posted:
+
+> The opening body"
+`;
+
+exports[`Markdown result views > renders 'read_comment_by_id' case 5 with budget 30 > case 5, budget 30 1`] = `
+"## t/thr_abc “A topic”
+In f/general · 2 comments · score +4 · last activity: 22d8h0m
+
+---
+
+### c/cmt_root
+Timestamp: 22d10h0m
+Alice u/alice posted:
+
+> The opening body"
+`;
+
+exports[`Markdown result views > renders 'read_comment_by_id' case 5 with budget 100 > case 5, budget 100 1`] = `
+"## t/thr_abc “A topic”
+In f/general · 2 comments · score +4 · last activity: 22d8h0m
+
+---
+
+### c/cmt_root
+Timestamp: 22d10h0m
+Alice u/alice posted:
+
+> The opening body"
+`;
+
+exports[`Markdown result views > renders 'read_comment_by_id' case 5 with budget undefined > case 5, budget undefined 1`] = `
+"## t/thr_abc “A topic”
+In f/general · 2 comments · score +4 · last activity: 22d8h0m
+
+---
+
+### c/cmt_root
+Timestamp: 22d10h0m
+Alice u/alice posted:
+
+> The opening body"
+`;
+
+exports[`Markdown result views > renders 'read_note' case 12 with budget 1 > case 12, budget 1 1`] = `
+"## Note \`one\`
+Links:
+- u/alice
+
+My content"
+`;
+
+exports[`Markdown result views > renders 'read_note' case 12 with budget 30 > case 12, budget 30 1`] = `
+"## Note \`one\`
+Links:
+- u/alice
+
+My content"
+`;
+
+exports[`Markdown result views > renders 'read_note' case 12 with budget 100 > case 12, budget 100 1`] = `
+"## Note \`one\`
+Links:
+- u/alice
+
+My content"
+`;
+
+exports[`Markdown result views > renders 'read_note' case 12 with budget undefined > case 12, budget undefined 1`] = `
+"## Note \`one\`
+Links:
+- u/alice
+
+My content"
+`;
+
+exports[`Markdown result views > renders 'read_thread' case 3 with budget 1 > case 3, budget 1 1`] = `
+"## t/thr_abc “A topic”
+In f/general · 2 comments · score +4 · last activity: 22d8h0m
+
+---
+
+### c/cmt_root
+Timestamp: 22d10h0m
+Alice u/alice posted:
+
+> The opening body"
+`;
+
+exports[`Markdown result views > renders 'read_thread' case 3 with budget 30 > case 3, budget 30 1`] = `
+"## t/thr_abc “A topic”
+In f/general · 2 comments · score +4 · last activity: 22d8h0m
+
+---
+
+### c/cmt_root
+Timestamp: 22d10h0m
+Alice u/alice posted:
+
+> The opening body"
+`;
+
+exports[`Markdown result views > renders 'read_thread' case 3 with budget 100 > case 3, budget 100 1`] = `
+"## t/thr_abc “A topic”
+In f/general · 2 comments · score +4 · last activity: 22d8h0m
+
+---
+
+### c/cmt_root
+Timestamp: 22d10h0m
+Alice u/alice posted:
+
+> The opening body"
+`;
+
+exports[`Markdown result views > renders 'read_thread' case 3 with budget undefined > case 3, budget undefined 1`] = `
+"## t/thr_abc “A topic”
+In f/general · 2 comments · score +4 · last activity: 22d8h0m
+
+---
+
+### c/cmt_root
+Timestamp: 22d10h0m
+Alice u/alice posted:
+
+> The opening body"
+`;
+
+exports[`Markdown result views > renders 'read_thread_by_id' case 4 with budget 1 > case 4, budget 1 1`] = `
+"## t/thr_abc “A topic”
+In f/general · 2 comments · score +4 · last activity: 22d8h0m
+
+---
+
+### c/cmt_root
+Timestamp: 22d10h0m
+Alice u/alice posted:
+
+> The opening body"
+`;
+
+exports[`Markdown result views > renders 'read_thread_by_id' case 4 with budget 30 > case 4, budget 30 1`] = `
+"## t/thr_abc “A topic”
+In f/general · 2 comments · score +4 · last activity: 22d8h0m
+
+---
+
+### c/cmt_root
+Timestamp: 22d10h0m
+Alice u/alice posted:
+
+> The opening body"
+`;
+
+exports[`Markdown result views > renders 'read_thread_by_id' case 4 with budget 100 > case 4, budget 100 1`] = `
+"## t/thr_abc “A topic”
+In f/general · 2 comments · score +4 · last activity: 22d8h0m
+
+---
+
+### c/cmt_root
+Timestamp: 22d10h0m
+Alice u/alice posted:
+
+> The opening body"
+`;
+
+exports[`Markdown result views > renders 'read_thread_by_id' case 4 with budget undefined > case 4, budget undefined 1`] = `
+"## t/thr_abc “A topic”
+In f/general · 2 comments · score +4 · last activity: 22d8h0m
+
+---
+
+### c/cmt_root
+Timestamp: 22d10h0m
+Alice u/alice posted:
+
+> The opening body"
+`;
+
+exports[`Markdown result views > renders 'read_thread_by_id' case 26 with budget 1 > case 26, budget 1 1`] = `
+"## t/thr_abc “A topic”
+In f/general · 2 comments · score +4 · last activity: 22d8h0m
+
+---
+
+### c/cmt_root
+Timestamp: 22d10h0m
+Alice u/alice posted:
+
+> The opening body
+
+---
+
+### c/cmt_child
+Timestamp: 22d10h0m
+u/alice replied to c/cmt_root:
+
+> A nested reply"
+`;
+
+exports[`Markdown result views > renders 'read_thread_by_id' case 26 with budget 30 > case 26, budget 30 1`] = `
+"## t/thr_abc “A topic”
+In f/general · 2 comments · score +4 · last activity: 22d8h0m
+
+---
+
+### c/cmt_root
+Timestamp: 22d10h0m
+Alice u/alice posted:
+
+> The opening body
+
+---
+
+### c/cmt_child
+Timestamp: 22d10h0m
+u/alice replied to c/cmt_root:
+
+> A nested reply"
+`;
+
+exports[`Markdown result views > renders 'read_thread_by_id' case 26 with budget 100 > case 26, budget 100 1`] = `
+"## t/thr_abc “A topic”
+In f/general · 2 comments · score +4 · last activity: 22d8h0m
+
+---
+
+### c/cmt_root
+Timestamp: 22d10h0m
+Alice u/alice posted:
+
+> The opening body
+
+---
+
+### c/cmt_child
+Timestamp: 22d10h0m
+u/alice replied to c/cmt_root:
+
+> A nested reply"
+`;
+
+exports[`Markdown result views > renders 'read_thread_by_id' case 26 with budget undefined > case 26, budget undefined 1`] = `
+"## t/thr_abc “A topic”
+In f/general · 2 comments · score +4 · last activity: 22d8h0m
+
+---
+
+### c/cmt_root
+Timestamp: 22d10h0m
+Alice u/alice posted:
+
+> The opening body
+
+---
+
+### c/cmt_child
+Timestamp: 22d10h0m
+u/alice replied to c/cmt_root:
+
+> A nested reply"
+`;
+
+exports[`Markdown result views > renders 'reply_to_comment' case 17 with budget 1 > case 17, budget 1 1`] = `"I posted c/cmt_reply in reply to c/cmt_root in t/thr_abc “A topic”."`;
+
+exports[`Markdown result views > renders 'reply_to_comment' case 17 with budget 30 > case 17, budget 30 1`] = `"I posted c/cmt_reply in reply to c/cmt_root in t/thr_abc “A topic”."`;
+
+exports[`Markdown result views > renders 'reply_to_comment' case 17 with budget 100 > case 17, budget 100 1`] = `"I posted c/cmt_reply in reply to c/cmt_root in t/thr_abc “A topic”."`;
+
+exports[`Markdown result views > renders 'reply_to_comment' case 17 with budget undefined > case 17, budget undefined 1`] = `"I posted c/cmt_reply in reply to c/cmt_root in t/thr_abc “A topic”."`;
+
+exports[`Markdown result views > renders 'search_profiles' case 8 with budget 1 > case 8, budget 1 1`] = `"1 more item did not fit in this result."`;
+
+exports[`Markdown result views > renders 'search_profiles' case 8 with budget 30 > case 8, budget 30 1`] = `"1 more item did not fit in this result."`;
+
+exports[`Markdown result views > renders 'search_profiles' case 8 with budget 100 > case 8, budget 100 1`] = `
+"| Profile | Bio | Followers | Relation | My notes |
+|---|---|---|---|---|
+| Alice u/alice | Hello | 3 | I follow them |  |"
+`;
+
+exports[`Markdown result views > renders 'search_profiles' case 8 with budget undefined > case 8, budget undefined 1`] = `
+"| Profile | Bio | Followers | Relation | My notes |
+|---|---|---|---|---|
+| Alice u/alice | Hello | 3 | I follow them |  |"
+`;
+
+exports[`Markdown result views > renders 'search_threads' case 6 with budget 1 > case 6, budget 1 1`] = `"1 more item did not fit in this result."`;
+
+exports[`Markdown result views > renders 'search_threads' case 6 with budget 30 > case 6, budget 30 1`] = `"1 more item did not fit in this result."`;
+
+exports[`Markdown result views > renders 'search_threads' case 6 with budget 100 > case 6, budget 100 1`] = `
+"| Hit | Thread | Forum | Author | Timestamp | Excerpt |
+|---|---|---|---|---|---|
+| c/cmt_root | t/thr_abc “A topic” | f/general | Alice u/alice | 22d10h0m | A snippet |"
+`;
+
+exports[`Markdown result views > renders 'search_threads' case 6 with budget undefined > case 6, budget undefined 1`] = `
+"| Hit | Thread | Forum | Author | Timestamp | Excerpt |
+|---|---|---|---|---|---|
+| c/cmt_root | t/thr_abc “A topic” | f/general | Alice u/alice | 22d10h0m | A snippet |"
+`;
+
+exports[`Markdown result views > renders 'search_threads_semantic' case 7 with budget 1 > case 7, budget 1 1`] = `"1 more item did not fit in this result."`;
+
+exports[`Markdown result views > renders 'search_threads_semantic' case 7 with budget 30 > case 7, budget 30 1`] = `"1 more item did not fit in this result."`;
+
+exports[`Markdown result views > renders 'search_threads_semantic' case 7 with budget 100 > case 7, budget 100 1`] = `
+"| Hit | Thread | Forum | Author | Timestamp | Excerpt |
+|---|---|---|---|---|---|
+| c/cmt_root | t/thr_abc “A topic” | f/general | Alice u/alice | 22d10h0m | A snippet |"
+`;
+
+exports[`Markdown result views > renders 'search_threads_semantic' case 7 with budget undefined > case 7, budget undefined 1`] = `
+"| Hit | Thread | Forum | Author | Timestamp | Excerpt |
+|---|---|---|---|---|---|
+| c/cmt_root | t/thr_abc “A topic” | f/general | Alice u/alice | 22d10h0m | A snippet |"
+`;
+
+exports[`Markdown result views > renders 'unfollow_profile' case 20 with budget 1 > case 20, budget 1 1`] = `"- I no longer follow u/alice."`;
+
+exports[`Markdown result views > renders 'unfollow_profile' case 20 with budget 30 > case 20, budget 30 1`] = `"- I no longer follow u/alice."`;
+
+exports[`Markdown result views > renders 'unfollow_profile' case 20 with budget 100 > case 20, budget 100 1`] = `"- I no longer follow u/alice."`;
+
+exports[`Markdown result views > renders 'unfollow_profile' case 20 with budget undefined > case 20, budget undefined 1`] = `"- I no longer follow u/alice."`;
+
+exports[`Markdown result views > renders 'view_activity' case 24 with budget 1 > case 24, budget 1 1`] = `
+"Recent activity of u/alice:
+No recent activity."
+`;
+
+exports[`Markdown result views > renders 'view_activity' case 24 with budget 30 > case 24, budget 30 1`] = `
+"Recent activity of u/alice:
+No recent activity."
+`;
+
+exports[`Markdown result views > renders 'view_activity' case 24 with budget 100 > case 24, budget 100 1`] = `
+"Recent activity of u/alice:
+No recent activity."
+`;
+
+exports[`Markdown result views > renders 'view_activity' case 24 with budget undefined > case 24, budget undefined 1`] = `
+"Recent activity of u/alice:
+No recent activity."
+`;
+
+exports[`Markdown result views > renders 'view_activity' case 38 with budget 1 > case 38, budget 1 1`] = `
+"Recent activity of u/alice:
+1 more item did not fit in this result."
+`;
+
+exports[`Markdown result views > renders 'view_activity' case 38 with budget 30 > case 38, budget 30 1`] = `
+"Recent activity of u/alice:
+1 more item did not fit in this result."
+`;
+
+exports[`Markdown result views > renders 'view_activity' case 38 with budget 100 > case 38, budget 100 1`] = `
+"Recent activity of u/alice:
+- Timestamp: 22d10h0m. Started thread t/thr_abc “A topic” in f/general (2 comments, score +4). “A thread preview”"
+`;
+
+exports[`Markdown result views > renders 'view_activity' case 38 with budget undefined > case 38, budget undefined 1`] = `
+"Recent activity of u/alice:
+- Timestamp: 22d10h0m. Started thread t/thr_abc “A topic” in f/general (2 comments, score +4). “A thread preview”"
+`;
+
+exports[`Markdown result views > renders 'view_activity' case 39 with budget 1 > case 39, budget 1 1`] = `
+"Recent activity of u/alice:
+1 more item did not fit in this result."
+`;
+
+exports[`Markdown result views > renders 'view_activity' case 39 with budget 30 > case 39, budget 30 1`] = `
+"Recent activity of u/alice:
+1 more item did not fit in this result."
+`;
+
+exports[`Markdown result views > renders 'view_activity' case 39 with budget 100 > case 39, budget 100 1`] = `
+"Recent activity of u/alice:
+- Timestamp: 22d10h0m. Replied to u/alice with c/cmt_root in f/general: “A comment preview”
+  - Parent comment: “A parent preview”"
+`;
+
+exports[`Markdown result views > renders 'view_activity' case 39 with budget undefined > case 39, budget undefined 1`] = `
+"Recent activity of u/alice:
+- Timestamp: 22d10h0m. Replied to u/alice with c/cmt_root in f/general: “A comment preview”
+  - Parent comment: “A parent preview”"
+`;
+
+exports[`Markdown result views > renders 'view_activity' case 40 with budget 1 > case 40, budget 1 1`] = `
+"Recent activity of u/alice:
+1 more item did not fit in this result."
+`;
+
+exports[`Markdown result views > renders 'view_activity' case 40 with budget 30 > case 40, budget 30 1`] = `
+"Recent activity of u/alice:
+1 more item did not fit in this result."
+`;
+
+exports[`Markdown result views > renders 'view_activity' case 40 with budget 100 > case 40, budget 100 1`] = `
+"Recent activity of u/alice:
+- Timestamp: 22d10h0m. Upvoted c/cmt_root in t/thr_abc. Reason: “A reason”
+  - The comment by u/alice: “A target preview”"
+`;
+
+exports[`Markdown result views > renders 'view_activity' case 40 with budget undefined > case 40, budget undefined 1`] = `
+"Recent activity of u/alice:
+- Timestamp: 22d10h0m. Upvoted c/cmt_root in t/thr_abc. Reason: “A reason”
+  - The comment by u/alice: “A target preview”"
+`;
+
+exports[`Markdown result views > renders 'view_activity' case 41 with budget 1 > case 41, budget 1 1`] = `
+"Recent activity of u/alice:
+1 more item did not fit in this result."
+`;
+
+exports[`Markdown result views > renders 'view_activity' case 41 with budget 30 > case 41, budget 30 1`] = `
+"Recent activity of u/alice:
+- Timestamp: 22d10h0m. Started following u/alice. Reason: “A reason”"
+`;
+
+exports[`Markdown result views > renders 'view_activity' case 41 with budget 100 > case 41, budget 100 1`] = `
+"Recent activity of u/alice:
+- Timestamp: 22d10h0m. Started following u/alice. Reason: “A reason”"
+`;
+
+exports[`Markdown result views > renders 'view_activity' case 41 with budget undefined > case 41, budget undefined 1`] = `
+"Recent activity of u/alice:
+- Timestamp: 22d10h0m. Started following u/alice. Reason: “A reason”"
+`;
+
+exports[`Markdown result views > renders 'view_activity' case 42 with budget 1 > case 42, budget 1 1`] = `
+"Recent activity of u/alice:
+1 more item did not fit in this result."
+`;
+
+exports[`Markdown result views > renders 'view_activity' case 42 with budget 30 > case 42, budget 30 1`] = `
+"Recent activity of u/alice:
+- Timestamp: 22d10h0m. Stopped following u/alice."
+`;
+
+exports[`Markdown result views > renders 'view_activity' case 42 with budget 100 > case 42, budget 100 1`] = `
+"Recent activity of u/alice:
+- Timestamp: 22d10h0m. Stopped following u/alice."
+`;
+
+exports[`Markdown result views > renders 'view_activity' case 42 with budget undefined > case 42, budget undefined 1`] = `
+"Recent activity of u/alice:
+- Timestamp: 22d10h0m. Stopped following u/alice."
+`;
+
+exports[`Markdown result views > renders 'view_profiles' case 10 with budget 1 > case 10, budget 1 1`] = `"1 more item did not fit in this result."`;
+
+exports[`Markdown result views > renders 'view_profiles' case 10 with budget 30 > case 10, budget 30 1`] = `"1 more item did not fit in this result."`;
+
+exports[`Markdown result views > renders 'view_profiles' case 10 with budget 100 > case 10, budget 100 1`] = `
+"| Profile | Bio | Followers | Relation | My notes |
+|---|---|---|---|---|
+| Alice u/alice | Hello | 3 | I follow them | \`own note\` |"
+`;
+
+exports[`Markdown result views > renders 'view_profiles' case 10 with budget undefined > case 10, budget undefined 1`] = `
+"| Profile | Bio | Followers | Relation | My notes |
+|---|---|---|---|---|
+| Alice u/alice | Hello | 3 | I follow them | \`own note\` |"
+`;
+
+exports[`Markdown result views > renders 'vote' case 18 with budget 1 > case 18, budget 1 1`] = `"- I upvoted c/cmt_root in t/thr_abc “A topic”."`;
+
+exports[`Markdown result views > renders 'vote' case 18 with budget 30 > case 18, budget 30 1`] = `"- I upvoted c/cmt_root in t/thr_abc “A topic”."`;
+
+exports[`Markdown result views > renders 'vote' case 18 with budget 100 > case 18, budget 100 1`] = `"- I upvoted c/cmt_root in t/thr_abc “A topic”."`;
+
+exports[`Markdown result views > renders 'vote' case 18 with budget undefined > case 18, budget undefined 1`] = `"- I upvoted c/cmt_root in t/thr_abc “A topic”."`;
+
+exports[`Markdown result views > renders 'write_note' case 13 with budget 1 > case 13, budget 1 1`] = `
+"I saved the new note \`one\`.
+Links:
+- u/alice"
+`;
+
+exports[`Markdown result views > renders 'write_note' case 13 with budget 30 > case 13, budget 30 1`] = `
+"I saved the new note \`one\`.
+Links:
+- u/alice"
+`;
+
+exports[`Markdown result views > renders 'write_note' case 13 with budget 100 > case 13, budget 100 1`] = `
+"I saved the new note \`one\`.
+Links:
+- u/alice"
+`;
+
+exports[`Markdown result views > renders 'write_note' case 13 with budget undefined > case 13, budget undefined 1`] = `
+"I saved the new note \`one\`.
+Links:
+- u/alice"
+`;
+
+exports[`Markdown result views > renders empty lists and self-authored posts > forums_listed 1`] = `"There are no forums that I can read."`;
+
+exports[`Markdown result views > renders empty lists and self-authored posts > note_listed 1`] = `"This page lists no notes."`;
+
+exports[`Markdown result views > renders empty lists and self-authored posts > posts_searched 1`] = `"Nothing matched."`;
+
+exports[`Markdown result views > renders empty lists and self-authored posts > profiles_searched 1`] = `"No profiles matched."`;
+
+exports[`Markdown result views > renders empty lists and self-authored posts > threads_listed 1`] = `"There are no threads here."`;
+
+exports[`Markdown result views > renders the synthetic PLAN, notification, and profile sequence of a visit 1`] = `
+[
+  "## Note \`PLAN\`
+
+Read and reply.",
+  "## t/thr_abc “A topic”
+Timestamp: 22d10h0m
+Alice u/alice started this thread in my blog f/general:
+
+> The thread body
+
+---
+
+u/alice replied to my comment c/cmt_parent in t/thr_abc:
+
+### c/cmt_parent
+Timestamp: 22d10h0m
+u/alice posted:
+
+> The parent body
+
+---
+
+### c/cmt_root
+Timestamp: 22d10h0m
+u/alice replied to c/cmt_parent:
+
+> A reply body",
+  "| Profile | Bio | Followers | Relation | My notes |
+|---|---|---|---|---|
+| u/alice | Hello | 3 | I follow them | \`own note\` |",
+]
+`;

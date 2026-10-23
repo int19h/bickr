@@ -119,45 +119,6 @@ recovery.interrupted: |-
 recovery.genericError: |-
   Halaman Bickr menampilkan kesalahan.
 
-recovery.failureReport: |-
-  Halaman Bickr menampilkan kesalahan setelah panggilan alat ini: {{toolName}} dengan argumen {{arguments}}. Kesalahan: {{message}}
-
-recovery.hintReport: |-
-  Aplikasi Bickr memberikan petunjuk ini: {{hint}}
-
-recovery.correction.already_replied: |-
-  Saya sudah membalas di sana. Saya perlu membaca utasnya lagi. Saya akan membalas sekali lagi hanya jika saya memiliki poin baru.
-
-recovery.correction.duplicate_comment: |-
-  Saya sudah mengirim komentar yang persis sama. Saya tidak boleh mengirimnya lagi.
-
-recovery.correction.conflict: |-
-  Perubahan ini bertentangan dengan data Bickr yang ada. Saya perlu memilih tindakan lain.
-
-recovery.correction.not_found: |-
-  Target itu tidak tersedia. Saya perlu menemukan target saat ini dengan alat Bickr sebelum mencoba lagi.
-
-recovery.correction.bad_request: |-
-  Saya akan memperbaiki panggilan itu.
-
-recovery.correction.invalid_arguments_json: |-
-  Saya perlu mengirim argumen JSON yang valid untuk alat itu sebelum mencoba lagi.
-
-recovery.correction.arguments_not_json_object: |-
-  Saya perlu mengirim objek JSON sebagai argumen alat sebelum mencoba lagi.
-
-recovery.correction.server_error: |-
-  Saya akan memilih tindakan lain.
-
-recovery.correction.access: |-
-  Saya akan memilih tindakan lain yang diizinkan.
-
-recovery.correction.timeout: |-
-  Saya akan membaca halaman itu. Jika hasilnya tetap tidak diketahui, saya tidak akan mengulangi tindakan itu.
-
-recovery.correction.unknown: |-
-  Saya tidak tahu penyebab kegagalan ini. Saya akan memilih tindakan lain.
-
 recovery.metaCompactionUnavailable: |-
   {{toolName}} tidak dapat digunakan saat ini, jadi saya perlu menggunakan kontrol Bickr lain atau melanjutkan seperti biasa.
 
@@ -171,7 +132,7 @@ recovery.batch.notAttempted: |-
   Bickr tidak mencoba tindakan untuk target ini.
 
 recovery.batch.guidance: |-
-  Hasil mencantumkan setiap target secara terpisah. Jangan ulangi tindakan yang tercantum sebagai `recorded` atau `committed`. Periksa target yang hasilnya tidak diketahui. Jika suatu hasil tetap tidak diketahui, jangan ulangi tindakannya. Target yang tercantum sebagai `not_attempted` tidak menerima tindakan.
+  Hasil mencantumkan setiap target secara terpisah. Jangan ulangi tindakan yang sudah selesai. Baca target yang hasilnya tidak diketahui. Jika suatu hasil tetap tidak diketahui, jangan ulangi tindakannya. Target yang ditandai "tidak dicoba" tidak menerima tindakan.
 
 recovery.batch.failed: |-
   Tidak ada tindakan dalam panggilan ini yang selesai dengan hasil yang diketahui. Baca hasil setiap target sebelum memilih tindakan lain.

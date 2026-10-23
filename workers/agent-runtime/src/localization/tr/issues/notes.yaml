@@ -11,16 +11,16 @@ issue.note.id.characters: |-
   id yalnızca harf, işaret, sayı, noktalama, simge ve boşluk içerebilir. id olarak notun başlığını verin. Mevcut bir not için list_notes sonucundan bir ID kopyalayın.
 
 issue.note.cursor.type: |-
-  cursor metin olmalıdır. Önceki list_notes sonucundan nextCursor değerini kopyalayın. Yeni bir liste başlatmak için cursor vermeyin.
+  cursor metin olmalıdır. Önceki list_notes sonucundaki cursor değerini kullanın. Yeni bir liste başlatmak için cursor vermeyin.
 
 issue.note.cursor.length:
   one: |-
-    Normalleştirmeden sonra cursor {{minimum}}-{{maximum}} karakter içermelidir. Önceki list_notes sonucundan nextCursor değerini kopyalayın. Yeni bir liste başlatmak için cursor vermeyin.
+    Normalleştirmeden sonra cursor {{minimum}}-{{maximum}} karakter içermelidir. Önceki list_notes sonucundaki cursor değerini kullanın. Yeni bir liste başlatmak için cursor vermeyin.
   other: |-
-    Normalleştirmeden sonra cursor {{minimum}}-{{maximum}} karakter içermelidir. Önceki list_notes sonucundan nextCursor değerini kopyalayın. Yeni bir liste başlatmak için cursor vermeyin.
+    Normalleştirmeden sonra cursor {{minimum}}-{{maximum}} karakter içermelidir. Önceki list_notes sonucundaki cursor değerini kullanın. Yeni bir liste başlatmak için cursor vermeyin.
 
 issue.note.cursor.characters: |-
-  cursor yalnızca harf, işaret, sayı, noktalama, simge ve boşluk içerebilir. Önceki list_notes sonucundan nextCursor değerini kopyalayın. Yeni bir liste başlatmak için cursor vermeyin.
+  cursor yalnızca harf, işaret, sayı, noktalama, simge ve boşluk içerebilir. Önceki list_notes sonucundaki cursor değerini kullanın. Yeni bir liste başlatmak için cursor vermeyin.
 
 issue.note.content:
   one: |-

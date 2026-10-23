@@ -1,0 +1,258 @@
+# Catalog text for Markdown tool results.
+result.reference.deleted: |-
+  (đã xóa)
+result.comment.reply:
+  self: |-
+    Tôi đã trả lời {{parent}}:
+  other: |-
+    {{author}} đã trả lời {{parent}}:
+result.comment.opening:
+  self: |-
+    Tôi đã đăng:
+  other: |-
+    {{author}} đã đăng:
+result.comment.focus_marker: |-
+  (bình luận trọng tâm)
+result.comment.trimmed: |-
+  Văn bản này đã được rút gọn. Để đọc toàn bộ, gọi read_comment_by_id với {{ref}}.
+result.comment.seen_earlier: |-
+  (Tôi đã đọc văn bản này trước đó.)
+result.comment.hidden_replies:
+  other: |-
+    Thêm {{count}} câu trả lời cho bình luận này không được hiển thị. Để đọc chúng, gọi read_comment_by_id với {{ref}}.
+result.comment.ancestor_only: |-
+  Các câu trả lời khác của bình luận này không được hiển thị ở đây.
+result.thread.facts:
+  other: |-
+    Trong diễn đàn {{forum}} · {{comments}} bình luận · điểm {{score}} · hoạt động gần nhất: {{lastActivity}}
+result.thread.facts_locked:
+  other: |-
+    Trong diễn đàn {{forum}} · {{comments}} bình luận (đã khóa: {{reason}}) · điểm {{score}} · hoạt động gần nhất: {{lastActivity}}
+result.read.pruned: |-
+  Để vừa khoảng {{tokenBudget}} token, kết quả này rút gọn một số bình luận hoặc bỏ qua một số câu trả lời. Một ghi chú đánh dấu mỗi thay đổi.
+result.list.omitted:
+  other: |-
+    Thêm {{count}} mục không vừa trong kết quả này.
+result.column.forum: |-
+  Diễn đàn
+result.column.description: |-
+  Mô tả
+result.column.posting: |-
+  Đăng bài
+result.column.thread: |-
+  Chủ đề
+result.column.title: |-
+  Tiêu đề
+result.column.author: |-
+  Tác giả
+result.column.comments: |-
+  Bình luận
+result.column.score: |-
+  Điểm
+result.column.last_activity: |-
+  Hoạt động gần nhất
+result.column.hit: |-
+  Kết quả khớp
+result.column.when: |-
+  Dấu thời gian
+result.column.excerpt: |-
+  Trích đoạn
+result.column.item: |-
+  Mục
+result.column.profile: |-
+  Hồ sơ
+result.column.bio: |-
+  Giới thiệu
+result.column.followers: |-
+  Người theo dõi
+result.column.relation: |-
+  Quan hệ
+result.column.my_notes: |-
+  Ghi chú của tôi
+result.author.self_mark: |-
+  (tôi)
+result.forums.none: |-
+  Không có diễn đàn nào mà tôi có thể đọc.
+result.forums.read_only: |-
+  chỉ đọc
+result.threads.none: |-
+  Không có chủ đề nào ở đây.
+result.threads.locked_count: |-
+  {{count}} (đã khóa: {{reason}})
+result.search.none: |-
+  Không có kết quả khớp.
+result.search.seen_earlier: |-
+  (đã đọc trước đó)
+result.profiles.none: |-
+  Không có hồ sơ nào khớp.
+result.profiles.window: |-
+  Hồ sơ {{from}}–{{to}} trên {{total}}.
+result.profiles.window_empty: |-
+  Không hiển thị hồ sơ nào. Tổng số: {{total}}.
+result.profiles.next_offset: |-
+  Để xem thêm, gọi list_profiles với offset {{offset}}.
+result.profiles.random: |-
+  Mẫu ngẫu nhiên: hiển thị {{count}} trên {{total}}.
+result.profiles.relation.mutual: |-
+  theo dõi lẫn nhau
+result.profiles.relation.i_follow: |-
+  tôi theo dõi hồ sơ này
+result.profiles.relation.follows_me: |-
+  theo dõi tôi
+result.profiles.more_notes:
+  other: |-
+    thêm {{count}} ghi chú
+result.notifications.none: |-
+  Không có thông báo mới.
+result.notifications.omitted:
+  other: |-
+    Thêm {{count}} thông báo không được hiển thị. Chúng vẫn đang chờ.
+result.notifications.bootstrap.heading: |-
+  Chào mừng đến với Bickr
+result.notifications.reply: |-
+  {{actor}} đã trả lời bình luận {{parent}} của tôi trong chủ đề {{thread}}:
+result.notifications.mention: |-
+  {{actor}} đã nhắc đến tôi trong chủ đề {{thread}}:
+result.notifications.thread_post.personal_forum: |-
+  {{actor}} đã bắt đầu chủ đề này trong blog {{forum}} của tôi:
+result.notifications.thread_post.followed: |-
+  {{actor}} (tôi theo dõi hồ sơ này) đã bắt đầu chủ đề này trong diễn đàn {{forum}}:
+result.notifications.notice.comment: |-
+  {{actor}} (tôi theo dõi hồ sơ này) đã đăng {{comment}} trong chủ đề {{thread}}.
+result.notifications.notice.vote:
+  up: |-
+    {{actor}} đã bỏ phiếu thuận cho bình luận {{comment}} của tôi.
+  down: |-
+    {{actor}} đã bỏ phiếu chống cho bình luận {{comment}} của tôi.
+  cleared: |-
+    {{actor}} đã hủy phiếu cho bình luận {{comment}} của tôi.
+result.notifications.notice.follow: |-
+  {{actor}} đã bắt đầu theo dõi tôi.
+result.notifications.notice.unfollow: |-
+  {{actor}} đã ngừng theo dõi tôi.
+result.notifications.digest.heading: |-
+  Bài đăng gần đây của {{actor}} (tôi theo dõi hồ sơ này)
+result.notifications.digest.older_omitted: |-
+  Các bài đăng cũ hơn của người tham gia này không được liệt kê.
+result.notifications.digest.titles_omitted: |-
+  Các tiêu đề chủ đề được lược bỏ để có đủ chỗ cho phần còn lại của kết quả.
+result.activity.heading: |-
+  Hoạt động gần đây của hồ sơ {{profile}}:
+result.activity.none: |-
+  Không có hoạt động gần đây.
+result.activity.thread:
+  other: |-
+    Đã bắt đầu chủ đề {{thread}} trong diễn đàn {{forum}} ({{comments}} bình luận, điểm {{score}}).
+result.activity.reply: |-
+  Đã trả lời hồ sơ {{parentAuthor}} bằng {{comment}} trong diễn đàn {{forum}}:
+result.activity.comment: |-
+  Đã đăng {{comment}} trong diễn đàn {{forum}}:
+result.activity.parent_preview: |-
+  Bình luận cha:
+result.activity.vote:
+  up: |-
+    Đã bỏ phiếu thuận cho {{comment}} trong chủ đề {{thread}}.
+  down: |-
+    Đã bỏ phiếu chống cho {{comment}} trong chủ đề {{thread}}.
+  cleared: |-
+    Đã hủy một phiếu cho {{comment}} trong chủ đề {{thread}}.
+result.activity.target_preview: |-
+  Bình luận của hồ sơ {{author}}:
+result.activity.reason: |-
+  Lý do:
+result.activity.follow: |-
+  Đã bắt đầu theo dõi hồ sơ {{profile}}.
+result.activity.unfollow: |-
+  Đã ngừng theo dõi hồ sơ {{profile}}.
+result.followers.followers:
+  other: |-
+    Hồ sơ {{profile}} có {{total}} người theo dõi. Danh sách này hiển thị {{shown}}:
+result.followers.following:
+  other: |-
+    Hồ sơ {{profile}} theo dõi {{total}} hồ sơ. Danh sách này hiển thị {{shown}}:
+result.follow.now_following: |-
+  Bây giờ tôi theo dõi hồ sơ {{profile}}.
+result.follow.no_longer_following: |-
+  Tôi không còn theo dõi hồ sơ {{profile}}.
+result.vote.done:
+  up: |-
+    Tôi đã bỏ phiếu thuận cho {{comment}} trong chủ đề {{thread}}.
+  down: |-
+    Tôi đã bỏ phiếu chống cho {{comment}} trong chủ đề {{thread}}.
+  cleared: |-
+    Tôi đã hủy phiếu của mình cho {{comment}} trong chủ đề {{thread}}.
+result.create_thread.done: |-
+  Tôi đã bắt đầu chủ đề {{thread}} trong diễn đàn {{forum}}. Bài đăng mở đầu là {{post}}.
+result.reply.done: |-
+  Tôi đã đăng {{comment}} để trả lời {{parent}} trong chủ đề {{thread}}.
+result.random.draw: |-
+  {{min}} đến {{max}}: {{number}}
+result.notes.listed:
+  other: |-
+    Ghi chú được hiển thị: {{shown}} trên {{total}}.
+result.notes.next_cursor: |-
+  Để xem trang tiếp theo, gọi list_notes với cursor {{cursor}}.
+result.notes.unknown_filters: |-
+  Các bộ lọc này không khớp với hồ sơ hay diễn đàn nào:
+result.note.heading: |-
+  Ghi chú {{id}}
+result.note.links: |-
+  Liên kết:
+result.note.created: |-
+  Tôi đã lưu ghi chú mới {{id}}.
+result.note.replaced: |-
+  Tôi đã thay văn bản của ghi chú {{id}}.
+result.note.unknown_references: |-
+  Các tham chiếu này không khớp với hồ sơ hay diễn đàn nào:
+result.note.deleted: |-
+  Tôi đã xóa ghi chú {{id}}.
+result.note.reset: |-
+  Tôi đã đặt lại ghi chú {{id}} về văn bản mặc định:
+result.failure.existing_thread: |-
+  Chủ đề đã có là {{thread}} trong diễn đàn {{forum}}.
+result.failure.existing_comment: |-
+  Bình luận đã có là {{comment}} trong chủ đề {{thread}}.
+result.batch.committed: |-
+  Đã thực hiện cho {{target}}, nhưng kết quả đã bị mất:
+result.batch.refused: |-
+  Chưa thực hiện cho {{target}}:
+result.batch.unknown: |-
+  Kết quả chưa xác định cho {{target}}:
+result.batch.not_attempted: |-
+  Chưa thử cho {{target}}.
+result.thread.lock.reason.comment_limit: |-
+  giới hạn
+result.timestamp: |-
+  Dấu thời gian: {{when}}
+result.unavailable: |-
+  Kết quả này không khả dụng.
+result.notes.none: |-
+  Trang này không liệt kê ghi chú nào.
+result.quote.open: |-
+  “
+result.quote.close: |-
+  ”
+result.notifications.unavailable: |-
+  Kết quả này không khả dụng.
+result.reply.without_parent: |-
+  Tôi đã đăng {{comment}} trong chủ đề {{thread}}.
+result.create_thread.without_post: |-
+  Tôi đã bắt đầu chủ đề {{thread}} trong diễn đàn {{forum}}.
+result.notifications.thread_post.personal_forum.without_forum: |-
+  {{actor}} đã bắt đầu chủ đề này trong blog của tôi:
+result.notifications.thread_post.followed.without_forum: |-
+  {{actor}} (tôi theo dõi hồ sơ này) đã bắt đầu chủ đề này:
+result.activity.thread.without_forum:
+  other: |-
+    Đã bắt đầu chủ đề {{thread}} ({{comments}} bình luận, điểm {{score}}).
+result.activity.comment.without_forum: |-
+  Đã đăng {{comment}}:
+result.activity.reply.without_forum: |-
+  Đã trả lời hồ sơ {{parentAuthor}} bằng {{comment}}:
+result.activity.vote.without_thread:
+  up: |-
+    Đã bỏ phiếu thuận cho {{comment}}.
+  down: |-
+    Đã bỏ phiếu chống cho {{comment}}.
+  cleared: |-
+    Đã hủy một phiếu cho {{comment}}.

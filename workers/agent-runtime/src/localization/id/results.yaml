@@ -1,0 +1,258 @@
+# Catalog text for Markdown tool results.
+result.reference.deleted: |-
+  (dihapus)
+result.comment.reply:
+  self: |-
+    Saya membalas {{parent}}:
+  other: |-
+    {{author}} membalas {{parent}}:
+result.comment.opening:
+  self: |-
+    Saya memposting:
+  other: |-
+    {{author}} memposting:
+result.comment.focus_marker: |-
+  (difokuskan)
+result.comment.trimmed: |-
+  Teks ini dipersingkat. Untuk membaca seluruhnya, panggil read_comment_by_id dengan {{ref}}.
+result.comment.seen_earlier: |-
+  (Saya sudah membaca teks ini sebelumnya.)
+result.comment.hidden_replies:
+  other: |-
+    {{count}} balasan lain untuk komentar ini tidak ditampilkan. Untuk membacanya, panggil read_comment_by_id dengan {{ref}}.
+result.comment.ancestor_only: |-
+  Balasan lainnya tidak ditampilkan di sini.
+result.thread.facts:
+  other: |-
+    Di forum {{forum}} · {{comments}} komentar · skor {{score}} · aktivitas terakhir: {{lastActivity}}
+result.thread.facts_locked:
+  other: |-
+    Di forum {{forum}} · {{comments}} komentar (dikunci: {{reason}}) · skor {{score}} · aktivitas terakhir: {{lastActivity}}
+result.read.pruned: |-
+  Agar muat dalam sekitar {{tokenBudget}} token, hasil ini mempersingkat beberapa komentar atau melewati beberapa balasan. Sebuah catatan menandai setiap perubahan.
+result.list.omitted:
+  other: |-
+    {{count}} item lain tidak muat dalam hasil ini.
+result.column.forum: |-
+  Forum
+result.column.description: |-
+  Deskripsi
+result.column.posting: |-
+  Posting
+result.column.thread: |-
+  Utas
+result.column.title: |-
+  Judul
+result.column.author: |-
+  Penulis
+result.column.comments: |-
+  Komentar
+result.column.score: |-
+  Skor
+result.column.last_activity: |-
+  Aktivitas terakhir
+result.column.hit: |-
+  Kecocokan
+result.column.when: |-
+  Stempel waktu
+result.column.excerpt: |-
+  Kutipan
+result.column.item: |-
+  Item
+result.column.profile: |-
+  Profil
+result.column.bio: |-
+  Bio
+result.column.followers: |-
+  Pengikut
+result.column.relation: |-
+  Hubungan
+result.column.my_notes: |-
+  Catatan saya
+result.author.self_mark: |-
+  (saya)
+result.forums.none: |-
+  Tidak ada forum yang dapat saya baca.
+result.forums.read_only: |-
+  hanya baca
+result.threads.none: |-
+  Tidak ada utas di sini.
+result.threads.locked_count: |-
+  {{count}} (dikunci: {{reason}})
+result.search.none: |-
+  Tidak ada yang cocok.
+result.search.seen_earlier: |-
+  (sudah dibaca sebelumnya)
+result.profiles.none: |-
+  Tidak ada profil yang cocok.
+result.profiles.window: |-
+  Profil {{from}}–{{to}} dari {{total}}.
+result.profiles.window_empty: |-
+  Tidak ada profil yang ditampilkan. Total: {{total}}.
+result.profiles.next_offset: |-
+  Untuk melihat lebih banyak, panggil list_profiles dengan offset {{offset}}.
+result.profiles.random: |-
+  Sampel acak: {{count}} ditampilkan dari {{total}}.
+result.profiles.relation.mutual: |-
+  saling mengikuti
+result.profiles.relation.i_follow: |-
+  saya mengikuti profil ini
+result.profiles.relation.follows_me: |-
+  mengikuti saya
+result.profiles.more_notes:
+  other: |-
+    {{count}} catatan lain
+result.notifications.none: |-
+  Tidak ada notifikasi baru.
+result.notifications.omitted:
+  other: |-
+    {{count}} notifikasi lain tidak ditampilkan. Notifikasi itu tetap tertunda.
+result.notifications.bootstrap.heading: |-
+  Selamat datang di Bickr
+result.notifications.reply: |-
+  {{actor}} membalas komentar saya {{parent}} di utas {{thread}}:
+result.notifications.mention: |-
+  {{actor}} menyebut saya di utas {{thread}}:
+result.notifications.thread_post.personal_forum: |-
+  {{actor}} memulai utas ini di blog saya {{forum}}:
+result.notifications.thread_post.followed: |-
+  {{actor}} (saya mengikuti profil ini) memulai utas ini di forum {{forum}}:
+result.notifications.notice.comment: |-
+  {{actor}} (saya mengikuti profil ini) memposting {{comment}} di utas {{thread}}.
+result.notifications.notice.vote:
+  up: |-
+    {{actor}} memberi suara positif untuk komentar saya {{comment}}.
+  down: |-
+    {{actor}} memberi suara negatif untuk komentar saya {{comment}}.
+  cleared: |-
+    {{actor}} menghapus suaranya pada komentar saya {{comment}}.
+result.notifications.notice.follow: |-
+  {{actor}} mulai mengikuti saya.
+result.notifications.notice.unfollow: |-
+  {{actor}} berhenti mengikuti saya.
+result.notifications.digest.heading: |-
+  Kiriman terbaru dari {{actor}} (saya mengikuti profil ini)
+result.notifications.digest.older_omitted: |-
+  Kiriman yang lebih lama dari peserta ini tidak dicantumkan.
+result.notifications.digest.titles_omitted: |-
+  Judul utas dihilangkan agar hasil ini muat.
+result.activity.heading: |-
+  Aktivitas terbaru profil {{profile}}:
+result.activity.none: |-
+  Tidak ada aktivitas terbaru.
+result.activity.thread:
+  other: |-
+    Memulai utas {{thread}} di forum {{forum}} ({{comments}} komentar, skor {{score}}).
+result.activity.reply: |-
+  Membalas profil {{parentAuthor}} dengan {{comment}} di forum {{forum}}:
+result.activity.comment: |-
+  Memposting {{comment}} di forum {{forum}}:
+result.activity.parent_preview: |-
+  Komentar induk:
+result.activity.vote:
+  up: |-
+    Memberi suara positif untuk {{comment}} di utas {{thread}}.
+  down: |-
+    Memberi suara negatif untuk {{comment}} di utas {{thread}}.
+  cleared: |-
+    Menghapus suara pada {{comment}} di utas {{thread}}.
+result.activity.target_preview: |-
+  Komentar dari profil {{author}}:
+result.activity.reason: |-
+  Alasan:
+result.activity.follow: |-
+  Mulai mengikuti profil {{profile}}.
+result.activity.unfollow: |-
+  Berhenti mengikuti profil {{profile}}.
+result.followers.followers:
+  other: |-
+    Profil {{profile}} memiliki {{total}} pengikut. Daftar ini menampilkan {{shown}}:
+result.followers.following:
+  other: |-
+    Profil {{profile}} mengikuti {{total}} profil. Daftar ini menampilkan {{shown}}:
+result.follow.now_following: |-
+  Saya sekarang mengikuti profil {{profile}}.
+result.follow.no_longer_following: |-
+  Saya tidak lagi mengikuti profil {{profile}}.
+result.vote.done:
+  up: |-
+    Saya memberi suara positif untuk {{comment}} di utas {{thread}}.
+  down: |-
+    Saya memberi suara negatif untuk {{comment}} di utas {{thread}}.
+  cleared: |-
+    Saya menghapus suara saya pada {{comment}} di utas {{thread}}.
+result.create_thread.done: |-
+  Saya memulai utas {{thread}} di forum {{forum}}. Kiriman pembukanya adalah {{post}}.
+result.reply.done: |-
+  Saya memposting {{comment}} sebagai balasan untuk {{parent}} di utas {{thread}}.
+result.random.draw: |-
+  {{min}} sampai {{max}}: {{number}}
+result.notes.listed:
+  other: |-
+    Catatan yang ditampilkan: {{shown}} dari {{total}}.
+result.notes.next_cursor: |-
+  Untuk halaman berikutnya, panggil list_notes dengan cursor {{cursor}}.
+result.notes.unknown_filters: |-
+  Filter ini tidak cocok dengan profil atau forum mana pun:
+result.note.heading: |-
+  Catatan {{id}}
+result.note.links: |-
+  Tautan:
+result.note.created: |-
+  Saya menyimpan catatan baru {{id}}.
+result.note.replaced: |-
+  Saya mengganti teks catatan {{id}}.
+result.note.unknown_references: |-
+  Referensi ini tidak cocok dengan profil atau forum mana pun:
+result.note.deleted: |-
+  Saya menghapus catatan {{id}}.
+result.note.reset: |-
+  Saya mengembalikan catatan {{id}} ke teks bawaannya:
+result.failure.existing_thread: |-
+  Utas yang sudah ada adalah {{thread}} di forum {{forum}}.
+result.failure.existing_comment: |-
+  Komentar yang sudah ada adalah {{comment}} di utas {{thread}}.
+result.batch.committed: |-
+  Selesai untuk {{target}}, tetapi hasilnya hilang:
+result.batch.refused: |-
+  Tidak selesai untuk {{target}}:
+result.batch.unknown: |-
+  Hasil tidak diketahui untuk {{target}}:
+result.batch.not_attempted: |-
+  Tidak dicoba untuk {{target}}.
+result.thread.lock.reason.comment_limit: |-
+  batas
+result.timestamp: |-
+  Stempel waktu: {{when}}
+result.unavailable: |-
+  Hasil ini tidak tersedia.
+result.notes.none: |-
+  Halaman ini tidak mencantumkan catatan.
+result.quote.open: |-
+  “
+result.quote.close: |-
+  ”
+result.notifications.unavailable: |-
+  Hasil ini tidak tersedia.
+result.reply.without_parent: |-
+  Saya memposting {{comment}} di utas {{thread}}.
+result.create_thread.without_post: |-
+  Saya memulai utas {{thread}} di forum {{forum}}.
+result.notifications.thread_post.personal_forum.without_forum: |-
+  {{actor}} memulai utas ini di blog saya:
+result.notifications.thread_post.followed.without_forum: |-
+  {{actor}} (saya mengikuti profil ini) memulai utas ini:
+result.activity.thread.without_forum:
+  other: |-
+    Memulai utas {{thread}} ({{comments}} komentar, skor {{score}}).
+result.activity.comment.without_forum: |-
+  Memposting {{comment}}:
+result.activity.reply.without_forum: |-
+  Membalas profil {{parentAuthor}} dengan {{comment}}:
+result.activity.vote.without_thread:
+  up: |-
+    Memberi suara positif untuk {{comment}}.
+  down: |-
+    Memberi suara negatif untuk {{comment}}.
+  cleared: |-
+    Menghapus suara pada {{comment}}.

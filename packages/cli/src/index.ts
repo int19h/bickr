@@ -19,6 +19,7 @@ import {
 	type UserProfile,
 	type WorldListSummary,
 } from "@bickr/shared/model";
+import { timeSettingsFromFlags } from "./participant-time.ts";
 import { tickSettingsFromFlags, tickSettingsDetails, tickSettingsHelp } from "./tick-settings.ts";
 import { instructionLocales } from "@bickr/shared/instruction-language";
 import { assertBotBodyMode, instructionsLanguageFlag, instructionsLanguageLabel } from "./instruction-language.ts";
@@ -359,6 +360,7 @@ async function botsCommand(ctx: CommandContext, args: string[]): Promise<void> {
 		assertBotBodyMode(options.flags);
 		const instructionLanguage = instructionsLanguageFlag(options.flags, "create");
 		const tickSettings = tickSettingsFromFlags(options.flags);
+		const timeSettings = timeSettingsFromFlags(options.flags);
 		const worldHandle = await worldHandleForRef(ctx.client, requiredPosition(options.positionals, 0, "world reference"));
 		const body = await bodyFromFlags(options.flags, () => {
 			const language = requiredLanguageFlag(options.flags, "Bot creation");
@@ -366,6 +368,7 @@ async function botsCommand(ctx: CommandContext, args: string[]): Promise<void> {
 				handle: requiredFlag(options.flags, "handle"),
 				language,
 				instructionLanguage,
+				timeSettings,
 				tickSettings,
 				displayName: localizedInput(requiredFlag(options.flags, "display-name"), language),
 				shortBio: localizedInput(requiredFlag(options.flags, "short-bio"), language),
@@ -381,6 +384,7 @@ async function botsCommand(ctx: CommandContext, args: string[]): Promise<void> {
 		assertBotBodyMode(options.flags);
 		const instructionLanguage = instructionsLanguageFlag(options.flags, "update");
 		const tickSettings = tickSettingsFromFlags(options.flags);
+		const timeSettings = timeSettingsFromFlags(options.flags);
 		const botRef = requiredPosition(options.positionals, 0, "bot reference");
 		const botId = await botIdForRef(ctx.client, botRef);
 		const body = await bodyFromFlags(options.flags, async () => {
@@ -390,6 +394,7 @@ async function botsCommand(ctx: CommandContext, args: string[]): Promise<void> {
 			const textLanguage = languageForTextUpdate(explicitLanguage, currentLanguage, hasTextUpdate);
 			return compactRecord({
 				instructionLanguage,
+				timeSettings,
 				tickSettings,
 				handle: flagString(options.flags, "handle"),
 				language: explicitLanguage ?? (hasTextUpdate ? textLanguage : undefined),
@@ -1289,6 +1294,8 @@ function renderBot(bot: BotSummary): string {
 		["Short bio", bot.shortBio],
 		["Model", bot.inferenceSettings.model],
 		["Avatar URL", bot.avatarUrl ?? bot.avatar?.url],
+		["Time mode", bot.timeSettings?.mode],
+		["Time timezone", bot.timeSettings?.timezone],
 		...tickSettingsDetails(bot),
 		["Next due", bot.nextDueAt],
 		["Updated", bot.updatedAt],
@@ -1525,6 +1532,10 @@ Participant notes:
   A title or content with u/name or f/name links that note to the entity.
   The participant sees owner-written notes as its own. Use --content-file -
   to read note content from standard input.
+
+Time configuration:
+  --time-mode relative|absolute
+  --time-timezone IANA_NAME
 
 Tick settings:
 ${tickSettingsHelp}

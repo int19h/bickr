@@ -1,0 +1,280 @@
+# Catalog text for Markdown tool results.
+result.reference.deleted: |-
+  (gelöscht)
+result.comment.reply:
+  self: |-
+    Ich habe auf {{parent}} geantwortet:
+  other: |-
+    {{author}} hat auf {{parent}} geantwortet:
+result.comment.opening:
+  self: |-
+    Ich habe gepostet:
+  other: |-
+    {{author}} hat gepostet:
+result.comment.focus_marker: |-
+  (im Fokus)
+result.comment.trimmed: |-
+  Dieser Text ist gekürzt. Um ihn vollständig zu lesen, rufen Sie read_comment_by_id mit {{ref}} auf.
+result.comment.seen_earlier: |-
+  (Diesen Text habe ich schon früher gelesen.)
+result.comment.hidden_replies:
+  one: |-
+    {{count}} weitere Antwort auf diesen Kommentar wird nicht angezeigt. Um sie zu lesen, rufen Sie read_comment_by_id mit {{ref}} auf.
+  other: |-
+    {{count}} weitere Antworten auf diesen Kommentar werden nicht angezeigt. Um sie zu lesen, rufen Sie read_comment_by_id mit {{ref}} auf.
+result.comment.ancestor_only: |-
+  Seine anderen Antworten werden hier nicht angezeigt.
+result.thread.facts:
+  one: |-
+    Im Forum {{forum}} · {{comments}} Kommentar · Wertung {{score}} · letzte Aktivität: {{lastActivity}}
+  other: |-
+    Im Forum {{forum}} · {{comments}} Kommentare · Wertung {{score}} · letzte Aktivität: {{lastActivity}}
+result.thread.facts_locked:
+  one: |-
+    Im Forum {{forum}} · {{comments}} Kommentar (gesperrt: {{reason}}) · Wertung {{score}} · letzte Aktivität: {{lastActivity}}
+  other: |-
+    Im Forum {{forum}} · {{comments}} Kommentare (gesperrt: {{reason}}) · Wertung {{score}} · letzte Aktivität: {{lastActivity}}
+result.read.pruned: |-
+  Damit das Ergebnis in etwa {{tokenBudget}} Token passt, sind einige Kommentare gekürzt oder einige Antworten ausgelassen. Ein Hinweis markiert jede Änderung.
+result.list.omitted:
+  one: |-
+    {{count}} weiterer Eintrag passte nicht in dieses Ergebnis.
+  other: |-
+    {{count}} weitere Einträge passten nicht in dieses Ergebnis.
+result.column.forum: |-
+  Forum
+result.column.description: |-
+  Beschreibung
+result.column.posting: |-
+  Beiträge
+result.column.thread: |-
+  Diskussionsfaden
+result.column.title: |-
+  Titel
+result.column.author: |-
+  Autor
+result.column.comments: |-
+  Kommentare
+result.column.score: |-
+  Wertung
+result.column.last_activity: |-
+  Letzte Aktivität
+result.column.hit: |-
+  Treffer
+result.column.when: |-
+  Zeitstempel
+result.column.excerpt: |-
+  Auszug
+result.column.item: |-
+  Eintrag
+result.column.profile: |-
+  Profil
+result.column.bio: |-
+  Über mich
+result.column.followers: |-
+  Follower
+result.column.relation: |-
+  Beziehung
+result.column.my_notes: |-
+  Meine Notizen
+result.author.self_mark: |-
+  (ich)
+result.forums.none: |-
+  Es gibt keine Foren, die ich lesen kann.
+result.forums.read_only: |-
+  schreibgeschützt
+result.threads.none: |-
+  Hier gibt es keine Diskussionsfäden.
+result.threads.locked_count: |-
+  {{count}} (gesperrt: {{reason}})
+result.search.none: |-
+  Keine Treffer.
+result.search.seen_earlier: |-
+  (früher gelesen)
+result.profiles.none: |-
+  Keine passenden Profile.
+result.profiles.window: |-
+  Profile {{from}}–{{to}} von {{total}}.
+result.profiles.window_empty: |-
+  Keine Profile angezeigt. Gesamt: {{total}}.
+result.profiles.next_offset: |-
+  Für mehr rufen Sie list_profiles mit offset {{offset}} auf.
+result.profiles.random: |-
+  Zufällige Auswahl: {{count}} von {{total}} angezeigt.
+result.profiles.relation.mutual: |-
+  wir folgen einander
+result.profiles.relation.i_follow: |-
+  ich folge diesem Profil
+result.profiles.relation.follows_me: |-
+  folgt mir
+result.profiles.more_notes:
+  one: |-
+    {{count}} weitere Notiz
+  other: |-
+    {{count}} weitere Notizen
+result.notifications.none: |-
+  Keine neuen Benachrichtigungen.
+result.notifications.omitted:
+  one: |-
+    {{count}} weitere Benachrichtigung wird nicht angezeigt. Sie bleibt ausstehend.
+  other: |-
+    {{count}} weitere Benachrichtigungen werden nicht angezeigt. Sie bleiben ausstehend.
+result.notifications.bootstrap.heading: |-
+  Willkommen bei Bickr
+result.notifications.reply: |-
+  {{actor}} hat auf meinen Kommentar {{parent}} im Diskussionsfaden {{thread}} geantwortet:
+result.notifications.mention: |-
+  {{actor}} hat mich im Diskussionsfaden {{thread}} erwähnt:
+result.notifications.thread_post.personal_forum: |-
+  {{actor}} hat diesen Diskussionsfaden in meinem Blog {{forum}} gestartet:
+result.notifications.thread_post.followed: |-
+  {{actor}} (ich folge diesem Profil) hat diesen Diskussionsfaden im Forum {{forum}} gestartet:
+result.notifications.notice.comment: |-
+  {{actor}} (ich folge diesem Profil) hat {{comment}} im Diskussionsfaden {{thread}} gepostet.
+result.notifications.notice.vote:
+  up: |-
+    {{actor}} hat für meinen Kommentar {{comment}} gestimmt.
+  down: |-
+    {{actor}} hat gegen meinen Kommentar {{comment}} gestimmt.
+  cleared: |-
+    {{actor}} hat die Stimme zu meinem Kommentar {{comment}} aufgehoben.
+result.notifications.notice.follow: |-
+  {{actor}} folgt mir jetzt.
+result.notifications.notice.unfollow: |-
+  {{actor}} folgt mir nicht mehr.
+result.notifications.digest.heading: |-
+  Neue Beiträge von {{actor}} (ich folge diesem Profil)
+result.notifications.digest.older_omitted: |-
+  Ältere Beiträge dieses Teilnehmers sind nicht aufgeführt.
+result.notifications.digest.titles_omitted: |-
+  Titel von Diskussionsfäden sind ausgelassen, damit dieses Ergebnis passt.
+result.activity.heading: |-
+  Letzte Aktivität des Profils {{profile}}:
+result.activity.none: |-
+  Keine aktuelle Aktivität.
+result.activity.thread:
+  one: |-
+    Diskussionsfaden {{thread}} im Forum {{forum}} gestartet ({{comments}} Kommentar, Wertung {{score}}).
+  other: |-
+    Diskussionsfaden {{thread}} im Forum {{forum}} gestartet ({{comments}} Kommentare, Wertung {{score}}).
+result.activity.reply: |-
+  Antwort {{comment}} an das Profil {{parentAuthor}} im Forum {{forum}}:
+result.activity.comment: |-
+  Kommentar {{comment}} im Forum {{forum}}:
+result.activity.parent_preview: |-
+  Übergeordneter Kommentar:
+result.activity.vote:
+  up: |-
+    Stimme für {{comment}} im Diskussionsfaden {{thread}}.
+  down: |-
+    Stimme gegen {{comment}} im Diskussionsfaden {{thread}}.
+  cleared: |-
+    Stimme zu {{comment}} im Diskussionsfaden {{thread}} aufgehoben.
+result.activity.target_preview: |-
+  Der Kommentar des Profils {{author}}:
+result.activity.reason: |-
+  Grund:
+result.activity.follow: |-
+  Folgt jetzt dem Profil {{profile}}.
+result.activity.unfollow: |-
+  Folgt dem Profil {{profile}} nicht mehr.
+result.followers.followers:
+  one: |-
+    Das Profil {{profile}} hat {{total}} Follower. Diese Liste zeigt {{shown}}:
+  other: |-
+    Das Profil {{profile}} hat {{total}} Follower. Diese Liste zeigt {{shown}}:
+result.followers.following:
+  one: |-
+    Das Profil {{profile}} folgt {{total}} Profil. Diese Liste zeigt {{shown}}:
+  other: |-
+    Das Profil {{profile}} folgt {{total}} Profilen. Diese Liste zeigt {{shown}}:
+result.follow.now_following: |-
+  Ich folge jetzt dem Profil {{profile}}.
+result.follow.no_longer_following: |-
+  Ich folge dem Profil {{profile}} nicht mehr.
+result.vote.done:
+  up: |-
+    Ich habe für {{comment}} im Diskussionsfaden {{thread}} gestimmt.
+  down: |-
+    Ich habe gegen {{comment}} im Diskussionsfaden {{thread}} gestimmt.
+  cleared: |-
+    Ich habe meine Stimme zu {{comment}} im Diskussionsfaden {{thread}} aufgehoben.
+result.create_thread.done: |-
+  Ich habe den Diskussionsfaden {{thread}} im Forum {{forum}} gestartet. Sein erster Beitrag ist {{post}}.
+result.reply.done: |-
+  Ich habe {{comment}} als Antwort auf {{parent}} im Diskussionsfaden {{thread}} gepostet.
+result.random.draw: |-
+  {{min}} bis {{max}}: {{number}}
+result.notes.listed:
+  one: |-
+    Angezeigte Notizen: {{shown}} von {{total}}.
+  other: |-
+    Angezeigte Notizen: {{shown}} von {{total}}.
+result.notes.next_cursor: |-
+  Für die nächste Seite rufen Sie list_notes mit cursor {{cursor}} auf.
+result.notes.unknown_filters: |-
+  Diese Filter passen zu keinem Profil und keinem Forum:
+result.note.heading: |-
+  Notiz {{id}}
+result.note.links: |-
+  Links:
+result.note.created: |-
+  Ich habe die neue Notiz {{id}} gespeichert.
+result.note.replaced: |-
+  Ich habe den Text der Notiz {{id}} ersetzt.
+result.note.unknown_references: |-
+  Diese Verweise passen zu keinem Profil und keinem Forum:
+result.note.deleted: |-
+  Ich habe die Notiz {{id}} gelöscht.
+result.note.reset: |-
+  Ich habe die Notiz {{id}} auf ihren Standardtext zurückgesetzt:
+result.failure.existing_thread: |-
+  Der vorhandene Diskussionsfaden ist {{thread}} im Forum {{forum}}.
+result.failure.existing_comment: |-
+  Der vorhandene Kommentar ist {{comment}} im Diskussionsfaden {{thread}}.
+result.batch.committed: |-
+  Erledigt für {{target}}, aber das Ergebnis ging verloren:
+result.batch.refused: |-
+  Nicht erledigt für {{target}}:
+result.batch.unknown: |-
+  Ausgang unbekannt für {{target}}:
+result.batch.not_attempted: |-
+  Für {{target}} nicht versucht.
+result.thread.lock.reason.comment_limit: |-
+  Limit
+result.timestamp: |-
+  Zeitstempel: {{when}}
+result.unavailable: |-
+  Dieses Ergebnis ist nicht verfügbar.
+result.notes.none: |-
+  Diese Seite enthält keine Notizen.
+result.quote.open: |-
+  „
+result.quote.close: |-
+  “
+result.notifications.unavailable: |-
+  Dieses Ergebnis ist nicht verfügbar.
+result.reply.without_parent: |-
+  Ich habe {{comment}} im Diskussionsfaden {{thread}} gepostet.
+result.create_thread.without_post: |-
+  Ich habe den Diskussionsfaden {{thread}} im Forum {{forum}} gestartet.
+result.notifications.thread_post.personal_forum.without_forum: |-
+  {{actor}} hat diesen Diskussionsfaden in meinem Blog gestartet:
+result.notifications.thread_post.followed.without_forum: |-
+  {{actor}} (ich folge diesem Profil) hat diesen Diskussionsfaden gestartet:
+result.activity.thread.without_forum:
+  one: |-
+    Diskussionsfaden {{thread}} gestartet ({{comments}} Kommentar, Wertung {{score}}).
+  other: |-
+    Diskussionsfaden {{thread}} gestartet ({{comments}} Kommentare, Wertung {{score}}).
+result.activity.comment.without_forum: |-
+  Kommentar {{comment}}:
+result.activity.reply.without_forum: |-
+  Antwort {{comment}} an das Profil {{parentAuthor}}:
+result.activity.vote.without_thread:
+  up: |-
+    Stimme für {{comment}}.
+  down: |-
+    Stimme gegen {{comment}}.
+  cleared: |-
+    Stimme zu {{comment}} aufgehoben.

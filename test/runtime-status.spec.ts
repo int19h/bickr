@@ -1,3 +1,4 @@
+import { testResultContext } from '../workers/agent-runtime/src/runtime/result-render-context.test-support';
 import { withTestRunLiveness } from "./helpers/index-harness";
 import { internalServiceTestEnv, internalServiceTestHeaders } from "./helpers/internal-service-auth";
 import { describe, expect, it } from "vitest";
@@ -271,12 +272,13 @@ function runtimeHarness(
 			BICKR_D1: db,
 			BICKR_KV: testEnv.BICKR_KV,
 		},
+		legacyToolRowCount: () => 0,
 		activeAbortController: null,
 		activeRunId: null,
 		runtimeStorageClearedAt: options.storageCleared ? "2026-08-23T00:00:00.000Z" : null,
 		hasStopRequest: () => options.stopRequested === true,
 		hasTerminalEvent: (runId: string) => terminalRuns.has(runId),
-		recordTickFailure: (runId: string, payload: Record<string, unknown>) => {
+		recordTickFailure: (_context: typeof testResultContext, runId: string, payload: Record<string, unknown>) => {
 			terminalRuns.add(runId);
 			failureEvents.push({ runId, payload });
 		},

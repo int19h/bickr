@@ -742,231 +742,10 @@
       "sourceTemplateHash": "3da34b66bdca41f8860591f551d29b9e31a9690ad1c30a80a067044e4df0a96e"
     },
     {
-      "id": "recovery.failureReport",
-      "definition": {
-        "file": "workers/agent-runtime/src/localization/en/recovery.yaml",
-        "line": 130
-      },
-      "sinks": [
-        {
-          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
-          "line": 9417,
-          "kind": "direct"
-        }
-      ],
-      "protectedTokens": [
-        "Bickr",
-        "toolName"
-      ],
-      "sourceTemplateHash": "2920bf87a279cba0a504f781eb9e9e5521139e5e8492f78598e9bdaa10b26d55"
-    },
-    {
-      "id": "recovery.hintReport",
-      "definition": {
-        "file": "workers/agent-runtime/src/localization/en/recovery.yaml",
-        "line": 133
-      },
-      "sinks": [
-        {
-          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
-          "line": 9415,
-          "kind": "direct"
-        }
-      ],
-      "protectedTokens": [
-        "Bickr"
-      ],
-      "sourceTemplateHash": "d03cb77b7e1ab03bf3af52ad8ee0b00b29b1e3fcde8aee6c87b0053e181fd313"
-    },
-    {
-      "id": "recovery.correction.already_replied",
-      "definition": {
-        "file": "workers/agent-runtime/src/localization/en/recovery.yaml",
-        "line": 136
-      },
-      "sinks": [
-        {
-          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
-          "line": 9465,
-          "kind": "direct"
-        }
-      ],
-      "protectedTokens": [],
-      "sourceTemplateHash": "1406987e461776a0a73927e0e3c66a6bc8e920ee6e4ee9e21f52c985c5b58ae2"
-    },
-    {
-      "id": "recovery.correction.duplicate_comment",
-      "definition": {
-        "file": "workers/agent-runtime/src/localization/en/recovery.yaml",
-        "line": 139
-      },
-      "sinks": [
-        {
-          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
-          "line": 9467,
-          "kind": "direct"
-        }
-      ],
-      "protectedTokens": [],
-      "sourceTemplateHash": "7561f1df9a0121558fbadab4cfb64320245d0696659cdc05f78695ceb14f0cfb"
-    },
-    {
-      "id": "recovery.correction.conflict",
-      "definition": {
-        "file": "workers/agent-runtime/src/localization/en/recovery.yaml",
-        "line": 142
-      },
-      "sinks": [
-        {
-          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
-          "line": 9469,
-          "kind": "direct"
-        }
-      ],
-      "protectedTokens": [
-        "Bickr"
-      ],
-      "sourceTemplateHash": "14fbbedf0648387d5c67649eb1d2935063887be56326e89a8788a1fc83b49f74"
-    },
-    {
-      "id": "recovery.correction.not_found",
-      "definition": {
-        "file": "workers/agent-runtime/src/localization/en/recovery.yaml",
-        "line": 145
-      },
-      "sinks": [
-        {
-          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
-          "line": 9471,
-          "kind": "direct"
-        }
-      ],
-      "protectedTokens": [
-        "Bickr"
-      ],
-      "sourceTemplateHash": "49e146a8364ec4491f6ea3cab4b484b2f8aff1a7bc593c4e71abef6d08e58179"
-    },
-    {
-      "id": "recovery.correction.bad_request",
-      "definition": {
-        "file": "workers/agent-runtime/src/localization/en/recovery.yaml",
-        "line": 148
-      },
-      "sinks": [
-        {
-          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
-          "line": 9474,
-          "kind": "direct"
-        }
-      ],
-      "protectedTokens": [],
-      "sourceTemplateHash": "5d43c625b8cf3be2969cb5159dca48b4650362f0ba25f392a09850c153012ef8"
-    },
-    {
-      "id": "recovery.correction.invalid_arguments_json",
-      "definition": {
-        "file": "workers/agent-runtime/src/localization/en/recovery.yaml",
-        "line": 151
-      },
-      "sinks": [
-        {
-          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
-          "line": 9476,
-          "kind": "direct"
-        }
-      ],
-      "protectedTokens": [
-        "JSON"
-      ],
-      "sourceTemplateHash": "17d2e21fc2527462ebcf96f6fb795abeb6b3f48403ee5772fc8ae5eecaf2527f"
-    },
-    {
-      "id": "recovery.correction.arguments_not_json_object",
-      "definition": {
-        "file": "workers/agent-runtime/src/localization/en/recovery.yaml",
-        "line": 154
-      },
-      "sinks": [
-        {
-          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
-          "line": 9478,
-          "kind": "direct"
-        }
-      ],
-      "protectedTokens": [
-        "JSON"
-      ],
-      "sourceTemplateHash": "ce0fd4a0da5bfb9a85a9e2c58d383eac5d2992c042d01ab2c7d6119505c1f399"
-    },
-    {
-      "id": "recovery.correction.server_error",
-      "definition": {
-        "file": "workers/agent-runtime/src/localization/en/recovery.yaml",
-        "line": 157
-      },
-      "sinks": [
-        {
-          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
-          "line": 9481,
-          "kind": "direct"
-        }
-      ],
-      "protectedTokens": [],
-      "sourceTemplateHash": "25a943e68babdb2d34c74748c3e677514c4b1ca0e4f3587220f7b33096bb312c"
-    },
-    {
-      "id": "recovery.correction.access",
-      "definition": {
-        "file": "workers/agent-runtime/src/localization/en/recovery.yaml",
-        "line": 160
-      },
-      "sinks": [
-        {
-          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
-          "line": 9484,
-          "kind": "direct"
-        }
-      ],
-      "protectedTokens": [],
-      "sourceTemplateHash": "4c8e9931b900f57d5c6deb14bca37f8240470d7b7f56cb77b9d996bb4a21e7af"
-    },
-    {
-      "id": "recovery.correction.timeout",
-      "definition": {
-        "file": "workers/agent-runtime/src/localization/en/recovery.yaml",
-        "line": 163
-      },
-      "sinks": [
-        {
-          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
-          "line": 9486,
-          "kind": "direct"
-        }
-      ],
-      "protectedTokens": [],
-      "sourceTemplateHash": "8b14613cc15c431a10043474594a9c534309f0168f93704dbec321fa8175ee02"
-    },
-    {
-      "id": "recovery.correction.unknown",
-      "definition": {
-        "file": "workers/agent-runtime/src/localization/en/recovery.yaml",
-        "line": 166
-      },
-      "sinks": [
-        {
-          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
-          "line": 9488,
-          "kind": "direct"
-        }
-      ],
-      "protectedTokens": [],
-      "sourceTemplateHash": "be7c6d0251b524c74b083f629ec56fc7ec372d2a640740cf6abb49d4cdd6ce21"
-    },
-    {
       "id": "recovery.metaCompactionUnavailable",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/recovery.yaml",
-        "line": 169
+        "line": 130
       },
       "sinks": [
         {
@@ -985,7 +764,7 @@
       "id": "recovery.replyEarlierUnknown",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/recovery.yaml",
-        "line": 172
+        "line": 133
       },
       "sinks": [
         {
@@ -1003,7 +782,7 @@
       "id": "recovery.replyEarlierCommitted",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/recovery.yaml",
-        "line": 175
+        "line": 136
       },
       "sinks": [
         {
@@ -1019,7 +798,7 @@
       "id": "recovery.batch.notAttempted",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/recovery.yaml",
-        "line": 178
+        "line": 139
       },
       "sinks": [
         {
@@ -1034,30 +813,10 @@
       "sourceTemplateHash": "93807dd772f43dd619956f4437c65162c4bbce596ede249769be7fb24c3e5ad7"
     },
     {
-      "id": "recovery.batch.guidance",
-      "definition": {
-        "file": "workers/agent-runtime/src/localization/en/recovery.yaml",
-        "line": 181
-      },
-      "sinks": [
-        {
-          "file": "workers/agent-runtime/src/runtime/batch-outcomes.ts",
-          "line": 32,
-          "kind": "direct"
-        }
-      ],
-      "protectedTokens": [
-        "committed",
-        "not_attempted",
-        "recorded"
-      ],
-      "sourceTemplateHash": "bb4f22a7c7dc3f12c79299779dbac976669611f7860e9b68a799a9e4ec36a890"
-    },
-    {
       "id": "recovery.batch.failed",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/recovery.yaml",
-        "line": 184
+        "line": 145
       },
       "sinks": [
         {
@@ -1073,7 +832,7 @@
       "id": "recovery.unknown.siblingNotAttempted",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/recovery.yaml",
-        "line": 187
+        "line": 148
       },
       "sinks": [
         {
@@ -1091,7 +850,7 @@
       "id": "recovery.threadEarlierUnknown",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/recovery.yaml",
-        "line": 190
+        "line": 151
       },
       "sinks": [
         {
@@ -1107,7 +866,7 @@
       "id": "recovery.threadEarlierCommitted",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/recovery.yaml",
-        "line": 193
+        "line": 154
       },
       "sinks": [
         {
@@ -1118,6 +877,22 @@
       ],
       "protectedTokens": [],
       "sourceTemplateHash": "3ab0747e58a16dff5c7fbf8dea64c11f3779a89972067076867f75073a25a162"
+    },
+    {
+      "id": "recovery.batch.guidance",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/recovery.yaml",
+        "line": 142
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-views.ts",
+          "line": 582,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "af52e0ab91c734562ca03db81f6a3a85e532be144e486c9a687adae9954c9f0f"
     }
   ]
 }

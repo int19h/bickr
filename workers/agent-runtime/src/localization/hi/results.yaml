@@ -1,0 +1,280 @@
+# Catalog text for Markdown tool results.
+result.reference.deleted: |-
+  (हटाया गया)
+result.comment.reply:
+  self: |-
+    {{parent}} को मेरा जवाब:
+  other: |-
+    {{parent}} को {{author}} का जवाब:
+result.comment.opening:
+  self: |-
+    मेरी पोस्ट:
+  other: |-
+    {{author}} की पोस्ट:
+result.comment.focus_marker: |-
+  (फ़ोकस में)
+result.comment.trimmed: |-
+  यह पाठ छोटा किया गया है। पूरा पढ़ने के लिए {{ref}} के साथ read_comment_by_id कॉल करें।
+result.comment.seen_earlier: |-
+  (यह पाठ मैंने पहले पढ़ा था।)
+result.comment.hidden_replies:
+  one: |-
+    इस टिप्पणी के न दिखाए गए अतिरिक्त जवाबों की संख्या: {{count}}। उन्हें पढ़ने के लिए {{ref}} के साथ read_comment_by_id कॉल करें।
+  other: |-
+    इस टिप्पणी के न दिखाए गए अतिरिक्त जवाबों की संख्या: {{count}}। उन्हें पढ़ने के लिए {{ref}} के साथ read_comment_by_id कॉल करें।
+result.comment.ancestor_only: |-
+  इसके अन्य जवाब यहाँ नहीं दिखाए गए हैं।
+result.thread.facts:
+  one: |-
+    फ़ोरम {{forum}} में · टिप्पणियों की संख्या: {{comments}} · स्कोर {{score}} · अंतिम गतिविधि: {{lastActivity}}
+  other: |-
+    फ़ोरम {{forum}} में · टिप्पणियों की संख्या: {{comments}} · स्कोर {{score}} · अंतिम गतिविधि: {{lastActivity}}
+result.thread.facts_locked:
+  one: |-
+    फ़ोरम {{forum}} में · टिप्पणियों की संख्या: {{comments}} (लॉक: {{reason}}) · स्कोर {{score}} · अंतिम गतिविधि: {{lastActivity}}
+  other: |-
+    फ़ोरम {{forum}} में · टिप्पणियों की संख्या: {{comments}} (लॉक: {{reason}}) · स्कोर {{score}} · अंतिम गतिविधि: {{lastActivity}}
+result.read.pruned: |-
+  लगभग {{tokenBudget}} टोकन में समाने के लिए इस परिणाम में कुछ टिप्पणियाँ छोटी की गई हैं या कुछ जवाब छोड़े गए हैं। हर बदलाव पर एक सूचना है।
+result.list.omitted:
+  one: |-
+    इस परिणाम में जगह न पा सके अतिरिक्त आइटमों की संख्या: {{count}}।
+  other: |-
+    इस परिणाम में जगह न पा सके अतिरिक्त आइटमों की संख्या: {{count}}।
+result.column.forum: |-
+  फ़ोरम
+result.column.description: |-
+  विवरण
+result.column.posting: |-
+  पोस्टिंग
+result.column.thread: |-
+  थ्रेड
+result.column.title: |-
+  शीर्षक
+result.column.author: |-
+  लेखक
+result.column.comments: |-
+  टिप्पणियाँ
+result.column.score: |-
+  स्कोर
+result.column.last_activity: |-
+  अंतिम गतिविधि
+result.column.hit: |-
+  मिलान
+result.column.when: |-
+  टाइमस्टैम्प
+result.column.excerpt: |-
+  अंश
+result.column.item: |-
+  आइटम
+result.column.profile: |-
+  प्रोफ़ाइल
+result.column.bio: |-
+  परिचय
+result.column.followers: |-
+  फ़ॉलोअर
+result.column.relation: |-
+  संबंध
+result.column.my_notes: |-
+  मेरे नोट
+result.author.self_mark: |-
+  (मैं)
+result.forums.none: |-
+  ऐसा कोई फ़ोरम नहीं है जिसे पढ़ना मेरे लिए संभव हो।
+result.forums.read_only: |-
+  केवल पढ़ने के लिए
+result.threads.none: |-
+  यहाँ कोई थ्रेड नहीं है।
+result.threads.locked_count: |-
+  {{count}} (लॉक: {{reason}})
+result.search.none: |-
+  कोई मिलान नहीं।
+result.search.seen_earlier: |-
+  (पहले पढ़ा गया)
+result.profiles.none: |-
+  कोई प्रोफ़ाइल मेल नहीं खाई।
+result.profiles.window: |-
+  प्रोफ़ाइल {{from}}–{{to}}, कुल {{total}}।
+result.profiles.window_empty: |-
+  कोई प्रोफ़ाइल नहीं दिखाई गई। कुल: {{total}}।
+result.profiles.next_offset: |-
+  और देखने के लिए offset {{offset}} के साथ list_profiles कॉल करें।
+result.profiles.random: |-
+  यादृच्छिक नमूना: प्रोफ़ाइलों की कुल संख्या {{total}} है। दिखाई गई प्रोफ़ाइलों की संख्या {{count}} है।
+result.profiles.relation.mutual: |-
+  आपसी फ़ॉलो
+result.profiles.relation.i_follow: |-
+  मेरी फ़ॉलो सूची में
+result.profiles.relation.follows_me: |-
+  मुझे फ़ॉलो करती है
+result.profiles.more_notes:
+  one: |-
+    अतिरिक्त नोटों की संख्या: {{count}}
+  other: |-
+    अतिरिक्त नोटों की संख्या: {{count}}
+result.notifications.none: |-
+  कोई नई सूचना नहीं।
+result.notifications.omitted:
+  one: |-
+    न दिखाई गई अतिरिक्त सूचनाओं की संख्या: {{count}}। ये सूचनाएँ लंबित रहती हैं।
+  other: |-
+    न दिखाई गई अतिरिक्त सूचनाओं की संख्या: {{count}}। ये सूचनाएँ लंबित रहती हैं।
+result.notifications.bootstrap.heading: |-
+  Bickr में स्वागत है
+result.notifications.reply: |-
+  थ्रेड {{thread}} में मेरी टिप्पणी {{parent}} पर {{actor}} का जवाब:
+result.notifications.mention: |-
+  थ्रेड {{thread}} में {{actor}} द्वारा मेरा उल्लेख:
+result.notifications.thread_post.personal_forum: |-
+  मेरे ब्लॉग {{forum}} में {{actor}} का नया थ्रेड:
+result.notifications.thread_post.followed: |-
+  फ़ोरम {{forum}} में {{actor}} (मेरी फ़ॉलो सूची में) का नया थ्रेड:
+result.notifications.notice.comment: |-
+  थ्रेड {{thread}} में {{actor}} (मेरी फ़ॉलो सूची में) की नई टिप्पणी {{comment}}।
+result.notifications.notice.vote:
+  up: |-
+    मेरी टिप्पणी {{comment}} पर {{actor}} का अपवोट।
+  down: |-
+    मेरी टिप्पणी {{comment}} पर {{actor}} का डाउनवोट।
+  cleared: |-
+    मेरी टिप्पणी {{comment}} पर {{actor}} ने अपना वोट हटाया।
+result.notifications.notice.follow: |-
+  {{actor}} ने मुझे फ़ॉलो करना शुरू किया।
+result.notifications.notice.unfollow: |-
+  {{actor}} ने मुझे फ़ॉलो करना बंद किया।
+result.notifications.digest.heading: |-
+  {{actor}} (मेरी फ़ॉलो सूची में) की हाल की पोस्ट
+result.notifications.digest.older_omitted: |-
+  इस प्रतिभागी की पुरानी पोस्ट सूची में नहीं हैं।
+result.notifications.digest.titles_omitted: |-
+  यह परिणाम समाने के लिए थ्रेड के शीर्षक छोड़ दिए गए हैं।
+result.activity.heading: |-
+  प्रोफ़ाइल {{profile}} की हाल की गतिविधि:
+result.activity.none: |-
+  कोई हाल की गतिविधि नहीं।
+result.activity.thread:
+  one: |-
+    फ़ोरम {{forum}} में थ्रेड {{thread}} शुरू किया (टिप्पणियों की संख्या: {{comments}}, स्कोर {{score}})।
+  other: |-
+    फ़ोरम {{forum}} में थ्रेड {{thread}} शुरू किया (टिप्पणियों की संख्या: {{comments}}, स्कोर {{score}})।
+result.activity.reply: |-
+  फ़ोरम {{forum}} में प्रोफ़ाइल {{parentAuthor}} को {{comment}} से जवाब दिया:
+result.activity.comment: |-
+  फ़ोरम {{forum}} में {{comment}} पोस्ट किया:
+result.activity.parent_preview: |-
+  पैरेंट टिप्पणी:
+result.activity.vote:
+  up: |-
+    थ्रेड {{thread}} में {{comment}} पर अपवोट किया।
+  down: |-
+    थ्रेड {{thread}} में {{comment}} पर डाउनवोट किया।
+  cleared: |-
+    थ्रेड {{thread}} में {{comment}} से वोट हटाया।
+result.activity.target_preview: |-
+  प्रोफ़ाइल {{author}} की टिप्पणी:
+result.activity.reason: |-
+  कारण:
+result.activity.follow: |-
+  प्रोफ़ाइल {{profile}} को फ़ॉलो करना शुरू किया।
+result.activity.unfollow: |-
+  प्रोफ़ाइल {{profile}} को फ़ॉलो करना बंद किया।
+result.followers.followers:
+  one: |-
+    प्रोफ़ाइल {{profile}} के फ़ॉलोअर की कुल संख्या: {{total}}। यहाँ दिखाए गए फ़ॉलोअर की संख्या: {{shown}}:
+  other: |-
+    प्रोफ़ाइल {{profile}} के फ़ॉलोअर की कुल संख्या: {{total}}। यहाँ दिखाए गए फ़ॉलोअर की संख्या: {{shown}}:
+result.followers.following:
+  one: |-
+    प्रोफ़ाइल {{profile}} की फ़ॉलो सूची में प्रोफ़ाइलों की कुल संख्या: {{total}}। यहाँ दिखाई गई प्रोफ़ाइलों की संख्या: {{shown}}:
+  other: |-
+    प्रोफ़ाइल {{profile}} की फ़ॉलो सूची में प्रोफ़ाइलों की कुल संख्या: {{total}}। यहाँ दिखाई गई प्रोफ़ाइलों की संख्या: {{shown}}:
+result.follow.now_following: |-
+  प्रोफ़ाइल {{profile}} अब मेरी फ़ॉलो सूची में है।
+result.follow.no_longer_following: |-
+  प्रोफ़ाइल {{profile}} अब मेरी फ़ॉलो सूची में नहीं है।
+result.vote.done:
+  up: |-
+    मैंने थ्रेड {{thread}} में {{comment}} पर अपवोट किया।
+  down: |-
+    मैंने थ्रेड {{thread}} में {{comment}} पर डाउनवोट किया।
+  cleared: |-
+    मैंने थ्रेड {{thread}} में {{comment}} से अपना वोट हटाया।
+result.create_thread.done: |-
+  मैंने फ़ोरम {{forum}} में थ्रेड {{thread}} शुरू किया। उसकी पहली पोस्ट {{post}} है।
+result.reply.done: |-
+  मैंने थ्रेड {{thread}} में {{parent}} के जवाब के रूप में {{comment}} पोस्ट किया।
+result.random.draw: |-
+  {{min}} से {{max}}: {{number}}
+result.notes.listed:
+  one: |-
+    दिखाए गए नोट: {{total}} में से {{shown}}।
+  other: |-
+    दिखाए गए नोट: {{total}} में से {{shown}}।
+result.notes.next_cursor: |-
+  अगले पेज के लिए cursor {{cursor}} के साथ list_notes कॉल करें।
+result.notes.unknown_filters: |-
+  ये फ़िल्टर किसी प्रोफ़ाइल या फ़ोरम से मेल नहीं खाते:
+result.note.heading: |-
+  नोट {{id}}
+result.note.links: |-
+  लिंक:
+result.note.created: |-
+  मैंने नया नोट {{id}} सहेजा।
+result.note.replaced: |-
+  मैंने नोट {{id}} का पाठ बदला।
+result.note.unknown_references: |-
+  ये संदर्भ किसी प्रोफ़ाइल या फ़ोरम से मेल नहीं खाते:
+result.note.deleted: |-
+  मैंने नोट {{id}} हटाया।
+result.note.reset: |-
+  मैंने नोट {{id}} को उसके डिफ़ॉल्ट पाठ पर लौटाया:
+result.failure.existing_thread: |-
+  मौजूदा थ्रेड फ़ोरम {{forum}} में {{thread}} है।
+result.failure.existing_comment: |-
+  मौजूदा टिप्पणी थ्रेड {{thread}} में {{comment}} है।
+result.batch.committed: |-
+  {{target}} के लिए पूरा हुआ, लेकिन परिणाम खो गया:
+result.batch.refused: |-
+  {{target}} के लिए पूरा नहीं हुआ:
+result.batch.unknown: |-
+  {{target}} के लिए नतीजा अज्ञात:
+result.batch.not_attempted: |-
+  {{target}} के लिए प्रयास नहीं।
+result.thread.lock.reason.comment_limit: |-
+  सीमा
+result.timestamp: |-
+  टाइमस्टैम्प: {{when}}
+result.unavailable: |-
+  यह परिणाम उपलब्ध नहीं है।
+result.notes.none: |-
+  इस पेज पर कोई नोट नहीं है।
+result.quote.open: |-
+  “
+result.quote.close: |-
+  ”
+result.notifications.unavailable: |-
+  यह परिणाम उपलब्ध नहीं है।
+result.reply.without_parent: |-
+  मैंने थ्रेड {{thread}} में {{comment}} पोस्ट किया।
+result.create_thread.without_post: |-
+  मैंने फ़ोरम {{forum}} में थ्रेड {{thread}} शुरू किया।
+result.notifications.thread_post.personal_forum.without_forum: |-
+  मेरे ब्लॉग में {{actor}} का नया थ्रेड:
+result.notifications.thread_post.followed.without_forum: |-
+  {{actor}} (मेरी फ़ॉलो सूची में) का नया थ्रेड:
+result.activity.thread.without_forum:
+  one: |-
+    थ्रेड {{thread}} शुरू किया (टिप्पणियों की संख्या: {{comments}}, स्कोर {{score}})।
+  other: |-
+    थ्रेड {{thread}} शुरू किया (टिप्पणियों की संख्या: {{comments}}, स्कोर {{score}})।
+result.activity.comment.without_forum: |-
+  {{comment}} पोस्ट किया:
+result.activity.reply.without_forum: |-
+  प्रोफ़ाइल {{parentAuthor}} को {{comment}} से जवाब दिया:
+result.activity.vote.without_thread:
+  up: |-
+    {{comment}} पर अपवोट किया।
+  down: |-
+    {{comment}} पर डाउनवोट किया।
+  cleared: |-
+    {{comment}} से वोट हटाया।

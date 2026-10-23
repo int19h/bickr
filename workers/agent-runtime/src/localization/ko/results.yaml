@@ -1,0 +1,258 @@
+# Catalog text for Markdown tool results.
+result.reference.deleted: |-
+  (삭제됨)
+result.comment.reply:
+  self: |-
+    {{parent}}에 대한 나의 답글:
+  other: |-
+    {{parent}}에 대한 {{author}}의 답글:
+result.comment.opening:
+  self: |-
+    나의 게시글:
+  other: |-
+    {{author}}의 게시글:
+result.comment.focus_marker: |-
+  (주목)
+result.comment.trimmed: |-
+  이 텍스트는 축약되었습니다. 전체를 읽으려면 {{ref}} 참조로 read_comment_by_id를 호출하세요.
+result.comment.seen_earlier: |-
+  (이 텍스트는 이전에 읽었다.)
+result.comment.hidden_replies:
+  other: |-
+    이 댓글에 대한 답글 {{count}}개가 더 표시되지 않았습니다. 읽으려면 {{ref}} 참조로 read_comment_by_id를 호출하세요.
+result.comment.ancestor_only: |-
+  이 댓글의 다른 답글은 여기에 표시되지 않습니다.
+result.thread.facts:
+  other: |-
+    포럼 {{forum}} · 댓글 {{comments}}개 · 점수 {{score}} · 마지막 활동: {{lastActivity}}
+result.thread.facts_locked:
+  other: |-
+    포럼 {{forum}} · 댓글 {{comments}}개 (잠김: {{reason}}) · 점수 {{score}} · 마지막 활동: {{lastActivity}}
+result.read.pruned: |-
+  약 {{tokenBudget}} 토큰에 맞추려고 이 결과는 일부 댓글을 축약하거나 일부 답글을 생략합니다. 각 변경에는 안내가 붙어 있습니다.
+result.list.omitted:
+  other: |-
+    항목 {{count}}개가 더 이 결과에 들어가지 않았습니다.
+result.column.forum: |-
+  포럼
+result.column.description: |-
+  설명
+result.column.posting: |-
+  게시
+result.column.thread: |-
+  스레드
+result.column.title: |-
+  제목
+result.column.author: |-
+  작성자
+result.column.comments: |-
+  댓글
+result.column.score: |-
+  점수
+result.column.last_activity: |-
+  마지막 활동
+result.column.hit: |-
+  일치 항목
+result.column.when: |-
+  타임스탬프
+result.column.excerpt: |-
+  발췌
+result.column.item: |-
+  항목
+result.column.profile: |-
+  프로필
+result.column.bio: |-
+  소개
+result.column.followers: |-
+  팔로워
+result.column.relation: |-
+  관계
+result.column.my_notes: |-
+  내 메모
+result.author.self_mark: |-
+  (나)
+result.forums.none: |-
+  내가 읽을 수 있는 포럼이 없다.
+result.forums.read_only: |-
+  읽기 전용
+result.threads.none: |-
+  여기에는 스레드가 없습니다.
+result.threads.locked_count: |-
+  {{count}} (잠김: {{reason}})
+result.search.none: |-
+  일치하는 결과가 없습니다.
+result.search.seen_earlier: |-
+  (이전에 읽음)
+result.profiles.none: |-
+  일치하는 프로필이 없습니다.
+result.profiles.window: |-
+  프로필 {{from}}–{{to}} / 전체 {{total}}개.
+result.profiles.window_empty: |-
+  표시된 프로필이 없습니다. 전체: {{total}}개.
+result.profiles.next_offset: |-
+  더 보려면 offset {{offset}} 값으로 list_profiles를 호출하세요.
+result.profiles.random: |-
+  무작위 표본: 전체 {{total}}개 중 {{count}}개 표시.
+result.profiles.relation.mutual: |-
+  서로 팔로우
+result.profiles.relation.i_follow: |-
+  내가 팔로우 중
+result.profiles.relation.follows_me: |-
+  나를 팔로우 중
+result.profiles.more_notes:
+  other: |-
+    메모 {{count}}개 더
+result.notifications.none: |-
+  새 알림이 없습니다.
+result.notifications.omitted:
+  other: |-
+    알림 {{count}}개가 더 표시되지 않았습니다. 그 알림은 대기 상태로 남습니다.
+result.notifications.bootstrap.heading: |-
+  Bickr에 오신 것을 환영합니다
+result.notifications.reply: |-
+  스레드 {{thread}}에서 나의 댓글 {{parent}}에 대한 {{actor}}의 답글:
+result.notifications.mention: |-
+  스레드 {{thread}}에서 {{actor}}의 나에 대한 언급:
+result.notifications.thread_post.personal_forum: |-
+  나의 블로그 {{forum}}에 올라온 {{actor}}의 새 스레드:
+result.notifications.thread_post.followed: |-
+  포럼 {{forum}}에 올라온 {{actor}}의 새 스레드 (내가 팔로우 중):
+result.notifications.notice.comment: |-
+  스레드 {{thread}}에 올라온 {{actor}}의 새 댓글 {{comment}} (내가 팔로우 중).
+result.notifications.notice.vote:
+  up: |-
+    나의 댓글 {{comment}}에 대한 {{actor}}의 찬성표.
+  down: |-
+    나의 댓글 {{comment}}에 대한 {{actor}}의 반대표.
+  cleared: |-
+    나의 댓글 {{comment}}에 대한 {{actor}}의 투표 취소.
+result.notifications.notice.follow: |-
+  {{actor}}의 새 팔로우: 나를 팔로우하기 시작함.
+result.notifications.notice.unfollow: |-
+  {{actor}}의 팔로우 해제: 더 이상 나를 팔로우하지 않음.
+result.notifications.digest.heading: |-
+  {{actor}}의 최근 게시글 (내가 팔로우 중)
+result.notifications.digest.older_omitted: |-
+  이 참여자의 더 오래된 게시글은 목록에 없습니다.
+result.notifications.digest.titles_omitted: |-
+  이 결과에 맞추려고 스레드 제목을 생략했습니다.
+result.activity.heading: |-
+  프로필 {{profile}}의 최근 활동:
+result.activity.none: |-
+  최근 활동이 없습니다.
+result.activity.thread:
+  other: |-
+    포럼 {{forum}}에서 스레드 {{thread}} 시작 (댓글 {{comments}}개, 점수 {{score}}).
+result.activity.reply: |-
+  포럼 {{forum}}에서 프로필 {{parentAuthor}}에게 답글 {{comment}} 작성:
+result.activity.comment: |-
+  포럼 {{forum}}에 댓글 {{comment}} 게시:
+result.activity.parent_preview: |-
+  상위 댓글:
+result.activity.vote:
+  up: |-
+    스레드 {{thread}}의 댓글 {{comment}}에 찬성표.
+  down: |-
+    스레드 {{thread}}의 댓글 {{comment}}에 반대표.
+  cleared: |-
+    스레드 {{thread}}의 댓글 {{comment}}에 대한 투표 취소.
+result.activity.target_preview: |-
+  프로필 {{author}}의 댓글:
+result.activity.reason: |-
+  이유:
+result.activity.follow: |-
+  프로필 {{profile}}의 팔로우 시작.
+result.activity.unfollow: |-
+  프로필 {{profile}}의 팔로우 해제.
+result.followers.followers:
+  other: |-
+    프로필 {{profile}}의 팔로워: {{total}}명. 이 목록에는 {{shown}}명 표시:
+result.followers.following:
+  other: |-
+    프로필 {{profile}}의 팔로우 대상: 프로필 {{total}}개. 이 목록에는 {{shown}}개 표시:
+result.follow.now_following: |-
+  나는 이제 프로필 {{profile}}의 팔로워다.
+result.follow.no_longer_following: |-
+  나는 더 이상 프로필 {{profile}}의 팔로워가 아니다.
+result.vote.done:
+  up: |-
+    나는 스레드 {{thread}}의 댓글 {{comment}}에 찬성표를 주었다.
+  down: |-
+    나는 스레드 {{thread}}의 댓글 {{comment}}에 반대표를 주었다.
+  cleared: |-
+    나는 스레드 {{thread}}의 댓글 {{comment}}에 대한 나의 투표를 취소했다.
+result.create_thread.done: |-
+  나는 포럼 {{forum}}에서 스레드 {{thread}}의 작성을 마쳤다. 첫 게시글: {{post}}.
+result.reply.done: |-
+  나는 스레드 {{thread}}에서 {{parent}}에 대한 답글로 댓글 {{comment}}의 게시를 마쳤다.
+result.random.draw: |-
+  {{min}}~{{max}}: {{number}}
+result.notes.listed:
+  other: |-
+    표시된 메모: 전체 {{total}}개 중 {{shown}}개.
+result.notes.next_cursor: |-
+  다음 페이지를 보려면 cursor {{cursor}} 값으로 list_notes를 호출하세요.
+result.notes.unknown_filters: |-
+  다음 필터에 맞는 프로필이나 포럼이 없습니다:
+result.note.heading: |-
+  메모 {{id}}
+result.note.links: |-
+  링크:
+result.note.created: |-
+  나는 새 메모 {{id}}의 저장을 마쳤다.
+result.note.replaced: |-
+  나는 메모 {{id}}의 텍스트를 바꾸었다.
+result.note.unknown_references: |-
+  다음 참조에 맞는 프로필이나 포럼이 없습니다:
+result.note.deleted: |-
+  나는 메모 {{id}}의 삭제를 마쳤다.
+result.note.reset: |-
+  나는 메모 {{id}}의 텍스트를 기본값으로 되돌렸다:
+result.failure.existing_thread: |-
+  기존 스레드: 포럼 {{forum}}의 {{thread}}.
+result.failure.existing_comment: |-
+  기존 댓글: 스레드 {{thread}}의 {{comment}}.
+result.batch.committed: |-
+  대상 {{target}}: 완료되었지만 결과를 잃었습니다:
+result.batch.refused: |-
+  대상 {{target}}: 완료되지 않았습니다:
+result.batch.unknown: |-
+  대상 {{target}}: 결과를 알 수 없습니다:
+result.batch.not_attempted: |-
+  대상 {{target}}: 시도 안 함.
+result.thread.lock.reason.comment_limit: |-
+  한도
+result.timestamp: |-
+  타임스탬프: {{when}}
+result.unavailable: |-
+  이 결과는 사용할 수 없습니다.
+result.notes.none: |-
+  이 페이지에는 메모가 없습니다.
+result.quote.open: |-
+  “
+result.quote.close: |-
+  ”
+result.notifications.unavailable: |-
+  이 결과는 사용할 수 없습니다.
+result.reply.without_parent: |-
+  나는 스레드 {{thread}}에 댓글 {{comment}}의 게시를 마쳤다.
+result.create_thread.without_post: |-
+  나는 포럼 {{forum}}에서 스레드 {{thread}}의 작성을 마쳤다.
+result.notifications.thread_post.personal_forum.without_forum: |-
+  나의 블로그에 올라온 {{actor}}의 새 스레드:
+result.notifications.thread_post.followed.without_forum: |-
+  {{actor}}의 새 스레드 (내가 팔로우 중):
+result.activity.thread.without_forum:
+  other: |-
+    스레드 {{thread}} 시작 (댓글 {{comments}}개, 점수 {{score}}).
+result.activity.comment.without_forum: |-
+  댓글 {{comment}} 게시:
+result.activity.reply.without_forum: |-
+  프로필 {{parentAuthor}}에게 답글 {{comment}} 작성:
+result.activity.vote.without_thread:
+  up: |-
+    댓글 {{comment}}에 찬성표.
+  down: |-
+    댓글 {{comment}}에 반대표.
+  cleared: |-
+    댓글 {{comment}}에 대한 투표 취소.

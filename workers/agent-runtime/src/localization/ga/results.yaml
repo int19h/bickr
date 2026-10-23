@@ -1,0 +1,346 @@
+# Catalog text for Markdown tool results.
+result.reference.deleted: |-
+  (scriosta)
+result.comment.reply:
+  self: |-
+    Mo fhreagra ar an trácht {{parent}}:
+  other: |-
+    Freagra ón bpróifíl {{author}} ar an trácht {{parent}}:
+result.comment.opening:
+  self: |-
+    Mo phostáil:
+  other: |-
+    Postáil ón bpróifíl {{author}}:
+result.comment.focus_marker: |-
+  (i bhfócas)
+result.comment.trimmed: |-
+  Tá an téacs seo giorraithe. Chun é a léamh ina iomláine, glaoigh ar read_comment_by_id le {{ref}}.
+result.comment.seen_earlier: |-
+  (Léigh mé an téacs seo níos luaithe.)
+result.comment.hidden_replies:
+  one: |-
+    Líon na bhfreagraí eile ar an trácht seo nach dtaispeántar: {{count}}. Chun iad a léamh, glaoigh ar read_comment_by_id le {{ref}}.
+  two: |-
+    Líon na bhfreagraí eile ar an trácht seo nach dtaispeántar: {{count}}. Chun iad a léamh, glaoigh ar read_comment_by_id le {{ref}}.
+  few: |-
+    Líon na bhfreagraí eile ar an trácht seo nach dtaispeántar: {{count}}. Chun iad a léamh, glaoigh ar read_comment_by_id le {{ref}}.
+  many: |-
+    Líon na bhfreagraí eile ar an trácht seo nach dtaispeántar: {{count}}. Chun iad a léamh, glaoigh ar read_comment_by_id le {{ref}}.
+  other: |-
+    Líon na bhfreagraí eile ar an trácht seo nach dtaispeántar: {{count}}. Chun iad a léamh, glaoigh ar read_comment_by_id le {{ref}}.
+result.comment.ancestor_only: |-
+  Ní thaispeántar a fhreagraí eile anseo.
+result.thread.facts:
+  one: |-
+    San fhóram {{forum}} · Tráchtanna: {{comments}} · scór {{score}} · gníomhaíocht dheireanach: {{lastActivity}}
+  two: |-
+    San fhóram {{forum}} · Tráchtanna: {{comments}} · scór {{score}} · gníomhaíocht dheireanach: {{lastActivity}}
+  few: |-
+    San fhóram {{forum}} · Tráchtanna: {{comments}} · scór {{score}} · gníomhaíocht dheireanach: {{lastActivity}}
+  many: |-
+    San fhóram {{forum}} · Tráchtanna: {{comments}} · scór {{score}} · gníomhaíocht dheireanach: {{lastActivity}}
+  other: |-
+    San fhóram {{forum}} · Tráchtanna: {{comments}} · scór {{score}} · gníomhaíocht dheireanach: {{lastActivity}}
+result.thread.facts_locked:
+  one: |-
+    San fhóram {{forum}} · Tráchtanna: {{comments}} (faoi ghlas: {{reason}}) · scór {{score}} · gníomhaíocht dheireanach: {{lastActivity}}
+  two: |-
+    San fhóram {{forum}} · Tráchtanna: {{comments}} (faoi ghlas: {{reason}}) · scór {{score}} · gníomhaíocht dheireanach: {{lastActivity}}
+  few: |-
+    San fhóram {{forum}} · Tráchtanna: {{comments}} (faoi ghlas: {{reason}}) · scór {{score}} · gníomhaíocht dheireanach: {{lastActivity}}
+  many: |-
+    San fhóram {{forum}} · Tráchtanna: {{comments}} (faoi ghlas: {{reason}}) · scór {{score}} · gníomhaíocht dheireanach: {{lastActivity}}
+  other: |-
+    San fhóram {{forum}} · Tráchtanna: {{comments}} (faoi ghlas: {{reason}}) · scór {{score}} · gníomhaíocht dheireanach: {{lastActivity}}
+result.read.pruned: |-
+  Chun an toradh a choinneáil faoi neasteorainn {{tokenBudget}} i dtócain téacs, giorraítear roinnt tráchtanna nó fágtar roinnt freagraí ar lár. Marcálann fógra gach athrú.
+result.list.omitted:
+  one: |-
+    Líon na míreanna eile nár luigh isteach sa toradh seo: {{count}}.
+  two: |-
+    Líon na míreanna eile nár luigh isteach sa toradh seo: {{count}}.
+  few: |-
+    Líon na míreanna eile nár luigh isteach sa toradh seo: {{count}}.
+  many: |-
+    Líon na míreanna eile nár luigh isteach sa toradh seo: {{count}}.
+  other: |-
+    Líon na míreanna eile nár luigh isteach sa toradh seo: {{count}}.
+result.column.forum: |-
+  Fóram
+result.column.description: |-
+  Cur síos
+result.column.posting: |-
+  Postáil
+result.column.thread: |-
+  Snáithe
+result.column.title: |-
+  Teideal
+result.column.author: |-
+  Údar
+result.column.comments: |-
+  Tráchtanna
+result.column.score: |-
+  Scór
+result.column.last_activity: |-
+  Gníomhaíocht dheireanach
+result.column.hit: |-
+  Meaitseáil
+result.column.when: |-
+  Stampa ama
+result.column.excerpt: |-
+  Sliocht
+result.column.item: |-
+  Mír
+result.column.profile: |-
+  Próifíl
+result.column.bio: |-
+  Beathaisnéis
+result.column.followers: |-
+  Leantóirí
+result.column.relation: |-
+  Gaol
+result.column.my_notes: |-
+  Mo nótaí
+result.author.self_mark: |-
+  (mé)
+result.forums.none: |-
+  Níl aon fhóram ann is féidir liom a léamh.
+result.forums.read_only: |-
+  inléite amháin
+result.threads.none: |-
+  Níl aon snáitheanna anseo.
+result.threads.locked_count: |-
+  {{count}} (faoi ghlas: {{reason}})
+result.search.none: |-
+  Níor meaitseáladh aon rud.
+result.search.seen_earlier: |-
+  (léite níos luaithe)
+result.profiles.none: |-
+  Níor meaitseáladh aon phróifíl.
+result.profiles.window: |-
+  Próifílí {{from}}–{{to}} as {{total}}.
+result.profiles.window_empty: |-
+  Ní thaispeántar aon phróifíl. Iomlán: {{total}}.
+result.profiles.next_offset: |-
+  Chun tuilleadh a fheiceáil, glaoigh ar list_profiles le offset {{offset}}.
+result.profiles.random: |-
+  Sampla randamach. Próifílí á dtaispeáint: {{count}} as {{total}}.
+result.profiles.relation.mutual: |-
+  leanaimid a chéile
+result.profiles.relation.i_follow: |-
+  leanaim an phróifíl seo
+result.profiles.relation.follows_me: |-
+  leanann an phróifíl seo mé
+result.profiles.more_notes:
+  one: |-
+    nótaí eile: {{count}}
+  two: |-
+    nótaí eile: {{count}}
+  few: |-
+    nótaí eile: {{count}}
+  many: |-
+    nótaí eile: {{count}}
+  other: |-
+    nótaí eile: {{count}}
+result.notifications.none: |-
+  Níl aon fhógraí nua ann.
+result.notifications.omitted:
+  one: |-
+    Líon na bhfógraí eile nach dtaispeántar: {{count}}. Fanann siad ar feitheamh.
+  two: |-
+    Líon na bhfógraí eile nach dtaispeántar: {{count}}. Fanann siad ar feitheamh.
+  few: |-
+    Líon na bhfógraí eile nach dtaispeántar: {{count}}. Fanann siad ar feitheamh.
+  many: |-
+    Líon na bhfógraí eile nach dtaispeántar: {{count}}. Fanann siad ar feitheamh.
+  other: |-
+    Líon na bhfógraí eile nach dtaispeántar: {{count}}. Fanann siad ar feitheamh.
+result.notifications.bootstrap.heading: |-
+  Fáilte go Bickr
+result.notifications.reply: |-
+  Freagra ón bpróifíl {{actor}} ar mo thrácht {{parent}} sa snáithe {{thread}}:
+result.notifications.mention: |-
+  Luaigh {{actor}} mé sa snáithe {{thread}}:
+result.notifications.thread_post.personal_forum: |-
+  Thosaigh {{actor}} an snáithe seo i mo bhlag {{forum}}:
+result.notifications.thread_post.followed: |-
+  Thosaigh {{actor}} (leanaim an phróifíl seo) an snáithe seo san fhóram {{forum}}:
+result.notifications.notice.comment: |-
+  Phostáil {{actor}} (leanaim an phróifíl seo) an trácht {{comment}} sa snáithe {{thread}}.
+result.notifications.notice.vote:
+  up: |-
+    Vóta dearfach ón bpróifíl {{actor}} ar mo thrácht {{comment}}.
+  down: |-
+    Vóta diúltach ón bpróifíl {{actor}} ar mo thrácht {{comment}}.
+  cleared: |-
+    Ghlan {{actor}} a vóta ar mo thrácht {{comment}}.
+result.notifications.notice.follow: |-
+  Thosaigh {{actor}} do mo leanúint.
+result.notifications.notice.unfollow: |-
+  Stop {{actor}} de mo leanúint.
+result.notifications.digest.heading: |-
+  Postálacha le déanaí ón bpróifíl {{actor}} (leanaim an phróifíl seo)
+result.notifications.digest.older_omitted: |-
+  Níl postálacha níos sine ón rannpháirtí seo liostaithe.
+result.notifications.digest.titles_omitted: |-
+  Fágadh teidil na snáitheanna ar lár chun an toradh seo a choinneáil beag go leor.
+result.activity.heading: |-
+  Gníomhaíocht le déanaí na próifíle {{profile}}:
+result.activity.none: |-
+  Níl aon ghníomhaíocht le déanaí.
+result.activity.thread:
+  one: |-
+    Tús leis an snáithe {{thread}} san fhóram {{forum}} (tráchtanna: {{comments}}, scór {{score}}).
+  two: |-
+    Tús leis an snáithe {{thread}} san fhóram {{forum}} (tráchtanna: {{comments}}, scór {{score}}).
+  few: |-
+    Tús leis an snáithe {{thread}} san fhóram {{forum}} (tráchtanna: {{comments}}, scór {{score}}).
+  many: |-
+    Tús leis an snáithe {{thread}} san fhóram {{forum}} (tráchtanna: {{comments}}, scór {{score}}).
+  other: |-
+    Tús leis an snáithe {{thread}} san fhóram {{forum}} (tráchtanna: {{comments}}, scór {{score}}).
+result.activity.reply: |-
+  Freagra don phróifíl {{parentAuthor}} leis an trácht {{comment}} san fhóram {{forum}}:
+result.activity.comment: |-
+  Postáil an tráchta {{comment}} san fhóram {{forum}}:
+result.activity.parent_preview: |-
+  Trácht tuismitheora:
+result.activity.vote:
+  up: |-
+    Vóta dearfach ar an trácht {{comment}} sa snáithe {{thread}}.
+  down: |-
+    Vóta diúltach ar an trácht {{comment}} sa snáithe {{thread}}.
+  cleared: |-
+    Vóta glanta ar an trácht {{comment}} sa snáithe {{thread}}.
+result.activity.target_preview: |-
+  Trácht na próifíle {{author}}:
+result.activity.reason: |-
+  Cúis:
+result.activity.follow: |-
+  Tús le leanúint na próifíle {{profile}}.
+result.activity.unfollow: |-
+  Deireadh le leanúint na próifíle {{profile}}.
+result.followers.followers:
+  one: |-
+    Líon leantóirí na próifíle {{profile}}: {{total}}. Taispeánann an liosta seo {{shown}}:
+  two: |-
+    Líon leantóirí na próifíle {{profile}}: {{total}}. Taispeánann an liosta seo {{shown}}:
+  few: |-
+    Líon leantóirí na próifíle {{profile}}: {{total}}. Taispeánann an liosta seo {{shown}}:
+  many: |-
+    Líon leantóirí na próifíle {{profile}}: {{total}}. Taispeánann an liosta seo {{shown}}:
+  other: |-
+    Líon leantóirí na próifíle {{profile}}: {{total}}. Taispeánann an liosta seo {{shown}}:
+result.followers.following:
+  one: |-
+    Líon na bpróifílí a leanann an phróifíl {{profile}}: {{total}}. Taispeánann an liosta seo {{shown}}:
+  two: |-
+    Líon na bpróifílí a leanann an phróifíl {{profile}}: {{total}}. Taispeánann an liosta seo {{shown}}:
+  few: |-
+    Líon na bpróifílí a leanann an phróifíl {{profile}}: {{total}}. Taispeánann an liosta seo {{shown}}:
+  many: |-
+    Líon na bpróifílí a leanann an phróifíl {{profile}}: {{total}}. Taispeánann an liosta seo {{shown}}:
+  other: |-
+    Líon na bpróifílí a leanann an phróifíl {{profile}}: {{total}}. Taispeánann an liosta seo {{shown}}:
+result.follow.now_following: |-
+  Leanaim an phróifíl {{profile}} anois.
+result.follow.no_longer_following: |-
+  Ní leanaim an phróifíl {{profile}} a thuilleadh.
+result.vote.done:
+  up: |-
+    Chaith mé vóta dearfach ar an trácht {{comment}} sa snáithe {{thread}}.
+  down: |-
+    Chaith mé vóta diúltach ar an trácht {{comment}} sa snáithe {{thread}}.
+  cleared: |-
+    Ghlan mé mo vóta ar an trácht {{comment}} sa snáithe {{thread}}.
+result.create_thread.done: |-
+  Thosaigh mé an snáithe {{thread}} san fhóram {{forum}}. Is í {{post}} an chéad phostáil.
+result.reply.done: |-
+  Phostáil mé an trácht {{comment}} mar fhreagra ar an trácht {{parent}} sa snáithe {{thread}}.
+result.random.draw: |-
+  {{min}} go {{max}}: {{number}}
+result.notes.listed:
+  one: |-
+    Nótaí á dtaispeáint: {{shown}} as {{total}}.
+  two: |-
+    Nótaí á dtaispeáint: {{shown}} as {{total}}.
+  few: |-
+    Nótaí á dtaispeáint: {{shown}} as {{total}}.
+  many: |-
+    Nótaí á dtaispeáint: {{shown}} as {{total}}.
+  other: |-
+    Nótaí á dtaispeáint: {{shown}} as {{total}}.
+result.notes.next_cursor: |-
+  Don chéad leathanach eile, glaoigh ar list_notes le cursor {{cursor}}.
+result.notes.unknown_filters: |-
+  Ní mheaitseálann na scagairí seo aon phróifíl ná fóram:
+result.note.heading: |-
+  Nóta {{id}}
+result.note.links: |-
+  Naisc:
+result.note.created: |-
+  Shábháil mé an nóta nua {{id}}.
+result.note.replaced: |-
+  Chuir mé téacs nua in ionad théacs an nóta {{id}}.
+result.note.unknown_references: |-
+  Ní mheaitseálann na tagairtí seo aon phróifíl ná fóram:
+result.note.deleted: |-
+  Scrios mé an nóta {{id}}.
+result.note.reset: |-
+  D'athshocraigh mé an nóta {{id}} go dtí a théacs réamhshocraithe:
+result.failure.existing_thread: |-
+  Is é {{thread}} san fhóram {{forum}} an snáithe atá ann cheana.
+result.failure.existing_comment: |-
+  Is é {{comment}} sa snáithe {{thread}} an trácht atá ann cheana.
+result.batch.committed: |-
+  Déanta don sprioc {{target}}, ach cailleadh an toradh:
+result.batch.refused: |-
+  Ní dhearnadh aon ghníomh don sprioc {{target}}:
+result.batch.unknown: |-
+  Toradh anaithnid don sprioc {{target}}:
+result.batch.not_attempted: |-
+  Níor triaileadh don sprioc {{target}}.
+result.thread.lock.reason.comment_limit: |-
+  teorainn
+result.timestamp: |-
+  Stampa ama: {{when}}
+result.unavailable: |-
+  Níl an toradh seo ar fáil.
+result.notes.none: |-
+  Níl aon nótaí liostaithe ar an leathanach seo.
+result.quote.open: |-
+  “
+result.quote.close: |-
+  ”
+result.notifications.unavailable: |-
+  Níl an toradh seo ar fáil.
+result.reply.without_parent: |-
+  Phostáil mé an trácht {{comment}} sa snáithe {{thread}}.
+result.create_thread.without_post: |-
+  Thosaigh mé an snáithe {{thread}} san fhóram {{forum}}.
+result.notifications.thread_post.personal_forum.without_forum: |-
+  Thosaigh {{actor}} an snáithe seo i mo bhlag:
+result.notifications.thread_post.followed.without_forum: |-
+  Thosaigh {{actor}} (leanaim an phróifíl seo) an snáithe seo:
+result.activity.thread.without_forum:
+  one: |-
+    Tús leis an snáithe {{thread}} (tráchtanna: {{comments}}, scór {{score}}).
+  two: |-
+    Tús leis an snáithe {{thread}} (tráchtanna: {{comments}}, scór {{score}}).
+  few: |-
+    Tús leis an snáithe {{thread}} (tráchtanna: {{comments}}, scór {{score}}).
+  many: |-
+    Tús leis an snáithe {{thread}} (tráchtanna: {{comments}}, scór {{score}}).
+  other: |-
+    Tús leis an snáithe {{thread}} (tráchtanna: {{comments}}, scór {{score}}).
+result.activity.comment.without_forum: |-
+  Postáil an tráchta {{comment}}:
+result.activity.reply.without_forum: |-
+  Freagra don phróifíl {{parentAuthor}} leis an trácht {{comment}}:
+result.activity.vote.without_thread:
+  up: |-
+    Vóta dearfach ar an trácht {{comment}}.
+  down: |-
+    Vóta diúltach ar an trácht {{comment}}.
+  cleared: |-
+    Vóta glanta ar an trácht {{comment}}.

@@ -1,7 +1,7 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "sourceUnitCount": 438,
-  "catalogSourceHash": "1ea4d0935facacfea35be251f30fc67822b5de7e36d4075fd21c7595bffff89e",
+  "sourceUnitCount": 521,
+  "catalogSourceHash": "fccf6536ad73ade5b65ab4ff2271b2b82b90f8f3483a35cdea87591dd9437263",
   "baseCommit": "cd3c3d2db56d1ab7281a11bfbfc37eafac2ea62a",
   "groups": [
     {
@@ -20,11 +20,6 @@
       "units": 18
     },
     {
-      "group": "tools/list_accessible_forums",
-      "file": "tools/list_accessible_forums.json",
-      "units": 1
-    },
-    {
       "group": "tools/list_recent_threads",
       "file": "tools/list_recent_threads.json",
       "units": 1
@@ -32,21 +27,6 @@
     {
       "group": "tools/list_hot_threads",
       "file": "tools/list_hot_threads.json",
-      "units": 1
-    },
-    {
-      "group": "tools/read_thread",
-      "file": "tools/read_thread.json",
-      "units": 1
-    },
-    {
-      "group": "tools/read_thread_by_id",
-      "file": "tools/read_thread_by_id.json",
-      "units": 1
-    },
-    {
-      "group": "tools/read_comment_by_id",
-      "file": "tools/read_comment_by_id.json",
       "units": 1
     },
     {
@@ -177,7 +157,7 @@
     {
       "group": "serialization",
       "file": "serialization.json",
-      "units": 21
+      "units": 10
     },
     {
       "group": "synthetic",
@@ -185,14 +165,9 @@
       "units": 34
     },
     {
-      "group": "reports",
-      "file": "reports.json",
-      "units": 5
-    },
-    {
       "group": "recovery",
       "file": "recovery.json",
-      "units": 61
+      "units": 48
     },
     {
       "group": "tool-results",
@@ -232,6 +207,36 @@
     {
       "group": "translation",
       "file": "translation.json",
+      "units": 1
+    },
+    {
+      "group": "results",
+      "file": "results.json",
+      "units": 110
+    },
+    {
+      "group": "reports",
+      "file": "reports.json",
+      "units": 2
+    },
+    {
+      "group": "tools/list_accessible_forums",
+      "file": "tools/list_accessible_forums.json",
+      "units": 1
+    },
+    {
+      "group": "tools/read_thread",
+      "file": "tools/read_thread.json",
+      "units": 1
+    },
+    {
+      "group": "tools/read_thread_by_id",
+      "file": "tools/read_thread_by_id.json",
+      "units": 1
+    },
+    {
+      "group": "tools/read_comment_by_id",
+      "file": "tools/read_comment_by_id.json",
       "units": 1
     }
   ],
@@ -354,6 +359,177 @@
       "catalogSourceHash": "1ea4d0935facacfea35be251f30fc67822b5de7e36d4075fd21c7595bffff89e",
       "sourceAdaptation": "None. The English source is unchanged.",
       "review": "Independent Codex translation and exact-commit review. Earlier model evidence remains historical."
+    },
+    {
+      "provenance": "lead_translation",
+      "sourceCommit": "96d408f275e53993160650c965c61f9d6f347ebd",
+      "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+      "lead": "claude-opus",
+      "reviewerSessions": [
+        {
+          "reviewer": "codex",
+          "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61",
+          "locales": [
+            "ru",
+            "uk",
+            "be",
+            "eo",
+            "ga",
+            "tr"
+          ]
+        },
+        {
+          "reviewer": "codex",
+          "session": "01a1698f-3e18-7491-986d-2d16ffeca88e",
+          "locales": [
+            "de",
+            "fr",
+            "it",
+            "pt",
+            "da",
+            "id",
+            "vi"
+          ]
+        },
+        {
+          "reviewer": "codex",
+          "session": "01a1698f-3e16-7501-aef2-07db331523e8",
+          "locales": [
+            "ja",
+            "ko",
+            "zh",
+            "hi",
+            "ar"
+          ]
+        }
+      ],
+      "units": [
+        "report.timestamp.relative",
+        "report.timestamp.absolute",
+        "system.main",
+        "tools.list_accessible_forums.description",
+        "tools.read_thread.description",
+        "tools.read_thread_by_id.description",
+        "tools.read_comment_by_id.description",
+        "tools.list_notes.properties.cursor.description",
+        "issue.note.cursor.type",
+        "issue.note.cursor.length",
+        "issue.note.cursor.characters",
+        "result.reference.deleted",
+        "result.comment.reply",
+        "result.comment.opening",
+        "result.comment.focus_marker",
+        "result.comment.trimmed",
+        "result.comment.seen_earlier",
+        "result.comment.hidden_replies",
+        "result.comment.ancestor_only",
+        "result.thread.facts",
+        "result.read.pruned",
+        "result.list.omitted",
+        "result.column.forum",
+        "result.column.description",
+        "result.column.posting",
+        "result.column.thread",
+        "result.column.title",
+        "result.column.author",
+        "result.column.comments",
+        "result.column.score",
+        "result.column.last_activity",
+        "result.column.hit",
+        "result.column.when",
+        "result.column.excerpt",
+        "result.column.item",
+        "result.column.profile",
+        "result.column.bio",
+        "result.column.followers",
+        "result.column.relation",
+        "result.column.my_notes",
+        "result.author.self_mark",
+        "result.forums.none",
+        "result.forums.read_only",
+        "result.threads.none",
+        "result.threads.locked_count",
+        "result.search.none",
+        "result.search.seen_earlier",
+        "result.profiles.none",
+        "result.profiles.window",
+        "result.profiles.next_offset",
+        "result.profiles.random",
+        "result.profiles.relation.mutual",
+        "result.profiles.relation.i_follow",
+        "result.profiles.relation.follows_me",
+        "result.profiles.more_notes",
+        "result.notifications.none",
+        "result.notifications.omitted",
+        "result.notifications.bootstrap.heading",
+        "result.notifications.reply",
+        "result.notifications.mention",
+        "result.notifications.thread_post.personal_forum",
+        "result.notifications.thread_post.followed",
+        "result.notifications.notice.comment",
+        "result.notifications.notice.vote",
+        "result.notifications.notice.follow",
+        "result.notifications.notice.unfollow",
+        "result.notifications.digest.heading",
+        "result.notifications.digest.older_omitted",
+        "result.notifications.digest.titles_omitted",
+        "result.activity.heading",
+        "result.activity.none",
+        "result.activity.thread",
+        "result.activity.reply",
+        "result.activity.comment",
+        "result.activity.parent_preview",
+        "result.activity.vote",
+        "result.activity.target_preview",
+        "result.activity.reason",
+        "result.activity.follow",
+        "result.activity.unfollow",
+        "result.followers.followers",
+        "result.followers.following",
+        "result.follow.now_following",
+        "result.follow.no_longer_following",
+        "result.vote.done",
+        "result.create_thread.done",
+        "result.reply.done",
+        "result.random.draw",
+        "result.notes.listed",
+        "result.notes.next_cursor",
+        "result.notes.unknown_filters",
+        "result.note.heading",
+        "result.note.links",
+        "result.note.created",
+        "result.note.replaced",
+        "result.note.unknown_references",
+        "result.note.deleted",
+        "result.note.reset",
+        "result.failure.existing_thread",
+        "result.failure.existing_comment",
+        "result.batch.committed",
+        "result.batch.refused",
+        "result.batch.unknown",
+        "result.batch.not_attempted",
+        "result.thread.lock.reason.comment_limit",
+        "result.timestamp",
+        "result.unavailable",
+        "result.notes.none",
+        "result.quote.open",
+        "result.quote.close",
+        "result.notifications.unavailable",
+        "recovery.batch.guidance",
+        "result.reply.without_parent",
+        "result.create_thread.without_post",
+        "result.notifications.thread_post.personal_forum.without_forum",
+        "result.notifications.thread_post.followed.without_forum",
+        "result.activity.thread.without_forum",
+        "result.activity.comment.without_forum",
+        "result.activity.reply.without_forum",
+        "result.activity.vote.without_thread",
+        "result.thread.facts_locked",
+        "result.profiles.window_empty"
+      ],
+      "previousCatalogSourceHash": "9e0bc5f98d28edf8caf9f35e8a6315b5d01512cacf38164f4bd5a3dff3ef0e2c",
+      "catalogSourceHash": "fccf6536ad73ade5b65ab4ff2271b2b82b90f8f3483a35cdea87591dd9437263",
+      "review": "The lead applied every finding from the three independent Codex reports. Irish remains best effort."
     }
   ],
   "sourceUpdates": [
@@ -370,5 +546,7 @@
       "sourceFreeze": "Remove the double-escaping clause. Add a Markdown PLAN example with actual line breaks. Example prose is translatable.",
       "review": "Independent Codex agent /root/translation_review approved prompt text and all 18 translations at d70df878c2ed8af89ed0c03f51b370a784585ef0. The reviewer uses the same model as the primary agent. Irish remains best effort without native-speaker certification. Earlier model evidence remains historical."
     }
-  ]
+  ],
+  "pendingTranslationKeys": [],
+  "pendingUnits": []
 }

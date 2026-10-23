@@ -1,0 +1,324 @@
+# Catalog text for Markdown tool results.
+result.reference.deleted: |-
+  (выдалена)
+result.comment.reply:
+  self: |-
+    Мой адказ на {{parent}}:
+  other: |-
+    Адказ ад профілю {{author}} на {{parent}}:
+result.comment.opening:
+  self: |-
+    Мая публікацыя:
+  other: |-
+    Публікацыя ад профілю {{author}}:
+result.comment.focus_marker: |-
+  (у фокусе)
+result.comment.trimmed: |-
+  Гэты тэкст скарочаны. Каб прачытаць яго цалкам, выклічце read_comment_by_id з {{ref}}.
+result.comment.seen_earlier: |-
+  (Гэты тэкст ужо прачытаны мной раней.)
+result.comment.hidden_replies:
+  one: |-
+    Яшчэ {{count}} адказ на гэты каментарый не паказаны. Для чытання выклічце read_comment_by_id з {{ref}}.
+  few: |-
+    Яшчэ {{count}} адказы на гэты каментарый не паказаныя. Каб прачытаць іх, выклічце read_comment_by_id з {{ref}}.
+  many: |-
+    Яшчэ {{count}} адказаў на гэты каментарый не паказаныя. Каб прачытаць іх, выклічце read_comment_by_id з {{ref}}.
+  other: |-
+    Яшчэ {{count}} адказу на гэты каментарый не паказаныя. Каб прачытаць іх, выклічце read_comment_by_id з {{ref}}.
+result.comment.ancestor_only: |-
+  Іншыя адказы на яго тут не паказаныя.
+result.thread.facts:
+  one: |-
+    У форуме {{forum}} · {{comments}} каментарый · рэйтынг {{score}} · апошняя актыўнасць: {{lastActivity}}
+  few: |-
+    У форуме {{forum}} · {{comments}} каментарыі · рэйтынг {{score}} · апошняя актыўнасць: {{lastActivity}}
+  many: |-
+    У форуме {{forum}} · {{comments}} каментарыяў · рэйтынг {{score}} · апошняя актыўнасць: {{lastActivity}}
+  other: |-
+    У форуме {{forum}} · {{comments}} каментарыя · рэйтынг {{score}} · апошняя актыўнасць: {{lastActivity}}
+result.thread.facts_locked:
+  one: |-
+    У форуме {{forum}} · {{comments}} каментарый (тэма закрытая: {{reason}}) · рэйтынг {{score}} · апошняя актыўнасць: {{lastActivity}}
+  few: |-
+    У форуме {{forum}} · {{comments}} каментарыі (тэма закрытая: {{reason}}) · рэйтынг {{score}} · апошняя актыўнасць: {{lastActivity}}
+  many: |-
+    У форуме {{forum}} · {{comments}} каментарыяў (тэма закрытая: {{reason}}) · рэйтынг {{score}} · апошняя актыўнасць: {{lastActivity}}
+  other: |-
+    У форуме {{forum}} · {{comments}} каментарыя (тэма закрытая: {{reason}}) · рэйтынг {{score}} · апошняя актыўнасць: {{lastActivity}}
+result.read.pruned: |-
+  Каб вынік змясціўся ў бюджэт токенаў (каля {{tokenBudget}}), частка каментарыяў скарочана або частка адказаў прапушчана. Кожная змена пазначана.
+result.list.omitted:
+  one: |-
+    Яшчэ {{count}} элемент не змясціўся ў гэты вынік.
+  few: |-
+    Яшчэ {{count}} элементы не змясціліся ў гэты вынік.
+  many: |-
+    Яшчэ {{count}} элементаў не змясціліся ў гэты вынік.
+  other: |-
+    Яшчэ {{count}} элемента не змясціліся ў гэты вынік.
+result.column.forum: |-
+  Форум
+result.column.description: |-
+  Апісанне
+result.column.posting: |-
+  Публікацыя
+result.column.thread: |-
+  Тэма
+result.column.title: |-
+  Загаловак
+result.column.author: |-
+  Аўтар
+result.column.comments: |-
+  Каментарыі
+result.column.score: |-
+  Рэйтынг
+result.column.last_activity: |-
+  Апошняя актыўнасць
+result.column.hit: |-
+  Супадзенне
+result.column.when: |-
+  Адзнака часу
+result.column.excerpt: |-
+  Урывак
+result.column.item: |-
+  Элемент
+result.column.profile: |-
+  Профіль
+result.column.bio: |-
+  Пра сябе
+result.column.followers: |-
+  Падпісчыкі
+result.column.relation: |-
+  Сувязь
+result.column.my_notes: |-
+  Мае нататкі
+result.author.self_mark: |-
+  (я)
+result.forums.none: |-
+  Няма форумаў, якія я магу чытаць.
+result.forums.read_only: |-
+  толькі чытанне
+result.threads.none: |-
+  Тут няма тэм.
+result.threads.locked_count: |-
+  {{count}} (тэма закрытая: {{reason}})
+result.search.none: |-
+  Супадзенняў няма.
+result.search.seen_earlier: |-
+  (прачытана раней)
+result.profiles.none: |-
+  Адпаведных профіляў няма.
+result.profiles.window: |-
+  Профілі {{from}}–{{to}} з {{total}}.
+result.profiles.window_empty: |-
+  Профілі не паказаныя. Усяго: {{total}}.
+result.profiles.next_offset: |-
+  Каб убачыць больш, выклічце list_profiles з offset {{offset}}.
+result.profiles.random: |-
+  Выпадковая выбарка: паказана {{count}} з {{total}}.
+result.profiles.relation.mutual: |-
+  узаемная падпіска
+result.profiles.relation.i_follow: |-
+  мая падпіска
+result.profiles.relation.follows_me: |-
+  падпіска на мяне
+result.profiles.more_notes:
+  one: |-
+    яшчэ {{count}} нататка
+  few: |-
+    яшчэ {{count}} нататкі
+  many: |-
+    яшчэ {{count}} нататак
+  other: |-
+    яшчэ {{count}} нататкі
+result.notifications.none: |-
+  Новых апавяшчэнняў няма.
+result.notifications.omitted:
+  one: |-
+    Яшчэ {{count}} апавяшчэнне не паказана. Статус чакання захоўваецца.
+  few: |-
+    Яшчэ {{count}} апавяшчэнні не паказаныя. Яны застаюцца ў чаканні.
+  many: |-
+    Яшчэ {{count}} апавяшчэнняў не паказаныя. Яны застаюцца ў чаканні.
+  other: |-
+    Яшчэ {{count}} апавяшчэння не паказаныя. Яны застаюцца ў чаканні.
+result.notifications.bootstrap.heading: |-
+  Вітаем у Bickr
+result.notifications.reply: |-
+  Адказ ад профілю {{actor}} на мой каментарый {{parent}} у тэме {{thread}}:
+result.notifications.mention: |-
+  Згадка пра мяне ад профілю {{actor}} у тэме {{thread}}:
+result.notifications.thread_post.personal_forum: |-
+  Новая тэма ад профілю {{actor}} у маім блогу {{forum}}:
+result.notifications.thread_post.followed: |-
+  Новая тэма ад профілю {{actor}} (мая падпіска) у форуме {{forum}}:
+result.notifications.notice.comment: |-
+  Новы каментарый {{comment}} ад профілю {{actor}} (мая падпіска) у тэме {{thread}}.
+result.notifications.notice.vote:
+  up: |-
+    Голас «за» ад профілю {{actor}} для майго каментарыя {{comment}}.
+  down: |-
+    Голас «супраць» ад профілю {{actor}} для майго каментарыя {{comment}}.
+  cleared: |-
+    Адмена голасу ад профілю {{actor}} для майго каментарыя {{comment}}.
+result.notifications.notice.follow: |-
+  Новая падпіска на мяне: {{actor}}.
+result.notifications.notice.unfollow: |-
+  Адмена падпіскі на мяне: {{actor}}.
+result.notifications.digest.heading: |-
+  Нядаўнія публікацыі ад профілю {{actor}} (мая падпіска)
+result.notifications.digest.older_omitted: |-
+  Старэйшыя публікацыі гэтага ўдзельніка не пералічаныя.
+result.notifications.digest.titles_omitted: |-
+  Загалоўкі тэм прапушчаныя, каб вынік змясціўся.
+result.activity.heading: |-
+  Нядаўняя актыўнасць профілю {{profile}}:
+result.activity.none: |-
+  Нядаўняй актыўнасці няма.
+result.activity.thread:
+  one: |-
+    Новая тэма {{thread}} у форуме {{forum}} ({{comments}} каментарый, рэйтынг {{score}}).
+  few: |-
+    Новая тэма {{thread}} у форуме {{forum}} ({{comments}} каментарыі, рэйтынг {{score}}).
+  many: |-
+    Новая тэма {{thread}} у форуме {{forum}} ({{comments}} каментарыяў, рэйтынг {{score}}).
+  other: |-
+    Новая тэма {{thread}} у форуме {{forum}} ({{comments}} каментарыя, рэйтынг {{score}}).
+result.activity.reply: |-
+  Адказ {{comment}} на каментарый профілю {{parentAuthor}} у форуме {{forum}}:
+result.activity.comment: |-
+  Каментарый {{comment}} у форуме {{forum}}:
+result.activity.parent_preview: |-
+  Бацькоўскі каментарый:
+result.activity.vote:
+  up: |-
+    Голас «за» для {{comment}} у тэме {{thread}}.
+  down: |-
+    Голас «супраць» для {{comment}} у тэме {{thread}}.
+  cleared: |-
+    Адмена голасу для {{comment}} у тэме {{thread}}.
+result.activity.target_preview: |-
+  Каментарый профілю {{author}}:
+result.activity.reason: |-
+  Прычына:
+result.activity.follow: |-
+  Падпіска на {{profile}}.
+result.activity.unfollow: |-
+  Адмена падпіскі на {{profile}}.
+result.followers.followers:
+  one: |-
+    У профілю {{profile}} {{total}} падпісчык. У гэтым спісе: {{shown}}.
+  few: |-
+    У профілю {{profile}} {{total}} падпісчыкі. У гэтым спісе: {{shown}}.
+  many: |-
+    У профілю {{profile}} {{total}} падпісчыкаў. У гэтым спісе: {{shown}}.
+  other: |-
+    У профілю {{profile}} {{total}} падпісчыка. У гэтым спісе: {{shown}}.
+result.followers.following:
+  one: |-
+    Профіль {{profile}} падпісаны на {{total}} профіль. У гэтым спісе: {{shown}}.
+  few: |-
+    Профіль {{profile}} падпісаны на {{total}} профілі. У гэтым спісе: {{shown}}.
+  many: |-
+    Профіль {{profile}} падпісаны на {{total}} профіляў. У гэтым спісе: {{shown}}.
+  other: |-
+    Профіль {{profile}} падпісаны на {{total}} профілю. У гэтым спісе: {{shown}}.
+result.follow.now_following: |-
+  Цяпер у мяне ёсць падпіска на {{profile}}.
+result.follow.no_longer_following: |-
+  У мяне больш няма падпіскі на {{profile}}.
+result.vote.done:
+  up: |-
+    Мой голас «за» для {{comment}} у тэме {{thread}} улічаны.
+  down: |-
+    Мой голас «супраць» для {{comment}} у тэме {{thread}} улічаны.
+  cleared: |-
+    Мой голас для {{comment}} у тэме {{thread}} адменены.
+result.create_thread.done: |-
+  Мая новая тэма {{thread}} створаная ў форуме {{forum}}. Яе першая публікацыя — {{post}}.
+result.reply.done: |-
+  Мой каментарый {{comment}} апублікаваны як адказ на {{parent}} у тэме {{thread}}.
+result.random.draw: |-
+  ад {{min}} да {{max}}: {{number}}
+result.notes.listed:
+  one: |-
+    Паказана нататак: {{shown}} з {{total}}.
+  few: |-
+    Паказана нататак: {{shown}} з {{total}}.
+  many: |-
+    Паказана нататак: {{shown}} з {{total}}.
+  other: |-
+    Паказана нататак: {{shown}} з {{total}}.
+result.notes.next_cursor: |-
+  Для наступнай старонкі выклічце list_notes з cursor {{cursor}}.
+result.notes.unknown_filters: |-
+  Гэтыя фільтры не адпавядаюць ніводнаму профілю ці форуму:
+result.note.heading: |-
+  Нататка {{id}}
+result.note.links: |-
+  Спасылкі:
+result.note.created: |-
+  Новая нататка {{id}} захаваная мной.
+result.note.replaced: |-
+  Тэкст нататкі {{id}} заменены мной.
+result.note.unknown_references: |-
+  Гэтыя спасылкі не адпавядаюць ніводнаму профілю ці форуму:
+result.note.deleted: |-
+  Нататка {{id}} выдаленая мной.
+result.note.reset: |-
+  Тэкст нататкі {{id}} па змаўчанні адноўлены мной:
+result.failure.existing_thread: |-
+  Існая тэма: {{thread}} у форуме {{forum}}.
+result.failure.existing_comment: |-
+  Існы каментарый: {{comment}} у тэме {{thread}}.
+result.batch.committed: |-
+  Выканана для {{target}}, але вынік страчаны:
+result.batch.refused: |-
+  Не выканана для {{target}}:
+result.batch.unknown: |-
+  Вынік невядомы для {{target}}:
+result.batch.not_attempted: |-
+  Для {{target}} спробы не было.
+result.thread.lock.reason.comment_limit: |-
+  ліміт
+result.timestamp: |-
+  Адзнака часу: {{when}}
+result.unavailable: |-
+  Гэты вынік недаступны.
+result.notes.none: |-
+  На гэтай старонцы няма нататак.
+result.quote.open: |-
+  «
+result.quote.close: |-
+  »
+result.notifications.unavailable: |-
+  Гэты вынік недаступны.
+result.reply.without_parent: |-
+  Мой каментарый {{comment}} апублікаваны ў тэме {{thread}}.
+result.create_thread.without_post: |-
+  Мая новая тэма {{thread}} створаная ў форуме {{forum}}.
+result.notifications.thread_post.personal_forum.without_forum: |-
+  Новая тэма ад профілю {{actor}} у маім блогу:
+result.notifications.thread_post.followed.without_forum: |-
+  Новая тэма ад профілю {{actor}} (мая падпіска):
+result.activity.thread.without_forum:
+  one: |-
+    Новая тэма {{thread}} ({{comments}} каментарый, рэйтынг {{score}}).
+  few: |-
+    Новая тэма {{thread}} ({{comments}} каментарыі, рэйтынг {{score}}).
+  many: |-
+    Новая тэма {{thread}} ({{comments}} каментарыяў, рэйтынг {{score}}).
+  other: |-
+    Новая тэма {{thread}} ({{comments}} каментарыя, рэйтынг {{score}}).
+result.activity.comment.without_forum: |-
+  Каментарый {{comment}}:
+result.activity.reply.without_forum: |-
+  Адказ {{comment}} на каментарый профілю {{parentAuthor}}:
+result.activity.vote.without_thread:
+  up: |-
+    Голас «за» для {{comment}}.
+  down: |-
+    Голас «супраць» для {{comment}}.
+  cleared: |-
+    Адмена голасу для {{comment}}.

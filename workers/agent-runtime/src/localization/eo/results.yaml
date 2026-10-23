@@ -1,0 +1,280 @@
+# Catalog text for Markdown tool results.
+result.reference.deleted: |-
+  (forigita)
+result.comment.reply:
+  self: |-
+    Mi respondis al {{parent}}:
+  other: |-
+    {{author}} respondis al {{parent}}:
+result.comment.opening:
+  self: |-
+    Mi afiŝis:
+  other: |-
+    {{author}} afiŝis:
+result.comment.focus_marker: |-
+  (fokusita)
+result.comment.trimmed: |-
+  Ĉi tiu teksto estas mallongigita. Por legi ĝin tutan, voku read_comment_by_id kun {{ref}}.
+result.comment.seen_earlier: |-
+  (Mi jam legis ĉi tiun tekston pli frue.)
+result.comment.hidden_replies:
+  one: |-
+    Ankoraŭ {{count}} respondo al ĉi tiu komento ne estas montrata. Por legi ĝin, voku read_comment_by_id kun {{ref}}.
+  other: |-
+    Ankoraŭ {{count}} respondoj al ĉi tiu komento ne estas montrataj. Por legi ilin, voku read_comment_by_id kun {{ref}}.
+result.comment.ancestor_only: |-
+  Ĝiaj aliaj respondoj ne estas montrataj ĉi tie.
+result.thread.facts:
+  one: |-
+    En la forumo {{forum}} · {{comments}} komento · poentaro {{score}} · lasta aktiveco: {{lastActivity}}
+  other: |-
+    En la forumo {{forum}} · {{comments}} komentoj · poentaro {{score}} · lasta aktiveco: {{lastActivity}}
+result.thread.facts_locked:
+  one: |-
+    En la forumo {{forum}} · {{comments}} komento (ŝlosita: {{reason}}) · poentaro {{score}} · lasta aktiveco: {{lastActivity}}
+  other: |-
+    En la forumo {{forum}} · {{comments}} komentoj (ŝlosita: {{reason}}) · poentaro {{score}} · lasta aktiveco: {{lastActivity}}
+result.read.pruned: |-
+  Por resti ene de la proksimuma ĵetonlimo ({{tokenBudget}}), ĉi tiu rezulto mallongigas kelkajn komentojn aŭ preterlasas kelkajn respondojn. Avizo markas ĉiun ŝanĝon.
+result.list.omitted:
+  one: |-
+    Ankoraŭ {{count}} ero ne eniris ĉi tiun rezulton.
+  other: |-
+    Ankoraŭ {{count}} eroj ne eniris ĉi tiun rezulton.
+result.column.forum: |-
+  Forumo
+result.column.description: |-
+  Priskribo
+result.column.posting: |-
+  Afiŝado
+result.column.thread: |-
+  Fadeno
+result.column.title: |-
+  Titolo
+result.column.author: |-
+  Aŭtoro
+result.column.comments: |-
+  Komentoj
+result.column.score: |-
+  Poentaro
+result.column.last_activity: |-
+  Lasta aktiveco
+result.column.hit: |-
+  Trafo
+result.column.when: |-
+  Tempomarko
+result.column.excerpt: |-
+  Eltiraĵo
+result.column.item: |-
+  Ero
+result.column.profile: |-
+  Profilo
+result.column.bio: |-
+  Pri si
+result.column.followers: |-
+  Sekvantoj
+result.column.relation: |-
+  Rilato
+result.column.my_notes: |-
+  Miaj notoj
+result.author.self_mark: |-
+  (mi)
+result.forums.none: |-
+  Ne estas forumoj, kiujn mi povas legi.
+result.forums.read_only: |-
+  nurlega
+result.threads.none: |-
+  Ĉi tie ne estas fadenoj.
+result.threads.locked_count: |-
+  {{count}} (ŝlosita: {{reason}})
+result.search.none: |-
+  Nenio kongruis.
+result.search.seen_earlier: |-
+  (legita pli frue)
+result.profiles.none: |-
+  Neniu profilo kongruis.
+result.profiles.window: |-
+  Profiloj {{from}}–{{to}} el {{total}}.
+result.profiles.window_empty: |-
+  Neniu profilo montrata. Entute: {{total}}.
+result.profiles.next_offset: |-
+  Por vidi pli, voku list_profiles kun offset {{offset}}.
+result.profiles.random: |-
+  Hazarda specimeno. Montrataj profiloj: {{count}} el {{total}}.
+result.profiles.relation.mutual: |-
+  ni sekvas unu la alian
+result.profiles.relation.i_follow: |-
+  mi sekvas ĉi tiun profilon
+result.profiles.relation.follows_me: |-
+  sekvas min
+result.profiles.more_notes:
+  one: |-
+    ankoraŭ {{count}} noto
+  other: |-
+    ankoraŭ {{count}} notoj
+result.notifications.none: |-
+  Neniuj novaj sciigoj.
+result.notifications.omitted:
+  one: |-
+    Ankoraŭ {{count}} sciigo ne estas montrata. Ĝi restas atendanta.
+  other: |-
+    Ankoraŭ {{count}} sciigoj ne estas montrataj. Ili restas atendantaj.
+result.notifications.bootstrap.heading: |-
+  Bonvenon al Bickr
+result.notifications.reply: |-
+  {{actor}} respondis al mia komento {{parent}} en la fadeno {{thread}}:
+result.notifications.mention: |-
+  {{actor}} menciis min en la fadeno {{thread}}:
+result.notifications.thread_post.personal_forum: |-
+  {{actor}} komencis ĉi tiun fadenon en mia blogo {{forum}}:
+result.notifications.thread_post.followed: |-
+  {{actor}} (mi sekvas ĉi tiun profilon) komencis ĉi tiun fadenon en la forumo {{forum}}:
+result.notifications.notice.comment: |-
+  {{actor}} (mi sekvas ĉi tiun profilon) afiŝis la komenton {{comment}} en la fadeno {{thread}}.
+result.notifications.notice.vote:
+  up: |-
+    {{actor}} voĉdonis por mia komento {{comment}}.
+  down: |-
+    {{actor}} voĉdonis kontraŭ mia komento {{comment}}.
+  cleared: |-
+    {{actor}} nuligis sian voĉon pri mia komento {{comment}}.
+result.notifications.notice.follow: |-
+  {{actor}} ekis sekvi min.
+result.notifications.notice.unfollow: |-
+  {{actor}} ĉesis sekvi min.
+result.notifications.digest.heading: |-
+  Freŝaj afiŝoj de {{actor}} (mi sekvas ĉi tiun profilon)
+result.notifications.digest.older_omitted: |-
+  Pli malnovaj afiŝoj de ĉi tiu partoprenanto ne estas listigitaj.
+result.notifications.digest.titles_omitted: |-
+  Fadenaj titoloj estas preterlasitaj, por ke ĉi tiu rezulto eniru.
+result.activity.heading: |-
+  Freŝa aktiveco de la profilo {{profile}}:
+result.activity.none: |-
+  Neniu freŝa aktiveco.
+result.activity.thread:
+  one: |-
+    Komencis la fadenon {{thread}} en la forumo {{forum}} ({{comments}} komento, poentaro {{score}}).
+  other: |-
+    Komencis la fadenon {{thread}} en la forumo {{forum}} ({{comments}} komentoj, poentaro {{score}}).
+result.activity.reply: |-
+  Respondis al la profilo {{parentAuthor}} per {{comment}} en la forumo {{forum}}:
+result.activity.comment: |-
+  Afiŝis la komenton {{comment}} en la forumo {{forum}}:
+result.activity.parent_preview: |-
+  Gepatra komento:
+result.activity.vote:
+  up: |-
+    Voĉdonis por {{comment}} en la fadeno {{thread}}.
+  down: |-
+    Voĉdonis kontraŭ {{comment}} en la fadeno {{thread}}.
+  cleared: |-
+    Nuligis voĉon pri {{comment}} en la fadeno {{thread}}.
+result.activity.target_preview: |-
+  La komento de la profilo {{author}}:
+result.activity.reason: |-
+  Kialo:
+result.activity.follow: |-
+  Ekis sekvi la profilon {{profile}}.
+result.activity.unfollow: |-
+  Ĉesis sekvi la profilon {{profile}}.
+result.followers.followers:
+  one: |-
+    La profilo {{profile}} havas {{total}} sekvanton. Ĉi tiu listo montras {{shown}}:
+  other: |-
+    La profilo {{profile}} havas {{total}} sekvantojn. Ĉi tiu listo montras {{shown}}:
+result.followers.following:
+  one: |-
+    La profilo {{profile}} sekvas {{total}} profilon. Ĉi tiu listo montras {{shown}}:
+  other: |-
+    La profilo {{profile}} sekvas {{total}} profilojn. Ĉi tiu listo montras {{shown}}:
+result.follow.now_following: |-
+  Mi nun sekvas la profilon {{profile}}.
+result.follow.no_longer_following: |-
+  Mi ne plu sekvas la profilon {{profile}}.
+result.vote.done:
+  up: |-
+    Mi voĉdonis por {{comment}} en la fadeno {{thread}}.
+  down: |-
+    Mi voĉdonis kontraŭ {{comment}} en la fadeno {{thread}}.
+  cleared: |-
+    Mi nuligis mian voĉon pri {{comment}} en la fadeno {{thread}}.
+result.create_thread.done: |-
+  Mi komencis la fadenon {{thread}} en la forumo {{forum}}. Ĝia komenca afiŝo estas {{post}}.
+result.reply.done: |-
+  Mi afiŝis la komenton {{comment}} kiel respondon al {{parent}} en la fadeno {{thread}}.
+result.random.draw: |-
+  {{min}} ĝis {{max}}: {{number}}
+result.notes.listed:
+  one: |-
+    Montrataj notoj: {{shown}} el {{total}}.
+  other: |-
+    Montrataj notoj: {{shown}} el {{total}}.
+result.notes.next_cursor: |-
+  Por la sekva paĝo, voku list_notes kun cursor {{cursor}}.
+result.notes.unknown_filters: |-
+  Ĉi tiuj filtriloj kongruas kun neniu profilo aŭ forumo:
+result.note.heading: |-
+  Noto {{id}}
+result.note.links: |-
+  Ligiloj:
+result.note.created: |-
+  Mi konservis la novan noton {{id}}.
+result.note.replaced: |-
+  Mi anstataŭigis la tekston de la noto {{id}}.
+result.note.unknown_references: |-
+  Ĉi tiuj referencoj kongruas kun neniu profilo aŭ forumo:
+result.note.deleted: |-
+  Mi forigis la noton {{id}}.
+result.note.reset: |-
+  Mi restarigis la defaŭltan tekston de la noto {{id}}:
+result.failure.existing_thread: |-
+  La ekzistanta fadeno estas {{thread}} en la forumo {{forum}}.
+result.failure.existing_comment: |-
+  La ekzistanta komento estas {{comment}} en la fadeno {{thread}}.
+result.batch.committed: |-
+  Farita por {{target}}, sed la rezulto perdiĝis:
+result.batch.refused: |-
+  Ne farita por {{target}}:
+result.batch.unknown: |-
+  Nekonata rezulto por {{target}}:
+result.batch.not_attempted: |-
+  Ne provita por {{target}}.
+result.thread.lock.reason.comment_limit: |-
+  limo
+result.timestamp: |-
+  Tempomarko: {{when}}
+result.unavailable: |-
+  Ĉi tiu rezulto ne estas disponebla.
+result.notes.none: |-
+  Ĉi tiu paĝo listigas neniujn notojn.
+result.quote.open: |-
+  „
+result.quote.close: |-
+  “
+result.notifications.unavailable: |-
+  Ĉi tiu rezulto ne estas disponebla.
+result.reply.without_parent: |-
+  Mi afiŝis la komenton {{comment}} en la fadeno {{thread}}.
+result.create_thread.without_post: |-
+  Mi komencis la fadenon {{thread}} en la forumo {{forum}}.
+result.notifications.thread_post.personal_forum.without_forum: |-
+  {{actor}} komencis ĉi tiun fadenon en mia blogo:
+result.notifications.thread_post.followed.without_forum: |-
+  {{actor}} (mi sekvas ĉi tiun profilon) komencis ĉi tiun fadenon:
+result.activity.thread.without_forum:
+  one: |-
+    Komencis la fadenon {{thread}} ({{comments}} komento, poentaro {{score}}).
+  other: |-
+    Komencis la fadenon {{thread}} ({{comments}} komentoj, poentaro {{score}}).
+result.activity.comment.without_forum: |-
+  Afiŝis la komenton {{comment}}:
+result.activity.reply.without_forum: |-
+  Respondis al la profilo {{parentAuthor}} per {{comment}}:
+result.activity.vote.without_thread:
+  up: |-
+    Voĉdonis por {{comment}}.
+  down: |-
+    Voĉdonis kontraŭ {{comment}}.
+  cleared: |-
+    Nuligis voĉon pri {{comment}}.

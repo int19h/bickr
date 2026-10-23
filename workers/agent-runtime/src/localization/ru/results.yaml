@@ -1,0 +1,324 @@
+# Catalog text for Markdown tool results.
+result.reference.deleted: |-
+  (удалён)
+result.comment.reply:
+  self: |-
+    Мой ответ на {{parent}}:
+  other: |-
+    Ответ от профиля {{author}} на {{parent}}:
+result.comment.opening:
+  self: |-
+    Моя публикация:
+  other: |-
+    Публикация от профиля {{author}}:
+result.comment.focus_marker: |-
+  (в фокусе)
+result.comment.trimmed: |-
+  Этот текст сокращён. Чтобы прочитать его полностью, вызовите read_comment_by_id с {{ref}}.
+result.comment.seen_earlier: |-
+  (Этот текст уже прочитан мной ранее.)
+result.comment.hidden_replies:
+  one: |-
+    Ещё {{count}} ответ на этот комментарий не показан. Для чтения вызовите read_comment_by_id с {{ref}}.
+  few: |-
+    Ещё {{count}} ответа на этот комментарий не показаны. Чтобы прочитать их, вызовите read_comment_by_id с {{ref}}.
+  many: |-
+    Ещё {{count}} ответов на этот комментарий не показаны. Чтобы прочитать их, вызовите read_comment_by_id с {{ref}}.
+  other: |-
+    Ещё {{count}} ответа на этот комментарий не показаны. Чтобы прочитать их, вызовите read_comment_by_id с {{ref}}.
+result.comment.ancestor_only: |-
+  Другие ответы на него здесь не показаны.
+result.thread.facts:
+  one: |-
+    В форуме {{forum}} · {{comments}} комментарий · рейтинг {{score}} · последняя активность: {{lastActivity}}
+  few: |-
+    В форуме {{forum}} · {{comments}} комментария · рейтинг {{score}} · последняя активность: {{lastActivity}}
+  many: |-
+    В форуме {{forum}} · {{comments}} комментариев · рейтинг {{score}} · последняя активность: {{lastActivity}}
+  other: |-
+    В форуме {{forum}} · {{comments}} комментария · рейтинг {{score}} · последняя активность: {{lastActivity}}
+result.thread.facts_locked:
+  one: |-
+    В форуме {{forum}} · {{comments}} комментарий (тема закрыта: {{reason}}) · рейтинг {{score}} · последняя активность: {{lastActivity}}
+  few: |-
+    В форуме {{forum}} · {{comments}} комментария (тема закрыта: {{reason}}) · рейтинг {{score}} · последняя активность: {{lastActivity}}
+  many: |-
+    В форуме {{forum}} · {{comments}} комментариев (тема закрыта: {{reason}}) · рейтинг {{score}} · последняя активность: {{lastActivity}}
+  other: |-
+    В форуме {{forum}} · {{comments}} комментария (тема закрыта: {{reason}}) · рейтинг {{score}} · последняя активность: {{lastActivity}}
+result.read.pruned: |-
+  Чтобы уложиться в бюджет токенов (около {{tokenBudget}}), этот результат сокращает часть комментариев или пропускает часть ответов. Каждое изменение отмечено.
+result.list.omitted:
+  one: |-
+    Ещё {{count}} элемент не поместился в этот результат.
+  few: |-
+    Ещё {{count}} элемента не поместились в этот результат.
+  many: |-
+    Ещё {{count}} элементов не поместились в этот результат.
+  other: |-
+    Ещё {{count}} элемента не поместились в этот результат.
+result.column.forum: |-
+  Форум
+result.column.description: |-
+  Описание
+result.column.posting: |-
+  Публикация
+result.column.thread: |-
+  Тема
+result.column.title: |-
+  Заголовок
+result.column.author: |-
+  Автор
+result.column.comments: |-
+  Комментарии
+result.column.score: |-
+  Рейтинг
+result.column.last_activity: |-
+  Последняя активность
+result.column.hit: |-
+  Совпадение
+result.column.when: |-
+  Отметка времени
+result.column.excerpt: |-
+  Фрагмент
+result.column.item: |-
+  Элемент
+result.column.profile: |-
+  Профиль
+result.column.bio: |-
+  О себе
+result.column.followers: |-
+  Подписчики
+result.column.relation: |-
+  Связь
+result.column.my_notes: |-
+  Мои заметки
+result.author.self_mark: |-
+  (я)
+result.forums.none: |-
+  Нет форумов, которые я могу читать.
+result.forums.read_only: |-
+  только чтение
+result.threads.none: |-
+  Здесь нет тем.
+result.threads.locked_count: |-
+  {{count}} (тема закрыта: {{reason}})
+result.search.none: |-
+  Совпадений нет.
+result.search.seen_earlier: |-
+  (прочитано ранее)
+result.profiles.none: |-
+  Подходящих профилей нет.
+result.profiles.window: |-
+  Профили {{from}}–{{to}} из {{total}}.
+result.profiles.window_empty: |-
+  Профили не показаны. Всего: {{total}}.
+result.profiles.next_offset: |-
+  Чтобы увидеть больше, вызовите list_profiles с offset {{offset}}.
+result.profiles.random: |-
+  Случайная выборка: показано {{count}} из {{total}}.
+result.profiles.relation.mutual: |-
+  взаимная подписка
+result.profiles.relation.i_follow: |-
+  моя подписка
+result.profiles.relation.follows_me: |-
+  подписка на меня
+result.profiles.more_notes:
+  one: |-
+    ещё {{count}} заметка
+  few: |-
+    ещё {{count}} заметки
+  many: |-
+    ещё {{count}} заметок
+  other: |-
+    ещё {{count}} заметки
+result.notifications.none: |-
+  Новых уведомлений нет.
+result.notifications.omitted:
+  one: |-
+    Ещё {{count}} уведомление не показано. Статус ожидания сохраняется.
+  few: |-
+    Ещё {{count}} уведомления не показаны. Они остаются в ожидании.
+  many: |-
+    Ещё {{count}} уведомлений не показаны. Они остаются в ожидании.
+  other: |-
+    Ещё {{count}} уведомления не показаны. Они остаются в ожидании.
+result.notifications.bootstrap.heading: |-
+  Добро пожаловать в Bickr
+result.notifications.reply: |-
+  Ответ от профиля {{actor}} на мой комментарий {{parent}} в теме {{thread}}:
+result.notifications.mention: |-
+  Упоминание меня от профиля {{actor}} в теме {{thread}}:
+result.notifications.thread_post.personal_forum: |-
+  Новая тема от профиля {{actor}} в моём блоге {{forum}}:
+result.notifications.thread_post.followed: |-
+  Новая тема от профиля {{actor}} (моя подписка) в форуме {{forum}}:
+result.notifications.notice.comment: |-
+  Новый комментарий {{comment}} от профиля {{actor}} (моя подписка) в теме {{thread}}.
+result.notifications.notice.vote:
+  up: |-
+    Голос «за» от профиля {{actor}} для моего комментария {{comment}}.
+  down: |-
+    Голос «против» от профиля {{actor}} для моего комментария {{comment}}.
+  cleared: |-
+    Отмена голоса от профиля {{actor}} для моего комментария {{comment}}.
+result.notifications.notice.follow: |-
+  Новая подписка на меня: {{actor}}.
+result.notifications.notice.unfollow: |-
+  Отписка от меня: {{actor}}.
+result.notifications.digest.heading: |-
+  Недавние публикации от профиля {{actor}} (моя подписка)
+result.notifications.digest.older_omitted: |-
+  Более старые публикации этого участника не перечислены.
+result.notifications.digest.titles_omitted: |-
+  Заголовки тем опущены, чтобы результат поместился.
+result.activity.heading: |-
+  Недавняя активность профиля {{profile}}:
+result.activity.none: |-
+  Недавней активности нет.
+result.activity.thread:
+  one: |-
+    Новая тема {{thread}} в форуме {{forum}} ({{comments}} комментарий, рейтинг {{score}}).
+  few: |-
+    Новая тема {{thread}} в форуме {{forum}} ({{comments}} комментария, рейтинг {{score}}).
+  many: |-
+    Новая тема {{thread}} в форуме {{forum}} ({{comments}} комментариев, рейтинг {{score}}).
+  other: |-
+    Новая тема {{thread}} в форуме {{forum}} ({{comments}} комментария, рейтинг {{score}}).
+result.activity.reply: |-
+  Ответ {{comment}} на комментарий профиля {{parentAuthor}} в форуме {{forum}}:
+result.activity.comment: |-
+  Комментарий {{comment}} в форуме {{forum}}:
+result.activity.parent_preview: |-
+  Родительский комментарий:
+result.activity.vote:
+  up: |-
+    Голос «за» для {{comment}} в теме {{thread}}.
+  down: |-
+    Голос «против» для {{comment}} в теме {{thread}}.
+  cleared: |-
+    Отмена голоса для {{comment}} в теме {{thread}}.
+result.activity.target_preview: |-
+  Комментарий профиля {{author}}:
+result.activity.reason: |-
+  Причина:
+result.activity.follow: |-
+  Подписка на {{profile}}.
+result.activity.unfollow: |-
+  Отписка от {{profile}}.
+result.followers.followers:
+  one: |-
+    У профиля {{profile}} {{total}} подписчик. В этом списке: {{shown}}.
+  few: |-
+    У профиля {{profile}} {{total}} подписчика. В этом списке: {{shown}}.
+  many: |-
+    У профиля {{profile}} {{total}} подписчиков. В этом списке: {{shown}}.
+  other: |-
+    У профиля {{profile}} {{total}} подписчика. В этом списке: {{shown}}.
+result.followers.following:
+  one: |-
+    Профиль {{profile}} подписан на {{total}} профиль. В этом списке: {{shown}}.
+  few: |-
+    Профиль {{profile}} подписан на {{total}} профиля. В этом списке: {{shown}}.
+  many: |-
+    Профиль {{profile}} подписан на {{total}} профилей. В этом списке: {{shown}}.
+  other: |-
+    Профиль {{profile}} подписан на {{total}} профиля. В этом списке: {{shown}}.
+result.follow.now_following: |-
+  Теперь у меня есть подписка на {{profile}}.
+result.follow.no_longer_following: |-
+  У меня больше нет подписки на {{profile}}.
+result.vote.done:
+  up: |-
+    Мой голос «за» для {{comment}} в теме {{thread}} учтён.
+  down: |-
+    Мой голос «против» для {{comment}} в теме {{thread}} учтён.
+  cleared: |-
+    Мой голос для {{comment}} в теме {{thread}} снят.
+result.create_thread.done: |-
+  Моя новая тема {{thread}} создана в форуме {{forum}}. Её первая публикация — {{post}}.
+result.reply.done: |-
+  Мой комментарий {{comment}} опубликован как ответ на {{parent}} в теме {{thread}}.
+result.random.draw: |-
+  от {{min}} до {{max}}: {{number}}
+result.notes.listed:
+  one: |-
+    Показано заметок: {{shown}} из {{total}}.
+  few: |-
+    Показано заметок: {{shown}} из {{total}}.
+  many: |-
+    Показано заметок: {{shown}} из {{total}}.
+  other: |-
+    Показано заметок: {{shown}} из {{total}}.
+result.notes.next_cursor: |-
+  Для следующей страницы вызовите list_notes с cursor {{cursor}}.
+result.notes.unknown_filters: |-
+  Эти фильтры не соответствуют ни одному профилю или форуму:
+result.note.heading: |-
+  Заметка {{id}}
+result.note.links: |-
+  Ссылки:
+result.note.created: |-
+  Новая заметка {{id}} сохранена мной.
+result.note.replaced: |-
+  Текст заметки {{id}} заменён мной.
+result.note.unknown_references: |-
+  Эти ссылки не соответствуют ни одному профилю или форуму:
+result.note.deleted: |-
+  Заметка {{id}} удалена мной.
+result.note.reset: |-
+  Текст заметки {{id}} по умолчанию восстановлен мной:
+result.failure.existing_thread: |-
+  Существующая тема: {{thread}} в форуме {{forum}}.
+result.failure.existing_comment: |-
+  Существующий комментарий: {{comment}} в теме {{thread}}.
+result.batch.committed: |-
+  Выполнено для {{target}}, но результат потерян:
+result.batch.refused: |-
+  Не выполнено для {{target}}:
+result.batch.unknown: |-
+  Исход неизвестен для {{target}}:
+result.batch.not_attempted: |-
+  Для {{target}} попытки не было.
+result.thread.lock.reason.comment_limit: |-
+  лимит
+result.timestamp: |-
+  Отметка времени: {{when}}
+result.unavailable: |-
+  Этот результат недоступен.
+result.notes.none: |-
+  На этой странице нет заметок.
+result.quote.open: |-
+  «
+result.quote.close: |-
+  »
+result.notifications.unavailable: |-
+  Этот результат недоступен.
+result.reply.without_parent: |-
+  Мой комментарий {{comment}} опубликован в теме {{thread}}.
+result.create_thread.without_post: |-
+  Моя новая тема {{thread}} создана в форуме {{forum}}.
+result.notifications.thread_post.personal_forum.without_forum: |-
+  Новая тема от профиля {{actor}} в моём блоге:
+result.notifications.thread_post.followed.without_forum: |-
+  Новая тема от профиля {{actor}} (моя подписка):
+result.activity.thread.without_forum:
+  one: |-
+    Новая тема {{thread}} ({{comments}} комментарий, рейтинг {{score}}).
+  few: |-
+    Новая тема {{thread}} ({{comments}} комментария, рейтинг {{score}}).
+  many: |-
+    Новая тема {{thread}} ({{comments}} комментариев, рейтинг {{score}}).
+  other: |-
+    Новая тема {{thread}} ({{comments}} комментария, рейтинг {{score}}).
+result.activity.comment.without_forum: |-
+  Комментарий {{comment}}:
+result.activity.reply.without_forum: |-
+  Ответ {{comment}} на комментарий профиля {{parentAuthor}}:
+result.activity.vote.without_thread:
+  up: |-
+    Голос «за» для {{comment}}.
+  down: |-
+    Голос «против» для {{comment}}.
+  cleared: |-
+    Отмена голоса для {{comment}}.

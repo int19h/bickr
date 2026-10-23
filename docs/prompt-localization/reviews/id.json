@@ -1,8 +1,8 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "catalogSourceHash": "1ea4d0935facacfea35be251f30fc67822b5de7e36d4075fd21c7595bffff89e",
+  "catalogSourceHash": "fccf6536ad73ade5b65ab4ff2271b2b82b90f8f3483a35cdea87591dd9437263",
   "locale": "id",
-  "status": "accepted_by_lead",
+  "status": "approved",
   "leadReason": "Accept the exact Indonesian proposal. Both reviewers accept all thirteen disputed units and find no additional defect. Compact native time phrases preserve exact count, unit, and direction. The explicit Mermaid size clause preserves the maximum. Native member headers and the sampel term state the member subset precisely. Saya preserves participant narration and Anda names the addressee only where needed.",
   "terminologyDecisions": {
     "relativeTime": "Use count-unit-lagi for future intervals and count-unit-yang-lalu for past intervals.",
@@ -62,7 +62,7 @@
   "groups": {
     "system": {
       "finalHash": "da99079bf4538e4b7e138a624a3089e462346be8a366eb59958867bfb93794ef",
-      "finalTemplateHash": "773f73517d52ece4f93d6ec40c3480f23ec4e040d24e5232e98daa6c4121571c",
+      "finalTemplateHash": "69a01eed48e6e199e2b0bebf92ba20d5931c2cb9bbd04d0a88f618c5c7411dbd",
       "draftHashes": {
         "codex": "5cbbb7ac65c13c662199478df93249d100a79de02bdd66af9aed83ca0cea5ad0",
         "opus": "48ab283abebf5b68d792462045a591e02f39c4d0b44750cc9b041e45b1925093",
@@ -143,13 +143,6 @@
           "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
           "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
         },
-        "system.main": {
-          "finalValueHash": "3943772a0231d2cd2256fbce3e4fe4e1a25744af8a9156f3b6e84356a3fa6d8b",
-          "leadReason": "Accept after independent Codex review of meaning, grammar, force, examples and protected syntax.",
-          "candidateReason": "Translate reply motivations, every example, first-person reasoning, optional research and changed decisions, response focus and audience exceptions, and context weighting. Match the Activities paragraph split.",
-          "opusReason": "No new Opus review applies to this update. Independent Codex review covers the changed text.",
-          "grokReason": "No new Grok review applies to this update. Independent Codex review covers the changed text."
-        },
         "system.toolOverview": {
           "finalValueHash": "a52feb21afb5fdd75ba9151decf0b7f61d7c30c634a39cf44d494a8b69b2869a",
           "leadReason": "Accept after independent Codex review of meaning, syntax, recommendations, JSON exceptions and capability selection.",
@@ -198,6 +191,20 @@
           "candidateReason": "Preserve the updated note, PLAN and action guidance, native-language formatting and setting spacing.",
           "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
           "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
+        },
+        "system.main": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "e3efcbf49055a889e4761f00c37e9dfa8d62e8988b0fa3f0963576dd9b60f91b",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
         }
       }
     },
@@ -636,35 +643,6 @@
         }
       }
     },
-    "tools/list_accessible_forums": {
-      "finalHash": "d8d472f7cbacc336c2b40c43c855cd184a753e60cf0f8be2e4950a26357bf1b8",
-      "finalTemplateHash": "89b773d6ce13995beb6bc17cb040145faac1805e7b60f324aed340c11d5be879",
-      "draftHashes": {
-        "codex": "69171a916e8454157f13b6eae077bc2bf764295c4b611fbb1100eb87c20440f0",
-        "opus": "95f4ac8655635df53fdc185d6a521bed9d107203556ac23806eb15b9df97f37f",
-        "grok": "d8d472f7cbacc336c2b40c43c855cd184a753e60cf0f8be2e4950a26357bf1b8",
-        "gemini": "ef4eae497aa3292ef3efae82d4bdfecf3688c889d64bf4b8ba0c7039dccf5d66"
-      },
-      "comparisonHashes": {
-        "opus": "10bcde2e582d6f725f46e5e912e2082b493b1addcfa98dfbe817c2d382346941",
-        "grok": "c216182668d1dfb13a7ad5ceab29e2c686efa29e0e57555d23aa5273e362abe9"
-      },
-      "decisions": {
-        "tools.list_accessible_forums.description": {
-          "finalValueHash": "4fd678cce5525fc3f2b79f5bbf4c7930d88477faaa4ab24361ee032f2c0913cb",
-          "chosenFrom": "grok",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Grok uses a direct command, native read-only wording and every permission/exception; Gemini leaves read-only English and Opus uses an activity label.",
-          "opusDecision": "accept",
-          "opusReason": "readOnly behavior, create only where false, blogs excluded and u/name→f/name preserved.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and grok. can stays dapat or boleh, not harus. English: List public forums that I can read. Each result has a readOnly flag. A read-only forum still shows threads and accepts votes. It does not accept new threads or ",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        }
-      }
-    },
     "tools/list_recent_threads": {
       "finalHash": "c958ca26700dab76bce41d73abf4c4211b83f63db16eb104547af6eb4f561d5a",
       "finalTemplateHash": "c954affdecc0e8b49f0e49037f71105196fa106c35facbabbbef8c0ec897fd80",
@@ -717,93 +695,6 @@
           "opusReason": "Faithful.",
           "grokDecision": "accept",
           "grokReason": "Accept utas populer. Hot is the named popular feed, and system.main uses populer for the same feed.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        }
-      }
-    },
-    "tools/read_thread": {
-      "finalHash": "81abd6ee6af4f75caccbcb634c393e86018bc9098862acb2433dfb799421bc13",
-      "finalTemplateHash": "ea80876f7f7a7cce879e1ceec3256f13443353fe864a135eaa30ee48f207cbf1",
-      "draftHashes": {
-        "codex": "81abd6ee6af4f75caccbcb634c393e86018bc9098862acb2433dfb799421bc13",
-        "opus": "44a3231eab5fa40942acbaba3da7dcdf42bd4175a2546eea5418b7d72e6dd9ce",
-        "grok": "f68dfeacaa58eaa1258a1dca91c5406a1ca2095807f73971b4da26c305ef2a72",
-        "gemini": "8af92231e6fdf3cda098161b5dc9b6405de26a59b57f5152af7a76bca974a8a3"
-      },
-      "comparisonHashes": {
-        "opus": "47fdd353d0b203171fed7bce0084af3949b1a5014b229d4afe4ce3cd3390b0ed",
-        "grok": "b501353aa6a9a56d79523934d2d98d0ccc6c4fb1b1b843d8f90c2a5b2553fd47"
-      },
-      "decisions": {
-        "tools.read_thread.description": {
-          "finalValueHash": "7aa6603c3967888af800e654ff60f87bd6a7370053b75c23b6f871a3d3e6d19d",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Codex preserves ref lookup, Markdown source and both expansion conditions; Gemini changes lookup to forum handle/title and Opus uses a nominal activity.",
-          "opusDecision": "accept",
-          "opusReason": "Ref lookup, Markdown source, hidden replies, branch and truncation rules preserved.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex. actor, tense, limits, and parameters match the English. English: Read a thread and its comments by thread ref. Comment bodies contain Markdown source. Large results hide some replies. If `replies` is a number, use read_commen",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        }
-      }
-    },
-    "tools/read_thread_by_id": {
-      "finalHash": "28d9820ad36dfc9b798c6b3fc84d38b0966e753ddf800ab196e487838fd60d2c",
-      "finalTemplateHash": "51d0d3c1b6dc1780a75c9e8eb33fd6981bd71dca748321db3f9e762889729f2d",
-      "draftHashes": {
-        "codex": "28d9820ad36dfc9b798c6b3fc84d38b0966e753ddf800ab196e487838fd60d2c",
-        "opus": "52da5d732510d9482a09b569ca0220a85a423860e20c4ed0db51fc5ed65020a6",
-        "grok": "49cafeb9a50887a444029a444d750f9486365a1674bdfe2663cfa2dff057e13b",
-        "gemini": "833702620b7eaf46ac15f1298aa407745c7f9892c856bcf8f5acd3bcea1b72d2"
-      },
-      "comparisonHashes": {
-        "opus": "eefc657dd6cf9c8fef32ea3659bed9c61076c0bb3af5af7df52d6f37d10e8bf1",
-        "grok": "a96937514dcf5a2dd8c794cb42c24fa6c9443814ed84ce0c1f898db89af8e886"
-      },
-      "decisions": {
-        "tools.read_thread_by_id.description": {
-          "finalValueHash": "7aa6603c3967888af800e654ff60f87bd6a7370053b75c23b6f871a3d3e6d19d",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Codex retains the direct ref lookup and both expansion conditions with natural comment content; Gemini uses literal badan and Opus a nominal activity.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex. actor, tense, limits, and parameters match the English. English: Read a thread and its comments by thread ref. Comment bodies contain Markdown source. Large results hide some replies. If `replies` is a number, use read_commen",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        }
-      }
-    },
-    "tools/read_comment_by_id": {
-      "finalHash": "de0d981eddecabeff712eb4a8120f5dfc386ff80704b412f9f957432f8b4bacb",
-      "finalTemplateHash": "60899cbaae9bf39cab96f8e8e9d8ecb9ec5c26daf94bf04a0c2604d20c5f3a54",
-      "draftHashes": {
-        "codex": "c6a11fb8a0d049ed8a786c3f60c53ebc04733f7855ee884fa689dcd7b6e13cb5",
-        "opus": "6e58d873d77761e7ebf7d2f72724c80439677a8a08852e7239cdebee27f9c16d",
-        "grok": "de0d981eddecabeff712eb4a8120f5dfc386ff80704b412f9f957432f8b4bacb",
-        "gemini": "c3114863a2a2cc638f35fad9b1b6fd0516760edd850f1041c6842ad7f3d60e5c"
-      },
-      "comparisonHashes": {
-        "opus": "5db2d8b08bcd2173974e0d2be575bf31172f52a38eb4e3a5c7dd966e585ed239",
-        "grok": "dce5c14f4e8cc013949afd8f4bb5dd14d43a1f04049bbc56fbefcd362534511e"
-      },
-      "decisions": {
-        "tools.read_comment_by_id.description": {
-          "finalValueHash": "7b352db44cb569c50fdd7341ebe28a17a6d1d2fdb357c58a8a94e3091d4fc622",
-          "chosenFrom": "grok",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Grok gives a direct ref lookup with parents, replies and another-comment condition; Opus is nominal and Gemini uses literal body.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and grok. actor, tense, limits, and parameters match the English. English: Read a comment by its ref. Its body contains Markdown source. The result includes its parent comments and replies. Large results hide some replies. If `replies`",
           "changedAfterComparison": false,
           "finalFollowUp": {},
           "finalDiscussion": {}
@@ -1177,7 +1068,7 @@
     },
     "tools/list_notes": {
       "finalHash": "8422eef307fac85a84dac02f44448abc156ba19cc67ecfbf2bcd652336fd1d25",
-      "finalTemplateHash": "5eb40634e197f81ad0ee3f370510d9eb7c4f428a4f35417b38470981dc4ee628",
+      "finalTemplateHash": "81a5bb09b95766d76159bd6996e9157b4cc0249699d9762821af2b203e6017ff",
       "draftHashes": {
         "codex": "7a877313ec0a938aedf1fb3fe2df53e2666edaee8d04c98d8deddc79f598e475",
         "opus": "8384b7e159e5161894ca9468e65790e190af2b836b1b283d147f987fab97d302",
@@ -1216,17 +1107,18 @@
           "finalDiscussion": {}
         },
         "tools.list_notes.properties.cursor.description": {
-          "finalValueHash": "d2f44a462a0701ed1fc382c172e8514b230e14d9a7d3300fa82fc78c65ae0fc9",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Three drafts preserve previous-page nextCursor and continuation naturally; Grok uses a longer nominal listing word.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex, opus, gemini. actor, tense, limits, and parameters match the English. English: Use nextCursor from the previous page to continue listing IDs.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "e728ae736c0c5f30974958ff3b6240ba52a394138fa914f093376d18a431aecc",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
         }
       }
     },
@@ -3072,7 +2964,7 @@
     },
     "serialization": {
       "finalHash": "20e196698f682402e70a2ea435106a04bfdb4b5d2c87c33af97a5d9a63371b91",
-      "finalTemplateHash": "b445ce8d8df29d2084717423ad886935aecc6697db46cf65ce525f2c643855e8",
+      "finalTemplateHash": "7bbedec7187e04da0fd0b287081381cf578e71e6f34fbebea2d725a5b64597ce",
       "draftHashes": {
         "codex": "ea2fd08915be6f15fbf31a5e54df28590004c4919f0b1215167e76aafb729c13",
         "opus": "130e0f64a3a211980cbb94de2096631906aa736b324d68e2edefefb8f82f621d",
@@ -3084,259 +2976,6 @@
         "grok": "30259a51b71105ea9da7ea58a00c78ebd8994e99209fdebfaef642c137ee7425"
       },
       "decisions": {
-        "time.just_now": {
-          "finalValueHash": "9435ed76df61db58b6ff6f75a9a443e72a90880daaedf9368f877b8fae144c60",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All four agree on the native just-now phrase.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept baru saja as the compact fragment for just now.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "time.year.future": {
-          "finalValueHash": "8466f58a959113f6e7efb7b3f76caaf1936c1b4321b855ad83838bf28004d857",
-          "chosenFrom": "opus",
-          "leadReason": "Use a compact native time phrase in the when/lastActivity field. For future time, count-unit-lagi states the future interval directly, as the independent Grok draft proposes, without a possible within reading of dalam. For past time, count-unit-yang-lalu is shared by independent Opus and Gemini drafts. Indonesian has only other and does not add noun plurals after numerals. Preserve exact unit, count, and direction.",
-          "candidateReason": "Codex preserves future relative time in a complete year count sentence; Opus/Gemini use within fragments and Grok uses natural temporal fragments. The sole other category keeps the numeric count. Use the peers' natural counted tahun phrase in a complete time sentence instead of Codex unit-conversion wording.",
-          "opusDecision": "required_change",
-          "opusReason": "Format defect: this string is the value of the \"when\" or \"lastActivity\" field in tool results. The candidate renders a full sentence (\"Waktu yang berlalu/tersisa adalah N X.\"). Native phrases fit the slot. For the past I use the opus form (\"N X yang lalu\"); for the future, grok's \"N X lagi\" avoids the \"within\" reading of \"dalam N X\".",
-          "grokDecision": "optional_change",
-          "grokReason": "English is a compact when-field fragment, in {{count}} units. The candidate sentence keeps the direction, but it adds a period and a remaining-or-elapsed label. Indonesian can use the ordinary phrase. The noun stays singular after the numeral. dalam keeps future.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change: a compact fragment replaces the \"Waktu yang … adalah N\" sentence in the JSON \"when\" value. N … lagi states the future interval directly and avoids the within reading of dalam. The unit noun is unmarked after the numeral, as Indonesian requires, and the single other category covers every count.",
-              "proposedValueHash": "8466f58a959113f6e7efb7b3f76caaf1936c1b4321b855ad83838bf28004d857"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept {{count}} tahun lagi. English is the future label in {{count}} tahun. lagi states the interval ahead. dalam can also mean within, so it is not required here. The candidate’s remaining-time sentence is not the field phrase. Indonesian has only other. That category covers 0, 1, and every larger count. The noun stays singular after {{count}}.",
-              "proposedValueHash": "8466f58a959113f6e7efb7b3f76caaf1936c1b4321b855ad83838bf28004d857"
-            }
-          }
-        },
-        "time.year.past": {
-          "finalValueHash": "af36c0ca9cd6837f6f29dc9f81f03909db8a061ab52f445468e5aab6310b0b62",
-          "chosenFrom": "opus",
-          "leadReason": "Use a compact native time phrase in the when/lastActivity field. For future time, count-unit-lagi states the future interval directly, as the independent Grok draft proposes, without a possible within reading of dalam. For past time, count-unit-yang-lalu is shared by independent Opus and Gemini drafts. Indonesian has only other and does not add noun plurals after numerals. Preserve exact unit, count, and direction.",
-          "candidateReason": "Codex preserves past relative time in a complete year count sentence; Opus/Gemini use within fragments and Grok uses natural temporal fragments. The sole other category keeps the numeric count. Use the peers' natural counted tahun phrase in a complete time sentence instead of Codex unit-conversion wording.",
-          "opusDecision": "required_change",
-          "opusReason": "Format defect: this string is the value of the \"when\" or \"lastActivity\" field in tool results. The candidate renders a full sentence (\"Waktu yang berlalu/tersisa adalah N X.\"). Native phrases fit the slot. For the past I use the opus form (\"N X yang lalu\"); for the future, grok's \"N X lagi\" avoids the \"within\" reading of \"dalam N X\".",
-          "grokDecision": "optional_change",
-          "grokReason": "English is a compact when-field fragment, {{count}} units ago. The candidate sentence keeps the direction, but it adds a period and a remaining-or-elapsed label. Indonesian can use the ordinary phrase. The noun stays singular after the numeral. yang lalu keeps past.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change: a compact fragment replaces the \"Waktu yang … adalah N\" sentence in the JSON \"when\" value. N … yang lalu is the standard past fragment. The unit noun is unmarked after the numeral, as Indonesian requires, and the single other category covers every count.",
-              "proposedValueHash": "af36c0ca9cd6837f6f29dc9f81f03909db8a061ab52f445468e5aab6310b0b62"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept {{count}} tahun yang lalu. English is {{count}} tahun ago. yang lalu keeps the past direction and the visible count. The candidate’s elapsed-time sentence is not the field phrase. Indonesian has only other. That category covers 0, 1, and every larger count. The noun stays singular after {{count}}.",
-              "proposedValueHash": "af36c0ca9cd6837f6f29dc9f81f03909db8a061ab52f445468e5aab6310b0b62"
-            }
-          }
-        },
-        "time.month.future": {
-          "finalValueHash": "f8bf8bdcaf0ac59f503f859c7f09c109faa6c7386fe855ff810b40dbbf3d9bd4",
-          "chosenFrom": "opus",
-          "leadReason": "Use a compact native time phrase in the when/lastActivity field. For future time, count-unit-lagi states the future interval directly, as the independent Grok draft proposes, without a possible within reading of dalam. For past time, count-unit-yang-lalu is shared by independent Opus and Gemini drafts. Indonesian has only other and does not add noun plurals after numerals. Preserve exact unit, count, and direction.",
-          "candidateReason": "Codex preserves future relative time in a complete month count sentence; Opus/Gemini use within fragments and Grok uses natural temporal fragments. The sole other category keeps the numeric count. Use the peers' natural counted bulan phrase in a complete time sentence instead of Codex unit-conversion wording.",
-          "opusDecision": "required_change",
-          "opusReason": "Format defect: this string is the value of the \"when\" or \"lastActivity\" field in tool results. The candidate renders a full sentence (\"Waktu yang berlalu/tersisa adalah N X.\"). Native phrases fit the slot. For the past I use the opus form (\"N X yang lalu\"); for the future, grok's \"N X lagi\" avoids the \"within\" reading of \"dalam N X\".",
-          "grokDecision": "optional_change",
-          "grokReason": "English is a compact when-field fragment, in {{count}} units. The candidate sentence keeps the direction, but it adds a period and a remaining-or-elapsed label. Indonesian can use the ordinary phrase. The noun stays singular after the numeral. dalam keeps future.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change: a compact fragment replaces the \"Waktu yang … adalah N\" sentence in the JSON \"when\" value. N … lagi states the future interval directly and avoids the within reading of dalam. The unit noun is unmarked after the numeral, as Indonesian requires, and the single other category covers every count.",
-              "proposedValueHash": "f8bf8bdcaf0ac59f503f859c7f09c109faa6c7386fe855ff810b40dbbf3d9bd4"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept {{count}} bulan lagi. English is the future label in {{count}} bulan. lagi states the interval ahead. dalam can also mean within, so it is not required here. The candidate’s remaining-time sentence is not the field phrase. Indonesian has only other. That category covers 0, 1, and every larger count. The noun stays singular after {{count}}.",
-              "proposedValueHash": "f8bf8bdcaf0ac59f503f859c7f09c109faa6c7386fe855ff810b40dbbf3d9bd4"
-            }
-          }
-        },
-        "time.month.past": {
-          "finalValueHash": "0f6df23166af0cb52c61aa96aa004004a49a43412518fa37347ccc231c3794d8",
-          "chosenFrom": "opus",
-          "leadReason": "Use a compact native time phrase in the when/lastActivity field. For future time, count-unit-lagi states the future interval directly, as the independent Grok draft proposes, without a possible within reading of dalam. For past time, count-unit-yang-lalu is shared by independent Opus and Gemini drafts. Indonesian has only other and does not add noun plurals after numerals. Preserve exact unit, count, and direction.",
-          "candidateReason": "Codex preserves past relative time in a complete month count sentence; Opus/Gemini use within fragments and Grok uses natural temporal fragments. The sole other category keeps the numeric count. Use the peers' natural counted bulan phrase in a complete time sentence instead of Codex unit-conversion wording.",
-          "opusDecision": "required_change",
-          "opusReason": "Format defect: this string is the value of the \"when\" or \"lastActivity\" field in tool results. The candidate renders a full sentence (\"Waktu yang berlalu/tersisa adalah N X.\"). Native phrases fit the slot. For the past I use the opus form (\"N X yang lalu\"); for the future, grok's \"N X lagi\" avoids the \"within\" reading of \"dalam N X\".",
-          "grokDecision": "optional_change",
-          "grokReason": "English is a compact when-field fragment, {{count}} units ago. The candidate sentence keeps the direction, but it adds a period and a remaining-or-elapsed label. Indonesian can use the ordinary phrase. The noun stays singular after the numeral. yang lalu keeps past.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change: a compact fragment replaces the \"Waktu yang … adalah N\" sentence in the JSON \"when\" value. N … yang lalu is the standard past fragment. The unit noun is unmarked after the numeral, as Indonesian requires, and the single other category covers every count.",
-              "proposedValueHash": "0f6df23166af0cb52c61aa96aa004004a49a43412518fa37347ccc231c3794d8"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept {{count}} bulan yang lalu. English is {{count}} bulan ago. yang lalu keeps the past direction and the visible count. The candidate’s elapsed-time sentence is not the field phrase. Indonesian has only other. That category covers 0, 1, and every larger count. The noun stays singular after {{count}}.",
-              "proposedValueHash": "0f6df23166af0cb52c61aa96aa004004a49a43412518fa37347ccc231c3794d8"
-            }
-          }
-        },
-        "time.day.future": {
-          "finalValueHash": "9e75bb266863e6accbdf65add3cd157c04cce3f52b465f1427a024242e41ca47",
-          "chosenFrom": "opus",
-          "leadReason": "Use a compact native time phrase in the when/lastActivity field. For future time, count-unit-lagi states the future interval directly, as the independent Grok draft proposes, without a possible within reading of dalam. For past time, count-unit-yang-lalu is shared by independent Opus and Gemini drafts. Indonesian has only other and does not add noun plurals after numerals. Preserve exact unit, count, and direction.",
-          "candidateReason": "Codex preserves future relative time in a complete day count sentence; Opus/Gemini use within fragments and Grok uses natural temporal fragments. The sole other category keeps the numeric count. Use the peers' natural counted hari phrase in a complete time sentence instead of Codex unit-conversion wording.",
-          "opusDecision": "required_change",
-          "opusReason": "Format defect: this string is the value of the \"when\" or \"lastActivity\" field in tool results. The candidate renders a full sentence (\"Waktu yang berlalu/tersisa adalah N X.\"). Native phrases fit the slot. For the past I use the opus form (\"N X yang lalu\"); for the future, grok's \"N X lagi\" avoids the \"within\" reading of \"dalam N X\".",
-          "grokDecision": "optional_change",
-          "grokReason": "English is a compact when-field fragment, in {{count}} units. The candidate sentence keeps the direction, but it adds a period and a remaining-or-elapsed label. Indonesian can use the ordinary phrase. The noun stays singular after the numeral. dalam keeps future.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change: a compact fragment replaces the \"Waktu yang … adalah N\" sentence in the JSON \"when\" value. N … lagi states the future interval directly and avoids the within reading of dalam. The unit noun is unmarked after the numeral, as Indonesian requires, and the single other category covers every count.",
-              "proposedValueHash": "9e75bb266863e6accbdf65add3cd157c04cce3f52b465f1427a024242e41ca47"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept {{count}} hari lagi. English is the future label in {{count}} hari. lagi states the interval ahead. dalam can also mean within, so it is not required here. The candidate’s remaining-time sentence is not the field phrase. Indonesian has only other. That category covers 0, 1, and every larger count. The noun stays singular after {{count}}.",
-              "proposedValueHash": "9e75bb266863e6accbdf65add3cd157c04cce3f52b465f1427a024242e41ca47"
-            }
-          }
-        },
-        "time.day.past": {
-          "finalValueHash": "04c1b64a6aec08c78607f0f30780b04d01ef67c53a109c4e4bc774419766aed4",
-          "chosenFrom": "opus",
-          "leadReason": "Use a compact native time phrase in the when/lastActivity field. For future time, count-unit-lagi states the future interval directly, as the independent Grok draft proposes, without a possible within reading of dalam. For past time, count-unit-yang-lalu is shared by independent Opus and Gemini drafts. Indonesian has only other and does not add noun plurals after numerals. Preserve exact unit, count, and direction.",
-          "candidateReason": "Codex preserves past relative time in a complete day count sentence; Opus/Gemini use within fragments and Grok uses natural temporal fragments. The sole other category keeps the numeric count. Use the peers' natural counted hari phrase in a complete time sentence instead of Codex unit-conversion wording.",
-          "opusDecision": "required_change",
-          "opusReason": "Format defect: this string is the value of the \"when\" or \"lastActivity\" field in tool results. The candidate renders a full sentence (\"Waktu yang berlalu/tersisa adalah N X.\"). Native phrases fit the slot. For the past I use the opus form (\"N X yang lalu\"); for the future, grok's \"N X lagi\" avoids the \"within\" reading of \"dalam N X\".",
-          "grokDecision": "optional_change",
-          "grokReason": "English is a compact when-field fragment, {{count}} units ago. The candidate sentence keeps the direction, but it adds a period and a remaining-or-elapsed label. Indonesian can use the ordinary phrase. The noun stays singular after the numeral. yang lalu keeps past.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change: a compact fragment replaces the \"Waktu yang … adalah N\" sentence in the JSON \"when\" value. N … yang lalu is the standard past fragment. The unit noun is unmarked after the numeral, as Indonesian requires, and the single other category covers every count.",
-              "proposedValueHash": "04c1b64a6aec08c78607f0f30780b04d01ef67c53a109c4e4bc774419766aed4"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept {{count}} hari yang lalu. English is {{count}} hari ago. yang lalu keeps the past direction and the visible count. The candidate’s elapsed-time sentence is not the field phrase. Indonesian has only other. That category covers 0, 1, and every larger count. The noun stays singular after {{count}}.",
-              "proposedValueHash": "04c1b64a6aec08c78607f0f30780b04d01ef67c53a109c4e4bc774419766aed4"
-            }
-          }
-        },
-        "time.hour.future": {
-          "finalValueHash": "7438869aabe98abb30ce67e02919152a7a404b4a0d9b37c2dfe0c2dd46f5bbbc",
-          "chosenFrom": "opus",
-          "leadReason": "Use a compact native time phrase in the when/lastActivity field. For future time, count-unit-lagi states the future interval directly, as the independent Grok draft proposes, without a possible within reading of dalam. For past time, count-unit-yang-lalu is shared by independent Opus and Gemini drafts. Indonesian has only other and does not add noun plurals after numerals. Preserve exact unit, count, and direction.",
-          "candidateReason": "Codex preserves future relative time in a complete hour count sentence; Opus/Gemini use within fragments and Grok uses natural temporal fragments. The sole other category keeps the numeric count. Use the peers' natural counted jam phrase in a complete time sentence instead of Codex unit-conversion wording.",
-          "opusDecision": "required_change",
-          "opusReason": "Format defect: this string is the value of the \"when\" or \"lastActivity\" field in tool results. The candidate renders a full sentence (\"Waktu yang berlalu/tersisa adalah N X.\"). Native phrases fit the slot. For the past I use the opus form (\"N X yang lalu\"); for the future, grok's \"N X lagi\" avoids the \"within\" reading of \"dalam N X\".",
-          "grokDecision": "optional_change",
-          "grokReason": "English is a compact when-field fragment, in {{count}} units. The candidate sentence keeps the direction, but it adds a period and a remaining-or-elapsed label. Indonesian can use the ordinary phrase. The noun stays singular after the numeral. dalam keeps future.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change: a compact fragment replaces the \"Waktu yang … adalah N\" sentence in the JSON \"when\" value. N … lagi states the future interval directly and avoids the within reading of dalam. The unit noun is unmarked after the numeral, as Indonesian requires, and the single other category covers every count.",
-              "proposedValueHash": "7438869aabe98abb30ce67e02919152a7a404b4a0d9b37c2dfe0c2dd46f5bbbc"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept {{count}} jam lagi. English is the future label in {{count}} jam. lagi states the interval ahead. dalam can also mean within, so it is not required here. The candidate’s remaining-time sentence is not the field phrase. Indonesian has only other. That category covers 0, 1, and every larger count. The noun stays singular after {{count}}.",
-              "proposedValueHash": "7438869aabe98abb30ce67e02919152a7a404b4a0d9b37c2dfe0c2dd46f5bbbc"
-            }
-          }
-        },
-        "time.hour.past": {
-          "finalValueHash": "1a88453430e0a578ade647b333f2dc30507bde8460c27f5d8ba9ae34ebef2d64",
-          "chosenFrom": "opus",
-          "leadReason": "Use a compact native time phrase in the when/lastActivity field. For future time, count-unit-lagi states the future interval directly, as the independent Grok draft proposes, without a possible within reading of dalam. For past time, count-unit-yang-lalu is shared by independent Opus and Gemini drafts. Indonesian has only other and does not add noun plurals after numerals. Preserve exact unit, count, and direction.",
-          "candidateReason": "Codex preserves past relative time in a complete hour count sentence; Opus/Gemini use within fragments and Grok uses natural temporal fragments. The sole other category keeps the numeric count. Use the peers' natural counted jam phrase in a complete time sentence instead of Codex unit-conversion wording.",
-          "opusDecision": "required_change",
-          "opusReason": "Format defect: this string is the value of the \"when\" or \"lastActivity\" field in tool results. The candidate renders a full sentence (\"Waktu yang berlalu/tersisa adalah N X.\"). Native phrases fit the slot. For the past I use the opus form (\"N X yang lalu\"); for the future, grok's \"N X lagi\" avoids the \"within\" reading of \"dalam N X\".",
-          "grokDecision": "optional_change",
-          "grokReason": "English is a compact when-field fragment, {{count}} units ago. The candidate sentence keeps the direction, but it adds a period and a remaining-or-elapsed label. Indonesian can use the ordinary phrase. The noun stays singular after the numeral. yang lalu keeps past.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change: a compact fragment replaces the \"Waktu yang … adalah N\" sentence in the JSON \"when\" value. N … yang lalu is the standard past fragment. The unit noun is unmarked after the numeral, as Indonesian requires, and the single other category covers every count.",
-              "proposedValueHash": "1a88453430e0a578ade647b333f2dc30507bde8460c27f5d8ba9ae34ebef2d64"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept {{count}} jam yang lalu. English is {{count}} jam ago. yang lalu keeps the past direction and the visible count. The candidate’s elapsed-time sentence is not the field phrase. Indonesian has only other. That category covers 0, 1, and every larger count. The noun stays singular after {{count}}.",
-              "proposedValueHash": "1a88453430e0a578ade647b333f2dc30507bde8460c27f5d8ba9ae34ebef2d64"
-            }
-          }
-        },
-        "time.minute.future": {
-          "finalValueHash": "ec8420a94ea8095fd22a7a69ba40875c02979d97fe0387b28a78ecedcc45259e",
-          "chosenFrom": "opus",
-          "leadReason": "Use a compact native time phrase in the when/lastActivity field. For future time, count-unit-lagi states the future interval directly, as the independent Grok draft proposes, without a possible within reading of dalam. For past time, count-unit-yang-lalu is shared by independent Opus and Gemini drafts. Indonesian has only other and does not add noun plurals after numerals. Preserve exact unit, count, and direction.",
-          "candidateReason": "Codex preserves future relative time in a complete minute count sentence; Opus/Gemini use within fragments and Grok uses natural temporal fragments. The sole other category keeps the numeric count. Use the peers' natural counted menit phrase in a complete time sentence instead of Codex unit-conversion wording.",
-          "opusDecision": "required_change",
-          "opusReason": "Format defect: this string is the value of the \"when\" or \"lastActivity\" field in tool results. The candidate renders a full sentence (\"Waktu yang berlalu/tersisa adalah N X.\"). Native phrases fit the slot. For the past I use the opus form (\"N X yang lalu\"); for the future, grok's \"N X lagi\" avoids the \"within\" reading of \"dalam N X\".",
-          "grokDecision": "optional_change",
-          "grokReason": "English is a compact when-field fragment, in {{count}} units. The candidate sentence keeps the direction, but it adds a period and a remaining-or-elapsed label. Indonesian can use the ordinary phrase. The noun stays singular after the numeral. dalam keeps future.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change: a compact fragment replaces the \"Waktu yang … adalah N\" sentence in the JSON \"when\" value. N … lagi states the future interval directly and avoids the within reading of dalam. The unit noun is unmarked after the numeral, as Indonesian requires, and the single other category covers every count.",
-              "proposedValueHash": "ec8420a94ea8095fd22a7a69ba40875c02979d97fe0387b28a78ecedcc45259e"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept {{count}} menit lagi. English is the future label in {{count}} menit. lagi states the interval ahead. dalam can also mean within, so it is not required here. The candidate’s remaining-time sentence is not the field phrase. Indonesian has only other. That category covers 0, 1, and every larger count. The noun stays singular after {{count}}.",
-              "proposedValueHash": "ec8420a94ea8095fd22a7a69ba40875c02979d97fe0387b28a78ecedcc45259e"
-            }
-          }
-        },
-        "time.minute.past": {
-          "finalValueHash": "e89d583abc8df75385d59c9c2febbf2839250ab57e7fdda1afcbc3d854f4f353",
-          "chosenFrom": "opus",
-          "leadReason": "Use a compact native time phrase in the when/lastActivity field. For future time, count-unit-lagi states the future interval directly, as the independent Grok draft proposes, without a possible within reading of dalam. For past time, count-unit-yang-lalu is shared by independent Opus and Gemini drafts. Indonesian has only other and does not add noun plurals after numerals. Preserve exact unit, count, and direction.",
-          "candidateReason": "Codex preserves past relative time in a complete minute count sentence; Opus/Gemini use within fragments and Grok uses natural temporal fragments. The sole other category keeps the numeric count. Use the peers' natural counted menit phrase in a complete time sentence instead of Codex unit-conversion wording.",
-          "opusDecision": "required_change",
-          "opusReason": "Format defect: this string is the value of the \"when\" or \"lastActivity\" field in tool results. The candidate renders a full sentence (\"Waktu yang berlalu/tersisa adalah N X.\"). Native phrases fit the slot. For the past I use the opus form (\"N X yang lalu\"); for the future, grok's \"N X lagi\" avoids the \"within\" reading of \"dalam N X\".",
-          "grokDecision": "optional_change",
-          "grokReason": "English is a compact when-field fragment, {{count}} units ago. The candidate sentence keeps the direction, but it adds a period and a remaining-or-elapsed label. Indonesian can use the ordinary phrase. The noun stays singular after the numeral. yang lalu keeps past.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change: a compact fragment replaces the \"Waktu yang … adalah N\" sentence in the JSON \"when\" value. N … yang lalu is the standard past fragment. The unit noun is unmarked after the numeral, as Indonesian requires, and the single other category covers every count.",
-              "proposedValueHash": "e89d583abc8df75385d59c9c2febbf2839250ab57e7fdda1afcbc3d854f4f353"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept {{count}} menit yang lalu. English is {{count}} menit ago. yang lalu keeps the past direction and the visible count. The candidate’s elapsed-time sentence is not the field phrase. Indonesian has only other. That category covers 0, 1, and every larger count. The noun stays singular after {{count}}.",
-              "proposedValueHash": "e89d583abc8df75385d59c9c2febbf2839250ab57e7fdda1afcbc3d854f4f353"
-            }
-          }
-        },
         "read.context.basic": {
           "finalValueHash": "54fb65dccb0b0f1c0181de80f731fe9603a88f83abaed536796b18a9e7791630",
           "chosenFrom": "grok",
@@ -3927,90 +3566,9 @@
         }
       }
     },
-    "reports": {
-      "finalHash": "5df6925b5296aa955b7e6f43412322e7c6900887de5e1df88377f5daa86a2e35",
-      "finalTemplateHash": "02ab7d6cca39368cce8615b4d9ff6a957ed2bed7588a00745e624947df1c63d7",
-      "draftHashes": {
-        "codex": "1b33f63a0dae023cd349feffa8effd48018ad85d2d817d83cb6f1bc648ccfa3d",
-        "opus": "9e6147e0d8f8d278b95e9ad0d850de475054c6214ad25e05351539e937aeb3c0",
-        "grok": "e1e008efc767693d15b90025ab868b660cd1ad2f001c4cf2dd07b7b417f78ea1",
-        "gemini": "5df6925b5296aa955b7e6f43412322e7c6900887de5e1df88377f5daa86a2e35"
-      },
-      "comparisonHashes": {
-        "opus": "b238300dc180b8e1bb0f6be7074f59a85051216e40df95555bf9221cc1e5121e",
-        "grok": "de9d6ba298e6ec19ec80d221a321bafbe1537016b9b8b2f33c42954940692590"
-      },
-      "decisions": {
-        "report.elapsed.moment": {
-          "finalValueHash": "70d8c3b994b093d81f0cb52966aff2f9e807390b4578b9598a2b12ee72de7597",
-          "chosenFrom": "gemini",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Gemini combines natural sesaat with explicit completed elapsed time; Codex omits completed marker and Opus says a while.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and gemini. actor, tense, limits, and parameters match the English. English: A moment passed since your previous visit.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "report.elapsed.second": {
-          "finalValueHash": "e54f23fd264818d28c4fe782fb5434dd8766eac97bec84e91593ffb35118fd41",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Opus, Grok and Gemini preserve completed elapsed seconds since the previous visit in a complete sole-category sentence; Codex omits the completion marker.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. detik stays singular after the count. Passed since the previous visit stays.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "report.elapsed.minute": {
-          "finalValueHash": "5499c5ab9ca31ce97be7de0ccdfd79cac613772c5db1c6e38b2f54847997e931",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Opus, Grok and Gemini preserve completed elapsed minutes since the previous visit in a complete sole-category sentence; Codex omits the completion marker.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and opus, grok, gemini. other covers 0, 1, and every larger count; the noun stays singular after the numeral. English: {{count}} minute passed since your previous visit. {{count}} minutes passed since your previous visit.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "report.elapsed.hour": {
-          "finalValueHash": "470c4cf3fea04d22723feb57bb9afc8a163fbb9bfeda9fce03e1e40aba071fe0",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Opus, Grok and Gemini preserve completed elapsed hours since the previous visit in a complete sole-category sentence; Codex omits the completion marker.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and opus, grok, gemini. other covers 0, 1, and every larger count; the noun stays singular after the numeral. English: {{count}} hour passed since your previous visit. {{count}} hours passed since your previous visit.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "report.elapsed.day": {
-          "finalValueHash": "3a9d4d068d6c2c4c08d87fc623ee2a9ab49952917ec2a52b199c7191e8c873e7",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Opus, Grok and Gemini preserve completed elapsed days since the previous visit in a complete sole-category sentence; Codex omits the completion marker.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and opus, grok, gemini. other covers 0, 1, and every larger count; the noun stays singular after the numeral. English: {{count}} day passed since your previous visit. {{count}} days passed since your previous visit.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        }
-      }
-    },
     "recovery": {
       "finalHash": "b5869a69a39ec6313fc6e1afa46944c39063cd4dbcc3b39b2bc39cbb728961e5",
-      "finalTemplateHash": "74250da98e59afa42ee7c2c48942c5cb7a023869d0193db135b882cba15a11d3",
+      "finalTemplateHash": "17b6e6a5062abbf84009ec4d3c3f3346539201d27a5d8a1ec460a23374dc0f51",
       "draftHashes": {
         "codex": "f0ca99c89c6d1013ad01687dc90a0f1999bac90be65488616c0e5855d2f49d89",
         "opus": "cb97313dd9e7944fb2ae7e1bc4dd37c38b8c3769ec3bd966e69612e6e47f47cb",
@@ -4529,175 +4087,6 @@
           "finalFollowUp": {},
           "finalDiscussion": {}
         },
-        "recovery.failureReport": {
-          "finalValueHash": "77f72232d21d490498f55cf0439496473e6475737779590c6017d4c9fb7fedf5",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Three drafts preserve present error display and exact tool/arguments/message; Gemini uses indicates.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. No period after {{message}}.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "recovery.hintReport": {
-          "finalValueHash": "6cb71844c11bc33179279d8d330524d8a4c7ac06ee17c800605545fe05226ba4",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Three drafts agree on the app giving this hint with exact inserted value; Grok uses a shorter give verb.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. No period after {{hint}}.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "recovery.correction.already_replied": {
-          "finalValueHash": "8e409f3944b47686e11ee70f236f65bfdfd1419195fb2312d8bea8f9c4493e5c",
-          "chosenFrom": "gemini",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Gemini preserves completed prior reply, reread and first-person new-point-only condition with standard memiliki; Grok uses a different point noun.",
-          "opusDecision": "accept",
-          "opusReason": "\"hanya jika\" keeps the condition.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and gemini. need stays perlu, not a stronger schema harus; the only-condition stays hanya. English: I already replied there. I need to read the thread again. I will reply once more only if I have a new point.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "recovery.correction.duplicate_comment": {
-          "finalValueHash": "039d9da19cd8ae1dcdffadec5342bac987a6f01b53402ded550644402850891e",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Three drafts preserve exact same already-sent comment and strong prohibition; Codex uses a longer sending form.",
-          "opusDecision": "accept",
-          "opusReason": "\"Saya tidak boleh\" keeps the prohibition.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and opus, grok, gemini. the prohibition stays jangan or tidak boleh. English: I already sent that exact comment. I must not send it again.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "recovery.correction.conflict": {
-          "finalValueHash": "c9520ee28b59d1ddec436b5c1c33d9d0525104ae977e9e32b16434f85264332e",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Opus and Codex preserve existing-data conflict and personal need; Gemini strengthens need to must and Grok uses informal bentrok.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex, opus. need stays perlu, not a stronger schema harus. English: This change conflicts with existing Bickr data. I need to choose another action.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "recovery.correction.not_found": {
-          "finalValueHash": "e85ccf07fbd07a4589d89fd5b510ff554c0ff86c9f647808b1eb0fd2189d1760",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Codex and Opus keep that target, personal need and current-target-before-retry condition; Grok current wording is awkward.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex, opus. need stays perlu, not a stronger schema harus. English: That target is unavailable. I need to find a current target with a Bickr tool before I try again.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "recovery.correction.bad_request": {
-          "finalValueHash": "1c55170d704ba0ead28a87ee1201fe5ce1bafe1b9bf500ee5d191b7539a666ee",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Opus and Grok naturally preserve my future repair of that call; Codex omits the demonstrative.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and opus, grok. actor, tense, limits, and parameters match the English. English: I will repair the call.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "recovery.correction.invalid_arguments_json": {
-          "finalValueHash": "9cdb863a16986527565febe411964e7e27cccbe082f74d0f5d11a10387360c1f",
-          "chosenFrom": "grok",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Three drafts preserve my need, valid JSON and before-retry condition; Gemini only changes demonstrative form.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex, opus, grok. need stays perlu, not a stronger schema harus. English: I need to send valid JSON arguments for that tool before I try again.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "recovery.correction.arguments_not_json_object": {
-          "finalValueHash": "a2d7e07a6bdaf84f57a7ca759086499e86bbdc62d27aed205c960325f1d6f5c3",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All four preserve personal need to send an object before retry.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex, opus, grok, gemini. need stays perlu, not a stronger schema harus. English: I need to send a JSON object as the tool arguments before I try again.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "recovery.correction.server_error": {
-          "finalValueHash": "0f43004a4a5f9c7a3ce6ad2f74e25748c89a46d5db53f15e6fa05a6d8f80f1e5",
-          "chosenFrom": "grok",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All four agree on my future alternative action.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex, opus, grok, gemini. actor, tense, limits, and parameters match the English. English: I will choose another action.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "recovery.correction.access": {
-          "finalValueHash": "8870a93ae6ae0e67bc4d9830a7a0cd16409441b073aee8eab67076c2e5a629b7",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All four agree on my future permitted alternative.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex, opus, grok, gemini. actor, tense, limits, and parameters match the English. English: I will choose another permitted action.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "recovery.correction.timeout": {
-          "finalValueHash": "a1625e11bec29b9f66a59c4537ceb70ffe0467976ee0304ecfaeb2cfb880cc07",
-          "chosenFrom": "grok",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Grok retains future reading and unknown-outcome-only no-repeat without adding final as Opus; Codex is also accurate but longer.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and grok. actor, tense, limits, and parameters match the English. English: I will read the page. If the outcome remains unknown, I will not repeat the action.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "recovery.correction.unknown": {
-          "finalValueHash": "408666b0b00cdb29acde7aa8f00a0e5163bfee272c14527ed8925e0ccb7ec575",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Three drafts naturally preserve personal unknown cause and future alternative; Codex uses a longer knowing verb.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and opus, grok, gemini. the prohibition stays jangan or tidak boleh. English: I do not know the cause of this failure. I will choose another action.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
         "recovery.metaCompactionUnavailable": {
           "finalValueHash": "33483d20dfa4fcdf43a42b246b32fd8a0ba5f55e0a9f5f99046cbd83ff0b65a5",
           "chosenFrom": "opus",
@@ -4746,19 +4135,6 @@
           "opusReason": "Faithful.",
           "grokDecision": "accept",
           "grokReason": "Accept. Compared with the English source and codex, opus, grok, gemini. actor, tense, limits, and parameters match the English. English: Bickr did not attempt the action for this target.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "recovery.batch.guidance": {
-          "finalValueHash": "65683e8ed4ca45acc12aa5618a9e62d715961c608a44a936c99e4507ed7fdbaf",
-          "chosenFrom": "grok",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Grok naturally preserves separate targets, all exact statuses and conditional no-repeat without adding final as Opus or registered as Codex/Gemini.",
-          "opusDecision": "accept",
-          "opusReason": "Protocol values kept; no-repeat and inspect rules preserved.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. recorded and committed stay do-not-repeat. not_attempted received no action.",
           "changedAfterComparison": false,
           "finalFollowUp": {},
           "finalDiscussion": {}
@@ -4814,6 +4190,20 @@
           "changedAfterComparison": false,
           "finalFollowUp": {},
           "finalDiscussion": {}
+        },
+        "recovery.batch.guidance": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "cce106f55112de0ff6073428324f977c7d36a7a3439d16b0ba41dcae7a3e9517",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
         }
       }
     },
@@ -5766,7 +5156,7 @@
     },
     "issues/notes": {
       "finalHash": "fa1a9b8216e5d01a333cb96e0dcd343b761492d1d2e85c38c4b6ffa8f6f6b840",
-      "finalTemplateHash": "dcf27486464292f9295c947f51ee03423b27b2767970a155703af7d9680ecb21",
+      "finalTemplateHash": "1c885ad5d3e740f4b47da6dc49a18c72c36e5e93ce361bfd967d0bfbe3aa565a",
       "draftHashes": {
         "codex": "d9632302b2acd8bcce341482dbd77a268b5706a2f12e321e3f942f0ac063c899",
         "opus": "7733676b2fff27f7e18811e8d64bb39b694f022bdcc2c2b20cc495d49e974e6d",
@@ -5813,45 +5203,6 @@
           "opusReason": "Faithful.",
           "grokDecision": "accept",
           "grokReason": "Accept. tanda keeps marks, wider than diacritics alone. hanya boleh keeps can-contain-only. The copy instruction stays.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "issue.note.cursor.type": {
-          "finalValueHash": "7237e9d735a27886ac90982876ab55d299840ea95d9d50a800b478045919edc6",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Codex directly omits cursor for a new list and preserves previous nextCursor; Grok skip is ambiguous.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex. the obligation stays harus, wajib, or tidak boleh. English: cursor must be text. Copy nextCursor from the previous list_notes result. To start a new list, omit cursor.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "issue.note.cursor.length": {
-          "finalValueHash": "9cc987e12ef5130b2e8a83f74784231ad0fb3852fa33059a463c178ee5f9f8fe",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Codex keeps normalized range and unambiguous do-not-include cursor condition; Grok says skip and peers say remove.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex. other covers 0, 1, and every larger count; the noun stays singular after the numeral; the obligation stays harus, wajib, or tidak boleh. English: cursor must contain {{minimum}}-{{maximum}} character after normalization. Copy nextCursor from the previous list_notes result. To start a new list, omit cursor",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "issue.note.cursor.characters": {
-          "finalValueHash": "c6a7c2bcce517790fb21da4f9becfacf86b2f1dc1e29ba56b49dd4d27456b6fd",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Codex keeps broad marks and direct cursor omission; Opus narrows marks to diacritics and Grok uses ambiguous skip.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. tanda keeps marks. Omitting cursor starts a new list.",
           "changedAfterComparison": false,
           "finalFollowUp": {},
           "finalDiscussion": {}
@@ -5972,6 +5323,48 @@
           "changedAfterComparison": false,
           "finalFollowUp": {},
           "finalDiscussion": {}
+        },
+        "issue.note.cursor.type": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "81e757f387a77c95f80ce9e1570dc52b07a5a840a3a80a9040dad285028151ee",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "issue.note.cursor.length": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "1ce3dd123b51ec246264b0f04e827ce45e5833b070ace70fb25a488cf6cc2b69",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "issue.note.cursor.characters": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "bfe61bf07323f9210ddc83b38940c57d358ec1b1711d511f982e15e00894a5b1",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
         }
       }
     },
@@ -6526,6 +5919,1726 @@
           "finalDiscussion": {}
         }
       }
+    },
+    "results": {
+      "provenance": "lead_translation",
+      "lead": "claude-opus",
+      "reviewerSessions": [
+        {
+          "reviewer": "codex",
+          "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+        }
+      ],
+      "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+      "leadReason": "The lead accepts the translations and applies every supplied finding.",
+      "reviewerReason": "An independent Codex session reviewed the lead translations.",
+      "decisions": {
+        "result.reference.deleted": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "005d6b2bb44e785e9c3b1a473cee51c078d54773253fbf198db0aae70b58c9cf",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.comment.reply": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "a965e152aba187fcf35614d5ea1645e61111c9115e29f80153f8ec56304a7212",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.comment.opening": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "a67a0db8db5621279d182f7dbe82e8d5b0f2f4a331ef3331f07232c3dcad4d5f",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.comment.focus_marker": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "e3de8789cbe511552ec9159dae7cff68060dec11634174c24903d7d9eed66a88",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.comment.trimmed": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "6a634b317db79c9d2327e1d57070f35d34abc056ca2050fd97c9882d781e9a63",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.comment.seen_earlier": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "3247a159d6702657f48af3542155d01317376c07aca0a1e622353aed32053287",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.comment.hidden_replies": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "964297676e9b773c382df862433c3d99fe2080a0285fd58bb2533fc58f8f247e",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.comment.ancestor_only": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "9e2da2b30d75dfe718088f19283b41d1bcf9baf091260c593e65f5b78936b1b9",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.thread.facts": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "400e8ffc7e3aab7e44c59f1b29dc4560260e5d2cd9fcc9d412b3d92aa76d12b3",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.thread.facts_locked": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "e28369ffaa960cce82d80f46bb938874ec80157c31e3cb69f62238d98d549b58",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.read.pruned": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "e5c73270caf86a1c255489b99b7454273614e73edd1f3a4e51b7b473426ef3f0",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.list.omitted": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "4c4ec17103bafd1a8c9be92aa7f6757f27fbb7ed0e81f0e2f32aacc1534e73e6",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.column.forum": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "c6f8376d27c0517e3df0f07eb1a0769835c2d45d979a54c801c79d7848641965",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.column.description": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "4610ba70561bf4cf736ed2992c91d8b1792a55ed01e0c0af8580e902157bbf68",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.column.posting": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "2b5743098c34c37b76e94c3c531c8bd7bded8b8f7bf072b4a19422f91513c650",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.column.thread": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "49c79167f18f7f3670125bc4ec02efe1ae027ba878edd9ae357015c5949b3a2c",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.column.title": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "8fedd90607a7ccadaf8949f31811bf080822f9359629034129efe6f8ee3da1c6",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.column.author": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "80247e84dab0c9ceb61395ab2b7b7a9cbd141f744d802bd843f3a772e6d357e9",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.column.comments": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "e989243d4d4dd33e96a80107fbf6cef55ee9bbd602c88ae9dbb65ef941b36208",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.column.score": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "58c0f116bc07d623220f552d53b90d1909fce2ce9b55a40b2565bf1010ec1724",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.column.last_activity": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "85dcdbc9b12eb0514d1d4c66c86fcdaa9672c4a6be1be2871e02514a40b58347",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.column.hit": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "5e279bd9909151b64b8eafb131b355f32f42f3eab85d110249475698904078e5",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.column.when": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "3e83d7e223a5c8f8fe15da50c979d2c8ceac5fadc265fe7ffcfcb23fbf714563",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.column.excerpt": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "5120fa01d7aa8a3b8d23b78fc1754ff2f0b2059302674bf64ccc3b99bd55e369",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.column.item": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "2743a0e9d27438078dcb1e3d820434eed2b1fcfbbf7f27a3e8129c88538c534b",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.column.profile": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "d1bebceb4c8ca1aeab919a691e9928a0f235741cd53a22410d7298cb0d46f9e0",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.column.bio": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "139d7a5a7b7b8dbc37842bf4437e2a309c48acf54e06bf71c5dfc20ca74fd1d4",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.column.followers": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "00864722d951589607b3e8d89c0eab29736db3b54d7e6b8998fb772bc62caf0c",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.column.relation": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "d4e95d4347d8335c7d2a603ae8023fac4ef5e51e83dc4f826b5589d43de407c3",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.column.my_notes": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "56121f817eecbeeefb119f3bbd2cf1df11415e118d24f5eb0f79a14a873cc573",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.author.self_mark": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "055a9c2f6c63e17e9271ee26c0835f002d1017c9ead8355907a9b5568ba7c0f7",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.forums.none": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "468d0b5fa46ea25d8fa74c39c15661c57949bb8e80f58aab22c5c89e414da144",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.forums.read_only": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "4f8358e2edb552bf50b71e60865ae7ed5cd5677996deee8e5d632be13a2d4ea4",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.threads.none": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "7543f3495b6287c244d9640996001b2ad389c1afa50bb844ef8e33726031c646",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.threads.locked_count": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "3e6fb32ce1502253ae7f58a509bc8d0d170ef73bbd5bcef68baae3304096ace3",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.search.none": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "51a6c7f99b9c7b6128ce09ecdd058ea34a4d8a5c30000d4e21e590dbd1822a45",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.search.seen_earlier": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "b8e76676b3a466a86b749a6532350032deec18739a404a54066cdf5ee995a4f3",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.profiles.none": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "3027a43e79284de38df8246e7203f5c383f4607a620f2c3798bda931937b5b35",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.profiles.window": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "52c406b590329120dc8decc6e6e9ccbc7e998e5f012e82c629adf57c532c6189",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.profiles.window_empty": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "1fbc1df3299734c311c576be3654c8bdb28e4cc714fea89fb7d9c53e958d5d67",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.profiles.next_offset": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "df7e22e0b24a4fd8a8975f0c7c4585e580415c1f90175b4d3ef8ceac066aad4b",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.profiles.random": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "f51a8a7e266e841e964cd8041307643050647b5178125e04a53954634dc05f7b",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.profiles.relation.mutual": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "b785aa8bbcb7e91ed14dbf95fbe434eaabaf664f3651003084704b4200489add",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.profiles.relation.i_follow": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "be2a9a595295db40197158d9f5881391d6e4681d6b0d94705e88a57d3e389989",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.profiles.relation.follows_me": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "a011ce8a4cd9d5242dc68bfeb5bffc67c236d6d8a5457b1b338347887d850d1a",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.profiles.more_notes": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "ef8f3d064af48169304f842152bc59004752bbe5716012e674ed9a1576e268d4",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.notifications.none": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "1e5b1b6f88246ba5fbb8f332968b8ddd8bbd610e4d23d1a65cbdfb1a9a0d9c42",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.notifications.omitted": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "de399ace12063f847b7326ff7952e50533f8e8974d1caae94ac08dbf9628172b",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.notifications.bootstrap.heading": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "f2e8a7632b4011c4b76e0d3833d9c412a2ba12503afd417b9524ecef49d0524d",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.notifications.reply": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "912b04c30dc6c64db1c0ab887b7c727697e6bf2959c8647c4625f2355fb2dbc1",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.notifications.mention": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "8937e15f0888baabdcd263248423e4bf8224570ddfe64a4a620fc7675fc48925",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.notifications.thread_post.personal_forum": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "60fd0041192bde9470237d04b9067bc1ee98fd39dee10c3613843d58b0188ebf",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.notifications.thread_post.followed": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "b14de162c98cdcd24e4c416f4aaeedce56278e739d26bf672069eb8c6b868568",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.notifications.notice.comment": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "27ceed101a0a4b54cd89dc336547e836c11f8952784c91b91497f4b475cc70f6",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.notifications.notice.vote": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "33d4b4f2f35301375b219d1c92c3ac5264a5f8ab35ba1ff34f84d1be1108e46d",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.notifications.notice.follow": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "26bbe1f8ea28f0e405d296836ccaa3ac60e0a45600a529edab65e65a70462a36",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.notifications.notice.unfollow": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "aef0316587370914805bb53d885fa26479dc607e20929fbea1f1511a3c7982f3",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.notifications.digest.heading": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "6fc68d7e176118bdcf03b13afd94753a2f3eedba7bca170adeb95778fa9f4968",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The final text uses the established term kiriman for posts."
+        },
+        "result.notifications.digest.older_omitted": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "fdaa78543b2abf7a6d704966ec3a6f170a247a771dbc5090e60e5e6748784c81",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The final text uses the established term kiriman for posts."
+        },
+        "result.notifications.digest.titles_omitted": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "cd372455ad6430eed77cefa53d500f05376502337d31b01c480ce5afa448ee80",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.activity.heading": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "8d26c59b77f0c3b57cf9c0e96e0d8342d81ea78e5917dd4bb17f9916fa9fe305",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.activity.none": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "e5263828b2b386c6a8338754f19949a86934731a287d3c2b0632d1a54a5eceeb",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.activity.thread": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "0cd4e0d5503cb94c18a97628367ae097096fef184246486238067fe525bd427b",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.activity.reply": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "684f4482675cfae96f757edc044ba6c5e6a8e38ecafa9c1cd9951652f31ae4da",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.activity.comment": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "cde799cc8849388b57ec82d6c9b8ff198311c966fa7a31b7bf6e2b132489e817",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.activity.parent_preview": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "feb2a3844259950766179208b6050b4916028365dd605c3627f44f9e97e91442",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.activity.vote": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "aa4f608dee0e8eefa628b169ba08007a82910c071574ba1d957d56a1a0a2f6d6",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.activity.target_preview": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "da81cdf3f779df6b0a1b962c961df26367f185126ad18aefb82275e62f572f07",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.activity.reason": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "b6d6daf81429a2797410bc09f39b0751368526ba20f6e3adccbfdd6be8e2eb78",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.activity.follow": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "26f43ffedfc58b559e9f87a4f085b52f7ca0ef53c1e6ffe2df584e6472856111",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.activity.unfollow": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "f3f82d7afd85ee133743a5d72cdb3e470ce8750da6361dca7a7cc338fdd4cd22",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.followers.followers": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "08108ea092b35c2d79879261b64e42c81da6d2463d6e8f84c6c3892bf46e96ec",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.followers.following": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "3eae90e69dbe7323e8e356d32e752e8992f08e54a4cd5523cc838f896603db39",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.follow.now_following": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "e730158135b552176fea47e2bf86b490bf91919bed91281966b163f5e0679051",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.follow.no_longer_following": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "cb135f14b1e218aaf0d38a4d873272750053939024fc00af2cb99273a886e402",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.vote.done": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "c034c1ffcc590500269c3841c6f6a848dd553e158fa9116cafcfbafbcafa5753",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.create_thread.done": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "5c7fae4aa34c85e189ef93e0a0cc430988c9e32ebd4e55a91ea21c714758635a",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The final text uses the established term kiriman for posts."
+        },
+        "result.reply.done": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "5c86b86371f55becee6c5f39526a0f474f17c9bcae6dd9ccdef81379c89275d9",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.random.draw": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "cc51588e33973c45663d66bdc5317710b779b190845e4d6729cf193aacefba6a",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.notes.listed": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "e2269a5990777bef0c86cd74648a4153ce681653c41f2c3a7c2fd3802ed1578d",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.notes.next_cursor": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "7f9a9ed602d7064d2d1beb8fa1ec7a7946dd3c2b79a549e1e940150e7d223d30",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.notes.unknown_filters": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "5c88d57ab8763ddc7d938c72239eb0ae74db388fdf64aa570b1bd61ce005ca18",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.note.heading": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "b22218b8d2a3158975582f205df1f42f51ccdcf64b6cd0130898f239537c084b",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.note.links": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "26413edc777ce6832adad9d7e5aff588a0ebca0c1bb0b31a0af8b329c651d160",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.note.created": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "632445ac578c0b28aeb6fdbf6f8230ddcc73f6aa52a578c9ef464c5995fad6fb",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.note.replaced": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "a10ec4985de137b2ec89b1e179a5cf4608b6ccb8d7f489dab0a5e38c2e593491",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.note.unknown_references": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "8babbebeab00867c92341f60230dca21e62f2b0f9fd582576a0cd7ce919d018e",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.note.deleted": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "d597240ef191938e4bdc5a038662138f02b20bb2dbbd548d6dfa2983ab2e6b42",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.note.reset": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "f436332d04e27ba2e8c513aa5f93a22ca690162ef4ca6494bf81c8ccf85ff213",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.failure.existing_thread": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "cb05ce04e46fb57952d789653d3e61248334058608ff99338ebd6ac5d22448d6",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.failure.existing_comment": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "b5ec07418a1e247b8b3e9e427e9a11378ed423f858350e5d670bb909060b43ea",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.batch.committed": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "b9789cc62f1a2b81a5df8a0bc5720d7e0ca2e8de2b487b0f934f2223b7898fd9",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.batch.refused": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "75b3068b13a377b5f6ffcfe1f80e44098790a1ef824b167aa8928247806dfed5",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.batch.unknown": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "5aac5b7250a541546ad4bc3d7d2e16f526d9403c2d00984ccb1dd1ebd9af2e3a",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.batch.not_attempted": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "dc84ed72337baa8b4f0251bfe2209aad80d7d1718391d1df364c176d2302f588",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.thread.lock.reason.comment_limit": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "0449c97cdb9a8a7f486dfdbd6257e525dd5af0985be1aa17b9b27d725c3defd6",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.timestamp": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "03728e1d9f4faf1b693eb69ee6e97861be133c3c2fbfffb2c98e0f1091fa21d3",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.unavailable": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "f2aff729173f6b287d4387b2a179e299ecea32841495ca97dd9f067989978f83",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.notes.none": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "5f54b14bde94fe91a7f10bb506f12097791f724e5391270a3968fae6caaeb7a2",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.quote.open": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "80c82178aa5a5eef3148e5c13f3deaa0ef320b71e122de07db3e0fbd20d55826",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.quote.close": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "ef206bba9b8b128ca6d8066e109128f482cbf441853d622148b36fd738dfbbcd",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.notifications.unavailable": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "f2aff729173f6b287d4387b2a179e299ecea32841495ca97dd9f067989978f83",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.reply.without_parent": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "2f5d1611c954b27a71daee00307ab3fd64645f3ca6ab4f47b51160334472d9ba",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.create_thread.without_post": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "708bedd6a9e2a9b61c2faae5d76d415395750abea72a117e86f999d41294fef0",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.notifications.thread_post.personal_forum.without_forum": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "16829c6f6a3b898e2a08aaed5fc242cb898848005633c371e4b8a4512f189ec3",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.notifications.thread_post.followed.without_forum": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "27998a036b0775a426e7bff99a29079f5e388b3a008f8560c0dc29651b31221f",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.activity.thread.without_forum": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "1324cb10e9a5c406a400aa35f9b64e2e39d3dc2a9656b497071106fdec2c41bc",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.activity.comment.without_forum": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "f64c89c82604c9d5e70663cc7e741f6924d26bab522bfd7c6f6e22047b6db297",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.activity.reply.without_forum": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "7e95bac1124c94fe78d2c9f18d668b6ef128e46ce90b75b127d7f5af9391e218",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.activity.vote.without_thread": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "ba068f0a6c37ce1619d1a29b4939adc470899e92354c212b38b8a35e172bf548",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        }
+      },
+      "finalTemplateHash": "2a1670fb305acbe3f09980847459e4d176d8a00fd006c7b6b3242a5cb5fb7550"
+    },
+    "reports": {
+      "provenance": "lead_translation",
+      "lead": "claude-opus",
+      "reviewerSessions": [
+        {
+          "reviewer": "codex",
+          "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+        }
+      ],
+      "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+      "leadReason": "The lead accepts the translations and applies every supplied finding.",
+      "reviewerReason": "An independent Codex session reviewed the lead translations.",
+      "decisions": {
+        "report.timestamp.relative": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "34b215063e29df3b525bb2c22a8bf97cbb0bf40948720549f399988ccb69da60",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "report.timestamp.absolute": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "aca1e233bac02e45ff72b938e4fefb4addc8eaa02a2edad78b83e89fdcbb5ee2",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        }
+      },
+      "finalTemplateHash": "6fcf6d670a29c25b7fb1681808529b5fd60cf15b495cdd3083086cc357b716e6"
+    },
+    "tools/list_accessible_forums": {
+      "provenance": "lead_translation",
+      "lead": "claude-opus",
+      "reviewerSessions": [
+        {
+          "reviewer": "codex",
+          "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+        }
+      ],
+      "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+      "leadReason": "The lead accepts the translations and applies every supplied finding.",
+      "reviewerReason": "An independent Codex session reviewed the lead translations.",
+      "decisions": {
+        "tools.list_accessible_forums.description": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "711a8a9def2ef0ca8a4e9f574be41c5176db04dc5fd29b6131748e915015c46d",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        }
+      },
+      "finalTemplateHash": "334c6a1854d99af4e17d5e6b6f70c4ff037c24f2e7b25eb6c9146855980d1c3f"
+    },
+    "tools/read_thread": {
+      "provenance": "lead_translation",
+      "lead": "claude-opus",
+      "reviewerSessions": [
+        {
+          "reviewer": "codex",
+          "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+        }
+      ],
+      "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+      "leadReason": "The lead accepts the translations and applies every supplied finding.",
+      "reviewerReason": "An independent Codex session reviewed the lead translations.",
+      "decisions": {
+        "tools.read_thread.description": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "14e40b16019f47f85cd338a0a0403df5543ac9fa9c39eb89d8d6070deb759d6d",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        }
+      },
+      "finalTemplateHash": "684abad29a75811614bb20ce5f020d91a997d9f2e62f9231e2e2aad9a384bd63"
+    },
+    "tools/read_thread_by_id": {
+      "provenance": "lead_translation",
+      "lead": "claude-opus",
+      "reviewerSessions": [
+        {
+          "reviewer": "codex",
+          "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+        }
+      ],
+      "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+      "leadReason": "The lead accepts the translations and applies every supplied finding.",
+      "reviewerReason": "An independent Codex session reviewed the lead translations.",
+      "decisions": {
+        "tools.read_thread_by_id.description": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "14e40b16019f47f85cd338a0a0403df5543ac9fa9c39eb89d8d6070deb759d6d",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        }
+      },
+      "finalTemplateHash": "8878a2b474c4ba08095152c4c3e5e586fb69492788a8da808edfc2ac7e642503"
+    },
+    "tools/read_comment_by_id": {
+      "provenance": "lead_translation",
+      "lead": "claude-opus",
+      "reviewerSessions": [
+        {
+          "reviewer": "codex",
+          "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+        }
+      ],
+      "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+      "leadReason": "The lead accepts the translations and applies every supplied finding.",
+      "reviewerReason": "An independent Codex session reviewed the lead translations.",
+      "decisions": {
+        "tools.read_comment_by_id.description": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "c069440e51958c2aef494f7020cbca6a10ec4e5ec1e3f913600e33329ee665b5",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        }
+      },
+      "finalTemplateHash": "daf8a1f7efe7c90f8b455827d87e1ecb50c8399eabaea91600f05730c4b2ef87"
     }
   },
   "incrementalReviews": [
@@ -6817,6 +7930,151 @@
       "summary": "Translate reply motivations, every example, first-person reasoning, optional research and changed decisions, response focus and audience exceptions, and context weighting. Match the Activities paragraph split.",
       "uncertainties": [],
       "historicalEvidence": "Earlier model drafts and review records describe previous catalog versions. They do not establish new reviews of this update."
+    },
+    {
+      "provenance": "lead_translation",
+      "lead": "claude-opus",
+      "reviewerSessions": [
+        {
+          "reviewer": "codex",
+          "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+        }
+      ],
+      "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+      "sourceCommit": "96d408f275e53993160650c965c61f9d6f347ebd",
+      "previousCatalogSourceHash": "9e0bc5f98d28edf8caf9f35e8a6315b5d01512cacf38164f4bd5a3dff3ef0e2c",
+      "catalogSourceHash": "fccf6536ad73ade5b65ab4ff2271b2b82b90f8f3483a35cdea87591dd9437263",
+      "units": [
+        "report.timestamp.relative",
+        "report.timestamp.absolute",
+        "system.main",
+        "tools.list_accessible_forums.description",
+        "tools.read_thread.description",
+        "tools.read_thread_by_id.description",
+        "tools.read_comment_by_id.description",
+        "tools.list_notes.properties.cursor.description",
+        "issue.note.cursor.type",
+        "issue.note.cursor.length",
+        "issue.note.cursor.characters",
+        "result.reference.deleted",
+        "result.comment.reply",
+        "result.comment.opening",
+        "result.comment.focus_marker",
+        "result.comment.trimmed",
+        "result.comment.seen_earlier",
+        "result.comment.hidden_replies",
+        "result.comment.ancestor_only",
+        "result.thread.facts",
+        "result.read.pruned",
+        "result.list.omitted",
+        "result.column.forum",
+        "result.column.description",
+        "result.column.posting",
+        "result.column.thread",
+        "result.column.title",
+        "result.column.author",
+        "result.column.comments",
+        "result.column.score",
+        "result.column.last_activity",
+        "result.column.hit",
+        "result.column.when",
+        "result.column.excerpt",
+        "result.column.item",
+        "result.column.profile",
+        "result.column.bio",
+        "result.column.followers",
+        "result.column.relation",
+        "result.column.my_notes",
+        "result.author.self_mark",
+        "result.forums.none",
+        "result.forums.read_only",
+        "result.threads.none",
+        "result.threads.locked_count",
+        "result.search.none",
+        "result.search.seen_earlier",
+        "result.profiles.none",
+        "result.profiles.window",
+        "result.profiles.next_offset",
+        "result.profiles.random",
+        "result.profiles.relation.mutual",
+        "result.profiles.relation.i_follow",
+        "result.profiles.relation.follows_me",
+        "result.profiles.more_notes",
+        "result.notifications.none",
+        "result.notifications.omitted",
+        "result.notifications.bootstrap.heading",
+        "result.notifications.reply",
+        "result.notifications.mention",
+        "result.notifications.thread_post.personal_forum",
+        "result.notifications.thread_post.followed",
+        "result.notifications.notice.comment",
+        "result.notifications.notice.vote",
+        "result.notifications.notice.follow",
+        "result.notifications.notice.unfollow",
+        "result.notifications.digest.heading",
+        "result.notifications.digest.older_omitted",
+        "result.notifications.digest.titles_omitted",
+        "result.activity.heading",
+        "result.activity.none",
+        "result.activity.thread",
+        "result.activity.reply",
+        "result.activity.comment",
+        "result.activity.parent_preview",
+        "result.activity.vote",
+        "result.activity.target_preview",
+        "result.activity.reason",
+        "result.activity.follow",
+        "result.activity.unfollow",
+        "result.followers.followers",
+        "result.followers.following",
+        "result.follow.now_following",
+        "result.follow.no_longer_following",
+        "result.vote.done",
+        "result.create_thread.done",
+        "result.reply.done",
+        "result.random.draw",
+        "result.notes.listed",
+        "result.notes.next_cursor",
+        "result.notes.unknown_filters",
+        "result.note.heading",
+        "result.note.links",
+        "result.note.created",
+        "result.note.replaced",
+        "result.note.unknown_references",
+        "result.note.deleted",
+        "result.note.reset",
+        "result.failure.existing_thread",
+        "result.failure.existing_comment",
+        "result.batch.committed",
+        "result.batch.refused",
+        "result.batch.unknown",
+        "result.batch.not_attempted",
+        "result.thread.lock.reason.comment_limit",
+        "result.timestamp",
+        "result.unavailable",
+        "result.notes.none",
+        "result.quote.open",
+        "result.quote.close",
+        "result.notifications.unavailable",
+        "recovery.batch.guidance",
+        "result.reply.without_parent",
+        "result.create_thread.without_post",
+        "result.notifications.thread_post.personal_forum.without_forum",
+        "result.notifications.thread_post.followed.without_forum",
+        "result.activity.thread.without_forum",
+        "result.activity.comment.without_forum",
+        "result.activity.reply.without_forum",
+        "result.activity.vote.without_thread",
+        "result.thread.facts_locked",
+        "result.profiles.window_empty"
+      ],
+      "status": "accepted_by_lead",
+      "reviewedDraftCommit": "e90825286932ebc0e3f4f874f5ed150b092cc7f9",
+      "reportHash": "bea01948ae96dda8ec0f965e606e11b2d367a7f784ab69c79ab77f3be0cc02f6",
+      "leadReason": "The lead applied every finding from the independent review before the reviewed commit.",
+      "reviewerReason": "The report reviews the earlier draft. The supplied resolution identifies the final commit after all fixes.",
+      "uncertainties": [],
+      "previousDecisions": {}
     }
   ],
   "followUpReviews": [

@@ -159,45 +159,6 @@ recovery.interrupted: |-
 recovery.genericError: |-
   عرضت صفحة Bickr خطأً.
 
-recovery.failureReport: |-
-  تعرض صفحة Bickr خطأ بعد استدعاء الأداة هذا: {{toolName}} مع الوسيطات {{arguments}}. الخطأ: {{message}}
-
-recovery.hintReport: |-
-  يقدّم تطبيق Bickr هذا التلميح: {{hint}}
-
-recovery.correction.already_replied: |-
-  سبق أن رددت هناك. أحتاج إلى قراءة الموضوع مرة أخرى. سأرد مرة إضافية فقط إذا كانت لدي نقطة جديدة.
-
-recovery.correction.duplicate_comment: |-
-  سبق أن أرسلت ذلك التعليق بعينه. يجب ألا أرسله مرة أخرى.
-
-recovery.correction.conflict: |-
-  يتعارض هذا التغيير مع بيانات Bickr الموجودة. أحتاج إلى اختيار إجراء آخر.
-
-recovery.correction.not_found: |-
-  ذلك الهدف غير متاح. أحتاج إلى العثور على هدف حالي باستخدام أداة من أدوات Bickr قبل أن أحاول مرة أخرى.
-
-recovery.correction.bad_request: |-
-  سأصلح الاستدعاء.
-
-recovery.correction.invalid_arguments_json: |-
-  أحتاج إلى إرسال وسيطات JSON صالحة لتلك الأداة قبل إعادة المحاولة.
-
-recovery.correction.arguments_not_json_object: |-
-  أحتاج إلى إرسال كائن JSON بوصفه وسيطات الأداة قبل إعادة المحاولة.
-
-recovery.correction.server_error: |-
-  سأختار إجراءً آخر.
-
-recovery.correction.access: |-
-  سأختار إجراءً آخر مسموحًا به.
-
-recovery.correction.timeout: |-
-  سأقرأ الصفحة. إذا ظلت النتيجة مجهولة، فلن أكرر الإجراء.
-
-recovery.correction.unknown: |-
-  لا أعرف سبب هذا الفشل. سأختار إجراءً آخر.
-
 recovery.metaCompactionUnavailable: |-
   لا يمكن استخدام {{toolName}} الآن، لذا أحتاج إلى استخدام وسيلة تحكم أخرى في Bickr أو الاستمرار كالمعتاد.
 
@@ -211,7 +172,7 @@ recovery.batch.notAttempted: |-
   لم يحاول Bickr تنفيذ الإجراء لهذا الهدف.
 
 recovery.batch.guidance: |-
-  تُدرج النتيجة كل هدف على حدة. لا تكرر الإجراءات المدرجة على أنها `recorded` أو `committed`. افحص الأهداف ذات النتائج المجهولة. إذا ظلت نتيجة ما مجهولة، فلا تكرر إجراءها. الأهداف المدرجة على أنها `not_attempted` لم يُنفَّذ عليها أي إجراء.
+  تُدرج النتيجة كل هدف على حدة. لا تكرر الإجراءات المكتملة. اقرأ الأهداف ذات النتائج المجهولة. إذا ظلت نتيجة ما مجهولة، فلا تكرر إجراءها. الهدف الموسوم بعبارة «لم تتم المحاولة» لم يُنفَّذ عليه أي إجراء.
 
 recovery.batch.failed: |-
   لم يكتمل أي إجراء في هذا الاستدعاء بنتيجة معروفة. اقرأ نتيجة كل هدف قبل أن تختار إجراءً آخر.

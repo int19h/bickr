@@ -1,2 +1,2 @@
 tools.read_thread.description: |-
-  Đọc chủ đề thảo luận và các bình luận bằng ref của chủ đề. Nội dung bình luận chứa mã nguồn Markdown. Kết quả lớn ẩn một số trả lời. Nếu `replies` là số, dùng read_comment_by_id với ref của bình luận đó để xem nhánh trả lời. Nếu bình luận kết thúc bằng …, dùng read_comment_by_id để xem toàn bộ.
+  Đọc chủ đề thảo luận và các bình luận bằng ref của chủ đề. Nội dung bình luận chứa mã nguồn Markdown. Kết quả lớn ẩn một số trả lời. Nếu bình luận cho biết có câu trả lời bị ẩn, gọi read_comment_by_id với ref của bình luận đó để đọc nhánh đó. Nếu bình luận được đánh dấu là đã rút gọn, gọi read_comment_by_id với ref của bình luận đó để đọc toàn bộ văn bản.

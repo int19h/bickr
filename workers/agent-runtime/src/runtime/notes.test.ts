@@ -297,7 +297,7 @@ describe('note pagination cursor input', () => {
 		expect(normalizeNoteCursor(' PLAN ')).toBe('PLAN');
 	});
 	it.each([42, {}, [], ' ', 'a\nb', 'a'.repeat(65)])('names the cursor and its repair for %j', (value) => {
-		expect(() => normalizeNoteCursor(value)).toThrow(/cursor.*Copy nextCursor.*omit cursor/);
+		expect(() => normalizeNoteCursor(value)).toThrow(/cursor.*Use the cursor from the previous list_notes result.*omit cursor/);
 	});
 	it.each(['', null, ' '])('keeps %j invalid as an actual note ID', (value) => {
 		expect(() => normalizeNoteId(value)).toThrow(/id/);

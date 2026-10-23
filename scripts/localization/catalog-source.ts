@@ -30,7 +30,7 @@ export function readCatalogGroup(file: string, localeDirectory: string, definiti
 	if (document.errors.length || document.warnings.length) {
 		throw new CatalogSourceError(file, 'Invalid catalog YAML.', { cause: document.errors[0] ?? document.warnings[0] });
 	}
-	if (document.directives.yaml.version !== '1.2' || !isMap(document.contents) || document.contents.flow) {
+	if (document.directives.yaml.version !== '1.2' || !isMap(document.contents) || (document.contents.flow && document.contents.items.length !== 0)) {
 		throw new CatalogSourceError(file, 'A catalog must be a YAML 1.2 message mapping.');
 	}
 	function plainNode(node: Node | null | undefined): void {
@@ -114,7 +114,11 @@ export function readCatalogGroup(file: string, localeDirectory: string, definiti
 				includes.push(target);
 				break;
 			}
-			case 'plural': {
+			case 'plural':
+			case 'select': {
+				if (definition.kind === 'select' && (names.length !== definition.variants.length || names.some((name) => !definition.variants.includes(name)))) {
+					throw new CatalogSourceError(file, `${location.line}: The select message needs exactly its declared variants: ${id}.`);
+				}
 				const variants: Record<string, string> = Object.create(null);
 				for (const entry of value.items) variants[key(entry.key)] = text(entry.value);
 				messages[id] = variants;
@@ -122,7 +126,7 @@ export function readCatalogGroup(file: string, localeDirectory: string, definiti
 			}
 			}
 		} else {
-			if (definition.kind !== 'text') throw new CatalogSourceError(file, `Plural message needs a count mapping: ${id}.`);
+			if (definition.kind !== 'text') throw new CatalogSourceError(file, `The variant message needs a mapping: ${id}.`);
 			messages[id] = text(value);
 		}
 		locations[id] = location;

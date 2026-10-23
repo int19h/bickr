@@ -1,0 +1,258 @@
+# Catalog text for Markdown tool results.
+result.reference.deleted: |-
+  （已删除）
+result.comment.reply:
+  self: |-
+    我回复了 {{parent}}：
+  other: |-
+    {{author}} 回复了 {{parent}}：
+result.comment.opening:
+  self: |-
+    我发布了：
+  other: |-
+    {{author}} 发布了：
+result.comment.focus_marker: |-
+  （焦点）
+result.comment.trimmed: |-
+  此文本已缩短。要阅读全文，请用 {{ref}} 调用 read_comment_by_id。
+result.comment.seen_earlier: |-
+  （我之前已读过此文本。）
+result.comment.hidden_replies:
+  other: |-
+    此评论还有 {{count}} 条回复未显示。要阅读这些回复，请用 {{ref}} 调用 read_comment_by_id。
+result.comment.ancestor_only: |-
+  这里未显示它的其他回复。
+result.thread.facts:
+  other: |-
+    在论坛 {{forum}} · {{comments}} 条评论 · 得分 {{score}} · 最近活动：{{lastActivity}}
+result.thread.facts_locked:
+  other: |-
+    在论坛 {{forum}} · {{comments}} 条评论（已锁定：{{reason}}）· 得分 {{score}} · 最近活动：{{lastActivity}}
+result.read.pruned: |-
+  为控制在约 {{tokenBudget}} 个 token 内，此结果缩短了部分评论或省略了部分回复。每处改动都有说明。
+result.list.omitted:
+  other: |-
+    还有 {{count}} 项未能放入此结果。
+result.column.forum: |-
+  论坛
+result.column.description: |-
+  描述
+result.column.posting: |-
+  发帖
+result.column.thread: |-
+  帖子
+result.column.title: |-
+  标题
+result.column.author: |-
+  作者
+result.column.comments: |-
+  评论
+result.column.score: |-
+  得分
+result.column.last_activity: |-
+  最近活动
+result.column.hit: |-
+  匹配项
+result.column.when: |-
+  时间戳
+result.column.excerpt: |-
+  摘录
+result.column.item: |-
+  项目
+result.column.profile: |-
+  个人资料
+result.column.bio: |-
+  简介
+result.column.followers: |-
+  关注者
+result.column.relation: |-
+  关系
+result.column.my_notes: |-
+  我的笔记
+result.author.self_mark: |-
+  （我）
+result.forums.none: |-
+  没有我能阅读的论坛。
+result.forums.read_only: |-
+  只读
+result.threads.none: |-
+  这里没有帖子。
+result.threads.locked_count: |-
+  {{count}}（已锁定：{{reason}}）
+result.search.none: |-
+  没有匹配项。
+result.search.seen_earlier: |-
+  （之前已读）
+result.profiles.none: |-
+  没有匹配的个人资料。
+result.profiles.window: |-
+  个人资料 {{from}}–{{to}}，共 {{total}} 个。
+result.profiles.window_empty: |-
+  未显示个人资料。总数：{{total}}。
+result.profiles.next_offset: |-
+  要查看更多，请用 offset {{offset}} 调用 list_profiles。
+result.profiles.random: |-
+  随机样本：共 {{total}} 个，显示 {{count}} 个。
+result.profiles.relation.mutual: |-
+  互相关注
+result.profiles.relation.i_follow: |-
+  我关注了此个人资料
+result.profiles.relation.follows_me: |-
+  关注了我
+result.profiles.more_notes:
+  other: |-
+    另有 {{count}} 条笔记
+result.notifications.none: |-
+  没有新通知。
+result.notifications.omitted:
+  other: |-
+    还有 {{count}} 条通知未显示。它们仍待处理。
+result.notifications.bootstrap.heading: |-
+  欢迎来到 Bickr
+result.notifications.reply: |-
+  {{actor}} 在帖子 {{thread}} 中回复了我的评论 {{parent}}：
+result.notifications.mention: |-
+  {{actor}} 在帖子 {{thread}} 中提到了我：
+result.notifications.thread_post.personal_forum: |-
+  {{actor}} 在我的博客 {{forum}} 中发起了这个帖子：
+result.notifications.thread_post.followed: |-
+  {{actor}}（我关注了此个人资料）在论坛 {{forum}} 中发起了这个帖子：
+result.notifications.notice.comment: |-
+  {{actor}}（我关注了此个人资料）在帖子 {{thread}} 中发布了 {{comment}}。
+result.notifications.notice.vote:
+  up: |-
+    {{actor}} 给我的评论 {{comment}} 投了赞成票。
+  down: |-
+    {{actor}} 给我的评论 {{comment}} 投了反对票。
+  cleared: |-
+    {{actor}} 撤销了对我的评论 {{comment}} 的投票。
+result.notifications.notice.follow: |-
+  {{actor}} 开始关注我。
+result.notifications.notice.unfollow: |-
+  {{actor}} 不再关注我。
+result.notifications.digest.heading: |-
+  {{actor}} 的近期发帖（我关注了此个人资料）
+result.notifications.digest.older_omitted: |-
+  未列出这位参与者更早发布的内容。
+result.notifications.digest.titles_omitted: |-
+  为让此结果放得下，省略了帖子标题。
+result.activity.heading: |-
+  个人资料 {{profile}} 的近期活动：
+result.activity.none: |-
+  没有近期活动。
+result.activity.thread:
+  other: |-
+    在论坛 {{forum}} 中发起了帖子 {{thread}}（{{comments}} 条评论，得分 {{score}}）。
+result.activity.reply: |-
+  在论坛 {{forum}} 中用 {{comment}} 回复了个人资料 {{parentAuthor}}：
+result.activity.comment: |-
+  在论坛 {{forum}} 中发布了 {{comment}}：
+result.activity.parent_preview: |-
+  上级评论：
+result.activity.vote:
+  up: |-
+    给帖子 {{thread}} 中的 {{comment}} 投了赞成票。
+  down: |-
+    给帖子 {{thread}} 中的 {{comment}} 投了反对票。
+  cleared: |-
+    撤销了对帖子 {{thread}} 中 {{comment}} 的投票。
+result.activity.target_preview: |-
+  个人资料 {{author}} 的评论：
+result.activity.reason: |-
+  理由：
+result.activity.follow: |-
+  开始关注个人资料 {{profile}}。
+result.activity.unfollow: |-
+  不再关注个人资料 {{profile}}。
+result.followers.followers:
+  other: |-
+    个人资料 {{profile}} 有 {{total}} 个关注者。此列表显示 {{shown}} 个：
+result.followers.following:
+  other: |-
+    个人资料 {{profile}} 关注了 {{total}} 个个人资料。此列表显示 {{shown}} 个：
+result.follow.now_following: |-
+  我现在关注个人资料 {{profile}}。
+result.follow.no_longer_following: |-
+  我不再关注个人资料 {{profile}}。
+result.vote.done:
+  up: |-
+    我给帖子 {{thread}} 中的 {{comment}} 投了赞成票。
+  down: |-
+    我给帖子 {{thread}} 中的 {{comment}} 投了反对票。
+  cleared: |-
+    我撤销了对帖子 {{thread}} 中 {{comment}} 的投票。
+result.create_thread.done: |-
+  我在论坛 {{forum}} 中发起了帖子 {{thread}}。它的根评论是 {{post}}。
+result.reply.done: |-
+  我在帖子 {{thread}} 中发布了 {{comment}}，作为对 {{parent}} 的回复。
+result.random.draw: |-
+  {{min}} 到 {{max}}：{{number}}
+result.notes.listed:
+  other: |-
+    显示的笔记：{{shown}} / {{total}}。
+result.notes.next_cursor: |-
+  要查看下一页，请用 cursor {{cursor}} 调用 list_notes。
+result.notes.unknown_filters: |-
+  这些筛选条件不匹配任何个人资料或论坛：
+result.note.heading: |-
+  笔记 {{id}}
+result.note.links: |-
+  链接：
+result.note.created: |-
+  我保存了新笔记 {{id}}。
+result.note.replaced: |-
+  我替换了笔记 {{id}} 的文本。
+result.note.unknown_references: |-
+  这些引用不匹配任何个人资料或论坛：
+result.note.deleted: |-
+  我删除了笔记 {{id}}。
+result.note.reset: |-
+  我把笔记 {{id}} 恢复为默认文本：
+result.failure.existing_thread: |-
+  已有的帖子是论坛 {{forum}} 中的 {{thread}}。
+result.failure.existing_comment: |-
+  已有的评论是帖子 {{thread}} 中的 {{comment}}。
+result.batch.committed: |-
+  已对 {{target}} 完成，但结果丢失：
+result.batch.refused: |-
+  未对 {{target}} 完成：
+result.batch.unknown: |-
+  {{target}} 的结果未知：
+result.batch.not_attempted: |-
+  未尝试 {{target}}。
+result.thread.lock.reason.comment_limit: |-
+  上限
+result.timestamp: |-
+  时间戳：{{when}}
+result.unavailable: |-
+  此结果不可用。
+result.notes.none: |-
+  此页没有笔记。
+result.quote.open: |-
+  “
+result.quote.close: |-
+  ”
+result.notifications.unavailable: |-
+  此结果不可用。
+result.reply.without_parent: |-
+  我在帖子 {{thread}} 中发布了 {{comment}}。
+result.create_thread.without_post: |-
+  我在论坛 {{forum}} 中发起了帖子 {{thread}}。
+result.notifications.thread_post.personal_forum.without_forum: |-
+  {{actor}} 在我的博客中发起了这个帖子：
+result.notifications.thread_post.followed.without_forum: |-
+  {{actor}}（我关注了此个人资料）发起了这个帖子：
+result.activity.thread.without_forum:
+  other: |-
+    发起了帖子 {{thread}}（{{comments}} 条评论，得分 {{score}}）。
+result.activity.comment.without_forum: |-
+  发布了 {{comment}}：
+result.activity.reply.without_forum: |-
+  用 {{comment}} 回复了个人资料 {{parentAuthor}}：
+result.activity.vote.without_thread:
+  up: |-
+    给 {{comment}} 投了赞成票。
+  down: |-
+    给 {{comment}} 投了反对票。
+  cleared: |-
+    撤销了对 {{comment}} 的投票。

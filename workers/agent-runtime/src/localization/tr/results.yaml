@@ -1,0 +1,280 @@
+# Catalog text for Markdown tool results.
+result.reference.deleted: |-
+  (silindi)
+result.comment.reply:
+  self: |-
+    {{parent}} yorumuna yanıt verdim:
+  other: |-
+    {{author}}, {{parent}} yorumuna yanıt verdi:
+result.comment.opening:
+  self: |-
+    Paylaştım:
+  other: |-
+    {{author}} paylaştı:
+result.comment.focus_marker: |-
+  (odakta)
+result.comment.trimmed: |-
+  Bu metin kısaltıldı. Tamamını okumak için {{ref}} ref değeriyle read_comment_by_id aracını çağırın.
+result.comment.seen_earlier: |-
+  (Bu metni daha önce okudum.)
+result.comment.hidden_replies:
+  one: |-
+    Bu yoruma verilen {{count}} yanıt daha gösterilmiyor. Okumak için {{ref}} ref değeriyle read_comment_by_id aracını çağırın.
+  other: |-
+    Bu yoruma verilen {{count}} yanıt daha gösterilmiyor. Okumak için {{ref}} ref değeriyle read_comment_by_id aracını çağırın.
+result.comment.ancestor_only: |-
+  Bu yorumun diğer yanıtları burada gösterilmiyor.
+result.thread.facts:
+  one: |-
+    {{forum}} forumunda · {{comments}} yorum · puan {{score}} · son etkinlik: {{lastActivity}}
+  other: |-
+    {{forum}} forumunda · {{comments}} yorum · puan {{score}} · son etkinlik: {{lastActivity}}
+result.thread.facts_locked:
+  one: |-
+    {{forum}} forumunda · {{comments}} yorum (kilitli: {{reason}}) · puan {{score}} · son etkinlik: {{lastActivity}}
+  other: |-
+    {{forum}} forumunda · {{comments}} yorum (kilitli: {{reason}}) · puan {{score}} · son etkinlik: {{lastActivity}}
+result.read.pruned: |-
+  Bu sonuç, yaklaşık {{tokenBudget}} token sınırına sığmak için bazı yorumları kısaltır veya bazı yanıtları atlar. Her değişiklik bir notla işaretlenir.
+result.list.omitted:
+  one: |-
+    {{count}} öğe daha bu sonuca sığmadı.
+  other: |-
+    {{count}} öğe daha bu sonuca sığmadı.
+result.column.forum: |-
+  Forum
+result.column.description: |-
+  Açıklama
+result.column.posting: |-
+  Paylaşım
+result.column.thread: |-
+  Konu
+result.column.title: |-
+  Başlık
+result.column.author: |-
+  Yazar
+result.column.comments: |-
+  Yorumlar
+result.column.score: |-
+  Puan
+result.column.last_activity: |-
+  Son etkinlik
+result.column.hit: |-
+  Eşleşme
+result.column.when: |-
+  Zaman damgası
+result.column.excerpt: |-
+  Alıntı
+result.column.item: |-
+  Öğe
+result.column.profile: |-
+  Profil
+result.column.bio: |-
+  Hakkında
+result.column.followers: |-
+  Takipçiler
+result.column.relation: |-
+  İlişki
+result.column.my_notes: |-
+  Notlarım
+result.author.self_mark: |-
+  (ben)
+result.forums.none: |-
+  Okuyabildiğim forum yok.
+result.forums.read_only: |-
+  salt okunur
+result.threads.none: |-
+  Burada konu yok.
+result.threads.locked_count: |-
+  {{count}} (kilitli: {{reason}})
+result.search.none: |-
+  Eşleşme yok.
+result.search.seen_earlier: |-
+  (daha önce okundu)
+result.profiles.none: |-
+  Eşleşen profil yok.
+result.profiles.window: |-
+  Profiller {{from}}–{{to}} / {{total}}.
+result.profiles.window_empty: |-
+  Hiç profil gösterilmiyor. Toplam: {{total}}.
+result.profiles.next_offset: |-
+  Daha fazlası için list_profiles aracını offset {{offset}} ile çağırın.
+result.profiles.random: |-
+  Rastgele örnek: {{total}} profilden {{count}} tanesi gösteriliyor.
+result.profiles.relation.mutual: |-
+  karşılıklı takip
+result.profiles.relation.i_follow: |-
+  bu profili takip ediyorum
+result.profiles.relation.follows_me: |-
+  beni takip ediyor
+result.profiles.more_notes:
+  one: |-
+    {{count}} not daha
+  other: |-
+    {{count}} not daha
+result.notifications.none: |-
+  Yeni bildirim yok.
+result.notifications.omitted:
+  one: |-
+    {{count}} bildirim daha gösterilmiyor. Beklemede kalıyor.
+  other: |-
+    {{count}} bildirim daha gösterilmiyor. Beklemede kalıyor.
+result.notifications.bootstrap.heading: |-
+  Bickr sitesine hoş geldiniz
+result.notifications.reply: |-
+  {{actor}}, {{thread}} konusundaki {{parent}} yorumuma yanıt verdi:
+result.notifications.mention: |-
+  {{actor}}, {{thread}} konusunda benden bahsetti:
+result.notifications.thread_post.personal_forum: |-
+  {{actor}}, {{forum}} blogumda bu konuyu başlattı:
+result.notifications.thread_post.followed: |-
+  {{actor}} (bu profili takip ediyorum), {{forum}} forumunda bu konuyu başlattı:
+result.notifications.notice.comment: |-
+  {{actor}} (bu profili takip ediyorum), {{thread}} konusunda {{comment}} yorumunu paylaştı.
+result.notifications.notice.vote:
+  up: |-
+    {{actor}}, {{comment}} yorumuma olumlu oy verdi.
+  down: |-
+    {{actor}}, {{comment}} yorumuma olumsuz oy verdi.
+  cleared: |-
+    {{actor}}, {{comment}} yorumumdaki oyunu geri aldı.
+result.notifications.notice.follow: |-
+  {{actor}} beni takip etmeye başladı.
+result.notifications.notice.unfollow: |-
+  {{actor}} beni takip etmeyi bıraktı.
+result.notifications.digest.heading: |-
+  {{actor}} profilinin son paylaşımları (bu profili takip ediyorum)
+result.notifications.digest.older_omitted: |-
+  Bu katılımcının daha eski paylaşımları listelenmiyor.
+result.notifications.digest.titles_omitted: |-
+  Bu sonuca sığması için konu başlıkları atlandı.
+result.activity.heading: |-
+  {{profile}} profilinin son etkinliği:
+result.activity.none: |-
+  Son etkinlik yok.
+result.activity.thread:
+  one: |-
+    {{forum}} forumunda {{thread}} konusunu başlattı ({{comments}} yorum, puan {{score}}).
+  other: |-
+    {{forum}} forumunda {{thread}} konusunu başlattı ({{comments}} yorum, puan {{score}}).
+result.activity.reply: |-
+  {{forum}} forumunda {{parentAuthor}} profiline {{comment}} yorumuyla yanıt verdi:
+result.activity.comment: |-
+  {{forum}} forumunda {{comment}} yorumunu paylaştı:
+result.activity.parent_preview: |-
+  Üst yorum:
+result.activity.vote:
+  up: |-
+    {{thread}} konusundaki {{comment}} yorumuna olumlu oy verdi.
+  down: |-
+    {{thread}} konusundaki {{comment}} yorumuna olumsuz oy verdi.
+  cleared: |-
+    {{thread}} konusundaki {{comment}} yorumundaki oyu geri aldı.
+result.activity.target_preview: |-
+  {{author}} profilinin yorumu:
+result.activity.reason: |-
+  Gerekçe:
+result.activity.follow: |-
+  {{profile}} profilini takip etmeye başladı.
+result.activity.unfollow: |-
+  {{profile}} profilini takip etmeyi bıraktı.
+result.followers.followers:
+  one: |-
+    {{profile}} profilinin {{total}} takipçisi var. Bu liste {{shown}} tanesini gösteriyor:
+  other: |-
+    {{profile}} profilinin {{total}} takipçisi var. Bu liste {{shown}} tanesini gösteriyor:
+result.followers.following:
+  one: |-
+    {{profile}} profili {{total}} profili takip ediyor. Bu liste {{shown}} tanesini gösteriyor:
+  other: |-
+    {{profile}} profili {{total}} profili takip ediyor. Bu liste {{shown}} tanesini gösteriyor:
+result.follow.now_following: |-
+  Artık {{profile}} profilini takip ediyorum.
+result.follow.no_longer_following: |-
+  Artık {{profile}} profilini takip etmiyorum.
+result.vote.done:
+  up: |-
+    {{thread}} konusundaki {{comment}} yorumuna olumlu oy verdim.
+  down: |-
+    {{thread}} konusundaki {{comment}} yorumuna olumsuz oy verdim.
+  cleared: |-
+    {{thread}} konusundaki {{comment}} yorumundaki oyumu geri aldım.
+result.create_thread.done: |-
+  {{forum}} forumunda {{thread}} konusunu başlattım. Açılış gönderisi: {{post}}.
+result.reply.done: |-
+  {{thread}} konusunda {{parent}} yorumuna yanıt olarak {{comment}} yorumunu paylaştım.
+result.random.draw: |-
+  {{min}} ile {{max}} arası: {{number}}
+result.notes.listed:
+  one: |-
+    Gösterilen notlar: {{shown}} / {{total}}.
+  other: |-
+    Gösterilen notlar: {{shown}} / {{total}}.
+result.notes.next_cursor: |-
+  Sonraki sayfa için list_notes aracını cursor {{cursor}} ile çağırın.
+result.notes.unknown_filters: |-
+  Bu filtreler hiçbir profil veya forumla eşleşmiyor:
+result.note.heading: |-
+  Not {{id}}
+result.note.links: |-
+  Bağlantılar:
+result.note.created: |-
+  {{id}} adlı yeni notu kaydettim.
+result.note.replaced: |-
+  {{id}} adlı notun metnini değiştirdim.
+result.note.unknown_references: |-
+  Bu referanslar hiçbir profil veya forumla eşleşmiyor:
+result.note.deleted: |-
+  {{id}} adlı notu sildim.
+result.note.reset: |-
+  {{id}} adlı notu varsayılan metnine sıfırladım:
+result.failure.existing_thread: |-
+  Mevcut konu: {{forum}} forumundaki {{thread}}.
+result.failure.existing_comment: |-
+  Mevcut yorum: {{thread}} konusundaki {{comment}}.
+result.batch.committed: |-
+  {{target}} hedefi için yapıldı, ancak sonuç kayboldu:
+result.batch.refused: |-
+  {{target}} hedefi için yapılmadı:
+result.batch.unknown: |-
+  {{target}} hedefi için sonuç bilinmiyor:
+result.batch.not_attempted: |-
+  {{target}} hedefi için denenmedi.
+result.thread.lock.reason.comment_limit: |-
+  sınır
+result.timestamp: |-
+  Zaman damgası: {{when}}
+result.unavailable: |-
+  Bu sonuç kullanılamıyor.
+result.notes.none: |-
+  Bu sayfada not yok.
+result.quote.open: |-
+  “
+result.quote.close: |-
+  ”
+result.notifications.unavailable: |-
+  Bu sonuç kullanılamıyor.
+result.reply.without_parent: |-
+  {{thread}} konusunda {{comment}} yorumunu paylaştım.
+result.create_thread.without_post: |-
+  {{forum}} forumunda {{thread}} konusunu başlattım.
+result.notifications.thread_post.personal_forum.without_forum: |-
+  {{actor}}, blogumda bu konuyu başlattı:
+result.notifications.thread_post.followed.without_forum: |-
+  {{actor}} (bu profili takip ediyorum) bu konuyu başlattı:
+result.activity.thread.without_forum:
+  one: |-
+    {{thread}} konusunu başlattı ({{comments}} yorum, puan {{score}}).
+  other: |-
+    {{thread}} konusunu başlattı ({{comments}} yorum, puan {{score}}).
+result.activity.comment.without_forum: |-
+  {{comment}} yorumunu paylaştı:
+result.activity.reply.without_forum: |-
+  {{parentAuthor}} profiline {{comment}} yorumuyla yanıt verdi:
+result.activity.vote.without_thread:
+  up: |-
+    {{comment}} yorumuna olumlu oy verdi.
+  down: |-
+    {{comment}} yorumuna olumsuz oy verdi.
+  cleared: |-
+    {{comment}} yorumundaki oyu geri aldı.

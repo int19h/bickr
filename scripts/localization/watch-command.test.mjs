@@ -7,9 +7,10 @@ import { repository } from './paths.ts';
 
 const stops = [
 	['invalid sources', null, 1],
+	['template edits', null, 1, true],
 	...(process.platform === 'win32' ? [] : [['terminal hangup', 'SIGHUP', 129], ['terminal quit', 'SIGQUIT', 131]]),
 ];
-it.each(stops)('restarts with edited catalog text and stops on %s', async (_label, signal, code) => {
+it.each(stops)('restarts with edited catalog text and stops on %s', async (_label, signal, code, templateEdit) => {
 	const temporaryRoot = join(repository, '.wrangler/localization-watch-tests');
 	mkdirSync(temporaryRoot, { recursive: true });
 	const root = mkdtempSync(join(temporaryRoot, 'fixture-'));
@@ -18,9 +19,16 @@ it.each(stops)('restarts with edited catalog text and stops on %s', async (_labe
 		cpSync(join(repository, path), join(root, path), { recursive: true });
 	}
 	symlinkSync(join(repository, 'node_modules'), join(root, 'node_modules'), 'dir');
+	if (templateEdit) {
+		writeFileSync(join(root, 'workers/agent-runtime/src/localization/result-template-views.ts'), 'export type EmptyView = Record<never, never>;\n');
+		writeFileSync(join(root, 'workers/agent-runtime/src/localization/templates/sample.md'), '{{! view: EmptyView }}\n---');
+	}
 	writeFileSync(join(root, 'server.mjs'), `
+import { existsSync, readFileSync } from 'node:fs';
 import { factoryText } from './packages/shared/src/localization/index.ts';
 console.log('READY:' + process.pid + ':' + factoryText('en').format('factory.translationPrompt'));
+const templateModule = 'workers/agent-runtime/src/.generated/localization/result-templates.ts';
+if (existsSync(templateModule)) console.log('TEMPLATE:' + readFileSync(templateModule, 'utf8').includes('======='));
 process.on('SIGTERM', () => { console.log('STOP'); process.exit(0); });
 setInterval(() => {}, 1000);
 `);
@@ -33,17 +41,22 @@ setInterval(() => {}, 1000);
 	const exited = new Promise((resolve) => wrapper.once('exit', (code) => resolve(code)));
 	const ready = (text) => output.split('\n').some((line) => /^READY:\d+:/.test(line) && line.endsWith(':' + text));
 	try {
-		await expect.poll(() => ready('Translate to English.'), { timeout: 15000 }).toBe(true);
+		await expect.poll(() => ready('Translate to English.'), { timeout: templateEdit ? 45000 : 15000 }).toBe(true);
 		const source = join(root, 'packages/shared/src/localization/en/factory.yaml');
 		const original = readFileSync(source, 'utf8');
 		writeFileSync(source, original.replace('Translate to English.', 'Translate to English. Watch restart test.'));
-		await expect.poll(() => ready('Translate to English. Watch restart test.'), { timeout: 15000 }).toBe(true);
+		await expect.poll(() => ready('Translate to English. Watch restart test.'), { timeout: templateEdit ? 45000 : 15000 }).toBe(true);
 		expect(output).toMatch(/STOP\n[\s\S]*READY:\d+:Translate to English\. Watch restart test\./);
+		if (templateEdit) {
+			expect(output).toContain('TEMPLATE:false');
+			writeFileSync(join(root, 'workers/agent-runtime/src/localization/templates/sample.md'), '{{! view: EmptyView }}\n=======');
+			await expect.poll(() => output.includes('TEMPLATE:true'), { timeout: 30000 }).toBe(true);
+		}
 		if (signal) wrapper.kill(signal);
 		else writeFileSync(source, original.replace('{{username}}', '{{invalidUsername}}'));
 		expect(await Promise.race([exited, delay(15000, 'timeout', { ref: false })])).toBe(code);
 		if (!signal) expect(output).toContain('Unknown instruction template parameter');
-		expect(output.match(/^STOP$/gm)).toHaveLength(2);
+		expect(output.match(/^STOP$/gm)).toHaveLength(templateEdit ? 3 : 2);
 	} finally {
 		if (wrapper.exitCode === null) wrapper.kill('SIGTERM');
 		await Promise.race([exited, delay(5000, undefined, { ref: false })]);
@@ -59,4 +72,4 @@ setInterval(() => {}, 1000);
 		}
 		rmSync(root, { recursive: true, force: true });
 	}
-}, 45000);
+}, 90000);

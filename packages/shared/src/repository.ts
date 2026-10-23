@@ -1,3 +1,5 @@
+import { migrateParticipantTime, participantTimeSettingsOf } from "./participant-time-migration";
+import { participantTimeSettings } from "./participant-time";
 import { defaultNewBotInstructionLanguage, parseInstructionLanguagePreference, InvalidInstructionLanguagePreferenceError } from './instruction-language';
 import { botServiceIssue } from './bot-service-issues';
 import { factoryText } from './localization';
@@ -53,8 +55,6 @@ import {
 	type CreateBotInput,
 	type CreateForumInput,
 	type CreateWorldInput,
-	type OpenRouterDatetimeToolSettings,
-	type OpenRouterDatetimeToolSettingsInput,
 	type OpenRouterServerToolSettings,
 	type OpenRouterServerToolSettingsInput,
 	type OpenRouterWebFetchToolSettings,
@@ -1525,6 +1525,7 @@ async function createBot(
 		inferenceSettings,
 		toolSettings,
 		...(postingSettingsHasValues(postingSettings) ? { postingSettings } : {}),
+		timeSettings: participantTimeSettings(undefined, input.timeSettings),
 		tickSettings: mergeTickSettings(undefined, input.tickSettings),
 		...(input.importSource ? { importSource: input.importSource } : {}),
 		...(input.avatar ? { avatar: input.avatar } : {}),
@@ -1535,7 +1536,7 @@ async function createBot(
 		? await readJson<BotDocument>(kv, kvKeys.bot(createOptions.botId))
 		: null;
 	if (previouslyMaterialized) {
-		const existing = normalizeBotDefaults(previouslyMaterialized);
+		const existing = normalizeBotDefaults(migrateParticipantTime(previouslyMaterialized));
 		if (
 			existing.id !== bot.id ||
 			existing.homeWorldId !== bot.homeWorldId ||
@@ -1554,6 +1555,7 @@ async function createBot(
 	}
 
 	const lifecyclePrefix = cloneSource ? "clone" : "bot";
+	bot = migrateParticipantTime(bot);
 	await writeJson(kv, kvKeys.bot(bot.id), bot);
 	await createOptions.checkpoint?.(`${lifecyclePrefix}.materialize.kv` as LifecycleFailurePoint);
 	if (cloneSource) {
@@ -1611,7 +1613,7 @@ async function updateBot(
 			throw error;
 		}
 	}
-	const bot = await botForOwner(kv, db, botId, userId);
+	const bot = migrateParticipantTime(await botForOwner(kv, db, botId, userId));
 	const owner = await userById(kv, userId);
 	const worldPostingSettings = await worldPostingSettingsById(db, bot.homeWorldId);
 	const cloneSource = await cloneSourceByBotId(db, bot.id);
@@ -1638,6 +1640,7 @@ async function updateBot(
 		inferenceSettings,
 		toolSettings,
 		...(postingSettingsHasValues(postingSettings) ? { postingSettings } : { postingSettings: undefined }),
+		timeSettings: participantTimeSettings(bot.timeSettings, input.timeSettings),
 		tickSettings: mergeTickSettings(bot.tickSettings, input.tickSettings),
 		revision: bot.revision + 1,
 		updatedAt: now,
@@ -1725,7 +1728,7 @@ async function updateBotAvatar(
 	avatar: AvatarImage,
 	now = new Date().toISOString(),
 ): Promise<BotSummary> {
-	const bot = await botForOwner(kv, db, botId, userId);
+	const bot = migrateParticipantTime(await botForOwner(kv, db, botId, userId));
 	return updateBotAvatarDocument(kv, db, bot, avatar, now);
 }
 
@@ -1760,7 +1763,7 @@ async function materializePendingBotAvatar(
 	if (!bot || bot.deletedAt || bot.ownerUserId !== row.ownerUserId) {
 		throw new RepositoryError("server_error", "Pending participant document is missing.", 500);
 	}
-	return updateBotAvatarDocument(kv, db, normalizeBotDefaults(bot), input.avatar, input.now, {
+	return updateBotAvatarDocument(kv, db, normalizeBotDefaults(migrateParticipantTime(bot)), input.avatar, input.now, {
 		lifecycleState: "pending",
 	});
 }
@@ -1773,6 +1776,7 @@ async function updateBotAvatarDocument(
 	now: string,
 	options: { lifecycleState?: "active" | "pending" } = {},
 ): Promise<BotSummary> {
+	bot = migrateParticipantTime(bot);
 	const userId = bot.ownerUserId;
 	const owner = await userById(kv, userId);
 	const worldPostingSettings = await worldPostingSettingsById(db, bot.homeWorldId);
@@ -1804,7 +1808,7 @@ async function deleteBotAvatar(
 	userId: string,
 	now = new Date().toISOString(),
 ): Promise<BotSummary> {
-	const bot = await botForOwner(kv, db, botId, userId);
+	const bot = migrateParticipantTime(await botForOwner(kv, db, botId, userId));
 	const owner = await userById(kv, userId);
 	const worldPostingSettings = await worldPostingSettingsById(db, bot.homeWorldId);
 	const { avatar: _avatar, ...withoutAvatar } = bot;
@@ -1837,7 +1841,7 @@ async function deleteBot(
 ): Promise<BotSummary> {
 	const deleteOptions = typeof options === "string" ? { now: options } : options;
 	const now = deleteOptions.now ?? new Date().toISOString();
-	const bot = await botDocumentForDeletion(kv, db, botId, userId);
+	const bot = migrateParticipantTime(await botDocumentForDeletion(kv, db, botId, userId));
 	if (!deleteOptions.allowLinkedCloneDelete && await hasLinkedCloneDescendants(db, bot.id)) {
 		throw new RepositoryError(
 			"conflict",
@@ -1953,7 +1957,7 @@ async function unlinkBotClone(
 	copiedInheritedAvatar?: AvatarImage,
 	now = new Date().toISOString(),
 ): Promise<BotSummary> {
-	const bot = await botForOwner(kv, db, botId, userId);
+	const bot = migrateParticipantTime(await botForOwner(kv, db, botId, userId));
 	const cloneSource = await cloneSourceByBotId(db, bot.id);
 	if (!cloneSource) {
 		throw new RepositoryError("bad_request", "This participant is not a clone.", 400);
@@ -2017,7 +2021,7 @@ async function relinkBotClone(
 	userId: string,
 	now = new Date().toISOString(),
 ): Promise<BotSummary> {
-	const bot = await botForOwner(kv, db, botId, userId);
+	const bot = migrateParticipantTime(await botForOwner(kv, db, botId, userId));
 	const cloneSource = await cloneSourceByBotId(db, bot.id);
 	if (!cloneSource) {
 		throw new RepositoryError("bad_request", "This participant is not a clone.", 400);
@@ -3856,8 +3860,8 @@ export function forumIndexProjectionStatement(
 			`INSERT INTO forums_index (
 				forum_id, world_id, world_handle, handle, language, description, description_lang,
 				created_by_user_id, created_at, updated_at, deleted_at, personal_bot_id,
-				thread_comment_limit, read_only
-			) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+				thread_comment_limit, read_only, handle_at_deletion
+			) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
 			WHERE ${options.requireActiveOwner ? "EXISTS (SELECT 1 FROM users_index WHERE user_id = ? AND deleted_at IS NULL AND lifecycle_state = 'active') AND EXISTS (SELECT 1 FROM worlds_index WHERE world_id = ? AND deleted_at IS NULL AND lifecycle_state = 'active')" : "1"}
 			ON CONFLICT(forum_id) DO UPDATE SET
 				world_handle = excluded.world_handle,
@@ -3868,6 +3872,7 @@ export function forumIndexProjectionStatement(
 				personal_bot_id = excluded.personal_bot_id,
 				thread_comment_limit = excluded.thread_comment_limit,
 				read_only = excluded.read_only,
+				handle_at_deletion = COALESCE(excluded.handle_at_deletion, forums_index.handle_at_deletion),
 				updated_at = excluded.updated_at,
 				deleted_at = excluded.deleted_at`,
 		)
@@ -3886,6 +3891,7 @@ export function forumIndexProjectionStatement(
 			normalized.personalBotId ?? null,
 			normalized.threadSettings?.commentLimit ?? null,
 			booleanSql(normalized.readOnly),
+			normalized.handleAtDeletion ?? null,
 			...(options.requireActiveOwner ? [normalized.createdByUserId, normalized.worldId] : []),
 		);
 }
@@ -3936,8 +3942,8 @@ function botIndexProjectionStatement(
 		.prepare(
 			`INSERT INTO bots_index (
 				bot_id, home_world_id, home_world_handle, handle, language, display_name, display_name_lang, owner_user_id,
-				include_language_in_system_prompt, short_bio, short_bio_lang, avatar_url, avatar_crop, import_provider, import_external_handle, created_at, updated_at, deleted_at, lifecycle_state
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+				include_language_in_system_prompt, short_bio, short_bio_lang, avatar_url, avatar_crop, import_provider, import_external_handle, created_at, updated_at, deleted_at, lifecycle_state, handle_at_deletion
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(bot_id) DO UPDATE SET
 				home_world_handle = excluded.home_world_handle,
 				handle = excluded.handle,
@@ -3951,7 +3957,8 @@ function botIndexProjectionStatement(
 				avatar_crop = excluded.avatar_crop,
 				updated_at = excluded.updated_at,
 				deleted_at = excluded.deleted_at,
-				lifecycle_state = excluded.lifecycle_state
+				lifecycle_state = excluded.lifecycle_state,
+				handle_at_deletion = COALESCE(excluded.handle_at_deletion, bots_index.handle_at_deletion)
 			WHERE bots_index.deleted_at IS NULL OR excluded.lifecycle_state = 'pending'`,
 		)
 		.bind(
@@ -3974,6 +3981,7 @@ function botIndexProjectionStatement(
 			bot.updatedAt,
 			bot.deletedAt ?? null,
 			options.lifecycleState ?? "active",
+			bot.handleAtDeletion ?? null,
 		);
 }
 
@@ -3992,7 +4000,8 @@ function botIndexUpdateStatement(db: D1DatabaseLike, bot: BotDocument): D1Prepar
 			     avatar_url = ?,
 			     avatar_crop = ?,
 			     updated_at = ?,
-			     deleted_at = ?
+			     deleted_at = ?,
+			     handle_at_deletion = COALESCE(?, handle_at_deletion)
 			 WHERE bot_id = ?`,
 		)
 		.bind(
@@ -4008,6 +4017,7 @@ function botIndexUpdateStatement(db: D1DatabaseLike, bot: BotDocument): D1Prepar
 			avatarCropJson(bot.avatar?.crop),
 			bot.updatedAt,
 			bot.deletedAt ?? null,
+			bot.handleAtDeletion ?? null,
 			bot.id,
 		);
 }
@@ -4225,6 +4235,7 @@ export function publicBotSummary(
 			source.kind === "document" ?
 				effectivePostingSettings(options.worldPostingSettings, bot.postingSettings)
 			: source.summary.effectivePostingSettings,
+		timeSettings: participantTimeSettingsOf(bot),
 		tickSettings: bot.tickSettings,
 		effectiveTickSettings:
 			source.kind === "document" ? effectiveTickSettings(bot.tickSettings) : source.summary.effectiveTickSettings,
@@ -4589,6 +4600,7 @@ export function normalizeBotDefaults(bot: BotDocument): BotDocument {
 		displayName: localizedTextFromStored(raw.displayName, language),
 		shortBio: localizedTextFromStored(raw.shortBio, language),
 		prompt: localizedTextFromStored(raw.prompt, language),
+		timeSettings: participantTimeSettingsOf(bot),
 		inferenceSettings: mergeInferenceSettings(undefined, bot.inferenceSettings),
 		toolSettings: mergeToolSettings(undefined, bot.toolSettings),
 		...(postingSettingsHasValues(bot.postingSettings) ?
@@ -4827,7 +4839,6 @@ function publicToolSettings(settings: BotToolSettings | undefined): BotToolSetti
 
 function cloneOpenRouterToolSettings(settings: OpenRouterServerToolSettings): OpenRouterServerToolSettings {
 	return {
-		...(settings.datetime ? { datetime: { ...settings.datetime } } : {}),
 		...(settings.webSearch ?
 			{
 				webSearch: {
@@ -4861,16 +4872,6 @@ function mergeOpenRouterToolSettings(
 	patch: OpenRouterServerToolSettingsInput | OpenRouterServerToolSettings,
 ): OpenRouterServerToolSettings | undefined {
 	const next = current ? cloneOpenRouterToolSettings(current) : {};
-	if (patch.datetime !== undefined) {
-		if (patch.datetime === null) {
-			delete next.datetime;
-		} else {
-			next.datetime = mergeOpenRouterDatetimeTool(next.datetime, patch.datetime);
-			if (!next.datetime) {
-				delete next.datetime;
-			}
-		}
-	}
 	if (patch.webSearch !== undefined) {
 		if (patch.webSearch === null) {
 			delete next.webSearch;
@@ -4892,22 +4893,6 @@ function mergeOpenRouterToolSettings(
 		}
 	}
 	return Object.keys(next).length > 0 ? next : undefined;
-}
-
-function mergeOpenRouterDatetimeTool(
-	current: OpenRouterDatetimeToolSettings | undefined,
-	patch: OpenRouterDatetimeToolSettingsInput | OpenRouterDatetimeToolSettings,
-): OpenRouterDatetimeToolSettings | undefined {
-	const next: Partial<OpenRouterDatetimeToolSettings> = current ? { ...current } : {};
-	if (patch.enabled !== undefined) {
-		next.enabled = patch.enabled;
-	}
-	assignToolString(next, "timezone", patch.timezone);
-	if (!next.enabled && !next.timezone) {
-		return undefined;
-	}
-	next.enabled ??= false;
-	return next as OpenRouterDatetimeToolSettings;
 }
 
 function mergeOpenRouterWebSearchTool(

@@ -1,3 +1,4 @@
+import { testResultContext } from './result-render-context.test-support';
 import { botText } from '../localization';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { BotDocument, BotLoopMessageLogsResponse, InferenceAttribution } from '@bickr/shared/model';
@@ -22,7 +23,7 @@ function runtime() {
  storage = createRuntimeTestStorage(); storage.database.exec(runtimeSchema);
  const store = new RuntimeMessageStore(storage);
  storage.sql.exec("INSERT INTO events (seq, run_id, type, payload_json, token_estimate, created_at) VALUES (7, 'run-a', 'provider_request', '{}', 0, '2026-10-01')");
- const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+	const runtime = Object.assign(Object.create(BotRuntime.prototype), { resultRenderContextForRows: async () => testResultContext,
   state: { storage }, env: {}, renewProgressLease: vi.fn(), throwIfStopped: vi.fn(),
   runtimeMessageStore: () => store, appendEvent: vi.fn(), requireOwnerOrInternal: vi.fn(),
   recordProviderTokenCalibrationSampleFromError: vi.fn(),
@@ -60,7 +61,7 @@ describe('originating inference metadata', () => {
  it('opens the exact compacted source and retains attribution after its event expires', async () => {
   const { access, store } = runtime();
   const attribution: InferenceAttribution = { model: 'vendor/model', parameters: { temperature: 0.3 }, source: { botId: bot.id, worldHandle: 'primary', botHandle: bot.handle, runId: 'run-a', requestSeq: 7 } };
-  const message = store.appendLoopMessage('run-a', { role: 'assistant', content: 'A post' }, 'provider_response', 'complete', { streamSeq: 7 });
+		const message = store.appendLoopMessage(testResultContext, 'run-a', { role: 'assistant', content: 'A post' }, 'provider_response', 'complete', { streamSeq: 7 });
   store.recordLoopMessageLog(message.seq, 'inference_attribution', JSON.stringify(attribution));
   storage!.sql.exec('UPDATE loop_messages SET compacted_by = 99 WHERE seq = ?', message.seq);
   storage!.sql.exec('DELETE FROM events');

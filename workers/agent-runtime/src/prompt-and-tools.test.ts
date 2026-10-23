@@ -110,11 +110,11 @@ describe("Bickr function tools", () => {
 
 	it("keeps native OpenRouter server tools native", () => {
 		const selection = openRouterServerToolSelection("https://openrouter.ai/api/v1", {
-			openRouter: { datetime: { enabled: true, timezone: "UTC" } },
+			openRouter: { webFetch: { enabled: true } },
 		});
 
 		expect(selection.tools).toEqual([
-			{ type: "openrouter:datetime", parameters: { timezone: "UTC" } },
+			{ type: "openrouter:web_fetch" },
 		]);
 	});
 });
@@ -330,7 +330,7 @@ describe('prompt policy organization', () => {
 	it('keeps the cursor fallback out of the tool schema and descriptions', () => {
 		const definitions = toolDefinitionsForProviderRound(text);
 		const notes = definitions.find((tool) => tool.function.name === 'list_notes')!.function;
-		expect(notes.parameters.properties.cursor).toEqual({ type: 'string', description: 'Use nextCursor from the previous page to continue listing IDs.' });
+		expect(notes.parameters.properties.cursor).toEqual({ type: 'string', description: 'To continue the list, use the cursor from the previous list_notes result.' });
 		expect(notes.parameters.required).not.toContain('cursor');
 		expect(JSON.stringify(notes)).not.toMatch(/null|empty string/);
 		for (const tool of definitions) expect(tool.function.description).not.toMatch(/\b(?:my|your|this) world\b/);

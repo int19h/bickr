@@ -1,8 +1,8 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "catalogSourceHash": "1ea4d0935facacfea35be251f30fc67822b5de7e36d4075fd21c7595bffff89e",
+  "catalogSourceHash": "fccf6536ad73ade5b65ab4ff2271b2b82b90f8f3483a35cdea87591dd9437263",
   "locale": "ga",
-  "status": "accepted_by_lead",
+  "status": "approved",
   "leadReason": "Accept best-effort Irish after both requested final discussions and both 28-unit follow-ups. Use standard is gá dom action needs, direct audience wording, explicit persona genitives, dictionary-backed disclaimer notices, singular detached member headers, native JSON adjective order and list punctuation. Keep the maximum ceiling and all conditions. Relative-time digit patterns follow resolved Unicode CLDR and protected identifiers remain opaque. The lead chooses the optional direct relative from Opus.",
   "terminologyDecisions": {
     "action": "gníomh for an action. Beart can also mean action and is not invalid.",
@@ -168,7 +168,7 @@
   "groups": {
     "system": {
       "finalHash": "ac93aec6499b85f0e79f7c2d28b192d66fd9d0bec0d9e63a35cc64bb23bc7545",
-      "finalTemplateHash": "13599858b6eb8c836801600488cc18f825b1a9f48a6f705e5d0718d56984f819",
+      "finalTemplateHash": "f845317ce207adb500708dc2939508a6833a6c8e05be81494cb0b336b86def4a",
       "draftHashes": {
         "codex": "725378aa73dbdeebb2570c44a999ac0295b09e1d6b3be689db0ba0916aeaa98e",
         "opus": "b9c7a9a1cf0a633b5dee16a391ee910ead008a84cc5a4c6dfccc4878edbd5822",
@@ -249,13 +249,6 @@
           "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
           "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
         },
-        "system.main": {
-          "finalValueHash": "b3e833d96d04680254adcdabb8b315bb9f48c32d432e7baa3a9d24565e3a5902",
-          "leadReason": "Accept after independent Codex review of meaning, grammar, force, examples and protected syntax.",
-          "candidateReason": "Translate reply motivations, every example, first-person reasoning, optional research and changed decisions, response focus and audience exceptions, and context weighting. Match the Activities paragraph split.",
-          "opusReason": "No new Opus review applies to this update. Independent Codex review covers the changed text.",
-          "grokReason": "No new Grok review applies to this update. Independent Codex review covers the changed text."
-        },
         "system.toolOverview": {
           "finalValueHash": "66bddd0479e22884b1b009481bd191f9ef176c488547adbe1d395a64c898ce59",
           "leadReason": "Accept after independent Codex review of meaning, syntax, recommendations, JSON exceptions and capability selection.",
@@ -304,6 +297,20 @@
           "candidateReason": "Preserve the updated note, PLAN and action guidance, native-language formatting and setting spacing.",
           "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
           "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
+        },
+        "system.main": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "a772da782c2ecd0fb0bab807bee69d65d322e8ba3f671c6efa57d8cdb186d641",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
         }
       }
     },
@@ -786,35 +793,6 @@
         }
       }
     },
-    "tools/list_accessible_forums": {
-      "finalHash": "0db6269c6acb15d9ace99f519b8c9c4a7baabbc80aa3fde0159c9a54b5a1843f",
-      "finalTemplateHash": "0a7e0e85b890a37915431ebe2a437cebae7bd936af8068a0a6d32741ac519ca4",
-      "draftHashes": {
-        "codex": "0db6269c6acb15d9ace99f519b8c9c4a7baabbc80aa3fde0159c9a54b5a1843f",
-        "opus": "f2e09b686b5575a479f5667f5c2cca696339137c33d6428d091de840d1a286dd",
-        "grok": "33886caf5eb769799972a0b6db87dedb0ff11d3720845560f20e0d7193396a1e",
-        "gemini": "d58eb28057ded4f4ecd543ede3795d906b26d1895b3b20a3e13b5186695b880c"
-      },
-      "comparisonHashes": {
-        "opus": "54ff5589471951bceb86326dd86c665349d6b61e2e66ad0b0fb7fca27df71658",
-        "grok": "0365fc76758a0b396013fe88b885ed56f41d52e63bd4de5a9347bb1900c9d325"
-      },
-      "decisions": {
-        "tools.list_accessible_forums.description": {
-          "finalValueHash": "407760e5825e951ada7af8fe781c36c9dfdef15b412e3dc19f71a5713fdfee17",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Singular imperative and complete read-only permissions, exclusions and exact false flag. Other drafts verbal-noun descriptions or less clear flags.",
-          "opusDecision": "accept",
-          "opusReason": "Read-only semantics, readOnly false condition with \"Ná ... ach\", blogs excluded, blog mapping.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex. can stays is féidir or ní féidir ach, not ní mór. English: List public forums that I can read. Each result has a readOnly flag. A read-only forum still shows threads and accepts votes. It does not accept new threads or ",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        }
-      }
-    },
     "tools/list_recent_threads": {
       "finalHash": "3cdfb85a9c8eebb548a4939ad11717a020291d55bf10b3b13d1b4b3d3e17193d",
       "finalTemplateHash": "4618ae45f74cf2774ecea8bb18a5b13e715d4e6b36822352a53eb38168755f25",
@@ -867,93 +845,6 @@
           "opusReason": "Faithful.",
           "grokDecision": "accept",
           "grokReason": "Accept snáitheanna móréilimh. Hot is the named popular feed, and system.main uses móréilimh.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        }
-      }
-    },
-    "tools/read_thread": {
-      "finalHash": "7cd7be7b29a64749214a53f32674a3a3796c5920c773f06b17626af54c8e7ffa",
-      "finalTemplateHash": "671c240d505ab21699c4bd072eebcb7497ef0dfa503a16b68901a9eeb7c2aa44",
-      "draftHashes": {
-        "codex": "7cd7be7b29a64749214a53f32674a3a3796c5920c773f06b17626af54c8e7ffa",
-        "opus": "b44e5c915be30b2043c5b469d4c2b797d46bd719dc0477b3c41cd7f3d7360333",
-        "grok": "91ed48a7e77b522cccef32b60400d6a0d45f2693214e7f831281a91478a71e3f",
-        "gemini": "04f963dfe02b3b5b4cc1e66ee7b07f646b333b1161cad5bc75f71c19d9b008c8"
-      },
-      "comparisonHashes": {
-        "opus": "f1a4f9ac384d078940c85419a89a63893c14e84db13a56dbb18789c054e654c6",
-        "grok": "b65b10971fdab0b3d7b3a6dbca2537958f69380aa9e2555fb897b75ad3200aa2"
-      },
-      "decisions": {
-        "tools.read_thread.description": {
-          "finalValueHash": "60c05ce8b8db66e59b83ff4c9ee3907f4973d029d33b254021321845f2c71f64",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Correct ref lookup, all truncation conditions and imperative. Gemini changes lookup to forum/title and Grok has malformed copula.",
-          "opusDecision": "accept",
-          "opusReason": "ref lookup, Markdown source, hidden replies, numeric replies and ellipsis guidance.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex. actor, tense, limits, and parameters match the English. English: Read a thread and its comments by thread ref. Comment bodies contain Markdown source. Large results hide some replies. If `replies` is a number, use read_commen",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        }
-      }
-    },
-    "tools/read_thread_by_id": {
-      "finalHash": "d040db62089206f961f931d763f8cb14061960da6eab2c63c7f5592cceb32b29",
-      "finalTemplateHash": "d7c04048ca89fc64fe091bcf8879530a5767e3342c7174af638b8c6d10ff8b6b",
-      "draftHashes": {
-        "codex": "d040db62089206f961f931d763f8cb14061960da6eab2c63c7f5592cceb32b29",
-        "opus": "687ed21581850a71a7bb2bce1b8537fc47063b76a70c018dab3f7db2334ce185",
-        "grok": "3105130d126903e2f6187c3c9e98e6664b6aea0a5f6174abdefd769fc6e07a1e",
-        "gemini": "05d016c37c8f0f5b2f27ed22fa4a2f3d659d04910d4c90df31999a2bef4c48ff"
-      },
-      "comparisonHashes": {
-        "opus": "396a6353278d41de807d31e3b91cc4226b6ed47701174ab7b22f646e9047f2a8",
-        "grok": "d73db1c7f5b47baea02640d24f390c59c6d12ad0d53d309e9a9734977056a3e9"
-      },
-      "decisions": {
-        "tools.read_thread_by_id.description": {
-          "finalValueHash": "60c05ce8b8db66e59b83ff4c9ee3907f4973d029d33b254021321845f2c71f64",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Same complete ref lookup and expansion conditions as read_thread; Opus uses verbal noun and Gemini changes comments to opinions.",
-          "opusDecision": "accept",
-          "opusReason": "Same.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex. actor, tense, limits, and parameters match the English. English: Read a thread and its comments by thread ref. Comment bodies contain Markdown source. Large results hide some replies. If `replies` is a number, use read_commen",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        }
-      }
-    },
-    "tools/read_comment_by_id": {
-      "finalHash": "74059fb29b3701cca494b582060c5dd3c78b224d5d87e92626d24e12f2db0638",
-      "finalTemplateHash": "9974835f7ec7293faaad507b32a8e316ac1168ebd5d4a4d75afc42330594bacf",
-      "draftHashes": {
-        "codex": "74059fb29b3701cca494b582060c5dd3c78b224d5d87e92626d24e12f2db0638",
-        "opus": "6e91735df91ce9d6fb26ae103f675e9630932fc104099b836679a9c9235c85a6",
-        "grok": "4aee7a1fb341daada068f24716949a4b701dcd8a511b3cb018a7bfa8d76122a9",
-        "gemini": "5627284ce4d4010520e796e38a9328cb344bd773d01b595aaaac49dce447da22"
-      },
-      "comparisonHashes": {
-        "opus": "0ad0daca834298dcfaef903dff455b29b69d7eb6b120316fc71e8c1d9c96e65b",
-        "grok": "5e67fba014c421de68aebf44f77652ad545391479456a65295be14937109f243"
-      },
-      "decisions": {
-        "tools.read_comment_by_id.description": {
-          "finalValueHash": "9b5edfd5fd9b653f1075c98bea0085fec2226b066673dd21f8a855b5e2cd369e",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Complete parent comments, own replies and another-comment ellipsis condition; Gemini changes parents to maternal comments.",
-          "opusDecision": "accept",
-          "opusReason": "Parents and replies included, both guidance lines.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex. actor, tense, limits, and parameters match the English. English: Read a comment by its ref. Its body contains Markdown source. The result includes its parent comments and replies. Large results hide some replies. If `replies`",
           "changedAfterComparison": false,
           "finalFollowUp": {},
           "finalDiscussion": {}
@@ -1338,7 +1229,7 @@
     },
     "tools/list_notes": {
       "finalHash": "849575fcd8a12893a8b036f63270dd65262d53f805832ec79d7d9f6b2257fbc1",
-      "finalTemplateHash": "eec33e31d6aa5d0a3fc7691fc4bdb3e8530164e4b129309456278b9cfb983e90",
+      "finalTemplateHash": "58f702ebc707a91c0fc01a56ae2d1fda67889bc9f324813e670e958bd6dd59ee",
       "draftHashes": {
         "codex": "b42e98fe47452bc155d54173cecfb696621ad12146ad7b4e6e30112318f3f74c",
         "opus": "7ec9869eba45745532c8de75b809f22ab0b7916e1df5017c7af9e75622b4ebf4",
@@ -1377,17 +1268,18 @@
           "finalDiscussion": {}
         },
         "tools.list_notes.properties.cursor.description": {
-          "finalValueHash": "5b3ccf7ef6c5efe8b2e049a450d0ee8f22cd29262240567254341bf14b70e579",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Correct continuing list action and ID head noun; Grok mutates identifier as nID.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex. actor, tense, limits, and parameters match the English. English: Use nextCursor from the previous page to continue listing IDs.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "539d0da250306c174962e1aabcb091e211e8bb22483050417759ef3ccba22f70",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
         }
       }
     },
@@ -3311,7 +3203,7 @@
     },
     "serialization": {
       "finalHash": "371adc3b6c2d289dfa8391e9925854d0d7886778fb0537f54e79bb460d75ed08",
-      "finalTemplateHash": "3d52acc0d2d30b1f540453f568cd2af96a48059eb748290bb792dc6ef5782882",
+      "finalTemplateHash": "80a8f322630643526a9eefb122151d2f11af8a21f8d5369c117cbbe52cf80361",
       "draftHashes": {
         "codex": "aa3c69efa0fca7f15a723ab0a7bfdb621e2ad7b09d0cd2d4e8d98c734331004c",
         "opus": "bacb49abab329d0c375b3644e7cbee9d9f0c93c2887f6cc931430d3b1f301b55",
@@ -3323,259 +3215,6 @@
         "grok": "d4f4984eef73155c72cd2c6adbe935e47f36f0de11ec690c74f55c61e6bbceff"
       },
       "decisions": {
-        "time.just_now": {
-          "finalValueHash": "d67db42f8ee018d68ffa02a6e828bbbf77019234b37246644a80d1fa5216356f",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All agree on just now.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept díreach anois as the compact fragment for just now. It is not a counted unit.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "time.year.future": {
-          "finalValueHash": "481c5126e1c698dc234373a52f0a5a207ff1e9b18ecef69222089aa9f6dffcc5",
-          "chosenFrom": "synthesis",
-          "leadReason": "Use a complete native relative-time phrase with the exact count and unit. The candidate already preserves elapsed or remaining direction, so I reject a blanket claim that its meaning is lost. A relative phrase fits when and lastActivity more naturally. The resolved Unicode CLDR Irish data gives digit-based forms for all five categories. It also distinguishes the future one-year bliana from the past bhliain, and counted hours uair an chloig from occurrences. Compare this evidence with all four drafts and both reviewers. Retain the documented best-effort scope.",
-          "candidateReason": "All five year future variants compared: Codex uses complete neutral count sentences. Others use fragments and differing numeral noun forms, especially genitives in future units.",
-          "opusDecision": "required_change",
-          "opusReason": "The runtime inserts this text into the JSON \"when\" and \"lastActivity\" field values, but the candidate is a full sentence (\"Is é N an t-am atá fágtha, i mblianta.\"). The opus draft gives the native relative phrase with the standard counting forms: bhliain for 1 and 2, bliana for 3–6, mbliana for 7–10, bliain otherwise.",
-          "grokDecision": "accept",
-          "grokReason": "Accept the neutral label an t-am atá fágtha, i mblianta. It keeps a future point for every category, including 1 and 0, without an uncertain numeral mutation. A split such as i gceann 1 bhliain is recorded as unresolved, not adopted.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "The lead's forms match CLDR 48 exactly; I verified them locally with Intl.RelativeTimeFormat(\"ga\") on ICU 78.3. \"i gceann N …\" is the future (focloir and teanglann) and \"N … ó shin\" the past. The one category takes \"bliana\" in the future (\"i gceann bliana\") and \"bhliain\" in the past. Counted hours use \"uair an chloig\" and many \"n-uair an chloig\". My comparison-stage \"i gceann 1 bhliain\" and \"huaire\" are not the documented forms, so I withdraw them. Every category keeps the visible digit count. Confidence limit: CLDR shows its own choice for written digits in 0 and 11–19 (other uses the bare singular, for example \"11 bliain\"), which follows the Caighdeán simplified system for larger numbers; a native reviewer should still confirm that choice in tool-result fields.",
-              "proposedValueHash": "481c5126e1c698dc234373a52f0a5a207ff1e9b18ecef69222089aa9f6dffcc5"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept the i gceann phrases. English is the future field phrase. i gceann names the point after the interval, which the dictionary separates from ago and from within. Future one uses bliana. two uses bhliain, few uses bliana, many uses mbliana, and other uses bliain. The five strings match the cited CLDR Irish relative-time patterns, with {{count}} in place of {0}. These are explicit catalog patterns. They do not call Intl.RelativeTimeFormat. Irish one is 1, two is 2, few is 3–6, many is 7–10, and other covers 0, 11, 21, 100, 101, and 1000000.",
-              "proposedValueHash": "481c5126e1c698dc234373a52f0a5a207ff1e9b18ecef69222089aa9f6dffcc5"
-            }
-          }
-        },
-        "time.year.past": {
-          "finalValueHash": "14802832f72e241f470277f4d6c8d4658c8558bbb242f2fcf55682c44bec05c1",
-          "chosenFrom": "synthesis",
-          "leadReason": "Use a complete native relative-time phrase with the exact count and unit. The candidate already preserves elapsed or remaining direction, so I reject a blanket claim that its meaning is lost. A relative phrase fits when and lastActivity more naturally. The resolved Unicode CLDR Irish data gives digit-based forms for all five categories. It also distinguishes the future one-year bliana from the past bhliain, and counted hours uair an chloig from occurrences. Compare this evidence with all four drafts and both reviewers. Retain the documented best-effort scope.",
-          "candidateReason": "All five year past variants compared: Codex uses complete neutral count sentences. Others use fragments and differing numeral noun forms, especially genitives in future units.",
-          "opusDecision": "required_change",
-          "opusReason": "Same field-value defect; the opus draft uses \"N bhliain/bliana/mbliana/bliain ó shin\" by category.",
-          "grokDecision": "accept",
-          "grokReason": "Accept an t-am atá caite, i mblianta. It keeps a past point. The same string is safe for one, two, few, many, and other.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "The lead's forms match CLDR 48 exactly; I verified them locally with Intl.RelativeTimeFormat(\"ga\") on ICU 78.3. \"i gceann N …\" is the future (focloir and teanglann) and \"N … ó shin\" the past. The one category takes \"bliana\" in the future (\"i gceann bliana\") and \"bhliain\" in the past. Counted hours use \"uair an chloig\" and many \"n-uair an chloig\". My comparison-stage \"i gceann 1 bhliain\" and \"huaire\" are not the documented forms, so I withdraw them. Every category keeps the visible digit count. Confidence limit: CLDR shows its own choice for written digits in 0 and 11–19 (other uses the bare singular, for example \"11 bliain\"), which follows the Caighdeán simplified system for larger numbers; a native reviewer should still confirm that choice in tool-result fields.",
-              "proposedValueHash": "14802832f72e241f470277f4d6c8d4658c8558bbb242f2fcf55682c44bec05c1"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept the ó shin phrases. English is the ago field phrase. ó shin names the point before now. Past one and two use bhliain. few uses bliana, many uses mbliana, and other uses bliain. This past one form is not the future one form. The five strings match the cited CLDR Irish relative-time patterns, with {{count}} in place of {0}. These are explicit catalog patterns. They do not call Intl.RelativeTimeFormat. Irish one is 1, two is 2, few is 3–6, many is 7–10, and other covers 0, 11, 21, 100, 101, and 1000000.",
-              "proposedValueHash": "14802832f72e241f470277f4d6c8d4658c8558bbb242f2fcf55682c44bec05c1"
-            }
-          }
-        },
-        "time.month.future": {
-          "finalValueHash": "00804de92148575666cea14e9c84a0540204b9f006a5f601c86a8c5d1ae13c06",
-          "chosenFrom": "synthesis",
-          "leadReason": "Use a complete native relative-time phrase with the exact count and unit. The candidate already preserves elapsed or remaining direction, so I reject a blanket claim that its meaning is lost. A relative phrase fits when and lastActivity more naturally. The resolved Unicode CLDR Irish data gives digit-based forms for all five categories. It also distinguishes the future one-year bliana from the past bhliain, and counted hours uair an chloig from occurrences. Compare this evidence with all four drafts and both reviewers. Retain the documented best-effort scope.",
-          "candidateReason": "All five month future variants compared: Codex uses complete neutral count sentences. Others use fragments and differing numeral noun forms, especially genitives in future units.",
-          "opusDecision": "required_change",
-          "opusReason": "Same field-value defect; mhí is lenited after 1–6 and plain after 7–10 and other, as in the opus draft.",
-          "grokDecision": "accept",
-          "grokReason": "Accept the neutral remaining-time label in months. Direction stays future.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "The lead's forms match CLDR 48 exactly; I verified them locally with Intl.RelativeTimeFormat(\"ga\") on ICU 78.3. \"i gceann N …\" is the future (focloir and teanglann) and \"N … ó shin\" the past. The one category takes \"bliana\" in the future (\"i gceann bliana\") and \"bhliain\" in the past. Counted hours use \"uair an chloig\" and many \"n-uair an chloig\". My comparison-stage \"i gceann 1 bhliain\" and \"huaire\" are not the documented forms, so I withdraw them. Every category keeps the visible digit count. Confidence limit: CLDR shows its own choice for written digits in 0 and 11–19 (other uses the bare singular, for example \"11 bliain\"), which follows the Caighdeán simplified system for larger numbers; a native reviewer should still confirm that choice in tool-result fields.",
-              "proposedValueHash": "00804de92148575666cea14e9c84a0540204b9f006a5f601c86a8c5d1ae13c06"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept the i gceann phrases. English is the future field phrase. i gceann names the point after the interval, which the dictionary separates from ago and from within. one, two, and few use lenited mhí. many and other use mí. The five strings match the cited CLDR Irish relative-time patterns, with {{count}} in place of {0}. These are explicit catalog patterns. They do not call Intl.RelativeTimeFormat. Irish one is 1, two is 2, few is 3–6, many is 7–10, and other covers 0, 11, 21, 100, 101, and 1000000.",
-              "proposedValueHash": "00804de92148575666cea14e9c84a0540204b9f006a5f601c86a8c5d1ae13c06"
-            }
-          }
-        },
-        "time.month.past": {
-          "finalValueHash": "974c4e2c20bad71b25d98e7191fee5b2076d998c183e22da888b77031ff62850",
-          "chosenFrom": "synthesis",
-          "leadReason": "Use a complete native relative-time phrase with the exact count and unit. The candidate already preserves elapsed or remaining direction, so I reject a blanket claim that its meaning is lost. A relative phrase fits when and lastActivity more naturally. The resolved Unicode CLDR Irish data gives digit-based forms for all five categories. It also distinguishes the future one-year bliana from the past bhliain, and counted hours uair an chloig from occurrences. Compare this evidence with all four drafts and both reviewers. Retain the documented best-effort scope.",
-          "candidateReason": "All five month past variants compared: Codex uses complete neutral count sentences. Others use fragments and differing numeral noun forms, especially genitives in future units.",
-          "opusDecision": "required_change",
-          "opusReason": "Same field-value defect.",
-          "grokDecision": "accept",
-          "grokReason": "Accept the neutral elapsed-time label in months. Direction stays past.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "The lead's forms match CLDR 48 exactly; I verified them locally with Intl.RelativeTimeFormat(\"ga\") on ICU 78.3. \"i gceann N …\" is the future (focloir and teanglann) and \"N … ó shin\" the past. The one category takes \"bliana\" in the future (\"i gceann bliana\") and \"bhliain\" in the past. Counted hours use \"uair an chloig\" and many \"n-uair an chloig\". My comparison-stage \"i gceann 1 bhliain\" and \"huaire\" are not the documented forms, so I withdraw them. Every category keeps the visible digit count. Confidence limit: CLDR shows its own choice for written digits in 0 and 11–19 (other uses the bare singular, for example \"11 bliain\"), which follows the Caighdeán simplified system for larger numbers; a native reviewer should still confirm that choice in tool-result fields.",
-              "proposedValueHash": "974c4e2c20bad71b25d98e7191fee5b2076d998c183e22da888b77031ff62850"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept the ó shin phrases. English is the ago field phrase. ó shin names the point before now. one, two, and few use lenited mhí. many and other use mí. The five strings match the cited CLDR Irish relative-time patterns, with {{count}} in place of {0}. These are explicit catalog patterns. They do not call Intl.RelativeTimeFormat. Irish one is 1, two is 2, few is 3–6, many is 7–10, and other covers 0, 11, 21, 100, 101, and 1000000.",
-              "proposedValueHash": "974c4e2c20bad71b25d98e7191fee5b2076d998c183e22da888b77031ff62850"
-            }
-          }
-        },
-        "time.day.future": {
-          "finalValueHash": "036da7d2b48563c0335bba79759a8e5eeaa11424c6f49fafd96c8442af6fe971",
-          "chosenFrom": "synthesis",
-          "leadReason": "Use a complete native relative-time phrase with the exact count and unit. The candidate already preserves elapsed or remaining direction, so I reject a blanket claim that its meaning is lost. A relative phrase fits when and lastActivity more naturally. The resolved Unicode CLDR Irish data gives digit-based forms for all five categories. It also distinguishes the future one-year bliana from the past bhliain, and counted hours uair an chloig from occurrences. Compare this evidence with all four drafts and both reviewers. Retain the documented best-effort scope.",
-          "candidateReason": "All five day future variants compared: Codex uses complete neutral count sentences. Others use fragments and differing numeral noun forms, especially genitives in future units.",
-          "opusDecision": "required_change",
-          "opusReason": "Same field-value defect; lá does not mutate after numerals.",
-          "grokDecision": "accept",
-          "grokReason": "Accept the neutral remaining-time label in days.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "The lead's forms match CLDR 48 exactly; I verified them locally with Intl.RelativeTimeFormat(\"ga\") on ICU 78.3. \"i gceann N …\" is the future (focloir and teanglann) and \"N … ó shin\" the past. The one category takes \"bliana\" in the future (\"i gceann bliana\") and \"bhliain\" in the past. Counted hours use \"uair an chloig\" and many \"n-uair an chloig\". My comparison-stage \"i gceann 1 bhliain\" and \"huaire\" are not the documented forms, so I withdraw them. Every category keeps the visible digit count. Confidence limit: CLDR shows its own choice for written digits in 0 and 11–19 (other uses the bare singular, for example \"11 bliain\"), which follows the Caighdeán simplified system for larger numbers; a native reviewer should still confirm that choice in tool-result fields.",
-              "proposedValueHash": "036da7d2b48563c0335bba79759a8e5eeaa11424c6f49fafd96c8442af6fe971"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept the i gceann phrases. English is the future field phrase. i gceann names the point after the interval, which the dictionary separates from ago and from within. lá stays in every category, including other at 0 and at 11. The five strings match the cited CLDR Irish relative-time patterns, with {{count}} in place of {0}. These are explicit catalog patterns. They do not call Intl.RelativeTimeFormat. Irish one is 1, two is 2, few is 3–6, many is 7–10, and other covers 0, 11, 21, 100, 101, and 1000000.",
-              "proposedValueHash": "036da7d2b48563c0335bba79759a8e5eeaa11424c6f49fafd96c8442af6fe971"
-            }
-          }
-        },
-        "time.day.past": {
-          "finalValueHash": "d0fca2ae18d99420924bd9ce9efc9833667103668d37e22e59006b144312acd6",
-          "chosenFrom": "synthesis",
-          "leadReason": "Use a complete native relative-time phrase with the exact count and unit. The candidate already preserves elapsed or remaining direction, so I reject a blanket claim that its meaning is lost. A relative phrase fits when and lastActivity more naturally. The resolved Unicode CLDR Irish data gives digit-based forms for all five categories. It also distinguishes the future one-year bliana from the past bhliain, and counted hours uair an chloig from occurrences. Compare this evidence with all four drafts and both reviewers. Retain the documented best-effort scope.",
-          "candidateReason": "All five day past variants compared: Codex uses complete neutral count sentences. Others use fragments and differing numeral noun forms, especially genitives in future units.",
-          "opusDecision": "required_change",
-          "opusReason": "Same field-value defect.",
-          "grokDecision": "accept",
-          "grokReason": "Accept the neutral elapsed-time label in days.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "The lead's forms match CLDR 48 exactly; I verified them locally with Intl.RelativeTimeFormat(\"ga\") on ICU 78.3. \"i gceann N …\" is the future (focloir and teanglann) and \"N … ó shin\" the past. The one category takes \"bliana\" in the future (\"i gceann bliana\") and \"bhliain\" in the past. Counted hours use \"uair an chloig\" and many \"n-uair an chloig\". My comparison-stage \"i gceann 1 bhliain\" and \"huaire\" are not the documented forms, so I withdraw them. Every category keeps the visible digit count. Confidence limit: CLDR shows its own choice for written digits in 0 and 11–19 (other uses the bare singular, for example \"11 bliain\"), which follows the Caighdeán simplified system for larger numbers; a native reviewer should still confirm that choice in tool-result fields.",
-              "proposedValueHash": "d0fca2ae18d99420924bd9ce9efc9833667103668d37e22e59006b144312acd6"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept the ó shin phrases. English is the ago field phrase. ó shin names the point before now. lá stays in every category, including other at 0 and at 11. The five strings match the cited CLDR Irish relative-time patterns, with {{count}} in place of {0}. These are explicit catalog patterns. They do not call Intl.RelativeTimeFormat. Irish one is 1, two is 2, few is 3–6, many is 7–10, and other covers 0, 11, 21, 100, 101, and 1000000.",
-              "proposedValueHash": "d0fca2ae18d99420924bd9ce9efc9833667103668d37e22e59006b144312acd6"
-            }
-          }
-        },
-        "time.hour.future": {
-          "finalValueHash": "f074e115ef40e03f358a2a14988ed995709326f7b53aa3f25efae9ba95cf1474",
-          "chosenFrom": "synthesis",
-          "leadReason": "Use a complete native relative-time phrase with the exact count and unit. The candidate already preserves elapsed or remaining direction, so I reject a blanket claim that its meaning is lost. A relative phrase fits when and lastActivity more naturally. The resolved Unicode CLDR Irish data gives digit-based forms for all five categories. It also distinguishes the future one-year bliana from the past bhliain, and counted hours uair an chloig from occurrences. Compare this evidence with all four drafts and both reviewers. Retain the documented best-effort scope.",
-          "candidateReason": "All five hour future variants compared: Codex uses complete neutral count sentences. Others use fragments and differing numeral noun forms, especially genitives in future units.",
-          "opusDecision": "required_change",
-          "opusReason": "Same field-value defect; uair an chloig, huaire for 3–6, n-uaire for 7–10.",
-          "grokDecision": "accept",
-          "grokReason": "Accept the neutral remaining-time label in hours.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "The lead's forms match CLDR 48 exactly; I verified them locally with Intl.RelativeTimeFormat(\"ga\") on ICU 78.3. \"i gceann N …\" is the future (focloir and teanglann) and \"N … ó shin\" the past. The one category takes \"bliana\" in the future (\"i gceann bliana\") and \"bhliain\" in the past. Counted hours use \"uair an chloig\" and many \"n-uair an chloig\". My comparison-stage \"i gceann 1 bhliain\" and \"huaire\" are not the documented forms, so I withdraw them. Every category keeps the visible digit count. Confidence limit: CLDR shows its own choice for written digits in 0 and 11–19 (other uses the bare singular, for example \"11 bliain\"), which follows the Caighdeán simplified system for larger numbers; a native reviewer should still confirm that choice in tool-result fields.",
-              "proposedValueHash": "f074e115ef40e03f358a2a14988ed995709326f7b53aa3f25efae9ba95cf1474"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept the i gceann phrases. English is the future field phrase. i gceann names the point after the interval, which the dictionary separates from ago and from within. The counted hour is uair an chloig. many uses eclipsis, n-uair an chloig. The other categories use uair an chloig. The five strings match the cited CLDR Irish relative-time patterns, with {{count}} in place of {0}. These are explicit catalog patterns. They do not call Intl.RelativeTimeFormat. Irish one is 1, two is 2, few is 3–6, many is 7–10, and other covers 0, 11, 21, 100, 101, and 1000000.",
-              "proposedValueHash": "f074e115ef40e03f358a2a14988ed995709326f7b53aa3f25efae9ba95cf1474"
-            }
-          }
-        },
-        "time.hour.past": {
-          "finalValueHash": "35b39240793d856386833ed8d0dfe8d1b1f6c6b748578f3dd5ee1ff04c780668",
-          "chosenFrom": "synthesis",
-          "leadReason": "Use a complete native relative-time phrase with the exact count and unit. The candidate already preserves elapsed or remaining direction, so I reject a blanket claim that its meaning is lost. A relative phrase fits when and lastActivity more naturally. The resolved Unicode CLDR Irish data gives digit-based forms for all five categories. It also distinguishes the future one-year bliana from the past bhliain, and counted hours uair an chloig from occurrences. Compare this evidence with all four drafts and both reviewers. Retain the documented best-effort scope.",
-          "candidateReason": "All five hour past variants compared: Codex uses complete neutral count sentences. Others use fragments and differing numeral noun forms, especially genitives in future units.",
-          "opusDecision": "required_change",
-          "opusReason": "Same field-value defect.",
-          "grokDecision": "accept",
-          "grokReason": "Accept the neutral elapsed-time label in hours.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "The lead's forms match CLDR 48 exactly; I verified them locally with Intl.RelativeTimeFormat(\"ga\") on ICU 78.3. \"i gceann N …\" is the future (focloir and teanglann) and \"N … ó shin\" the past. The one category takes \"bliana\" in the future (\"i gceann bliana\") and \"bhliain\" in the past. Counted hours use \"uair an chloig\" and many \"n-uair an chloig\". My comparison-stage \"i gceann 1 bhliain\" and \"huaire\" are not the documented forms, so I withdraw them. Every category keeps the visible digit count. Confidence limit: CLDR shows its own choice for written digits in 0 and 11–19 (other uses the bare singular, for example \"11 bliain\"), which follows the Caighdeán simplified system for larger numbers; a native reviewer should still confirm that choice in tool-result fields.",
-              "proposedValueHash": "35b39240793d856386833ed8d0dfe8d1b1f6c6b748578f3dd5ee1ff04c780668"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept the ó shin phrases. English is the ago field phrase. ó shin names the point before now. The counted hour is uair an chloig. many uses eclipsis, n-uair an chloig. The other categories use uair an chloig. The five strings match the cited CLDR Irish relative-time patterns, with {{count}} in place of {0}. These are explicit catalog patterns. They do not call Intl.RelativeTimeFormat. Irish one is 1, two is 2, few is 3–6, many is 7–10, and other covers 0, 11, 21, 100, 101, and 1000000.",
-              "proposedValueHash": "35b39240793d856386833ed8d0dfe8d1b1f6c6b748578f3dd5ee1ff04c780668"
-            }
-          }
-        },
-        "time.minute.future": {
-          "finalValueHash": "4afce1dc3de8a75cdb688b399ce5af6f29610fc5a37499e991a31b943a4dae43",
-          "chosenFrom": "synthesis",
-          "leadReason": "Use a complete native relative-time phrase with the exact count and unit. The candidate already preserves elapsed or remaining direction, so I reject a blanket claim that its meaning is lost. A relative phrase fits when and lastActivity more naturally. The resolved Unicode CLDR Irish data gives digit-based forms for all five categories. It also distinguishes the future one-year bliana from the past bhliain, and counted hours uair an chloig from occurrences. Compare this evidence with all four drafts and both reviewers. Retain the documented best-effort scope.",
-          "candidateReason": "All five minute future variants compared: Codex uses complete neutral count sentences. Others use fragments and differing numeral noun forms, especially genitives in future units.",
-          "opusDecision": "required_change",
-          "opusReason": "Same field-value defect; nóiméad shows no visible mutation.",
-          "grokDecision": "accept",
-          "grokReason": "Accept the neutral remaining-time label in minutes.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "The lead's forms match CLDR 48 exactly; I verified them locally with Intl.RelativeTimeFormat(\"ga\") on ICU 78.3. \"i gceann N …\" is the future (focloir and teanglann) and \"N … ó shin\" the past. The one category takes \"bliana\" in the future (\"i gceann bliana\") and \"bhliain\" in the past. Counted hours use \"uair an chloig\" and many \"n-uair an chloig\". My comparison-stage \"i gceann 1 bhliain\" and \"huaire\" are not the documented forms, so I withdraw them. Every category keeps the visible digit count. Confidence limit: CLDR shows its own choice for written digits in 0 and 11–19 (other uses the bare singular, for example \"11 bliain\"), which follows the Caighdeán simplified system for larger numbers; a native reviewer should still confirm that choice in tool-result fields.",
-              "proposedValueHash": "4afce1dc3de8a75cdb688b399ce5af6f29610fc5a37499e991a31b943a4dae43"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept the i gceann phrases. English is the future field phrase. i gceann names the point after the interval, which the dictionary separates from ago and from within. nóiméad stays in every category. The five strings match the cited CLDR Irish relative-time patterns, with {{count}} in place of {0}. These are explicit catalog patterns. They do not call Intl.RelativeTimeFormat. Irish one is 1, two is 2, few is 3–6, many is 7–10, and other covers 0, 11, 21, 100, 101, and 1000000.",
-              "proposedValueHash": "4afce1dc3de8a75cdb688b399ce5af6f29610fc5a37499e991a31b943a4dae43"
-            }
-          }
-        },
-        "time.minute.past": {
-          "finalValueHash": "4b5fe97a9bfc0d4d92e3f88ef4ed6e539cc67c51ea0067f7f471234409a18f46",
-          "chosenFrom": "synthesis",
-          "leadReason": "Use a complete native relative-time phrase with the exact count and unit. The candidate already preserves elapsed or remaining direction, so I reject a blanket claim that its meaning is lost. A relative phrase fits when and lastActivity more naturally. The resolved Unicode CLDR Irish data gives digit-based forms for all five categories. It also distinguishes the future one-year bliana from the past bhliain, and counted hours uair an chloig from occurrences. Compare this evidence with all four drafts and both reviewers. Retain the documented best-effort scope.",
-          "candidateReason": "All five minute past variants compared: Codex uses complete neutral count sentences. Others use fragments and differing numeral noun forms, especially genitives in future units.",
-          "opusDecision": "required_change",
-          "opusReason": "Same field-value defect.",
-          "grokDecision": "accept",
-          "grokReason": "Accept the neutral elapsed-time label in minutes.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "The lead's forms match CLDR 48 exactly; I verified them locally with Intl.RelativeTimeFormat(\"ga\") on ICU 78.3. \"i gceann N …\" is the future (focloir and teanglann) and \"N … ó shin\" the past. The one category takes \"bliana\" in the future (\"i gceann bliana\") and \"bhliain\" in the past. Counted hours use \"uair an chloig\" and many \"n-uair an chloig\". My comparison-stage \"i gceann 1 bhliain\" and \"huaire\" are not the documented forms, so I withdraw them. Every category keeps the visible digit count. Confidence limit: CLDR shows its own choice for written digits in 0 and 11–19 (other uses the bare singular, for example \"11 bliain\"), which follows the Caighdeán simplified system for larger numbers; a native reviewer should still confirm that choice in tool-result fields.",
-              "proposedValueHash": "4b5fe97a9bfc0d4d92e3f88ef4ed6e539cc67c51ea0067f7f471234409a18f46"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept the ó shin phrases. English is the ago field phrase. ó shin names the point before now. nóiméad stays in every category. The five strings match the cited CLDR Irish relative-time patterns, with {{count}} in place of {0}. These are explicit catalog patterns. They do not call Intl.RelativeTimeFormat. Irish one is 1, two is 2, few is 3–6, many is 7–10, and other covers 0, 11, 21, 100, 101, and 1000000.",
-              "proposedValueHash": "4b5fe97a9bfc0d4d92e3f88ef4ed6e539cc67c51ea0067f7f471234409a18f46"
-            }
-          }
-        },
         "read.context.basic": {
           "finalValueHash": "73d995e9f1408325d949d69f231d7bb4b8db9ec307fe92a981f63796b48a84f9",
           "chosenFrom": "opus",
@@ -4643,90 +4282,9 @@
         }
       }
     },
-    "reports": {
-      "finalHash": "2011a793bc466ed79e1e11e503bc1f7a80b0e1a166e41d46c76fa8abdbd486cc",
-      "finalTemplateHash": "7958b67a2f4cd0ddf36606be3ca89cd8b701943c1a77d3c88e280d3b93662370",
-      "draftHashes": {
-        "codex": "c9be595197338930a0f89580f201bf6fbbb400ec5fd66d247959d132e336343b",
-        "opus": "d681acb044cedb87826aa3b8b13c2d348f0d8309f47fb22c8fb2e64e5a917e53",
-        "grok": "9e6ca6ae5ae31db5893d56343b558de12999254641912b20dac8c96a6fad26b0",
-        "gemini": "f5b489640fbef49d22852a632ee88f52b218d3d8f7228251dc9d6200a47eb299"
-      },
-      "comparisonHashes": {
-        "opus": "def842ce8e5c65e37b989aca5e852c76dbbc4dcdcd79280503c9baf892e71aac",
-        "grok": "a0f85ccb624ff6e271e83f92ddba3dbd3f11d32bb7b55562cd0a4f486a56e207"
-      },
-      "decisions": {
-        "report.elapsed.moment": {
-          "finalValueHash": "509aea847070d255fd418ec2f133c89f2bf8b6cb51d9baed3351a4712c2b1836",
-          "chosenFrom": "grok",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Moment is meandar; other drafts narrow it to a minute. Retains your previous visit.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and grok. actor, tense, limits, and parameters match the English. English: A moment passed since your previous visit.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "report.elapsed.second": {
-          "finalValueHash": "0f3e1a250c375a651aa27f865c2f1f3eeffc41c35e99a5febeccbebd8367ddba",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Complete neutral second count avoids category-specific mutation errors in other drafts.",
-          "opusDecision": "accept",
-          "opusReason": "A neutral sentence (\"Is é N an t-am atá caite ..., i soicindí\") is grammatical for every category and allowed by the reference. Opus's native forms (shoicind for 2–6) would read more naturally, but this is preference.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex. one is 1, two is 2, few is 3–6, many is 7–10, and other includes 0 and 11 or more; the shared líon or invariant wording is grammatical for each. English: {{count}} second passed since your previous visit. {{count}} seconds passed since your previous visit.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "report.elapsed.minute": {
-          "finalValueHash": "ae6a86adb03b66505782de4f9a2cfb951d044e866b8147b2059cf63c22e3578c",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All five native variants use unchanged nóiméad and a complete elapsed-time sentence; Codex heavier neutral label also valid.",
-          "opusDecision": "accept",
-          "opusReason": "nóiméad needs no visible mutation.",
-          "grokDecision": "accept",
-          "grokReason": "Accept {{count}} nóiméad caite. nóiméad is treated as invariant. Whether 3–6 and 7–10 need nóiméid is unresolved, so the shared form is kept.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "report.elapsed.hour": {
-          "finalValueHash": "cc69831d8d963f45c609b4cad29c8e4969b734fd349c603742e6ddc832ecca63",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Complete neutral hour counts avoid conflicting hour noun forms across the other drafts.",
-          "opusDecision": "accept",
-          "opusReason": "Neutral sentence acceptable for all categories, same as the seconds unit.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex. one is 1, two is 2, few is 3–6, many is 7–10, and other includes 0 and 11 or more; the shared líon or invariant wording is grammatical for each. English: {{count}} hour passed since your previous visit. {{count}} hours passed since your previous visit.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "report.elapsed.day": {
-          "finalValueHash": "fa48624a7466b8b439b8f743d6beaa2a37a4b979b9ec252b05e10a768d4710bd",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All five native variants agree on unchanged lá and a complete elapsed-time sentence; Gemini simple past also valid.",
-          "opusDecision": "accept",
-          "opusReason": "lá needs no visible mutation.",
-          "grokDecision": "accept",
-          "grokReason": "Accept {{count}} lá caite. lá is treated as invariant. Whether few and many need laethanta is unresolved, so the shared form is kept.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        }
-      }
-    },
     "recovery": {
       "finalHash": "398b8dd647f9dcb52c42f7cfaad9f3cbdd335aa11bd14c20b9b02a3b47ea9aaa",
-      "finalTemplateHash": "7c41678f28eca1875f4548f67875180e54448d5500c57859cc34bb96d585ab08",
+      "finalTemplateHash": "cf9263a3e80504e57222b5dd58c01053e5084604cb5e6074802372f7fff53bc0",
       "draftHashes": {
         "codex": "735a7b3ec477c057d8835136bcccd39421571f5bf5919f3fd1020036a7cef7e6",
         "opus": "7845aa8fbdb6e5e6f8084d7262f7a3673cbd95f420971cb0eb3d4490f686530c",
@@ -5256,305 +4814,6 @@
           "finalFollowUp": {},
           "finalDiscussion": {}
         },
-        "recovery.failureReport": {
-          "finalValueHash": "913744b1e5f725f188596ad7582465d57cb9e9b5b7bc2727550d2f804f288538",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Present page report, exact tool/arguments and opaque error message all retained.",
-          "opusDecision": "accept",
-          "opusReason": "Placeholders preserved.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. No period after {{message}}.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "recovery.hintReport": {
-          "finalValueHash": "a63549935e11661a02c7144cfa92f136eea7edcc3c51ae2ca3534bb79aff5131",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Present app gives this hint with explicit app actor.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. The Bickr app gives the hint, and there is no period after {{hint}}.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "recovery.correction.already_replied": {
-          "finalValueHash": "c4c54b868f33db8e52f97c9bd791895ebdf3e26f4ce6dc7dcc2dca91782d4d34",
-          "chosenFrom": "grok",
-          "leadReason": "Use an explicit tá gá agam construction for the participant’s stated need. Caithfidh and ní mór can also express practical necessity in Irish, so this is a clarity choice, not a blanket lexical rule that they always strengthen need. Preserve the action, actor, need-versus-future distinction, before/after/only conditions, alternatives, completed/unknown status, and strict prohibitions. Leave source must clauses unchanged.",
-          "candidateReason": "Already replied and reread need retained, but add explicit one more in conditional future reply.",
-          "opusDecision": "accept",
-          "opusReason": "New-point condition with \"Ní ... ach amháin má\".",
-          "grokDecision": "required_change",
-          "grokReason": "English says I need. caithfidh and ní mór are obligation. tá gá agam keeps need and does not strengthen it to must. The other conditions in the sentence stay.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {
-            "opus": {
-              "decision": "accept",
-              "reason": "\"Is gá dom … a + verbal noun\" is the construction that the official need entry (focloir.ie, need) gives alongside \"caithfidh\" and \"ní mór\" for a needed action. It keeps the source's practical \"I need to\" without turning it into \"must\". The earlier \"Tá gá agam (le) …\" was at least unsettled grammar before a verbal-noun clause. I agree with the lead that this is a construction choice: \"caithfidh mé\" correctly remains in the six units where the English says \"must\" (self-correction units, already_replied.next, malformed.example). The first-person actor is kept, and the only change is the need construction. All other clauses (reasons, before-deciding and before-retry conditions, alternatives such as \"or continue\", protected PLAN, {{toolName}} and {{username}}) are unchanged. The previous \"tá gá agam le leanúint\" and \"tá gá agam le smaoineamh\" forms are gone.",
-              "proposedValueHash": "c4c54b868f33db8e52f97c9bd791895ebdf3e26f4ce6dc7dcc2dca91782d4d34"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept Is gá dom before the verbal noun. The Foras na Gaeilge need entry gives this construction for a needed action, including ní gá duit ach clárú, an gá dúinn é seo a phlé, is gá duit a bheith, is gá iad a bheathú, and an gá dom a dhath eile a rá. The same entry also gives caithfidh and ní mór for English need, including you need to be over 21 and you need to work hard, so those verbs remain available need wording. This sentence keeps practical necessity. The le that belonged to tá gá agam le is absent because is gá dom takes the verbal noun directly. D'fhreagair mé ansin cheana keeps the completed reply. The need is still to read the thread again. The last sentence still allows one further reply only when there is a new point: Ní thabharfaidh mé freagra amháin eile ach amháin má tá pointe nua agam.",
-              "proposedValueHash": "c4c54b868f33db8e52f97c9bd791895ebdf3e26f4ce6dc7dcc2dca91782d4d34"
-            }
-          },
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "I accepted \"Ní mór dom\" or \"Caithfidh mé\" in the comparison, but I agree with the lead's reasoning. Both can express practical necessity, but they also read as \"must\", while the source says \"I need to\". \"Tá gá agam\" states need without strengthening it, and the actor, conditions and alternatives are unchanged. Confidence limit: I cannot confirm which complement is standard after \"Tá gá agam\". Most units use \"Tá gá agam X a dhéanamh\", while notes.disabled and factory.reasoningPrefill use \"Tá gá agam le …\". I record that as an open question rather than propose an edit I cannot verify.",
-              "proposedValueHash": "312735471f57e7e0f9b9e0689c82db784324316d9dea2b8d2baa41bd90a22056"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept Tá gá agam an snáithe a léamh arís. English says I already replied there, I need to read the thread again, and I will reply once more only if I have a new point. The already-replied fact and the new-point condition stay. Tá gá agam states the participant’s need. caithfidh and ní mór can also express practical necessity, so this is the explicit need wording and not a claim that those verbs are always wrong. The action and the other conditions stay.",
-              "proposedValueHash": "312735471f57e7e0f9b9e0689c82db784324316d9dea2b8d2baa41bd90a22056"
-            }
-          },
-          "finalLeadResolution": {
-            "reason": "Use Is gá dom for first-person practical necessity before a verbal-noun action. The official Foras na Gaeilge need entry explicitly supports the is gá construction for needed actions. This avoids the unsettled Tá gá agam grammar. Caithfidh and ní mór also express need in this dictionary, so this is a construction choice, not a rule that bans those words. Preserve every reason, condition, role, protected parameter and strict constraint.",
-            "changedFromProposal": true
-          }
-        },
-        "recovery.correction.duplicate_comment": {
-          "finalValueHash": "895ec0b5f0b8e239f96642d4eee1ce38137f7dae5cbd5f28bdba07c2b630a938",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Natural same exact comment already sent and strict no-resend prohibition.",
-          "opusDecision": "accept",
-          "opusReason": "\"Ní ceadmhach dom\" keeps must not.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and opus. the prohibition stays ná, ní cheadaítear, or ní féidir. English: I already sent that exact comment. I must not send it again.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "recovery.correction.conflict": {
-          "finalValueHash": "d229365557cb265c49747fdb41c67ad334198b4d5a4a888f92ac7905241948df",
-          "chosenFrom": "grok",
-          "leadReason": "Use an explicit tá gá agam construction for the participant’s stated need. Caithfidh and ní mór can also express practical necessity in Irish, so this is a clarity choice, not a blanket lexical rule that they always strengthen need. Preserve the action, actor, need-versus-future distinction, before/after/only conditions, alternatives, completed/unknown status, and strict prohibitions. Leave source must clauses unchanged.",
-          "candidateReason": "Natural conflict with existing data and need for different action.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "required_change",
-          "grokReason": "English says I need. caithfidh and ní mór are obligation. tá gá agam keeps need and does not strengthen it to must. The other conditions in the sentence stay.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {
-            "opus": {
-              "decision": "accept",
-              "reason": "\"Is gá dom … a + verbal noun\" is the construction that the official need entry (focloir.ie, need) gives alongside \"caithfidh\" and \"ní mór\" for a needed action. It keeps the source's practical \"I need to\" without turning it into \"must\". The earlier \"Tá gá agam (le) …\" was at least unsettled grammar before a verbal-noun clause. I agree with the lead that this is a construction choice: \"caithfidh mé\" correctly remains in the six units where the English says \"must\" (self-correction units, already_replied.next, malformed.example). The first-person actor is kept, and the only change is the need construction. All other clauses (reasons, before-deciding and before-retry conditions, alternatives such as \"or continue\", protected PLAN, {{toolName}} and {{username}}) are unchanged. The previous \"tá gá agam le leanúint\" and \"tá gá agam le smaoineamh\" forms are gone.",
-              "proposedValueHash": "d229365557cb265c49747fdb41c67ad334198b4d5a4a888f92ac7905241948df"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept Is gá dom before the verbal noun. The Foras na Gaeilge need entry gives this construction for a needed action, including ní gá duit ach clárú, an gá dúinn é seo a phlé, is gá duit a bheith, is gá iad a bheathú, and an gá dom a dhath eile a rá. The same entry also gives caithfidh and ní mór for English need, including you need to be over 21 and you need to work hard, so those verbs remain available need wording. This sentence keeps practical necessity. The le that belonged to tá gá agam le is absent because is gá dom takes the verbal noun directly. Tagann an t-athrú seo salach ar shonraí Bickr atá ann cheana keeps the conflict with existing Bickr data. The needed action is still to choose another action. Bickr stays uninflected.",
-              "proposedValueHash": "d229365557cb265c49747fdb41c67ad334198b4d5a4a888f92ac7905241948df"
-            }
-          },
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "I accepted \"Ní mór dom\" or \"Caithfidh mé\" in the comparison, but I agree with the lead's reasoning. Both can express practical necessity, but they also read as \"must\", while the source says \"I need to\". \"Tá gá agam\" states need without strengthening it, and the actor, conditions and alternatives are unchanged. Confidence limit: I cannot confirm which complement is standard after \"Tá gá agam\". Most units use \"Tá gá agam X a dhéanamh\", while notes.disabled and factory.reasoningPrefill use \"Tá gá agam le …\". I record that as an open question rather than propose an edit I cannot verify.",
-              "proposedValueHash": "cd799ff469e02b346d92200540e19f1b9697da24793d0985adedc1f713eaa847"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept Tá gá agam gníomh eile a roghnú. English says this change conflicts with existing Bickr data and I need to choose another action. The conflict with existing data stays. Tá gá agam states the participant’s need. caithfidh and ní mór can also express practical necessity, so this is the explicit need wording and not a claim that those verbs are always wrong. The action and the other conditions stay.",
-              "proposedValueHash": "cd799ff469e02b346d92200540e19f1b9697da24793d0985adedc1f713eaa847"
-            }
-          },
-          "finalLeadResolution": {
-            "reason": "Use Is gá dom for first-person practical necessity before a verbal-noun action. The official Foras na Gaeilge need entry explicitly supports the is gá construction for needed actions. This avoids the unsettled Tá gá agam grammar. Caithfidh and ní mór also express need in this dictionary, so this is a construction choice, not a rule that bans those words. Preserve every reason, condition, role, protected parameter and strict constraint.",
-            "changedFromProposal": true
-          }
-        },
-        "recovery.correction.not_found": {
-          "finalValueHash": "356bc6c70729ddc82e648dc7ad051fbddb061623e354b2016f19683b1b6a2d64",
-          "chosenFrom": "grok",
-          "leadReason": "Use an explicit tá gá agam construction for the participant’s stated need. Caithfidh and ní mór can also express practical necessity in Irish, so this is a clarity choice, not a blanket lexical rule that they always strengthen need. Preserve the action, actor, need-versus-future distinction, before/after/only conditions, alternatives, completed/unknown status, and strict prohibitions. Leave source must clauses unchanged.",
-          "candidateReason": "Unavailable target and required current lookup before retry, with natural try-again idiom.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "required_change",
-          "grokReason": "English says I need. caithfidh and ní mór are obligation. tá gá agam keeps need and does not strengthen it to must. The other conditions in the sentence stay.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {
-            "opus": {
-              "decision": "accept",
-              "reason": "\"Is gá dom … a + verbal noun\" is the construction that the official need entry (focloir.ie, need) gives alongside \"caithfidh\" and \"ní mór\" for a needed action. It keeps the source's practical \"I need to\" without turning it into \"must\". The earlier \"Tá gá agam (le) …\" was at least unsettled grammar before a verbal-noun clause. I agree with the lead that this is a construction choice: \"caithfidh mé\" correctly remains in the six units where the English says \"must\" (self-correction units, already_replied.next, malformed.example). The first-person actor is kept, and the only change is the need construction. All other clauses (reasons, before-deciding and before-retry conditions, alternatives such as \"or continue\", protected PLAN, {{toolName}} and {{username}}) are unchanged. The previous \"tá gá agam le leanúint\" and \"tá gá agam le smaoineamh\" forms are gone.",
-              "proposedValueHash": "356bc6c70729ddc82e648dc7ad051fbddb061623e354b2016f19683b1b6a2d64"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept Is gá dom before the verbal noun. The Foras na Gaeilge need entry gives this construction for a needed action, including ní gá duit ach clárú, an gá dúinn é seo a phlé, is gá duit a bheith, is gá iad a bheathú, and an gá dom a dhath eile a rá. The same entry also gives caithfidh and ní mór for English need, including you need to be over 21 and you need to work hard, so those verbs remain available need wording. This sentence keeps practical necessity. The le that belonged to tá gá agam le is absent because is gá dom takes the verbal noun directly. Níl an sprioc sin ar fáil keeps the unavailable target. The needed action is still to find a current target with a Bickr tool before trying again. uirlis Bickr names the tool. sula mbainfidh mé triail eile as keeps the retry condition. Bickr stays uninflected.",
-              "proposedValueHash": "356bc6c70729ddc82e648dc7ad051fbddb061623e354b2016f19683b1b6a2d64"
-            }
-          },
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "I accepted \"Ní mór dom\" or \"Caithfidh mé\" in the comparison, but I agree with the lead's reasoning. Both can express practical necessity, but they also read as \"must\", while the source says \"I need to\". \"Tá gá agam\" states need without strengthening it, and the actor, conditions and alternatives are unchanged. Confidence limit: I cannot confirm which complement is standard after \"Tá gá agam\". Most units use \"Tá gá agam X a dhéanamh\", while notes.disabled and factory.reasoningPrefill use \"Tá gá agam le …\". I record that as an open question rather than propose an edit I cannot verify.",
-              "proposedValueHash": "7565b1a4d56c5363b4fa112c943b970b57ae3d3dc1cef247f047f8a9b967d102"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept Tá gá agam sprioc reatha a aimsiú le huirlis Bickr. English says that target is unavailable and I need to find a current target with a Bickr tool before I try again. The unavailable target and the tool lookup stay. Tá gá agam states the participant’s need. caithfidh and ní mór can also express practical necessity, so this is the explicit need wording and not a claim that those verbs are always wrong. The action and the other conditions stay.",
-              "proposedValueHash": "7565b1a4d56c5363b4fa112c943b970b57ae3d3dc1cef247f047f8a9b967d102"
-            }
-          },
-          "finalLeadResolution": {
-            "reason": "Use Is gá dom for first-person practical necessity before a verbal-noun action. The official Foras na Gaeilge need entry explicitly supports the is gá construction for needed actions. This avoids the unsettled Tá gá agam grammar. Caithfidh and ní mór also express need in this dictionary, so this is a construction choice, not a rule that bans those words. Preserve every reason, condition, role, protected parameter and strict constraint.",
-            "changedFromProposal": true
-          }
-        },
-        "recovery.correction.bad_request": {
-          "finalValueHash": "4c2e84c1c30542e119348ec1e37823addd113910717e957c30cbf9fb0541230b",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Three agree on future repair of call rather than merely correcting it.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and opus, grok, gemini. actor, tense, limits, and parameters match the English. English: I will repair the call.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "recovery.correction.invalid_arguments_json": {
-          "finalValueHash": "39f072c9265253ab0ac670c7d074d580b1b55347cb95bc787c4063019eeae6d0",
-          "chosenFrom": "grok",
-          "leadReason": "Use an explicit tá gá agam construction for the participant’s stated need. Caithfidh and ní mór can also express practical necessity in Irish, so this is a clarity choice, not a blanket lexical rule that they always strengthen need. Preserve the action, actor, need-versus-future distinction, before/after/only conditions, alternatives, completed/unknown status, and strict prohibitions. Leave source must clauses unchanged.",
-          "candidateReason": "Valid JSON argument requirement for that tool before retry, natural try-again idiom.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "required_change",
-          "grokReason": "English says I need. caithfidh and ní mór are obligation. tá gá agam keeps need and does not strengthen it to must. The other conditions in the sentence stay.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {
-            "opus": {
-              "decision": "accept",
-              "reason": "\"Is gá dom … a + verbal noun\" is the construction that the official need entry (focloir.ie, need) gives alongside \"caithfidh\" and \"ní mór\" for a needed action. It keeps the source's practical \"I need to\" without turning it into \"must\". The earlier \"Tá gá agam (le) …\" was at least unsettled grammar before a verbal-noun clause. I agree with the lead that this is a construction choice: \"caithfidh mé\" correctly remains in the six units where the English says \"must\" (self-correction units, already_replied.next, malformed.example). The first-person actor is kept, and the only change is the need construction. All other clauses (reasons, before-deciding and before-retry conditions, alternatives such as \"or continue\", protected PLAN, {{toolName}} and {{username}}) are unchanged. The previous \"tá gá agam le leanúint\" and \"tá gá agam le smaoineamh\" forms are gone.",
-              "proposedValueHash": "39f072c9265253ab0ac670c7d074d580b1b55347cb95bc787c4063019eeae6d0"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept Is gá dom before the verbal noun. The Foras na Gaeilge need entry gives this construction for a needed action, including ní gá duit ach clárú, an gá dúinn é seo a phlé, is gá duit a bheith, is gá iad a bheathú, and an gá dom a dhath eile a rá. The same entry also gives caithfidh and ní mór for English need, including you need to be over 21 and you need to work hard, so those verbs remain available need wording. This sentence keeps practical necessity. The le that belonged to tá gá agam le is absent because is gá dom takes the verbal noun directly. The needed object is still valid JSON arguments for that tool, argóintí JSON bailí, and the retry condition sula mbainfidh mé triail eile as stays. JSON stays uninflected. bailí still follows the noun group.",
-              "proposedValueHash": "39f072c9265253ab0ac670c7d074d580b1b55347cb95bc787c4063019eeae6d0"
-            }
-          },
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "I accepted \"Ní mór dom\" or \"Caithfidh mé\" in the comparison, but I agree with the lead's reasoning. Both can express practical necessity, but they also read as \"must\", while the source says \"I need to\". \"Tá gá agam\" states need without strengthening it, and the actor, conditions and alternatives are unchanged. Confidence limit: I cannot confirm which complement is standard after \"Tá gá agam\". Most units use \"Tá gá agam X a dhéanamh\", while notes.disabled and factory.reasoningPrefill use \"Tá gá agam le …\". I record that as an open question rather than propose an edit I cannot verify.",
-              "proposedValueHash": "d9d4d774a936511a4de53a4e7cac280a775c9a5c52ffc179a95d8bbf519309ca"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept Tá gá agam argóintí JSON bailí a sheoladh. English says I need to send valid JSON arguments for that tool before I try again. The tool and the retry stay. Tá gá agam states the participant’s need. caithfidh and ní mór can also express practical necessity, so this is the explicit need wording and not a claim that those verbs are always wrong. The action and the other conditions stay.",
-              "proposedValueHash": "d9d4d774a936511a4de53a4e7cac280a775c9a5c52ffc179a95d8bbf519309ca"
-            }
-          },
-          "finalLeadResolution": {
-            "reason": "Use Is gá dom for first-person practical necessity before a verbal-noun action. The official Foras na Gaeilge need entry explicitly supports the is gá construction for needed actions. This avoids the unsettled Tá gá agam grammar. Caithfidh and ní mór also express need in this dictionary, so this is a construction choice, not a rule that bans those words. Preserve every reason, condition, role, protected parameter and strict constraint.",
-            "changedFromProposal": true
-          }
-        },
-        "recovery.correction.arguments_not_json_object": {
-          "finalValueHash": "45fe80673f5bc02c46a12cc4c9c7219f9928afba98befabffc4058fd5223e37c",
-          "chosenFrom": "grok",
-          "leadReason": "Use an explicit tá gá agam construction for the participant’s stated need. Caithfidh and ní mór can also express practical necessity in Irish, so this is a clarity choice, not a blanket lexical rule that they always strengthen need. Preserve the action, actor, need-versus-future distinction, before/after/only conditions, alternatives, completed/unknown status, and strict prohibitions. Leave source must clauses unchanged.",
-          "candidateReason": "Object-as-tool-arguments requirement before retry and exact actor retained.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "required_change",
-          "grokReason": "English says I need. caithfidh and ní mór are obligation. tá gá agam keeps need and does not strengthen it to must. The other conditions in the sentence stay.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {
-            "opus": {
-              "decision": "accept",
-              "reason": "\"Is gá dom … a + verbal noun\" is the construction that the official need entry (focloir.ie, need) gives alongside \"caithfidh\" and \"ní mór\" for a needed action. It keeps the source's practical \"I need to\" without turning it into \"must\". The earlier \"Tá gá agam (le) …\" was at least unsettled grammar before a verbal-noun clause. I agree with the lead that this is a construction choice: \"caithfidh mé\" correctly remains in the six units where the English says \"must\" (self-correction units, already_replied.next, malformed.example). The first-person actor is kept, and the only change is the need construction. All other clauses (reasons, before-deciding and before-retry conditions, alternatives such as \"or continue\", protected PLAN, {{toolName}} and {{username}}) are unchanged. The previous \"tá gá agam le leanúint\" and \"tá gá agam le smaoineamh\" forms are gone.",
-              "proposedValueHash": "45fe80673f5bc02c46a12cc4c9c7219f9928afba98befabffc4058fd5223e37c"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept Is gá dom before the verbal noun. The Foras na Gaeilge need entry gives this construction for a needed action, including ní gá duit ach clárú, an gá dúinn é seo a phlé, is gá duit a bheith, is gá iad a bheathú, and an gá dom a dhath eile a rá. The same entry also gives caithfidh and ní mór for English need, including you need to be over 21 and you need to work hard, so those verbs remain available need wording. This sentence keeps practical necessity. The le that belonged to tá gá agam le is absent because is gá dom takes the verbal noun directly. The needed object is still a JSON object used as the tool arguments, réad JSON mar argóintí na huirlise, before another try. JSON stays uninflected. The tool and the retry condition stay.",
-              "proposedValueHash": "45fe80673f5bc02c46a12cc4c9c7219f9928afba98befabffc4058fd5223e37c"
-            }
-          },
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "I accepted \"Ní mór dom\" or \"Caithfidh mé\" in the comparison, but I agree with the lead's reasoning. Both can express practical necessity, but they also read as \"must\", while the source says \"I need to\". \"Tá gá agam\" states need without strengthening it, and the actor, conditions and alternatives are unchanged. Confidence limit: I cannot confirm which complement is standard after \"Tá gá agam\". Most units use \"Tá gá agam X a dhéanamh\", while notes.disabled and factory.reasoningPrefill use \"Tá gá agam le …\". I record that as an open question rather than propose an edit I cannot verify.",
-              "proposedValueHash": "cbfa868d5f0aa1a405101918da67d8cac663f3b13ee3a9f84b83bbf0ae107d2b"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept Tá gá agam réad JSON a sheoladh. English says I need to send a JSON object as the tool arguments before I try again. The object requirement and the retry stay. Tá gá agam states the participant’s need. caithfidh and ní mór can also express practical necessity, so this is the explicit need wording and not a claim that those verbs are always wrong. The action and the other conditions stay.",
-              "proposedValueHash": "cbfa868d5f0aa1a405101918da67d8cac663f3b13ee3a9f84b83bbf0ae107d2b"
-            }
-          },
-          "finalLeadResolution": {
-            "reason": "Use Is gá dom for first-person practical necessity before a verbal-noun action. The official Foras na Gaeilge need entry explicitly supports the is gá construction for needed actions. This avoids the unsettled Tá gá agam grammar. Caithfidh and ní mór also express need in this dictionary, so this is a construction choice, not a rule that bans those words. Preserve every reason, condition, role, protected parameter and strict constraint.",
-            "changedFromProposal": true
-          }
-        },
-        "recovery.correction.server_error": {
-          "finalValueHash": "f33af2b906e816c7f5aa4ebddf1d32fe4c553ed3dfa3ec2c97986391d5e86528",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Opus and Gemini future verb spelling correct; Grok misspells roghnóidh.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and opus, gemini. actor, tense, limits, and parameters match the English. English: I will choose another action.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "recovery.correction.access": {
-          "finalValueHash": "6dbae6bbf650f7362aa3b2247f3b77ce85242ea48c03d3302a94d40497b23bfe",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Opus and Gemini retain permitted future alternative; Grok misspells future verb.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and opus, gemini. actor, tense, limits, and parameters match the English. English: I will choose another permitted action.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "recovery.correction.timeout": {
-          "finalValueHash": "da6d280db24ea6a16fb2e2cccf40cb4176fe711ce205d226fea0b78ec3960679",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Future page read and conditional future nonrepeat preserve uncertainty.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and opus. actor, tense, limits, and parameters match the English. English: I will read the page. If the outcome remains unknown, I will not repeat the action.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "recovery.correction.unknown": {
-          "finalValueHash": "b0562a4bfd514d619de432d56a6f42fdc5c5d22ccba26c0894aae8086f7978b8",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Opus and Gemini preserve unknown cause and future other action.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and opus, gemini. the prohibition stays ná, ní cheadaítear, or ní féidir. English: I do not know the cause of this failure. I will choose another action.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
         "recovery.metaCompactionUnavailable": {
           "finalValueHash": "1fb3a4c6fa126c787dfde1230d2c04628e120e7b36f713b27170dd2bf0b710b0",
           "chosenFrom": "grok",
@@ -5633,19 +4892,6 @@
           "finalFollowUp": {},
           "finalDiscussion": {}
         },
-        "recovery.batch.guidance": {
-          "finalValueHash": "4355d37468617513ddd8e4ce30cf545e44a129c8cad51ed88862f4de4c24b4d5",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All per-target statuses and unknown inspection retained; natural no action applied to not_attempted targets.",
-          "opusDecision": "accept",
-          "opusReason": "Literal statuses and the no-repeat condition preserved.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and opus. the prohibition stays ná, ní cheadaítear, or ní féidir. English: The result lists each target separately. Do not repeat actions listed as `recorded` or `committed`. Inspect targets with unknown outcomes. If an outcome remains",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
         "recovery.batch.failed": {
           "finalValueHash": "d5e13df5138e0c9bb47597c11a0c84c8046a8edc214b9c59f104daeaea3a51a8",
           "chosenFrom": "opus",
@@ -5697,6 +4943,20 @@
           "changedAfterComparison": false,
           "finalFollowUp": {},
           "finalDiscussion": {}
+        },
+        "recovery.batch.guidance": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "820d2279b84a77d127f1592a3b1c4d99f338b1c8baf6140d09accd2dca5f591d",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
         }
       }
     },
@@ -6751,7 +6011,7 @@
     },
     "issues/notes": {
       "finalHash": "9a6304c9583dce25752d39ef5ab31dd3f6eb9139199ab950dd16ca7ef62b8661",
-      "finalTemplateHash": "273d012c07d49505093b96a28a5c89259a1c58261fcea972c391cc9a23f5670c",
+      "finalTemplateHash": "dc0e131c6d5fc29b217b97687fe0884eacbf9803ed58bb92ee4fbdf99d27f209",
       "draftHashes": {
         "codex": "f56c7d22c7c6fdf4134e22d0c24a207d8eac05a47c2d796c0af9ee3065fa3bc5",
         "opus": "708438155e5035b4b29be9d42ded20e83c6d3d9aa366ff0cef7fd19b36a322a4",
@@ -6798,45 +6058,6 @@
           "opusReason": "\"Ní féidir ach\" keeps only.",
           "grokDecision": "accept",
           "grokReason": "Accept. The allow-list keeps letters, marcanna, numbers, punctuation, symbols, and spaces. Ní féidir ach keeps can-only. The copy instruction stays.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "issue.note.cursor.type": {
-          "finalValueHash": "9f588a523a45a71af178f9ae5369311af1d24d4e68f8d960ae85919364136460",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Text cursor, previous result, and omit-for-new-list instructions retained. Grok changes the definite previous result to an indefinite one.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and opus. the obligation stays caithfidh or ní mór. English: cursor must be text. Copy nextCursor from the previous list_notes result. To start a new list, omit cursor.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "issue.note.cursor.length": {
-          "finalValueHash": "548c697cc299a8b06f06dfedcec756eb94aaaf9c45c38a342116da9eb55ee341",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All five variants compared. Count label avoids uncertain numeral mutations and has the safe cursor field head. Both bounds, normalization, and new-list omission remain explicit.",
-          "opusDecision": "accept",
-          "opusReason": "Neutral range form.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and opus. one is 1, two is 2, few is 3–6, many is 7–10, and other includes 0 and 11 or more; the shared líon or invariant wording is grammatical for each; the obligation stays caithfidh or ní mór. English: cursor must contain {{minimum}}-{{maximum}} character after normalization. Copy nextCursor from the previous list_notes result. To start a new list, omit cursor",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "issue.note.cursor.characters": {
-          "finalValueHash": "572de3382bd0203b225a4c85f547d088befadfd12bed3593cda20d568e48973b",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Six allowed character classes, previous-result copying, and omission for a new list remain intact. Opus uses a safe field head unlike English in in Grok.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and opus. can stays is féidir or ní féidir ach, not ní mór; the only-condition stays ach amháin or amháin. English: cursor can contain letters, marks, numbers, punctuation, symbols, and spaces only. Copy nextCursor from the previous list_notes result. To start a new list, omi",
           "changedAfterComparison": false,
           "finalFollowUp": {},
           "finalDiscussion": {}
@@ -6968,6 +6189,48 @@
           "changedAfterComparison": false,
           "finalFollowUp": {},
           "finalDiscussion": {}
+        },
+        "issue.note.cursor.type": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "dbb7dd05a383def9bd8ace4615ca1315f8ea395a0ba685bd17ed05a4371f1763",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "issue.note.cursor.length": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "157bdb2f272705b45bce0a327e2055ae49a136bd91af56eac135595c8c7315df",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "issue.note.cursor.characters": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "1090c0e8a1a1af4f38e231fa432ea4f994f22faa59c3adae9562df3c3a3ee2bf",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
         }
       }
     },
@@ -7522,6 +6785,1726 @@
           "finalDiscussion": {}
         }
       }
+    },
+    "results": {
+      "provenance": "lead_translation",
+      "lead": "claude-opus",
+      "reviewerSessions": [
+        {
+          "reviewer": "codex",
+          "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+        }
+      ],
+      "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+      "leadReason": "The lead accepts the translations and applies every supplied finding.",
+      "reviewerReason": "An independent Codex session reviewed the lead translations.",
+      "decisions": {
+        "result.reference.deleted": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "4f197a7559cc3cf754f0b52235fff1be84083b8320bbd39ddc88fdaf14019586",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.comment.reply": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "48332660573b5beefded28fcfd250f2210f31f4b980d94155c6b790b02868867",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The phrase ón bpróifíl carries the initial mutation before inserted names."
+        },
+        "result.comment.opening": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "6029978b1e3f374746b8ceed261cc5d04e1ba2fe2bb76c8e2efefe72250d8ea1",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The phrase ón bpróifíl carries the initial mutation before inserted names."
+        },
+        "result.comment.focus_marker": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "186fd3d863324ab2bfbeea15faaaf67420effa28221d31a9b4e5612bc3241b5f",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.comment.trimmed": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "6127c3b00cba9e4e95664ab03dd7b26a81b923244f8556b36e180fbe1194a7db",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.comment.seen_earlier": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "48697b6709fccaf4803e852dee2c8ea34eb5d1b7778733c2393c13bc16a555a0",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.comment.hidden_replies": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "912ba0bc1eb75baaf50feeae69c8394c3d397ab9710d22bffaed68d3b6e7dc98",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.comment.ancestor_only": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "344d7f8184e677b89bc07ec1ffa8130cd0f936a121fd5517cdfb7b7afcddfaa1",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.thread.facts": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "2cf4ce6fdf82c69798b07b91b5714b7e25730cd76937d9d288eef1814657bc20",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.thread.facts_locked": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "5953749289608a2024cba9e8c6bab0909147ce0a2e1c06c74075312e18cad90b",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.read.pruned": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "f149d9ebe0b31df9f4a15fcb44f5874b79db51de434b1c11d216c9c1ca350438",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.list.omitted": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "708953a490190635913f9d842a0f101cc96e11c7ab90b83a84be019ca324a569",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The final text uses mír for a list item."
+        },
+        "result.column.forum": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "331556f7581684c71ecbe5ddd9d243f0044618a72d408ade99eb59327f06da81",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.column.description": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "98cee44863d12d8975f723c08abfd1eaeb630c532a77eca9c3614a0d109935a2",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.column.posting": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "08411975b2eb2d3ee9557f11c29677716c2cfc86c68ebd98079c0846c244f563",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.column.thread": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "6cf9bafa33dffe18bb69612f57098f2fb9796dd48ad0f05729e9165224f3a56c",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.column.title": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "dd1dc085a64943d912cfa1bab415c4294970fa68403e09242c8b10b2b3a57ffc",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.column.author": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "f3f2e71f81e1966a3a8562e3915528c845bacefa3bef6d46ed13499146225721",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.column.comments": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "86274b94a27f186fa2b56d8341c63464c0f45a53bf95cf8f76f75f421a670dd0",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.column.score": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "3d01dd4797c3bfaee456e9c7c9cf01d9c91d55c319eab85ccb468153eab2cfc6",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.column.last_activity": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "def3961d6feac09fe4e3b6a6da80247a5a5d9d3430652d53db6373deb0dd41c6",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.column.hit": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "e7f333b4bfab8a351a6655f22ca5cd37ea9eff0939633058c5b5f01c9cf80107",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.column.when": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "a6ce883cac56aaba55eae1364eaa71c7eeb5cac60150ec5a83cba385e480b51a",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.column.excerpt": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "24c2500b8c06fccc3b06cada240ac8c40d601a3331b59cab45030c79947f2d01",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.column.item": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "491e386b7a45ec75372ebacd7ea1a7ec88806ee9b7bfc5646687059eccd49218",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The final text uses mír for a list item."
+        },
+        "result.column.profile": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "251350bf29c85be17a3f8a2ffeef798d44f9100072aab8302464d8efcedcaa30",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.column.bio": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "efd3747d9862613b931eef2aa48df91626cf808516b696c986ec8a7dc0c0ed30",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.column.followers": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "d9a2346c51fc9b58b0418760a33242befa53b0d2575a6115ce2bd93aa5186c35",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.column.relation": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "13320c72f2c9b3a7d1e91647d8a1e22a7662bb61e03954e1f6b5312f579ba500",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.column.my_notes": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "e28961739636dca50bdc602836cd8010dc20aee5c96c8c7995c40ebe07e8f644",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.author.self_mark": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "adaa12a8d04472871fa72ec2f12457907898e8894f500f548f56342387f1f385",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.forums.none": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "40e14838b272f095ea92e0c2d2697c8feacb45af8afa92f4dcd954d9d815cce6",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.forums.read_only": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "5d18f9b825e19eae3090bd8e917de0a8195fa736f82106f3139d0b194c76be5a",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.threads.none": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "8d3932d1671c8679c2ecb83c5c5a00bb197ff30cbb6a2cd14e121855926e7889",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.threads.locked_count": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "e3b525bb3a268c19fd942e4df2bd98e25880ed42a756e70bd8990cbd9c7eaa2c",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.search.none": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "7e82a68f8afb85a216252087d897569822b9f92d4aba6a9b62cf8a7b6a9aef90",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.search.seen_earlier": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "6f8d777a4b42a75f04f83740c5611e2683740e105302f4c744c0ecbc092e8b66",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.profiles.none": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "0626f05676c6cf320fc94bce9acfdb6df3b22cfa42c1944ff88deb20c37d131c",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.profiles.window": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "2fc40749c8bd1869eeef71f5f1f557d81dbd42e73a73035edd564d6ee80002dd",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.profiles.window_empty": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "e94ce8322b743dfcdd1729c6b190f3983f6cfca20166196ae940d09abcc5fcb3",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.profiles.next_offset": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "a2462dff83869be92a9ee1f018024aaa6a2307a82284c7300d3833bb22458f74",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.profiles.random": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "d35a39ee1a323f67f8de7bc8023285c2de7ccdad5578283c67f77ce46db855b0",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "A count label keeps the random sample grammatical for one profile and several profiles."
+        },
+        "result.profiles.relation.mutual": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "6b01a8a435e915baa8f6296728f53e1b8e7bbbe0eb35e2e6fd4163c67496d076",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.profiles.relation.i_follow": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "48ef81ddde95192bdc8b66675614abcd91da5d427a3c8ce85f3cd457d4621b90",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.profiles.relation.follows_me": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "d52ebd7d8079d13fedc175b85c87d6504af06a4407fe3dabb0d773f8e6f2df0f",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.profiles.more_notes": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "e7d400c2fa3232afee8f52b6bcc38097fb0082aeb300c5d082e108839aca833c",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.notifications.none": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "6fb416fbd8f9a9bf3028a2c676b277a0b57a7f87bd3f06bbc9d18d14c3c32ef1",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.notifications.omitted": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "d264de0c539eda045c83c9de3c2da2308fe8e24084e066969c9b1fe32f4695a3",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.notifications.bootstrap.heading": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "89203bede90199db6681e9c95015452da033fac6af1ab4d19c763fbc86fb556d",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.notifications.reply": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "161a13055d9926254f18156b3f2462edfbe6cc6f485c6838076db1f4efe91620",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The phrase ón bpróifíl carries the initial mutation before inserted names."
+        },
+        "result.notifications.mention": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "2c61a354566e3d57c4429cdb73a94e99c9f0bd3a63cd8f072b5c4b0dd7065915",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.notifications.thread_post.personal_forum": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "fce26b657674fc73cfaebc8dc2678bb2c4ce91df32a3820c200176f22f55e225",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.notifications.thread_post.followed": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "9113799c6cf0fb6ddf63b94f6d60e33c916b8ad34d98829152534ab30f5e87c2",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.notifications.notice.comment": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "da2562c3f11221d6e6022bbd7b51a0b799cd786f5902a2f209c780d021a051cf",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.notifications.notice.vote": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "73fab014c956623d008edffd4e4be0ad86207d165e286c59c7648acb3a9131af",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The phrase ón bpróifíl carries the initial mutation before inserted names."
+        },
+        "result.notifications.notice.follow": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "2e8d5f9c789f772708666c59f463857b966ef2463ef36e75e12475a7d713fa62",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.notifications.notice.unfollow": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "a94a99043c0608dcdd35cebf1bb5912023a2a74b84c91ed3fff65717165e9581",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.notifications.digest.heading": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "2f15b785e9b307b9d039f544f7d66f1a6d2046a37d99e19211f7e6c92a229da0",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The phrase ón bpróifíl carries the initial mutation before inserted names."
+        },
+        "result.notifications.digest.older_omitted": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "a705a68d03e8432b2d31e45365fe2a4b4406a1443ceb3b692a41e6cecc905811",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.notifications.digest.titles_omitted": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "90099ffb0856da9f905cf462a6de6ad0a3a34a9258218217c03d72b45f563956",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.activity.heading": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "5f36314aebc7360f56dcd2d5776c7f8e22181325447c836cc8e9556877fa5e51",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.activity.none": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "0d22ae7702f153dbd9b16e938d3daee67ffcffe58b9eac8fb19f4e5267a8d1c7",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.activity.thread": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "d5b63f9bf861842f9aa95679edc9dacb33aa679e5edc735fa3a437570830eb69",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.activity.reply": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "c1c2e6ec5e6505913153153127890fe4846f21f750d0c861eadb0c50bcc60a10",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.activity.comment": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "2ff779aa2b22626f949fb848d1ae3ef4e9ab2545cec15773b5cc1472e0ad59d1",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.activity.parent_preview": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "94b4297c01a2209e105977741c37b0c53065f066f1f98595d7a9c4e84173ab9c",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.activity.vote": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "b0c98a323017bb6ce9e0c710d0b8c6b519010b697bfe5dd98caccda57a301e97",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.activity.target_preview": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "b67e7d81bb33562e97d9a6e0341a28d1b1b9a094da1f16e11ab88ef71c48d689",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.activity.reason": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "fadbb99a698074e4d35c0c43298ac3704b5930c0e8af714fb018ed552cf86466",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.activity.follow": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "6c2891b5b91c8fe60ab4e50bce3fb2d7424cd516b5237ce377fd34abe7bbb50c",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.activity.unfollow": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "a83e40c3a8a206ddc95d05b8b2fc759406ee1c8c10e4f73447d980fe7d253665",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.followers.followers": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "633b23f93cdb0749b6249e33322bf59081ee15927c4c8aa89a7ac977f15faf0f",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.followers.following": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "edb454b14bca6cf646808190bdf4504dd5f6c36266055a9e3b3fe5a73989a8fb",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.follow.now_following": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "e7c50de26109343bd51b7d067c4d94beefde5b4f19aa74b1c68fdec86e78c04c",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.follow.no_longer_following": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "5f94c3f5d67da79f6534f0b41bcc07ea89a31fbc09a4734a3fb4c784d38ecf08",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.vote.done": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "3a8779c1be173fa2d6ea6049604b6fa322c0e181f65a1ef8a739d1b931f604d7",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.create_thread.done": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "1bde3dc1db09ce97a1f69e06364d976cea7a609541d722f28c698195ecb83d70",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The final text uses feminine agreement with postáil."
+        },
+        "result.reply.done": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "991315617b1f387635f076431265bc9e555a664c8a79122a8037c58a07a7ebf7",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.random.draw": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "b925e6bb24c7120c7c62db4a1ea2641ae1efb364f67dbedf838be871317c0c45",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.notes.listed": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "128f4eddf6e24efab5f5e64c4f7e7e826a4e1ef70f8917aae9c3221387981a89",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.notes.next_cursor": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "181ff065aded12e368e4372ac05dc38d725639d5ae53c4aeacf274e15bd97b01",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.notes.unknown_filters": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "fa07dc9be8af7f2aae761bb1d15cc3168ae0227679578be966b7997c9b483e32",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.note.heading": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "c2da1abf012717c661a9164db4f4bcbbcce56fcbe1c54d059054698dfd8efbae",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.note.links": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "d4806f642db6c1a002632202a36f6fa500b82d159008fe0e677e22bc54fe8ae5",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.note.created": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "e4ec9b8da6efa25a5d3f25de208fe72f36f079c59cc4c54e2cd005110b0c7633",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.note.replaced": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "abf0333b837a3bd63bf3db449595cbf0ebf152d7360d8a33bd15091991ee3eda",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.note.unknown_references": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "b8714569127388c25f7ac50b692f99813c1341522fcfde97e7fa4101699e628f",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.note.deleted": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "c20b06a10a901e368402b38c8f906950f1693b3e69f3c71193870efe36b77426",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.note.reset": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "8f17af27fe1e42ccfd637c2089def167123297e08519b40ea42b31f7e5ac5593",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.failure.existing_thread": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "4f77da7f1179d28bbc124ac27e0a4770d6b82c708cd19ae16db0e9a9c67be06b",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.failure.existing_comment": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "6eb56ae94be6bf753a68360e426890e26ef51aa1fb933c578af96f827de1cf9a",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.batch.committed": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "056b08d3964cd36fe932786d8343041ce2579c4478fb8c085c8a49ad6fde2095",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.batch.refused": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "580fde7cdfea2671dbaa2a458e103587513ade07d996673c592b3f9b2369d85a",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "Ní dhearnadh corrects the negative past form of déan."
+        },
+        "result.batch.unknown": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "83d5ebb49196318380985f961126262bb44736fc7f5214abf21f24669eee7b02",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.batch.not_attempted": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "1fd334753f45bdcd836f8da852925b50fbfaddba650a18b56c175d8775dcec05",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.thread.lock.reason.comment_limit": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "f151ba2b143183d9e31f2eed80e2a93c18ea3e063d406490fe2ffe8751228350",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.timestamp": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "8a08b46c71fac517a5611789eb0ab7c9eb9c8bf3695aeda609000d5bd40e8fd0",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.unavailable": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "00c4e6dfee36440933b230458ce24fef9511711b99ded39af6aad791f2cec20f",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.notes.none": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "6459b1e895020b791661922573886abb67c41867b38372a4fd562baecf5f4e36",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.quote.open": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "80c82178aa5a5eef3148e5c13f3deaa0ef320b71e122de07db3e0fbd20d55826",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.quote.close": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "ef206bba9b8b128ca6d8066e109128f482cbf441853d622148b36fd738dfbbcd",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.notifications.unavailable": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "00c4e6dfee36440933b230458ce24fef9511711b99ded39af6aad791f2cec20f",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.reply.without_parent": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "0d751a7a08ecef42eebdaa08e112d2065933e71e6cb4f161245eaf979584f111",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.create_thread.without_post": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "60f52f8d717fb1be538e914ab756fcabda27d9d64815ea8b6952fa8e5468f07c",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.notifications.thread_post.personal_forum.without_forum": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "ee28a004d00f0ed020f45d95a4d676eb14e0894500adbea4b0eb0815f85bf941",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.notifications.thread_post.followed.without_forum": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "e1cd3a072620bdc3cbbfad26c57ed8fb5c398014aaa5f1cf88777a9ef618f48d",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.activity.thread.without_forum": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "4de8785469a2c3eb0f58a85806d31033d1764fc0496b8de51ac40f7303452d4f",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.activity.comment.without_forum": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "a9f90f754b548a8458f403142389c843946f3fa9264a9ec0ce1b3de47a6afb9b",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.activity.reply.without_forum": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "ba038031d4534ad5085c706febba114e6809706a3cc540b540f885edb20dc060",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.activity.vote.without_thread": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "853c19457b1658691eaae15ca747cd8fa1a7af9a30e6685966aebc0b0e213c0f",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        }
+      },
+      "finalTemplateHash": "bef810c5eadaa3033c8c9c2f11562ee7b1f262abb4e8c68e19baa5fcd3ee4eeb"
+    },
+    "reports": {
+      "provenance": "lead_translation",
+      "lead": "claude-opus",
+      "reviewerSessions": [
+        {
+          "reviewer": "codex",
+          "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+        }
+      ],
+      "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+      "leadReason": "The lead accepts the translations and applies every supplied finding.",
+      "reviewerReason": "An independent Codex session reviewed the lead translations.",
+      "decisions": {
+        "report.timestamp.relative": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "28e62040438caede4bcdff2f4744bc3c97b9fa754e6e03fd1cef24e6c817d4e0",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "report.timestamp.absolute": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "0403c2759b727599c806aa227483c732de4f453bc9317c18d16ee4ee291e1935",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        }
+      },
+      "finalTemplateHash": "96017e0f613de9d1d55e5603deb03eb6df852646de7fcb8b80fb9f136834bcdc"
+    },
+    "tools/list_accessible_forums": {
+      "provenance": "lead_translation",
+      "lead": "claude-opus",
+      "reviewerSessions": [
+        {
+          "reviewer": "codex",
+          "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+        }
+      ],
+      "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+      "leadReason": "The lead accepts the translations and applies every supplied finding.",
+      "reviewerReason": "An independent Codex session reviewed the lead translations.",
+      "decisions": {
+        "tools.list_accessible_forums.description": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "49a46ec9c3a4db6ecd53a1f579846a92829589356eb7fd2380955156e54f3ee5",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        }
+      },
+      "finalTemplateHash": "9b006e15d466cc0b831a8d0309d1f7a60c0cd486178c969272cb727b6568077d"
+    },
+    "tools/read_thread": {
+      "provenance": "lead_translation",
+      "lead": "claude-opus",
+      "reviewerSessions": [
+        {
+          "reviewer": "codex",
+          "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+        }
+      ],
+      "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+      "leadReason": "The lead accepts the translations and applies every supplied finding.",
+      "reviewerReason": "An independent Codex session reviewed the lead translations.",
+      "decisions": {
+        "tools.read_thread.description": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "390b3c9bfcba010f8ff3855bd268c2b0ba04c5faaf29426ac4f74461e03612dc",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        }
+      },
+      "finalTemplateHash": "df4a5a0bda9c94c713e542ba98d604e10449ab5e5955afcd06ee0a7f4a8e1ebc"
+    },
+    "tools/read_thread_by_id": {
+      "provenance": "lead_translation",
+      "lead": "claude-opus",
+      "reviewerSessions": [
+        {
+          "reviewer": "codex",
+          "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+        }
+      ],
+      "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+      "leadReason": "The lead accepts the translations and applies every supplied finding.",
+      "reviewerReason": "An independent Codex session reviewed the lead translations.",
+      "decisions": {
+        "tools.read_thread_by_id.description": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "390b3c9bfcba010f8ff3855bd268c2b0ba04c5faaf29426ac4f74461e03612dc",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        }
+      },
+      "finalTemplateHash": "bb94727ef7982547878cb943ba1476ed576a114de7c57ba4a981feb50d0a2c66"
+    },
+    "tools/read_comment_by_id": {
+      "provenance": "lead_translation",
+      "lead": "claude-opus",
+      "reviewerSessions": [
+        {
+          "reviewer": "codex",
+          "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+        }
+      ],
+      "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+      "leadReason": "The lead accepts the translations and applies every supplied finding.",
+      "reviewerReason": "An independent Codex session reviewed the lead translations.",
+      "decisions": {
+        "tools.read_comment_by_id.description": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "fed515d86d38664cc57a88811edc7e5ecc1fa684adbfc176a0d4d2cdda465e21",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        }
+      },
+      "finalTemplateHash": "22a09cafbc081dd92eba4590d51522ae7953de4c8cad7e3a94659d32d1db6fe0"
     }
   },
   "incrementalReviews": [
@@ -7839,6 +8822,153 @@
         "Irish remains best effort. Native fluency is unverified. Technical and idiomatic terms for performative acts, morbid fascination, motivation, focus and context weighting require fluent review. Inherited uncertainty remains recorded."
       ],
       "historicalEvidence": "Earlier model drafts and review records describe previous catalog versions. They do not establish new reviews of this update."
+    },
+    {
+      "provenance": "lead_translation",
+      "lead": "claude-opus",
+      "reviewerSessions": [
+        {
+          "reviewer": "codex",
+          "session": "01a1698f-3e28-78e0-95fe-3f5136e1da61"
+        }
+      ],
+      "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+      "sourceCommit": "96d408f275e53993160650c965c61f9d6f347ebd",
+      "previousCatalogSourceHash": "9e0bc5f98d28edf8caf9f35e8a6315b5d01512cacf38164f4bd5a3dff3ef0e2c",
+      "catalogSourceHash": "fccf6536ad73ade5b65ab4ff2271b2b82b90f8f3483a35cdea87591dd9437263",
+      "units": [
+        "report.timestamp.relative",
+        "report.timestamp.absolute",
+        "system.main",
+        "tools.list_accessible_forums.description",
+        "tools.read_thread.description",
+        "tools.read_thread_by_id.description",
+        "tools.read_comment_by_id.description",
+        "tools.list_notes.properties.cursor.description",
+        "issue.note.cursor.type",
+        "issue.note.cursor.length",
+        "issue.note.cursor.characters",
+        "result.reference.deleted",
+        "result.comment.reply",
+        "result.comment.opening",
+        "result.comment.focus_marker",
+        "result.comment.trimmed",
+        "result.comment.seen_earlier",
+        "result.comment.hidden_replies",
+        "result.comment.ancestor_only",
+        "result.thread.facts",
+        "result.read.pruned",
+        "result.list.omitted",
+        "result.column.forum",
+        "result.column.description",
+        "result.column.posting",
+        "result.column.thread",
+        "result.column.title",
+        "result.column.author",
+        "result.column.comments",
+        "result.column.score",
+        "result.column.last_activity",
+        "result.column.hit",
+        "result.column.when",
+        "result.column.excerpt",
+        "result.column.item",
+        "result.column.profile",
+        "result.column.bio",
+        "result.column.followers",
+        "result.column.relation",
+        "result.column.my_notes",
+        "result.author.self_mark",
+        "result.forums.none",
+        "result.forums.read_only",
+        "result.threads.none",
+        "result.threads.locked_count",
+        "result.search.none",
+        "result.search.seen_earlier",
+        "result.profiles.none",
+        "result.profiles.window",
+        "result.profiles.next_offset",
+        "result.profiles.random",
+        "result.profiles.relation.mutual",
+        "result.profiles.relation.i_follow",
+        "result.profiles.relation.follows_me",
+        "result.profiles.more_notes",
+        "result.notifications.none",
+        "result.notifications.omitted",
+        "result.notifications.bootstrap.heading",
+        "result.notifications.reply",
+        "result.notifications.mention",
+        "result.notifications.thread_post.personal_forum",
+        "result.notifications.thread_post.followed",
+        "result.notifications.notice.comment",
+        "result.notifications.notice.vote",
+        "result.notifications.notice.follow",
+        "result.notifications.notice.unfollow",
+        "result.notifications.digest.heading",
+        "result.notifications.digest.older_omitted",
+        "result.notifications.digest.titles_omitted",
+        "result.activity.heading",
+        "result.activity.none",
+        "result.activity.thread",
+        "result.activity.reply",
+        "result.activity.comment",
+        "result.activity.parent_preview",
+        "result.activity.vote",
+        "result.activity.target_preview",
+        "result.activity.reason",
+        "result.activity.follow",
+        "result.activity.unfollow",
+        "result.followers.followers",
+        "result.followers.following",
+        "result.follow.now_following",
+        "result.follow.no_longer_following",
+        "result.vote.done",
+        "result.create_thread.done",
+        "result.reply.done",
+        "result.random.draw",
+        "result.notes.listed",
+        "result.notes.next_cursor",
+        "result.notes.unknown_filters",
+        "result.note.heading",
+        "result.note.links",
+        "result.note.created",
+        "result.note.replaced",
+        "result.note.unknown_references",
+        "result.note.deleted",
+        "result.note.reset",
+        "result.failure.existing_thread",
+        "result.failure.existing_comment",
+        "result.batch.committed",
+        "result.batch.refused",
+        "result.batch.unknown",
+        "result.batch.not_attempted",
+        "result.thread.lock.reason.comment_limit",
+        "result.timestamp",
+        "result.unavailable",
+        "result.notes.none",
+        "result.quote.open",
+        "result.quote.close",
+        "result.notifications.unavailable",
+        "recovery.batch.guidance",
+        "result.reply.without_parent",
+        "result.create_thread.without_post",
+        "result.notifications.thread_post.personal_forum.without_forum",
+        "result.notifications.thread_post.followed.without_forum",
+        "result.activity.thread.without_forum",
+        "result.activity.comment.without_forum",
+        "result.activity.reply.without_forum",
+        "result.activity.vote.without_thread",
+        "result.thread.facts_locked",
+        "result.profiles.window_empty"
+      ],
+      "status": "accepted_by_lead",
+      "reviewedDraftCommit": "e90825286932ebc0e3f4f874f5ed150b092cc7f9",
+      "reportHash": "7140676984d340376c295f77d2f87535a59c883db696b5c11164895ac7b79fd8",
+      "leadReason": "The lead applied every finding from the independent review before the reviewed commit.",
+      "reviewerReason": "The report reviews the earlier draft. The supplied resolution identifies the final commit after all fixes.",
+      "uncertainties": [
+        "Irish remains best effort. The reviewer retained tócain téacs but did not settle its preferred technical usage."
+      ],
+      "previousDecisions": {}
     }
   ],
   "followUpReviews": [

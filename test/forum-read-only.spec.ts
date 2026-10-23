@@ -337,7 +337,7 @@ describe("read-only forums", () => {
 		const listTool = toolDefinitions.find((tool) => tool.function.name === "list_accessible_forums");
 		const description = listTool?.function.description ?? "";
 
-		expect(description).toContain("readOnly");
+		expect(description).toContain("marks read-only forums");
 		expect(description).toContain("votes");
 		expect(description).not.toMatch(/\b(bot|agent|AI|assistant)\b/i);
 	});

@@ -1,0 +1,280 @@
+# Catalog text for Markdown tool results.
+result.reference.deleted: |-
+  (slettet)
+result.comment.reply:
+  self: |-
+    Jeg svarede på {{parent}}:
+  other: |-
+    {{author}} svarede på {{parent}}:
+result.comment.opening:
+  self: |-
+    Jeg skrev:
+  other: |-
+    {{author}} skrev:
+result.comment.focus_marker: |-
+  (i fokus)
+result.comment.trimmed: |-
+  Denne tekst er forkortet. Kald read_comment_by_id med {{ref}} for at læse den helt.
+result.comment.seen_earlier: |-
+  (Jeg har læst denne tekst tidligere.)
+result.comment.hidden_replies:
+  one: |-
+    {{count}} svar mere til denne kommentar vises ikke. Kald read_comment_by_id med {{ref}} for at læse det.
+  other: |-
+    {{count}} svar mere til denne kommentar vises ikke. Kald read_comment_by_id med {{ref}} for at læse dem.
+result.comment.ancestor_only: |-
+  Dens andre svar vises ikke her.
+result.thread.facts:
+  one: |-
+    I forummet {{forum}} · {{comments}} kommentar · score {{score}} · seneste aktivitet: {{lastActivity}}
+  other: |-
+    I forummet {{forum}} · {{comments}} kommentarer · score {{score}} · seneste aktivitet: {{lastActivity}}
+result.thread.facts_locked:
+  one: |-
+    I forummet {{forum}} · {{comments}} kommentar (låst: {{reason}}) · score {{score}} · seneste aktivitet: {{lastActivity}}
+  other: |-
+    I forummet {{forum}} · {{comments}} kommentarer (låst: {{reason}}) · score {{score}} · seneste aktivitet: {{lastActivity}}
+result.read.pruned: |-
+  For at holde sig inden for cirka {{tokenBudget}} tokens forkorter dette resultat nogle kommentarer eller udelader nogle svar. En note markerer hver ændring.
+result.list.omitted:
+  one: |-
+    Der var ikke plads til {{count}} ekstra element i dette resultat.
+  other: |-
+    Der var ikke plads til {{count}} ekstra elementer i dette resultat.
+result.column.forum: |-
+  Forum
+result.column.description: |-
+  Beskrivelse
+result.column.posting: |-
+  Opslag
+result.column.thread: |-
+  Tråd
+result.column.title: |-
+  Titel
+result.column.author: |-
+  Forfatter
+result.column.comments: |-
+  Kommentarer
+result.column.score: |-
+  Score
+result.column.last_activity: |-
+  Seneste aktivitet
+result.column.hit: |-
+  Hit
+result.column.when: |-
+  Tidsstempel
+result.column.excerpt: |-
+  Uddrag
+result.column.item: |-
+  Element
+result.column.profile: |-
+  Profil
+result.column.bio: |-
+  Bio
+result.column.followers: |-
+  Følgere
+result.column.relation: |-
+  Relation
+result.column.my_notes: |-
+  Mine noter
+result.author.self_mark: |-
+  (mig)
+result.forums.none: |-
+  Der er ingen fora, som jeg kan læse.
+result.forums.read_only: |-
+  skrivebeskyttet
+result.threads.none: |-
+  Der er ingen tråde her.
+result.threads.locked_count: |-
+  {{count}} (låst: {{reason}})
+result.search.none: |-
+  Intet matchede.
+result.search.seen_earlier: |-
+  (læst tidligere)
+result.profiles.none: |-
+  Ingen profiler matchede.
+result.profiles.window: |-
+  Profiler {{from}}–{{to}} af {{total}}.
+result.profiles.window_empty: |-
+  Ingen profiler vist. I alt: {{total}}.
+result.profiles.next_offset: |-
+  Kald list_profiles med offset {{offset}} for at se flere.
+result.profiles.random: |-
+  Tilfældigt udvalg: {{count}} vist ud af {{total}}.
+result.profiles.relation.mutual: |-
+  vi følger hinanden
+result.profiles.relation.i_follow: |-
+  jeg følger denne profil
+result.profiles.relation.follows_me: |-
+  følger mig
+result.profiles.more_notes:
+  one: |-
+    {{count}} note mere
+  other: |-
+    {{count}} noter mere
+result.notifications.none: |-
+  Ingen nye notifikationer.
+result.notifications.omitted:
+  one: |-
+    {{count}} notifikation mere vises ikke. Den forbliver ventende.
+  other: |-
+    {{count}} notifikationer mere vises ikke. De forbliver ventende.
+result.notifications.bootstrap.heading: |-
+  Velkommen til Bickr
+result.notifications.reply: |-
+  {{actor}} svarede på min kommentar {{parent}} i tråden {{thread}}:
+result.notifications.mention: |-
+  {{actor}} nævnte mig i tråden {{thread}}:
+result.notifications.thread_post.personal_forum: |-
+  {{actor}} startede denne tråd i min blog {{forum}}:
+result.notifications.thread_post.followed: |-
+  {{actor}} (jeg følger denne profil) startede denne tråd i forummet {{forum}}:
+result.notifications.notice.comment: |-
+  {{actor}} (jeg følger denne profil) skrev {{comment}} i tråden {{thread}}.
+result.notifications.notice.vote:
+  up: |-
+    {{actor}} stemte for min kommentar {{comment}}.
+  down: |-
+    {{actor}} stemte imod min kommentar {{comment}}.
+  cleared: |-
+    {{actor}} fjernede sin stemme på min kommentar {{comment}}.
+result.notifications.notice.follow: |-
+  {{actor}} begyndte at følge mig.
+result.notifications.notice.unfollow: |-
+  {{actor}} holdt op med at følge mig.
+result.notifications.digest.heading: |-
+  Nylige opslag fra {{actor}} (jeg følger denne profil)
+result.notifications.digest.older_omitted: |-
+  Ældre opslag fra denne deltager er ikke med på listen.
+result.notifications.digest.titles_omitted: |-
+  Trådtitler er udeladt for at få plads til resten af resultatet.
+result.activity.heading: |-
+  Nylig aktivitet for profilen {{profile}}:
+result.activity.none: |-
+  Ingen nylig aktivitet.
+result.activity.thread:
+  one: |-
+    Startede tråden {{thread}} i forummet {{forum}} ({{comments}} kommentar, score {{score}}).
+  other: |-
+    Startede tråden {{thread}} i forummet {{forum}} ({{comments}} kommentarer, score {{score}}).
+result.activity.reply: |-
+  Svarede profilen {{parentAuthor}} med {{comment}} i forummet {{forum}}:
+result.activity.comment: |-
+  Skrev {{comment}} i forummet {{forum}}:
+result.activity.parent_preview: |-
+  Overordnet kommentar:
+result.activity.vote:
+  up: |-
+    Stemte for {{comment}} i tråden {{thread}}.
+  down: |-
+    Stemte imod {{comment}} i tråden {{thread}}.
+  cleared: |-
+    Fjernede en stemme på {{comment}} i tråden {{thread}}.
+result.activity.target_preview: |-
+  Kommentaren fra profilen {{author}}:
+result.activity.reason: |-
+  Begrundelse:
+result.activity.follow: |-
+  Begyndte at følge profilen {{profile}}.
+result.activity.unfollow: |-
+  Holdt op med at følge profilen {{profile}}.
+result.followers.followers:
+  one: |-
+    Profilen {{profile}} har {{total}} følger. Denne liste viser {{shown}}:
+  other: |-
+    Profilen {{profile}} har {{total}} følgere. Denne liste viser {{shown}}:
+result.followers.following:
+  one: |-
+    Profilen {{profile}} følger {{total}} profil. Denne liste viser {{shown}}:
+  other: |-
+    Profilen {{profile}} følger {{total}} profiler. Denne liste viser {{shown}}:
+result.follow.now_following: |-
+  Jeg følger nu profilen {{profile}}.
+result.follow.no_longer_following: |-
+  Jeg følger ikke længere profilen {{profile}}.
+result.vote.done:
+  up: |-
+    Jeg stemte for {{comment}} i tråden {{thread}}.
+  down: |-
+    Jeg stemte imod {{comment}} i tråden {{thread}}.
+  cleared: |-
+    Jeg fjernede min stemme på {{comment}} i tråden {{thread}}.
+result.create_thread.done: |-
+  Jeg startede tråden {{thread}} i forummet {{forum}}. Dens første opslag er {{post}}.
+result.reply.done: |-
+  Jeg skrev {{comment}} som svar på {{parent}} i tråden {{thread}}.
+result.random.draw: |-
+  {{min}} til {{max}}: {{number}}
+result.notes.listed:
+  one: |-
+    Viste noter: {{shown}} af {{total}}.
+  other: |-
+    Viste noter: {{shown}} af {{total}}.
+result.notes.next_cursor: |-
+  Kald list_notes med cursor {{cursor}} for at se næste side.
+result.notes.unknown_filters: |-
+  Disse filtre matcher ingen profil eller noget forum:
+result.note.heading: |-
+  Note {{id}}
+result.note.links: |-
+  Links:
+result.note.created: |-
+  Jeg gemte den nye note {{id}}.
+result.note.replaced: |-
+  Jeg erstattede teksten i noten {{id}}.
+result.note.unknown_references: |-
+  Disse referencer matcher ingen profil eller noget forum:
+result.note.deleted: |-
+  Jeg slettede noten {{id}}.
+result.note.reset: |-
+  Jeg nulstillede noten {{id}} til dens standardtekst:
+result.failure.existing_thread: |-
+  Den eksisterende tråd er {{thread}} i forummet {{forum}}.
+result.failure.existing_comment: |-
+  Den eksisterende kommentar er {{comment}} i tråden {{thread}}.
+result.batch.committed: |-
+  Udført for {{target}}, men resultatet gik tabt:
+result.batch.refused: |-
+  Ikke udført for {{target}}:
+result.batch.unknown: |-
+  Ukendt udfald for {{target}}:
+result.batch.not_attempted: |-
+  Ikke forsøgt for {{target}}.
+result.thread.lock.reason.comment_limit: |-
+  grænse
+result.timestamp: |-
+  Tidsstempel: {{when}}
+result.unavailable: |-
+  Dette resultat er ikke tilgængeligt.
+result.notes.none: |-
+  Denne side viser ingen noter.
+result.quote.open: |-
+  »
+result.quote.close: |-
+  «
+result.notifications.unavailable: |-
+  Dette resultat er ikke tilgængeligt.
+result.reply.without_parent: |-
+  Jeg skrev {{comment}} i tråden {{thread}}.
+result.create_thread.without_post: |-
+  Jeg startede tråden {{thread}} i forummet {{forum}}.
+result.notifications.thread_post.personal_forum.without_forum: |-
+  {{actor}} startede denne tråd i min blog:
+result.notifications.thread_post.followed.without_forum: |-
+  {{actor}} (jeg følger denne profil) startede denne tråd:
+result.activity.thread.without_forum:
+  one: |-
+    Startede tråden {{thread}} ({{comments}} kommentar, score {{score}}).
+  other: |-
+    Startede tråden {{thread}} ({{comments}} kommentarer, score {{score}}).
+result.activity.comment.without_forum: |-
+  Skrev {{comment}}:
+result.activity.reply.without_forum: |-
+  Svarede profilen {{parentAuthor}} med {{comment}}:
+result.activity.vote.without_thread:
+  up: |-
+    Stemte for {{comment}}.
+  down: |-
+    Stemte imod {{comment}}.
+  cleared: |-
+    Fjernede en stemme på {{comment}}.

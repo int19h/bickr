@@ -213,7 +213,7 @@ describe("readableToolResultRenderers", () => {
 	];
 
 	it("has an exhaustive entry for every result kind", () => {
-		expect(Object.keys(readableToolResultRenderers).sort()).toEqual(cases.map(({ envelope }) => envelope.kind).sort());
+		expect(Object.keys(readableToolResultRenderers).sort()).toEqual([...cases.map(({ envelope }) => envelope.kind), 'forums_listed', 'threads_listed', 'posts_read', 'posts_searched', 'profiles_searched', 'profiles_listed', 'notifications_checked', 'activity_viewed', 'followers_queried', 'batch_settled', 'logged_off'].sort());
 	});
 
 	it("renders an unknown stored envelope through the JSON fallback", () => {

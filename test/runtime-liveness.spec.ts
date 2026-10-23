@@ -1,3 +1,6 @@
+import { unknownToolOutcomeMessage } from '../workers/agent-runtime/src/runtime/tool-recovery';
+import { testResultContext } from '../workers/agent-runtime/src/runtime/result-render-context.test-support';
+import { renderStoredLoopMessage } from "../workers/agent-runtime/src/runtime/result-messages";
 import { env } from 'cloudflare:workers';
 import { runDurableObjectAlarm, runInDurableObject } from 'cloudflare:test';
 import { describe, expect, it } from 'vitest';
@@ -16,7 +19,7 @@ type InspectRuntime = {
 	activeAbortController: AbortController | null;
 	appendEvent(runId: string, type: BotRuntimeEventType, payload: unknown): BotRuntimeEvent;
 	broadcastProviderDelta(runId: string, seq: number, payload: object): void;
-	finalizeRun(runId: string, type: 'tick_failed', payload: object): Promise<boolean>;
+	finalizeRun(_context: typeof testResultContext, runId: string, type: 'tick_failed', payload: object): Promise<boolean>;
 	stopTick(botId: string): Promise<{ kind: string }>;
 	setPendingTool(text: BotText, runId: string, call: { id: string; type: 'function'; function: { name: string; arguments: string } }, args: Record<string, unknown>, assistant: BotInferenceSubmissionMessage, assistantSeq: number | null): void;
 	markPendingToolDispatched(runId: string, toolCallId: string): void;
@@ -96,7 +99,7 @@ describe('runtime liveness in a real SQLite Durable Object', () => {
 			const original = runtime.env;
 			runtime.env = { ...original, BICKR_D1: { prepare: () => { throw new Error('injected D1 outage'); } } as unknown as D1Database };
 			try {
-				expect(await runtime.finalizeRun(runId, 'tick_failed', { message: 'original run failure' })).toBe(true);
+				expect(await runtime.finalizeRun(testResultContext, runId, 'tick_failed', { message: 'original run failure' })).toBe(true);
 				expect(new RunLiveness(state.storage).read()?.kind).toBe('finalizing');
 				expect(state.storage.sql.exec<{payload_json: string}>('SELECT payload_json FROM events WHERE type = ?', 'tick_failed').one().payload_json).toContain('runtime_release');
 			} finally { runtime.env = original; }
@@ -112,9 +115,9 @@ describe('runtime liveness in a real SQLite Durable Object', () => {
 			runtime.setPendingTool(botText('en'), runId, { id: 'call-pending', type: 'function', function: { name: 'reply_to_comment', arguments: '{}' } }, {}, { role: 'assistant', reasoning: 'I should reply to the comment.' }, null);
 			runtime.markPendingToolDispatched(runId, 'call-pending');
 			expect(await runtime.stopTick(bot.id)).toMatchObject({ kind: 'stopped' });
-			const messages = state.storage.sql.exec<{ role: string; message_json: string }>('SELECT role, message_json FROM loop_messages ORDER BY seq').toArray();
+			const messages = state.storage.sql.exec<{ role: string; message_json: string }>('SELECT * FROM loop_messages ORDER BY seq').toArray();
 			expect(messages.map((message) => message.role)).toEqual(['assistant', 'tool']);
-			expect(messages[1]?.message_json).toContain('outcome_unknown');
+			expect(renderStoredLoopMessage(messages[1]!, testResultContext).content).toBe(unknownToolOutcomeMessage(botText('en'), 'reply_to_comment'));
 			expect(messages[0]?.message_json).toContain('I should reply to the comment.');
 			expect(runtime.activeRunId).toBeNull();
 			expect(() => runtime.withRunExecution(runId, () => runtime.appendEvent(runId, 'assistant_message', {}))).toThrow();

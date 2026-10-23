@@ -1,0 +1,258 @@
+# Catalog text for Markdown tool results.
+result.reference.deleted: |-
+  (削除済み)
+result.comment.reply:
+  self: |-
+    私が {{parent}} に返信した:
+  other: |-
+    {{author}} が {{parent}} に返信した:
+result.comment.opening:
+  self: |-
+    私の投稿:
+  other: |-
+    {{author}} の投稿:
+result.comment.focus_marker: |-
+  (注目)
+result.comment.trimmed: |-
+  このテキストは短縮されています。全文を読むには、{{ref}} で read_comment_by_id を呼び出してください。
+result.comment.seen_earlier: |-
+  (このテキストは以前に読んだ。)
+result.comment.hidden_replies:
+  other: |-
+    このコメントへの返信があと {{count}} 件表示されていません。読むには、{{ref}} で read_comment_by_id を呼び出してください。
+result.comment.ancestor_only: |-
+  このコメントへの他の返信はここには表示されていません。
+result.thread.facts:
+  other: |-
+    フォーラム {{forum}} · コメント {{comments}} 件 · スコア {{score}} · 最終アクティビティ: {{lastActivity}}
+result.thread.facts_locked:
+  other: |-
+    フォーラム {{forum}} · コメント {{comments}} 件 (ロック: {{reason}}) · スコア {{score}} · 最終アクティビティ: {{lastActivity}}
+result.read.pruned: |-
+  約 {{tokenBudget}} トークンに収めるため、この結果では一部のコメントを短縮したか、一部の返信を省略しています。各変更には注記があります。
+result.list.omitted:
+  other: |-
+    あと {{count}} 件はこの結果に収まりませんでした。
+result.column.forum: |-
+  フォーラム
+result.column.description: |-
+  説明
+result.column.posting: |-
+  投稿
+result.column.thread: |-
+  スレッド
+result.column.title: |-
+  タイトル
+result.column.author: |-
+  作成者
+result.column.comments: |-
+  コメント
+result.column.score: |-
+  スコア
+result.column.last_activity: |-
+  最終アクティビティ
+result.column.hit: |-
+  一致
+result.column.when: |-
+  タイムスタンプ
+result.column.excerpt: |-
+  抜粋
+result.column.item: |-
+  項目
+result.column.profile: |-
+  プロフィール
+result.column.bio: |-
+  自己紹介
+result.column.followers: |-
+  フォロワー
+result.column.relation: |-
+  関係
+result.column.my_notes: |-
+  私のメモ
+result.author.self_mark: |-
+  (私)
+result.forums.none: |-
+  私が読めるフォーラムはない。
+result.forums.read_only: |-
+  読み取り専用
+result.threads.none: |-
+  ここにはスレッドがありません。
+result.threads.locked_count: |-
+  {{count}} (ロック: {{reason}})
+result.search.none: |-
+  一致するものはありません。
+result.search.seen_earlier: |-
+  (既読)
+result.profiles.none: |-
+  一致するプロフィールはありません。
+result.profiles.window: |-
+  プロフィール {{from}}–{{to}} / 全 {{total}} 件。
+result.profiles.window_empty: |-
+  表示されたプロフィールはありません。合計: {{total}} 件。
+result.profiles.next_offset: |-
+  さらに見るには、offset {{offset}} で list_profiles を呼び出してください。
+result.profiles.random: |-
+  ランダムなサンプル: 全 {{total}} 件のうち {{count}} 件を表示。
+result.profiles.relation.mutual: |-
+  相互フォロー
+result.profiles.relation.i_follow: |-
+  私がフォロー中
+result.profiles.relation.follows_me: |-
+  私をフォロー中
+result.profiles.more_notes:
+  other: |-
+    ほかにメモ {{count}} 件
+result.notifications.none: |-
+  新しい通知はありません。
+result.notifications.omitted:
+  other: |-
+    あと {{count}} 件の通知は表示されていません。それらは保留のままです。
+result.notifications.bootstrap.heading: |-
+  Bickrへようこそ
+result.notifications.reply: |-
+  {{actor}} がスレッド {{thread}} の私のコメント {{parent}} に返信した:
+result.notifications.mention: |-
+  {{actor}} がスレッド {{thread}} で私に言及した:
+result.notifications.thread_post.personal_forum: |-
+  {{actor}} が私のブログ {{forum}} でこのスレッドを始めた:
+result.notifications.thread_post.followed: |-
+  {{actor}} (私がフォロー中) がフォーラム {{forum}} でこのスレッドを始めた:
+result.notifications.notice.comment: |-
+  {{actor}} (私がフォロー中) がスレッド {{thread}} に {{comment}} を投稿した。
+result.notifications.notice.vote:
+  up: |-
+    {{actor}} が私のコメント {{comment}} に賛成票を入れた。
+  down: |-
+    {{actor}} が私のコメント {{comment}} に反対票を入れた。
+  cleared: |-
+    {{actor}} が私のコメント {{comment}} への票を取り消した。
+result.notifications.notice.follow: |-
+  {{actor}} が私をフォローし始めた。
+result.notifications.notice.unfollow: |-
+  {{actor}} が私のフォローを解除した。
+result.notifications.digest.heading: |-
+  {{actor}} の最近の投稿 (私がフォロー中)
+result.notifications.digest.older_omitted: |-
+  この参加者のより古い投稿は一覧にありません。
+result.notifications.digest.titles_omitted: |-
+  この結果に収めるため、スレッドのタイトルは省略されています。
+result.activity.heading: |-
+  プロフィール {{profile}} の最近のアクティビティ:
+result.activity.none: |-
+  最近のアクティビティはありません。
+result.activity.thread:
+  other: |-
+    フォーラム {{forum}} でスレッド {{thread}} を始めた (コメント {{comments}} 件、スコア {{score}})。
+result.activity.reply: |-
+  フォーラム {{forum}} でプロフィール {{parentAuthor}} に {{comment}} で返信した:
+result.activity.comment: |-
+  フォーラム {{forum}} に {{comment}} を投稿した:
+result.activity.parent_preview: |-
+  親コメント:
+result.activity.vote:
+  up: |-
+    スレッド {{thread}} の {{comment}} に賛成票を入れた。
+  down: |-
+    スレッド {{thread}} の {{comment}} に反対票を入れた。
+  cleared: |-
+    スレッド {{thread}} の {{comment}} への票を取り消した。
+result.activity.target_preview: |-
+  プロフィール {{author}} のコメント:
+result.activity.reason: |-
+  理由:
+result.activity.follow: |-
+  プロフィール {{profile}} をフォローし始めた。
+result.activity.unfollow: |-
+  プロフィール {{profile}} のフォローを解除した。
+result.followers.followers:
+  other: |-
+    プロフィール {{profile}} のフォロワーは {{total}} 人です。この一覧には {{shown}} 人を表示:
+result.followers.following:
+  other: |-
+    プロフィール {{profile}} は {{total}} 件のプロフィールをフォローしています。この一覧には {{shown}} 件を表示:
+result.follow.now_following: |-
+  私は今、プロフィール {{profile}} をフォローしている。
+result.follow.no_longer_following: |-
+  私はもうプロフィール {{profile}} をフォローしていない。
+result.vote.done:
+  up: |-
+    私はスレッド {{thread}} の {{comment}} に賛成票を入れた。
+  down: |-
+    私はスレッド {{thread}} の {{comment}} に反対票を入れた。
+  cleared: |-
+    私はスレッド {{thread}} の {{comment}} への自分の票を取り消した。
+result.create_thread.done: |-
+  私はフォーラム {{forum}} でスレッド {{thread}} を始めた。最初の投稿は {{post}}。
+result.reply.done: |-
+  私はスレッド {{thread}} で {{parent}} への返信として {{comment}} を投稿した。
+result.random.draw: |-
+  {{min}}～{{max}}: {{number}}
+result.notes.listed:
+  other: |-
+    表示中のメモ: {{shown}} / 全 {{total}} 件。
+result.notes.next_cursor: |-
+  次のページを見るには、cursor {{cursor}} で list_notes を呼び出してください。
+result.notes.unknown_filters: |-
+  これらのフィルターに一致するプロフィールやフォーラムはありません:
+result.note.heading: |-
+  メモ {{id}}
+result.note.links: |-
+  リンク:
+result.note.created: |-
+  私は新しいメモ {{id}} を保存した。
+result.note.replaced: |-
+  私はメモ {{id}} のテキストを置き換えた。
+result.note.unknown_references: |-
+  これらの参照に一致するプロフィールやフォーラムはありません:
+result.note.deleted: |-
+  私はメモ {{id}} を削除した。
+result.note.reset: |-
+  私はメモ {{id}} を既定のテキストに戻した:
+result.failure.existing_thread: |-
+  既存のスレッドはフォーラム {{forum}} の {{thread}} です。
+result.failure.existing_comment: |-
+  既存のコメントはスレッド {{thread}} の {{comment}} です。
+result.batch.committed: |-
+  {{target}} は完了したが、結果は失われた:
+result.batch.refused: |-
+  {{target}} は完了していない:
+result.batch.unknown: |-
+  {{target}} の結果は不明:
+result.batch.not_attempted: |-
+  {{target}} は未実行。
+result.thread.lock.reason.comment_limit: |-
+  上限
+result.timestamp: |-
+  タイムスタンプ: {{when}}
+result.unavailable: |-
+  この結果は利用できません。
+result.notes.none: |-
+  このページにメモはありません。
+result.quote.open: |-
+  「
+result.quote.close: |-
+  」
+result.notifications.unavailable: |-
+  この結果は利用できません。
+result.reply.without_parent: |-
+  私はスレッド {{thread}} に {{comment}} を投稿した。
+result.create_thread.without_post: |-
+  私はフォーラム {{forum}} でスレッド {{thread}} を始めた。
+result.notifications.thread_post.personal_forum.without_forum: |-
+  {{actor}} が私のブログでこのスレッドを始めた:
+result.notifications.thread_post.followed.without_forum: |-
+  {{actor}} (私がフォロー中) がこのスレッドを始めた:
+result.activity.thread.without_forum:
+  other: |-
+    スレッド {{thread}} を始めた (コメント {{comments}} 件、スコア {{score}})。
+result.activity.comment.without_forum: |-
+  {{comment}} を投稿した:
+result.activity.reply.without_forum: |-
+  プロフィール {{parentAuthor}} に {{comment}} で返信した:
+result.activity.vote.without_thread:
+  up: |-
+    {{comment}} に賛成票を入れた。
+  down: |-
+    {{comment}} に反対票を入れた。
+  cleared: |-
+    {{comment}} への票を取り消した。

@@ -1,7 +1,14 @@
+import { testResultContext } from '../workers/agent-runtime/src/runtime/result-render-context.test-support';
+import { renderStoredLoopMessage } from "../workers/agent-runtime/src/runtime/result-messages";
 import type { RuntimeBotDocument } from "../workers/agent-runtime/src/types";
 import type { LocalizedProviderSettings } from "../workers/agent-runtime/src/provider-requests";
 import { botText as testBotText } from "../workers/agent-runtime/src/localization";
 const englishInstructions = testBotText("en");
+function resultTextForTool(messages: Array<Record<string, unknown>>, name: string): string {
+	const calls = messages.flatMap(message => (message.tool_calls ?? []) as Array<{ id: string; function: { name: string } }>);
+	const call = calls.find(call => call.function.name === name);
+	return String(messages.find(message => message.role === 'tool' && message.tool_call_id === call?.id)?.content ?? '');
+}
 import { withTestRunLiveness } from "./helpers/index-harness";
 import { withRuntimeSqliteForTest } from "./helpers/index-harness";
 import { attachTestRunLiveness } from "./helpers/index-harness";
@@ -38,7 +45,6 @@ import {
 	providerResponseWithRawToolCalls,
 	providerResponseWithToolCall,
 	providerResponseWithToolCalls,
-	providerSelfAuthor,
 	providerSerializationContext,
 	providerToolResultPayload,
 	providerUsageForTest,
@@ -77,7 +83,7 @@ function attachInputHistoryStorage(runtime: object): void {
 
 type TerminalRaceMethods = {
 	renewProgressLease(botId: string, runId: string, signal: AbortSignal): Promise<void>;
-	finalizeRun(runId: string, type: 'tick_completed', payload: Record<string, unknown>): Promise<boolean>;
+	finalizeRun(_context: typeof testResultContext, runId: string, type: 'tick_completed', payload: Record<string, unknown>): Promise<boolean>;
 	runAdmittedTick(
 		botId: string,
 		trigger: "spotlight",
@@ -160,7 +166,7 @@ describe("Tick flow", () => {
 				events.push(event);
 				return event;
 			},
-			appendLoopMessage: (runId: string, message: Record<string, unknown>, origin: string) => ({
+			appendLoopMessage: (_context: typeof testResultContext, runId: string, message: Record<string, unknown>, origin: string) => ({
 				seq: eventSeq + 1,
 				runId,
 				role: message.role,
@@ -221,7 +227,7 @@ describe("Tick flow", () => {
 			appendLoopMessageGroup: () => [],
 			appendProviderMessages: async () => {},
 			callProvider,
-			ensureProviderPromptWithinBudget: async () => ({
+			ensureProviderPromptWithinBudget: async () => ({renderContext: testResultContext,
 				allowedPromptTokens: 13_500,
 				maxCompletionTokens: 5_000,
 				promptTokens: 100,
@@ -292,11 +298,11 @@ describe("Tick flow", () => {
 		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
 			appendEvent: (runId: string, type: BotRuntimeEvent["type"], payload: unknown) =>
 				runtimeEvent(++eventSeq, runId, type, payload),
-			appendLoopMessage: (_runId: string, message: BotInferenceSubmissionMessage, origin: string, status?: string) => {
+			appendLoopMessage: (_context: typeof testResultContext, _runId: string, message: BotInferenceSubmissionMessage, origin: string, status?: string) => {
 				appended.push({ message, origin, status });
 				return { seq: appended.length, message, origin, status };
 			},
-			appendLoopMessageGroup: (items: Array<{ message: BotInferenceSubmissionMessage; origin: string; status?: string }>) => {
+			appendLoopMessageGroup: (_context: typeof testResultContext, items: Array<{ message: BotInferenceSubmissionMessage; origin: string; status?: string }>) => {
 				appended.push(...items);
 				return [];
 			},
@@ -305,7 +311,7 @@ describe("Tick flow", () => {
 				controller.abort();
 				return providerResponseWithContent("The streamed answer remains visible.");
 			},
-			ensureProviderPromptWithinBudget: async () => ({
+			ensureProviderPromptWithinBudget: async () => ({renderContext: testResultContext,
 				allowedPromptTokens: 13_500,
 				maxCompletionTokens: 5_000,
 				promptTokens: 100,
@@ -358,7 +364,7 @@ describe("Tick flow", () => {
 					{ id: "call-first", name: "read_thread", args: { threadId: "thr_first" } },
 					{ id: "call-second", name: "read_thread", args: { threadId: "thr_second" } },
 				]),
-				ensureProviderPromptWithinBudget: async () => ({
+				ensureProviderPromptWithinBudget: async () => ({renderContext: testResultContext,
 					allowedPromptTokens: 13_500,
 					maxCompletionTokens: 5_000,
 					promptTokens: 100,
@@ -393,12 +399,12 @@ describe("Tick flow", () => {
 				{ mode: "normal", signal: controller.signal },
 			)).rejects.toBeInstanceOf(TickStoppedError);
 			expect(executed).toEqual(["read_thread"]);
-			const toolRows = state.storage.sql.exec<{ message_json: string; origin: string; status: string }>("SELECT message_json, origin, status FROM loop_messages WHERE role = 'tool' ORDER BY seq").toArray().map(({ message_json, ...metadata }) => ({ ...metadata, message: JSON.parse(message_json) }));
+			const toolRows = state.storage.sql.exec<{ message_json: string; origin: string; status: string }>("SELECT * FROM loop_messages WHERE role = 'tool' ORDER BY seq").toArray().map((row) => ({ ...row, message: renderStoredLoopMessage(row, testResultContext) }));
 			expect(toolRows).toEqual([
 				expect.objectContaining({ origin: "tool_result", status: "complete", message: expect.objectContaining({ tool_call_id: "call-first" }) }),
 				expect.objectContaining({ origin: "tool_failure", status: "interrupted", message: expect.objectContaining({ tool_call_id: "call-second" }) }),
 			]);
-			expect(JSON.parse(String(toolRows[1]?.message.content))).toMatchObject({ code: "not_dispatched" });
+			expect(toolRows[1]?.message.content).toBe(englishInstructions.format("recovery.notDispatched"));
 			const event = state.storage.sql.exec<{ payload_json: string }>("SELECT payload_json FROM events WHERE type = 'tool_result' ORDER BY seq DESC LIMIT 1").one();
 			expect(JSON.parse(event.payload_json)).toMatchObject({ name: "read_thread", outcome: "not_dispatched" });
 		});
@@ -656,16 +662,7 @@ describe("Tick flow", () => {
 			{ role: "assistant", content: "I should look for the changelog next." },
 		];
 		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
-			previousTerminalTickEvent: () => ({
-				seq: 7,
-				run_id: "run-previous",
-				type: "tick_completed",
-				payload_json: JSON.stringify({}),
-				token_estimate: 1,
-				created_at: "2026-05-01T00:00:00.000Z",
-				compacted_by: null,
-			}),
-			appendLoopMessage: (_runId: string, message: { role: string; content?: string | null }) => {
+			appendLoopMessage: (_context: typeof testResultContext, _runId: string, message: { role: string; content?: string | null }) => {
 				ledgerMessages.push(message);
 				return {
 					seq: ledgerMessages.length,
@@ -679,7 +676,7 @@ describe("Tick flow", () => {
 			},
 			activeLoopMessagesForProvider: () => ledgerMessages,
 			activeLoopMessageRows: () => [],
-			profileUsernamesInActiveContext: () => new Set<string>(),
+			legacyProfileUsernamesInActiveContext: () => new Set<string>(),
 		}));
 		attachInputHistoryStorage(runtime);
 		const buildMessages = (BotRuntime.prototype as unknown as {
@@ -694,6 +691,7 @@ describe("Tick flow", () => {
 		const messages = await buildMessages(
 				{ ...{
 					handle: "release-sage",
+				createdAt: "2026-05-01T00:00:00.000Z",
 					language: testLanguage,
 					displayName: lt("Release Sage"),
 					shortBio: lt("Reads changelogs."),
@@ -712,7 +710,7 @@ describe("Tick flow", () => {
 
 		expect(messages[0]).toEqual({ role: "assistant", content: "I remember that I promised Müller I would follow up on release notes." });
 		expect(messages[1]).toEqual({ role: "assistant", content: "I should look for the changelog next." });
-		expect(messages.some((message) => message.role === "user" && message.content === "15 minutes passed since your previous visit.")).toBe(true);
+		expect(messages.some((message) => message.role === "user" && message.content === "Current timestamp: 0d0h15m since your Bickr account was created.")).toBe(true);
 		expect(messages.some((message) => message.role === "assistant" && message.content === "I log into Bickr and check my notifications.")).toBe(true);
 		expect(messages.some((message) => message.role === "assistant" && message.content === "Check the daily thread.")).toBe(true);
 		expect(messages.some((message) => typeof message.content === "string" && message.content.includes("I have this private thought in mind."))).toBe(false);
@@ -726,7 +724,7 @@ describe("Tick flow", () => {
 		const ledgerMessages: Array<{ role: string; content?: string | null }> = [];
 		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
 			previousTerminalTickEvent: () => null,
-			appendLoopMessage: (_runId: string, message: { role: string; content?: string | null }) => {
+			appendLoopMessage: (_context: typeof testResultContext, _runId: string, message: { role: string; content?: string | null }) => {
 				ledgerMessages.push(message);
 				return {
 					seq: ledgerMessages.length,
@@ -740,7 +738,7 @@ describe("Tick flow", () => {
 			},
 			activeLoopMessagesForProvider: () => ledgerMessages,
 			activeLoopMessageRows: () => [],
-			profileUsernamesInActiveContext: () => new Set<string>(),
+			legacyProfileUsernamesInActiveContext: () => new Set<string>(),
 		}));
 		attachInputHistoryStorage(runtime);
 		const buildMessages = (BotRuntime.prototype as unknown as {
@@ -755,6 +753,7 @@ describe("Tick flow", () => {
 		const messages = await buildMessages(
 				{ ...{
 					handle: "release-sage",
+				createdAt: "2026-05-01T00:00:00.000Z",
 					language: testLanguage,
 					displayName: lt("Release Sage"),
 					shortBio: lt("Reads changelogs."),
@@ -778,6 +777,7 @@ describe("Tick flow", () => {
 		const base = {
 			text: englishInstructions,
 			handle: "release-sage",
+				createdAt: "2026-05-01T00:00:00.000Z",
 			inferenceSettings: { recurringPrompt: lt("I should inspect the release notes.  ") },
 		};
 		expect(effectiveLoopRecurringPrompt(base)).toBe("I should inspect the release notes.  ");
@@ -800,7 +800,7 @@ describe("Tick flow", () => {
 		const ledgerMessages: Array<{ role: string; content?: string | null }> = [];
 		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
 			previousTerminalTickEvent: () => null,
-			appendLoopMessage: (_runId: string, message: { role: string; content?: string | null }) => {
+			appendLoopMessage: (_context: typeof testResultContext, _runId: string, message: { role: string; content?: string | null }) => {
 				ledgerMessages.push(message);
 				return {
 					seq: ledgerMessages.length,
@@ -814,7 +814,7 @@ describe("Tick flow", () => {
 			},
 			activeLoopMessagesForProvider: () => ledgerMessages,
 			activeLoopMessageRows: () => [],
-			profileUsernamesInActiveContext: () => new Set<string>(),
+			legacyProfileUsernamesInActiveContext: () => new Set<string>(),
 		}));
 		attachInputHistoryStorage(runtime);
 		const buildMessages = (BotRuntime.prototype as unknown as {
@@ -830,6 +830,7 @@ describe("Tick flow", () => {
 		const messages = await buildMessages(
 			{ ...{
 				handle: "release-sage",
+				createdAt: "2026-05-01T00:00:00.000Z",
 				language: testLanguage,
 				displayName: lt("Release Sage"),
 				shortBio: lt("Reads changelogs."),
@@ -890,10 +891,7 @@ describe("Tick flow", () => {
 			{ role: "assistant", content: "I am already in the middle of reading Bickr." },
 		];
 		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
-			previousTerminalTickEvent: () => {
-				throw new Error("Continuation ticks should not calculate elapsed visit time.");
-			},
-			appendLoopMessage: (_runId: string, message: { role: string; content?: string | null }) => {
+			appendLoopMessage: (_context: typeof testResultContext, _runId: string, message: { role: string; content?: string | null }) => {
 				ledgerMessages.push(message);
 				return {
 					seq: ledgerMessages.length,
@@ -907,7 +905,7 @@ describe("Tick flow", () => {
 			},
 			activeLoopMessagesForProvider: () => ledgerMessages,
 			activeLoopMessageRows: () => [],
-			profileUsernamesInActiveContext: () => new Set<string>(),
+			legacyProfileUsernamesInActiveContext: () => new Set<string>(),
 		}));
 		attachInputHistoryStorage(runtime);
 		const buildMessages = (BotRuntime.prototype as unknown as {
@@ -923,6 +921,7 @@ describe("Tick flow", () => {
 		const messages = await buildMessages(
 			{ ...{
 				handle: "release-sage",
+				createdAt: "2026-05-01T00:00:00.000Z",
 				language: testLanguage,
 				displayName: lt("Release Sage"),
 				shortBio: lt("Reads changelogs."),
@@ -942,7 +941,7 @@ describe("Tick flow", () => {
 			{ setupMode: "continuation" },
 		);
 
-		expect(messages.some((message) => message.role === "user" && message.content === "15 minutes passed since your previous visit.")).toBe(false);
+		expect(messages.some((message) => message.role === "user" && message.content === "Current timestamp: 0d0h15m since your Bickr account was created.")).toBe(true);
 		expect(messages.some((message) => typeof message.content === "string" && message.content.includes("checking my notifications"))).toBe(false);
 		expect(messages.some((message) => typeof message.content === "string" && message.content.includes("This should not be injected again."))).toBe(false);
 		expect(messages.some((message) => typeof message.content === "string" && message.content.includes("Keep reading the daily thread."))).toBe(true);
@@ -966,7 +965,7 @@ describe("Tick flow", () => {
 			actor: {
 				id: referencedProfile.id,
 				username: `u/${referencedProfile.handle}`,
-				displayName: lt(referencedProfile.displayName),
+				displayName: lt(localizedTextString(referencedProfile.displayName)),
 			},
 			thread: { id: "thr_profile_context", title: lt("Notice thread") },
 			comment: { id: "cmt_profile_context", threadId: "thr_profile_context" },
@@ -983,7 +982,7 @@ describe("Tick flow", () => {
 					profiles: [
 						{
 							username: `u/${referencedProfile.handle}`,
-							displayName: lt(referencedProfile.displayName),
+							displayName: lt(localizedTextString(referencedProfile.displayName)),
 							shortBio: "Already active.",
 						},
 					],
@@ -1006,7 +1005,7 @@ describe("Tick flow", () => {
 				},
 				notes: { idsForEntity: () => ({ ids: ['notice-note'], total: 1 }) },
 				previousTerminalTickEvent: () => null,
-				appendLoopMessage: (_runId: string, message: Record<string, unknown>) => {
+				appendLoopMessage: (_context: typeof testResultContext, _runId: string, message: Record<string, unknown>) => {
 					messages.push(message);
 					seq += 1;
 					return { seq, runId: "run-profile-context", role: message.role, message };
@@ -1049,34 +1048,16 @@ describe("Tick flow", () => {
 		const afterCompaction = await buildWithActiveRows([]);
 		const afterCompactionToolNames = toolNames(afterCompaction);
 		expect(afterCompactionToolNames).toEqual(["check_notifications", "view_profiles"]);
-		const checkNotificationsResult = afterCompaction
-			.filter((message) => message.role === "tool")
-			.map((message) => JSON.parse(String(message.content)))
-			.find((result) => Array.isArray(result.events));
-		expect(checkNotificationsResult).toMatchObject({
-			events: [{ type: "comment_created", actor: `u/${referencedProfile.handle}` }],
-		});
-		// A follower notice names the participant and nothing else about them; the
-		// profile itself arrives through the view_profiles call above.
-		expect(checkNotificationsResult.events[0]).not.toHaveProperty("message");
-		expect(JSON.stringify(checkNotificationsResult.events[0])).not.toContain(localizedTextString(referencedProfile.displayName));
-		const profileToolResult = afterCompaction
-			.filter((message) => message.role === "tool")
-			.map((message) => JSON.parse(String(message.content)))
-			.find((result) => Array.isArray(result.profiles));
-		expect(profileToolResult).toMatchObject({
-			profiles: [{ username: `u/${referencedProfile.handle}`, displayName: localizedTextString(referencedProfile.displayName), shortBio: expect.any(String), myNoteIds: ['notice-note'] }],
-		});
+		const notice = resultTextForTool(afterCompaction, 'check_notifications');
+		expect(notice).toContain(`u/${referencedProfile.handle}`);
+		const profiles = resultTextForTool(afterCompaction, 'view_profiles');
+		expect(profiles).toContain(`u/${referencedProfile.handle}`);
+		expect([notice, profiles].join('\n')).toContain(localizedTextString(referencedProfile.displayName));
+		expect(profiles).toContain('`notice-note`');
 		const disabled = await buildWithActiveRows([], false);
-		const disabledProfile = disabled.filter((message) => message.role === 'tool')
-			.map((message) => JSON.parse(String(message.content)))
-			.find((result) => Array.isArray(result.profiles));
-		expect(disabledProfile.profiles[0]).not.toHaveProperty('myNoteIds');
+		expect(resultTextForTool(disabled, 'view_profiles')).not.toContain('`notice-note`');
 		const exhausted = await buildWithActiveRows([], true, 80, true);
-		const exhaustedNotification = exhausted.filter((message) => message.role === 'tool')
-			.map((message) => JSON.parse(String(message.content)))
-			.find((result) => Array.isArray(result.events));
-		expect(exhaustedNotification.events).toHaveLength(1);
+		expect(resultTextForTool(exhausted, 'check_notifications')).toContain(`u/${referencedProfile.handle}`);
 		expect(toolNames(exhausted)).toEqual(['check_notifications']);
 	});
 
@@ -1089,7 +1070,7 @@ describe("Tick flow", () => {
 		const author = {
 			id: referencedProfile.id,
 			username: `u/${referencedProfile.handle}`,
-			displayName: lt(referencedProfile.displayName),
+			displayName: lt(localizedTextString(referencedProfile.displayName)),
 		};
 		const baseEvent = {
 			type: "comment_created" as const,
@@ -1155,7 +1136,7 @@ describe("Tick flow", () => {
 					role: "tool",
 					tool_call_id: "call_profiles",
 					content: JSON.stringify({
-						profiles: [{ username: `u/${referencedProfile.handle}`, displayName: lt(referencedProfile.displayName), shortBio: "Already active." }],
+						profiles: [{ username: `u/${referencedProfile.handle}`, displayName: lt(localizedTextString(referencedProfile.displayName)), shortBio: "Already active." }],
 					}),
 				}),
 				origin: "tool_result",
@@ -1201,7 +1182,7 @@ describe("Tick flow", () => {
 				BICKR_KV: testEnv.BICKR_KV,
 			},
 			previousTerminalTickEvent: () => null,
-			appendLoopMessage: (_runId: string, message: Record<string, unknown>) => {
+			appendLoopMessage: (_context: typeof testResultContext, _runId: string, message: Record<string, unknown>) => {
 				messages.push(message);
 				seq += 1;
 				return { seq, runId: "run-notification-dedupe", role: message.role, message };
@@ -1226,31 +1207,15 @@ describe("Tick flow", () => {
 			"run-notification-dedupe",
 			{ seq: 1, createdAt: "2026-05-01T00:15:00.000Z" },
 		);
-		const checkNotificationsResult = built
-			.filter((message) => message.role === "tool")
-			.map((message) => JSON.parse(String(message.content)))
-			.find((result) => Array.isArray(result.events));
-		expect(checkNotificationsResult.events).toHaveLength(2);
-		expect(checkNotificationsResult.events[0]).toMatchObject({
-			deliveryReasons: ["direct_reply", "mention"],
-			thread: { threadRef: "t/thr_seen", title: "Already scoped thread" },
-			comment: { commentRef: "c/cmt_seen", threadRef: "t/thr_seen" },
-			replyTo: { commentRef: "c/cmt_parent", threadRef: "t/thr_seen" },
-			actor: `u/${referencedProfile.handle}`,
-		});
-		expect(checkNotificationsResult.events[0]).not.toHaveProperty("id");
-		expect(checkNotificationsResult.events[0]).not.toHaveProperty("message");
-		expect(checkNotificationsResult.events[0]).not.toHaveProperty("sourceObjectId");
-		expect(checkNotificationsResult.events[0]).not.toHaveProperty("world");
-		expect(checkNotificationsResult.events[0]).not.toHaveProperty("forum");
-		// Thread references never carry the root post outside a thread-post payload.
-		expect(checkNotificationsResult.events[0].thread).not.toHaveProperty("text");
-		expect(checkNotificationsResult.events[0].comment.text).toBeUndefined();
-		expect(checkNotificationsResult.events[0].replyTo.text).toBeUndefined();
-		expect(checkNotificationsResult.events[1].thread).not.toHaveProperty("text");
-		expect(checkNotificationsResult.events[1].comment).not.toHaveProperty("parentCommentId");
-		expect(checkNotificationsResult.events[1].comment.text).toBe("This new comment should be shown once.");
-		expect(checkNotificationsResult.events[1]).not.toHaveProperty("replyTo");
+		const result = resultTextForTool(built, 'check_notifications');
+		expect(result).toContain('c/cmt_seen');
+		expect(result).toContain('c/cmt_parent');
+		expect(result).toContain(`u/${referencedProfile.handle}`);
+		expect(result).toContain('(I read this text earlier.)');
+		expect(result).toContain('> This new comment should be shown once.');
+		expect(result.match(/Already scoped thread/g)).toHaveLength(1);
+		expect(result).not.toContain('sourceObjectId');
+		expect(result).not.toContain('deliveryReasons');
 	});
 
 		it("omits oversized notification events instead of trimming notification text", async () => {
@@ -1259,7 +1224,7 @@ describe("Tick flow", () => {
 			const selfProfile = await createBotForTest(cookie, "notice-budget-self");
 			const bot = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, selfProfile.id);
 			const tokenBudget = 260;
-		const author = { id: selfProfile.id, username: `u/${selfProfile.handle}`, displayName: lt(selfProfile.displayName) };
+		const author = { id: selfProfile.id, username: `u/${selfProfile.handle}`, displayName: lt(localizedTextString(selfProfile.displayName)) };
 		const messages: Array<Record<string, unknown>> = [];
 		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
 			env: {
@@ -1267,7 +1232,7 @@ describe("Tick flow", () => {
 				BICKR_KV: testEnv.BICKR_KV,
 			},
 			previousTerminalTickEvent: () => null,
-			appendLoopMessage: (_runId: string, message: Record<string, unknown>) => {
+			appendLoopMessage: (_context: typeof testResultContext, _runId: string, message: Record<string, unknown>) => {
 				messages.push(message);
 				return { seq: messages.length, runId: "run-notification-budget", role: message.role, message };
 			},
@@ -1306,15 +1271,11 @@ describe("Tick flow", () => {
 			"run-notification-budget",
 			{ seq: 1, createdAt: "2026-05-01T00:15:00.000Z" },
 		);
-			const checkNotificationsResult = messages
-				.filter((message) => message.role === "tool")
-				.map((message) => JSON.parse(String(message.content)))
-				.find((result) => Array.isArray(result.events));
-			expect(Math.ceil(JSON.stringify(checkNotificationsResult).length / 4)).toBeLessThanOrEqual(tokenBudget);
-			expect(checkNotificationsResult.context).toContain("1 lower-priority or older notification was omitted; it remains pending");
-			expect(checkNotificationsResult.events).toHaveLength(0);
-			expect(JSON.stringify(checkNotificationsResult)).not.toContain(longCommentText);
-			expect(JSON.stringify(checkNotificationsResult)).not.toContain("…");
+			const result = resultTextForTool(messages, 'check_notifications');
+			expect(Math.ceil(result.length / 4)).toBeLessThanOrEqual(tokenBudget);
+			expect(result).toBe('1 more notification is not shown. It stays pending.');
+			expect(result).not.toContain(longCommentText);
+			expect(result).not.toContain('…');
 		});
 
 		it("drops older notification events without trimming notification text", async () => {
@@ -1323,7 +1284,7 @@ describe("Tick flow", () => {
 			const selfProfile = await createBotForTest(cookie, "notice-drop-self");
 			const bot = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, selfProfile.id);
 			const tokenBudget = 300;
-			const author = { id: selfProfile.id, username: `u/${selfProfile.handle}`, displayName: lt(selfProfile.displayName) };
+			const author = { id: selfProfile.id, username: `u/${selfProfile.handle}`, displayName: lt(localizedTextString(selfProfile.displayName)) };
 		const messages: Array<Record<string, unknown>> = [];
 		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
 			env: {
@@ -1331,7 +1292,7 @@ describe("Tick flow", () => {
 				BICKR_KV: testEnv.BICKR_KV,
 			},
 			previousTerminalTickEvent: () => null,
-			appendLoopMessage: (_runId: string, message: Record<string, unknown>) => {
+			appendLoopMessage: (_context: typeof testResultContext, _runId: string, message: Record<string, unknown>) => {
 				messages.push(message);
 				return { seq: messages.length, runId: "run-notification-drop", role: message.role, message };
 			},
@@ -1367,28 +1328,21 @@ describe("Tick flow", () => {
 			"run-notification-drop",
 			{ seq: 1, createdAt: "2026-05-01T00:15:00.000Z" },
 		);
-		const checkNotificationsResult = messages
-			.filter((message) => message.role === "tool")
-			.map((message) => JSON.parse(String(message.content)))
-			.find((result) => Array.isArray(result.events));
-		expect(Math.ceil(JSON.stringify(checkNotificationsResult).length / 4)).toBeLessThanOrEqual(tokenBudget);
-		expect(checkNotificationsResult.context).toContain("lower-priority or older notification");
-			expect(checkNotificationsResult.events.length).toBeGreaterThan(0);
-			expect(checkNotificationsResult.events.length).toBeLessThan(notifications.length);
-			// The caller hands these over in delivery order, so the budget is spent
-			// from the front and the tail is what gets dropped.
-			expect(checkNotificationsResult.events[0].comment.commentRef).toBe("c/cmt_drop_0");
-			expect(checkNotificationsResult.events.at(-1).comment.commentRef).not.toBe("c/cmt_drop_7");
-			expect(checkNotificationsResult.events[0].comment.author).toBe(replier.username);
-			expect(checkNotificationsResult.events[0].replyTo.author).toBe(`u/${selfProfile.handle} (${providerSelfAuthor})`);
-			expect(checkNotificationsResult.events[0].comment.text).toBe("Comment 0 stays whole.");
-			expect(JSON.stringify(checkNotificationsResult)).not.toContain("…");
+		const result = resultTextForTool(messages, 'check_notifications');
+		expect(Math.ceil(result.length / 4)).toBeLessThanOrEqual(tokenBudget);
+		expect(result).toContain('more notification');
+		expect(result).toContain('c/cmt_drop_0');
+		expect(result).not.toContain('c/cmt_drop_7');
+		expect(result).toContain(replier.username);
+		expect(result).toContain('I posted:');
+		expect(result).toContain('> Comment 0 stays whole.');
+		expect(result).not.toContain('…');
 		});
 
 	it("deduplicates explicit read result comment bodies while keeping comment IDs", () => {
 		const activeContext = providerSerializationContext(englishInstructions,
 			{ botId: "bot_reader" },
-			{ commentsWithText: new Set(["cmt_seen"]), threadsWithText: new Set<string>() },
+			{ commentsWithText: new Set(["cmt_seen"]), threadsWithText: new Set<string>() }, { settings: { mode: "relative", timezone: "UTC" }, createdAt: "2026-01-01T00:00:00Z" },
 		);
 		const threadResult = providerToolResultPayload(
 			"read_thread_by_id",
@@ -1450,7 +1404,7 @@ describe("Tick flow", () => {
 			{},
 			providerSerializationContext(englishInstructions,
 				{ botId: "bot_reader" },
-				{ commentsWithText: new Set(["cmt_seen"]), threadsWithText: new Set<string>() },
+				{ commentsWithText: new Set(["cmt_seen"]), threadsWithText: new Set<string>() }, { settings: { mode: "relative", timezone: "UTC" }, createdAt: "2026-01-01T00:00:00Z" },
 			),
 		) as { content: Array<Record<string, unknown>> };
 		expect(commentResult.content[0]).toMatchObject({ commentRef: "c/cmt_seen" });
@@ -1471,7 +1425,7 @@ describe("Tick flow", () => {
 					{ id: "frm_archive", worldHandle: "primary", handle: "archive", description: "Closed archive.", readOnly: true },
 				],
 				{},
-				providerSerializationContext(englishInstructions, { botId: "bot_reader" }),
+				providerSerializationContext(englishInstructions, { botId: "bot_reader" }, undefined, { settings: { mode: "relative", timezone: "UTC" }, createdAt: "2026-01-01T00:00:00Z" }),
 			);
 			expect(forumResult).toEqual([
 				{ forum: "f/random", description: "Random chatter.", readOnly: false },
@@ -1494,7 +1448,7 @@ describe("Tick flow", () => {
 					lock: { kind: "comment_limit", limit: 3 },
 					lastActivityAt: "2026-05-01T00:00:00.000Z",
 				},
-			], {}, providerSerializationContext(englishInstructions, { botId: "bot_reader" }));
+			], {}, providerSerializationContext(englishInstructions, { botId: "bot_reader" }, undefined, { settings: { mode: "relative", timezone: "UTC" }, createdAt: "2026-01-01T00:00:00Z" }));
 			expect(recentResult).toMatchObject([
 				{
 					threadRef: "t/thr_recent",
@@ -1505,7 +1459,7 @@ describe("Tick flow", () => {
 					voteScore: 7,
 					locked: true,
 					commentLimit: 3,
-					lastActivity: "7 days ago",
+					lastActivity: "4m0d0h0m",
 				},
 			]);
 			expect(recentResult).not.toMatchObject([{ forum: expect.anything() }]);
@@ -1520,8 +1474,8 @@ describe("Tick flow", () => {
 					authorHandle: "bob",
 					lastActivityAt: "2026-05-07T22:00:00.000Z",
 				},
-			], {}, providerSerializationContext(englishInstructions, { botId: "bot_reader" }));
-			expect(hotResult).toMatchObject([{ threadRef: "t/thr_hot", forum: "f/weird", author: "u/bob", lastActivity: "2 hours ago" }]);
+			], {}, providerSerializationContext(englishInstructions, { botId: "bot_reader" }, undefined, { settings: { mode: "relative", timezone: "UTC" }, createdAt: "2026-01-01T00:00:00Z" }));
+			expect(hotResult).toMatchObject([{ threadRef: "t/thr_hot", forum: "f/weird", author: "u/bob", lastActivity: "4m6d22h0m" }]);
 
 			const searchResult = providerToolResultPayload("search_threads", [
 				{
@@ -1536,7 +1490,7 @@ describe("Tick flow", () => {
 					createdAt: "2026-05-07T00:00:00.000Z",
 					score: 0.91,
 				},
-			], {}, providerSerializationContext(englishInstructions, { botId: "bot_reader" }));
+			], {}, providerSerializationContext(englishInstructions, { botId: "bot_reader" }, undefined, { settings: { mode: "relative", timezone: "UTC" }, createdAt: "2026-01-01T00:00:00Z" }));
 			expect(searchResult).toMatchObject([
 				{
 					threadRef: "t/thr_search",
@@ -1545,7 +1499,7 @@ describe("Tick flow", () => {
 					title: "Search hit",
 					snippet: "A useful comment.",
 					author: "u/carol",
-					when: "1 day ago",
+					when: "4m6d0h0m",
 				},
 			]);
 			expect((searchResult as Array<Record<string, unknown>>)[0]).not.toHaveProperty("rootCommentId");
@@ -1566,7 +1520,7 @@ describe("Tick flow", () => {
 				{},
 				providerSerializationContext(englishInstructions,
 					{ botId: "bot_reader" },
-					{ commentsWithText: new Set(["cmt_search"]), threadsWithText: new Set<string>() },
+					{ commentsWithText: new Set(["cmt_search"]), threadsWithText: new Set<string>() }, { settings: { mode: "relative", timezone: "UTC" }, createdAt: "2026-01-01T00:00:00Z" },
 				),
 			);
 			expect((compactedSearchResult as Array<Record<string, unknown>>)[0]).toMatchObject({
@@ -1587,7 +1541,7 @@ describe("Tick flow", () => {
 					comment: { id: "cmt_notice", threadId: "thr_notice", parentCommentId: "cmt_parent", text: "Notice body." },
 					vote: { targetType: "comment", commentId: "cmt_notice", value: 1 },
 				}],
-			}, {}, providerSerializationContext(englishInstructions, { botId: "bot_reader" }));
+			}, {}, providerSerializationContext(englishInstructions, { botId: "bot_reader" }, undefined, { settings: { mode: "relative", timezone: "UTC" }, createdAt: "2026-01-01T00:00:00Z" }));
 			expect(notificationResult).toMatchObject({
 				events: [{
 					type: "vote_cast",
@@ -1649,17 +1603,17 @@ describe("Tick flow", () => {
 						createdAt: "2026-05-03T00:00:00.000Z",
 					},
 				],
-			}, {}, providerSerializationContext(englishInstructions, { botId: "bot_reader" }));
+			}, {}, providerSerializationContext(englishInstructions, { botId: "bot_reader" }, undefined, { settings: { mode: "relative", timezone: "UTC" }, createdAt: "2026-01-01T00:00:00Z" }));
 				expect(activityResult).toMatchObject({
 					profile: "u/owner",
 					activities: [
-						{ type: "thread", threadRef: "t/thr_activity", forum: "f/random", when: "2 days ago" },
+						{ type: "thread", threadRef: "t/thr_activity", forum: "f/random", when: "4m5d0h0m" },
 						{
 							type: "comment",
 							commentRef: "c/cmt_activity",
 							forum: "f/random",
 							replyTo: { author: "u/dave", bodyPreview: "Parent preview." },
-							when: "3 days ago",
+							when: "4m4d0h0m",
 						},
 						{
 						type: "vote",
@@ -1668,9 +1622,9 @@ describe("Tick flow", () => {
 						threadRef: "t/thr_vote",
 						forum: "f/polls",
 						targetComment: { commentRef: "c/cmt_vote", author: "u/erin", bodyPreview: "Vote target." },
-						when: "4 days ago",
+						when: "4m3d0h0m",
 					},
-					{ type: "follow", profile: "u/friend", when: "5 days ago" },
+					{ type: "follow", profile: "u/friend", when: "4m2d0h0m" },
 					],
 				});
 				expect((activityResult as { activities: Array<Record<string, unknown>> }).activities[0]).not.toHaveProperty("rootCommentId");
@@ -1715,7 +1669,7 @@ describe("Tick flow", () => {
 		expect(parsed?.content[0]).not.toHaveProperty("My focus is on this comment");
 	});
 
-	it("builds spotlight setup as parallel synthetic read calls with parent-chain JSON", async () => {
+	it("builds spotlight setup as parallel synthetic reads with flat parent refs", async () => {
 		const cookie = await authCookie();
 		await seedWorld(cookie);
 		const selfProfile = await createBotForTest(cookie, "spotlight-self");
@@ -1850,7 +1804,7 @@ describe("Tick flow", () => {
 			},
 			notes: { idsForEntity: () => ({ ids: [], total: 0 }) },
 			previousTerminalTickEvent: () => null,
-			appendLoopMessage: (_runId: string, message: Record<string, unknown>) => {
+			appendLoopMessage: (_context: typeof testResultContext, _runId: string, message: Record<string, unknown>) => {
 				messages.push(message);
 				return { seq: messages.length, runId: "run-spotlight-context", role: message.role, message };
 			},
@@ -1890,35 +1844,18 @@ describe("Tick flow", () => {
 			"read_thread_by_id",
 		]);
 		expect(setupToolCallMessages.slice(1).every((message) => message.content === null)).toBe(true);
-		const toolResults = built
-			.filter((message) => message.role === "tool")
-			.map((message) => JSON.parse(String(message.content)));
-		expect(toolResults.find((result) => result.operation === "read_comment_by_id")).toMatchObject({
-			targetCommentRef: "c/cmt_spotlight",
-			content: [
-				{
-					commentRef: "c/cmt_spotlight_root",
-					ancestorOnly: true,
-					replies: [{
-						commentRef: "c/cmt_spotlight_parent",
-						body: "…",
-						ancestorOnly: true,
-						replies: [{ commentRef: "c/cmt_spotlight", body: "Target comment.", focused: true }],
-					}],
-				},
-			],
-		});
-		expect(toolResults.find((result) => result.operation === "read_thread_by_id")).toMatchObject({
-			thread: { threadRef: "t/thr_spotlight_thread", title: "Thread spotlight" },
-			content: [{
-				commentRef: "c/cmt_spotlight_thread_root",
-				body: "Thread target.",
-				replies: [{ commentRef: "c/cmt_spotlight_thread_reply", body: "…" }],
-			}],
-		});
-		expect(toolResults.find((result) => result.operation === "read_thread_by_id")?.context).toContain("body ending in …");
-		expect(JSON.stringify(toolResults.find((result) => result.operation === "read_thread_by_id"))).not.toContain(spotlightThreadReplyBody);
-		expect(toolResults).toHaveLength(2);
+		const commentResult = resultTextForTool(built, 'read_comment_by_id');
+		const threadResult = resultTextForTool(built, 'read_thread_by_id');
+		expect(commentResult).toContain('### c/cmt_spotlight_root');
+		expect(commentResult).toContain('replied to c/cmt_spotlight_root:');
+		expect(commentResult).toContain('replied to c/cmt_spotlight_parent:');
+		expect(commentResult).toContain('### c/cmt_spotlight (focused)');
+		expect(commentResult).toContain('> Target comment.');
+		expect(threadResult).toContain('## t/thr_spotlight_thread “Thread spotlight”');
+		expect(threadResult).toContain('> Thread target.');
+		expect(threadResult).toContain('This text is shortened.');
+		expect(threadResult).not.toContain(spotlightThreadReplyBody);
+		expect(built.filter(message => message.role === 'tool')).toHaveLength(2);
 		const finalReadResultIndex = built.findLastIndex((message) => message.role === "tool");
 		const focusMessageIndex = built.findIndex(
 			(message) => message.role === "assistant" && message.content === `My focus: ${focus}`,
@@ -1928,7 +1865,7 @@ describe("Tick flow", () => {
 		expect(focusMessageIndex).toBe(built.length - 1);
 	});
 
-	it("renders the participant's own spotlight thread and comments as u/handle (MYSELF)", async () => {
+	it("renders the participant's own spotlight posts in the first person", async () => {
 		const cookie = await authCookie();
 		await seedWorld(cookie);
 		const selfProfile = await createBotForTest(cookie, "spotlight-self-author");
@@ -1954,7 +1891,7 @@ describe("Tick flow", () => {
 					title: lt("My own thread"),
 					authorBotId: selfProfile.id,
 					authorHandle: selfProfile.handle,
-					authorDisplayName: lt(selfProfile.displayName),
+					authorDisplayName: lt(localizedTextString(selfProfile.displayName)),
 					body: lt("My root post."),
 					createdAt: "2026-05-01T00:00:00.000Z",
 					ancestorOnly: true,
@@ -1967,7 +1904,7 @@ describe("Tick flow", () => {
 					parentCommentId: "cmt_self_root",
 					authorBotId: otherProfile.id,
 					authorHandle: otherProfile.handle,
-					authorDisplayName: lt(otherProfile.displayName),
+					authorDisplayName: lt(localizedTextString(otherProfile.displayName)),
 					body: lt("Their reply."),
 					createdAt: "2026-05-01T00:01:00.000Z",
 					ancestorOnly: true,
@@ -1980,7 +1917,7 @@ describe("Tick flow", () => {
 					parentCommentId: "cmt_other_reply",
 					authorBotId: selfProfile.id,
 					authorHandle: selfProfile.handle,
-					authorDisplayName: lt(selfProfile.displayName),
+					authorDisplayName: lt(localizedTextString(selfProfile.displayName)),
 					body: lt("My follow-up."),
 					createdAt: "2026-05-01T00:02:00.000Z",
 					focused: true,
@@ -1992,7 +1929,7 @@ describe("Tick flow", () => {
 			env: { BICKR_D1: testEnv.BICKR_D1, BICKR_KV: testEnv.BICKR_KV },
 			notes: { idsForEntity: () => ({ ids: ['spotlight-note'], total: 1 }) },
 			previousTerminalTickEvent: () => null,
-			appendLoopMessage: (_runId: string, message: Record<string, unknown>) => {
+			appendLoopMessage: (_context: typeof testResultContext, _runId: string, message: Record<string, unknown>) => {
 				messages.push(message);
 				return { seq: messages.length, runId: "run-spotlight-self", role: message.role, message };
 			},
@@ -2018,36 +1955,16 @@ describe("Tick flow", () => {
 			{ seq: 1, createdAt: "2026-05-01T00:15:00.000Z" },
 			{ setupMode: "spotlight" },
 		);
-		const profileRead = built.filter((message) => message.role === 'tool')
-			.map((message) => JSON.parse(String(message.content)))
-			.find((result) => Array.isArray(result.profiles));
-		expect(profileRead?.profiles[0]?.myNoteIds).toEqual(['spotlight-note']);
-		const readResultContent = built
-			.filter((message) => message.role === "tool")
-			.map((message) => String(message.content))
-			.find((content) => content.includes("read_comment_by_id"));
-		expect(readResultContent).toBeDefined();
-		const selfAuthor = `u/${selfProfile.handle} (${providerSelfAuthor})`;
-		expect(JSON.parse(String(readResultContent))).toMatchObject({
-			thread: { threadRef: "t/thr_self_spotlight", author: selfAuthor },
-			content: [
-				{
-					commentRef: "c/cmt_self_root",
-					author: selfAuthor,
-					replies: [{
-						commentRef: "c/cmt_other_reply",
-						author: `u/${otherProfile.handle}`,
-						replies: [{
-							commentRef: "c/cmt_self_reply",
-							author: selfAuthor,
-							focused: true,
-						}],
-					}],
-				},
-			],
-		});
-		expect(readResultContent).not.toContain(selfProfile.id);
-		expect(readResultContent).toContain(selfAuthor);
+		const profileRead = resultTextForTool(built, 'view_profiles');
+		expect(profileRead).toContain('`spotlight-note`');
+		const result = resultTextForTool(built, 'read_comment_by_id');
+		expect(result).toContain('## t/thr_self_spotlight');
+		expect(result).toContain('### c/cmt_self_root');
+		expect(result).toContain('I posted:');
+		expect(result).toContain('### c/cmt_self_reply (focused)');
+		expect(result).toContain('I replied to c/cmt_other_reply:');
+		expect(result).toContain(`u/${otherProfile.handle}`);
+		expect(result).not.toContain(selfProfile.id);
 	});
 
 	it("builds deep spotlight comment chains without re-nesting replies exponentially", async () => {
@@ -2067,7 +1984,7 @@ describe("Tick flow", () => {
 				...(index > 0 ? { parentCommentId: `cmt_deep_spotlight_${index - 1}` } : {}),
 					authorBotId: authorProfile.id,
 					authorHandle: authorProfile.handle,
-					authorDisplayName: lt(authorProfile.displayName),
+					authorDisplayName: lt(localizedTextString(authorProfile.displayName)),
 					body: lt(`Deep spotlight context ${index}. ${"z".repeat(800)}`),
 				createdAt: `2026-05-01T00:${String(index).padStart(2, "0")}:00.000Z`,
 				...(index === chainLength - 1 ? { focused: true as const } : { ancestorOnly: true }),
@@ -2094,7 +2011,7 @@ describe("Tick flow", () => {
 				BICKR_KV: testEnv.BICKR_KV,
 			},
 			previousTerminalTickEvent: () => null,
-			appendLoopMessage: (_runId: string, message: Record<string, unknown>) => {
+			appendLoopMessage: (_context: typeof testResultContext, _runId: string, message: Record<string, unknown>) => {
 				messages.push(message);
 				return { seq: messages.length, runId: "run-deep-spotlight", role: message.role, message };
 			},
@@ -2124,14 +2041,10 @@ describe("Tick flow", () => {
 		);
 		expect(Date.now() - start).toBeLessThan(2_000);
 		expect(built.find((message) => message.content === "My focus: Please pay attention to the deepest comment.")).toBeTruthy();
-		const readResult = built
-			.filter((message) => message.role === "tool")
-			.map((message) => JSON.parse(String(message.content)))
-			.find((result) => result.operation === "read_comment_by_id");
-		expect(readResult).toMatchObject({
-			targetCommentRef: "c/cmt_deep_spotlight_23",
-			content: [{ commentRef: "c/cmt_deep_spotlight_0" }],
-		});
+		const result = resultTextForTool(built, 'read_comment_by_id');
+		expect(result).toContain('### c/cmt_deep_spotlight_0');
+		expect(result).toContain('### c/cmt_deep_spotlight_23 (focused)');
+		expect(result).toContain('replied to c/cmt_deep_spotlight_22:');
 	});
 
 	it("queues busy spotlight ticks only when the active tick misses the injection", async () => {
@@ -2217,7 +2130,7 @@ describe("Tick flow", () => {
 			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) =>
 				runtimeEvent(type === "provider_request" ? 123 : 124, runId, type as BotRuntimeEvent["type"], payload),
 			appendLoopMessage: (
-				_runId: string,
+				_context: typeof testResultContext, _runId: string,
 				message: Record<string, unknown>,
 				origin: string,
 			) => {
@@ -2244,7 +2157,7 @@ describe("Tick flow", () => {
 				_runId: string,
 				_signal: AbortSignal,
 				tools: ProviderToolDefinition[],
-			) => ({
+			) => ({renderContext: testResultContext,
 				allowedPromptTokens: 13_500,
 				providerTools: tools,
 				promptTokens: 100,
@@ -2299,7 +2212,7 @@ describe("Tick flow", () => {
 				events.push({ type, payload });
 				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
 			},
-			appendLoopMessage: (_runId: string, message: Record<string, unknown>, origin: string) => {
+			appendLoopMessage: (_context: typeof testResultContext, _runId: string, message: Record<string, unknown>, origin: string) => {
 				appendedLoopMessages.push({ message, origin });
 				return {
 					seq: appendedLoopMessages.length,
@@ -2313,7 +2226,7 @@ describe("Tick flow", () => {
 			},
 			appendProviderMessages: async () => {},
 			callProvider,
-			ensureProviderPromptWithinBudget: async () => ({
+			ensureProviderPromptWithinBudget: async () => ({renderContext: testResultContext,
 				allowedPromptTokens: 13_500,
 				providerTools: toolDefinitionsForProviderRound(englishInstructions),
 				promptTokens: 100,
@@ -2378,14 +2291,14 @@ describe("Tick flow", () => {
 				events.push({ type, payload });
 				return runtimeEvent(events.length, runId, type as BotRuntimeEvent['type'], payload);
 			},
-			appendLoopMessage: (_runId: string, message: Record<string, unknown>, origin: string) => {
+			appendLoopMessage: (_context: typeof testResultContext, _runId: string, message: Record<string, unknown>, origin: string) => {
 				messages.push({ message, origin });
 				return { seq: messages.length, runId: 'run-disabled-note', role: message.role, message, origin,
 					tokenEstimate: 0, createdAt: new Date().toISOString() };
 			},
 			appendProviderMessages: async () => {},
 			callProvider,
-			ensureProviderPromptWithinBudget: async () => ({
+			ensureProviderPromptWithinBudget: async () => ({renderContext: testResultContext,
 				allowedPromptTokens: 13_500,
 				providerTools: toolDefinitionsForProviderRound(englishInstructions, 4_000, { includeNotesTools: false }),
 				promptTokens: 100,
@@ -2429,7 +2342,7 @@ describe("Tick flow", () => {
 				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
 			},
 			appendLoopMessage: (
-				_runId: string,
+				_context: typeof testResultContext, _runId: string,
 				message: Record<string, unknown>,
 				origin: string,
 			) => {
@@ -2449,7 +2362,7 @@ describe("Tick flow", () => {
 				{ id: "call-log-off", name: "log_off", arguments: "{\"reason\":\"done\"}" },
 				{ id: "call-bad", name: "read_thread", arguments: "{\"threadId\":" },
 			]),
-			ensureProviderPromptWithinBudget: async () => ({
+			ensureProviderPromptWithinBudget: async () => ({renderContext: testResultContext,
 				allowedPromptTokens: 13_500,
 				providerTools: toolDefinitionsForProviderRound(englishInstructions),
 				promptTokens: 100,
@@ -2532,7 +2445,7 @@ describe("Tick flow", () => {
 				events.push({ type, payload });
 				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
 			},
-			appendLoopMessage: (_runId: string, message: BotInferenceSubmissionMessage, origin: string) => {
+			appendLoopMessage: (_context: typeof testResultContext, _runId: string, message: BotInferenceSubmissionMessage, origin: string) => {
 				appendedLoopMessages.push({ message, origin });
 				return {
 					seq: appendedLoopMessages.length,
@@ -2548,7 +2461,7 @@ describe("Tick flow", () => {
 			callProvider,
 			ensureProviderPromptWithinBudget: async () => {
 				const history = providerHistory();
-				return {
+				return {renderContext: testResultContext,
 					allowedPromptTokens: 13_500,
 					providerTools: toolDefinitionsForProviderRound(englishInstructions),
 					promptTokens: 100,
@@ -2620,7 +2533,7 @@ describe("Tick flow", () => {
 		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
 			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) =>
 				runtimeEvent(appendedLoopMessages.length + callProvider.mock.calls.length + 1, runId, type as BotRuntimeEvent["type"], payload),
-			appendLoopMessage: (_runId: string, message: BotInferenceSubmissionMessage, origin: string) => {
+			appendLoopMessage: (_context: typeof testResultContext, _runId: string, message: BotInferenceSubmissionMessage, origin: string) => {
 				appendedLoopMessages.push({ message, origin });
 				return {
 					seq: appendedLoopMessages.length,
@@ -2634,7 +2547,7 @@ describe("Tick flow", () => {
 			},
 			appendProviderMessages: async () => {},
 			callProvider,
-			ensureProviderPromptWithinBudget: async () => ({
+			ensureProviderPromptWithinBudget: async () => ({renderContext: testResultContext,
 				allowedPromptTokens: 13_500,
 				providerTools: toolDefinitionsForProviderRound(englishInstructions),
 				promptTokens: 100,
@@ -2702,7 +2615,7 @@ describe("Tick flow", () => {
 				events.push({ type, payload });
 				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
 			},
-			appendLoopMessage: (_runId: string, message: Record<string, unknown>, origin: string) => {
+			appendLoopMessage: (_context: typeof testResultContext, _runId: string, message: Record<string, unknown>, origin: string) => {
 				appendedLoopMessages.push({ message, origin });
 				return {
 					seq: appendedLoopMessages.length,
@@ -2716,7 +2629,7 @@ describe("Tick flow", () => {
 			},
 			appendProviderMessages: async () => {},
 			callProvider,
-			ensureProviderPromptWithinBudget: async () => ({
+			ensureProviderPromptWithinBudget: async () => ({renderContext: testResultContext,
 				allowedPromptTokens: 13_500,
 				providerTools: toolDefinitionsForProviderRound(englishInstructions),
 				promptTokens: 100,
@@ -2803,7 +2716,7 @@ describe("Tick flow", () => {
 		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
 			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) =>
 				runtimeEvent(type === "provider_request" ? callProvider.mock.calls.length : appendedLoopMessages.length + executedTools.length + 1, runId, type as BotRuntimeEvent["type"], payload),
-			appendLoopMessage: (_runId: string, message: Record<string, unknown>, origin: string) => {
+			appendLoopMessage: (_context: typeof testResultContext, _runId: string, message: Record<string, unknown>, origin: string) => {
 				appendedLoopMessages.push({ message, origin });
 				return {
 					seq: appendedLoopMessages.length,
@@ -2817,7 +2730,7 @@ describe("Tick flow", () => {
 			},
 			appendProviderMessages: async () => {},
 			callProvider,
-			ensureProviderPromptWithinBudget: async () => ({
+			ensureProviderPromptWithinBudget: async () => ({renderContext: testResultContext,
 				allowedPromptTokens: 13_500,
 				providerTools: toolDefinitionsForProviderRound(englishInstructions),
 				promptTokens: 100,
@@ -2893,7 +2806,7 @@ describe("Tick flow", () => {
 				events.push({ type, payload });
 				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
 			},
-			appendLoopMessage: (_runId: string, message: Record<string, unknown>, origin: string) => {
+			appendLoopMessage: (_context: typeof testResultContext, _runId: string, message: Record<string, unknown>, origin: string) => {
 				appendedLoopMessages.push({ message, origin });
 				return {
 					seq: appendedLoopMessages.length,
@@ -2907,7 +2820,7 @@ describe("Tick flow", () => {
 			},
 			appendProviderMessages: async () => {},
 			callProvider,
-			ensureProviderPromptWithinBudget: async () => ({
+			ensureProviderPromptWithinBudget: async () => ({renderContext: testResultContext,
 				allowedPromptTokens: 13_500,
 				providerTools: toolDefinitionsForProviderRound(englishInstructions),
 				promptTokens: 100,
@@ -2963,7 +2876,7 @@ describe("Tick flow", () => {
 			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) =>
 				runtimeEvent(type === "provider_request" ? 1 : 2, runId, type as BotRuntimeEvent["type"], payload),
 			appendLoopMessage: (
-				_runId: string,
+				_context: typeof testResultContext, _runId: string,
 				message: Record<string, unknown>,
 				origin: string,
 			) => ({
@@ -2986,7 +2899,7 @@ describe("Tick flow", () => {
 				_runId: string,
 				_signal: AbortSignal,
 				tools: ProviderToolDefinition[],
-			) => ({
+			) => ({renderContext: testResultContext,
 				allowedPromptTokens: 13_500,
 				providerTools: tools,
 				promptTokens: 100,
@@ -3053,7 +2966,7 @@ describe("Tick flow", () => {
 				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
 			},
 			appendLoopMessage: (
-				_runId: string,
+				_context: typeof testResultContext, _runId: string,
 				message: Record<string, unknown>,
 				origin: string,
 			) => {
@@ -3070,7 +2983,7 @@ describe("Tick flow", () => {
 			},
 			appendProviderMessages: async () => {},
 			callProvider: async () => providerResponseWithToolCall("call-read", "read_thread", { threadId: "thr_test" }),
-			ensureProviderPromptWithinBudget: async () => ({
+			ensureProviderPromptWithinBudget: async () => ({renderContext: testResultContext,
 				allowedPromptTokens: 13_500,
 				providerTools: toolDefinitionsForProviderRound(englishInstructions),
 				promptTokens: 100,
@@ -3157,7 +3070,7 @@ describe("Tick flow", () => {
 				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
 			},
 			appendLoopMessage: (
-				_runId: string,
+				_context: typeof testResultContext, _runId: string,
 				message: Record<string, unknown>,
 				origin: string,
 			) => {
@@ -3174,7 +3087,7 @@ describe("Tick flow", () => {
 			},
 			appendProviderMessages: async () => {},
 			callProvider,
-			ensureProviderPromptWithinBudget: async () => ({
+			ensureProviderPromptWithinBudget: async () => ({renderContext: testResultContext,
 				allowedPromptTokens: 13_500,
 				providerTools: toolDefinitionsForProviderRound(englishInstructions),
 				promptTokens: 100,
@@ -3268,7 +3181,7 @@ describe("Tick flow", () => {
 				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
 			},
 			appendLoopMessage: (
-				_runId: string,
+				_context: typeof testResultContext, _runId: string,
 				message: Record<string, unknown>,
 				origin: string,
 			) => ({
@@ -3286,7 +3199,7 @@ describe("Tick flow", () => {
 				{ id: "call-reply", name: "reply_to_comment", args: { commentId: "cmt_spot", body: "Spotlight reply." } },
 				{ id: "call-read", name: "read_thread", args: { threadId: "thr_after" } },
 			]),
-			ensureProviderPromptWithinBudget: async () => ({
+			ensureProviderPromptWithinBudget: async () => ({renderContext: testResultContext,
 				allowedPromptTokens: 13_500,
 				providerTools: toolDefinitionsForProviderRound(englishInstructions),
 				promptTokens: 100,
@@ -3363,7 +3276,7 @@ describe("Tick flow", () => {
 				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
 			},
 			appendLoopMessage: (
-				_runId: string,
+				_context: typeof testResultContext, _runId: string,
 				message: Record<string, unknown>,
 				origin: string,
 			) => ({
@@ -3390,7 +3303,7 @@ describe("Tick flow", () => {
 				},
 				{ id: "call-read", name: "read_thread", args: { threadId: "thr_after" } },
 			]),
-			ensureProviderPromptWithinBudget: async () => ({
+			ensureProviderPromptWithinBudget: async () => ({renderContext: testResultContext,
 				allowedPromptTokens: 13_500,
 				providerTools: toolDefinitionsForProviderRound(englishInstructions),
 				promptTokens: 100,
@@ -3468,7 +3381,7 @@ describe("Tick flow", () => {
 				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
 			},
 			appendLoopMessage: (
-				_runId: string,
+				_context: typeof testResultContext, _runId: string,
 				message: Record<string, unknown>,
 				origin: string,
 			) => ({
@@ -3486,7 +3399,7 @@ describe("Tick flow", () => {
 				{ id: "call-vote", name: "vote", args: { votes: [{ commentId: "cmt_test", value: 1 }], reason: "Clear useful context." } },
 				{ id: "call-log-off", name: "log_off", args: { reason: "I hit my visit limit." } },
 			]),
-			ensureProviderPromptWithinBudget: async () => ({
+			ensureProviderPromptWithinBudget: async () => ({renderContext: testResultContext,
 				allowedPromptTokens: 13_500,
 				providerTools: toolDefinitionsForProviderRound(englishInstructions),
 				promptTokens: 100,

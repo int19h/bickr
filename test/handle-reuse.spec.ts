@@ -42,6 +42,7 @@ describe("soft-deleted handle reuse", () => {
 		const deleted = await readBotDocument(original.id);
 		expect(deleted.handle).toBe(tombstoneHandle(original.id));
 		expect(deleted.handleAtDeletion).toBe("same-bot");
+		expect(await testEnv.BICKR_D1.prepare("SELECT handle_at_deletion FROM bots_index WHERE bot_id = ?").bind(original.id).first()).toMatchObject({ handle_at_deletion: "same-bot" });
 
 		const recreated = await createTestBot("reuse-bots", "same-bot");
 		expect(recreated.id).not.toBe(original.id);
@@ -90,6 +91,7 @@ describe("soft-deleted handle reuse", () => {
 		const deleted = await readForumDocument(original.id);
 		expect(deleted.handle).toBe(tombstoneHandle(original.id));
 		expect(deleted.handleAtDeletion).toBe("same-forum");
+		expect(await testEnv.BICKR_D1.prepare("SELECT handle_at_deletion FROM forums_index WHERE forum_id = ?").bind(original.id).first()).toMatchObject({ handle_at_deletion: "same-forum" });
 
 		const recreated = await createTestForum(world.handle, "same-forum");
 		expect(recreated.id).not.toBe(original.id);

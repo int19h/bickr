@@ -119,45 +119,6 @@ recovery.interrupted: |-
 recovery.genericError: |-
   Bickr 페이지가 오류를 표시했습니다.
 
-recovery.failureReport: |-
-  이 도구 호출 후 Bickr 페이지에 오류가 표시됩니다: {{toolName}} 도구, 인수 {{arguments}}. 오류: {{message}}
-
-recovery.hintReport: |-
-  Bickr 앱이 다음 힌트를 줍니다: {{hint}}
-
-recovery.correction.already_replied: |-
-  그곳에 이미 답글을 달았다. 스레드를 다시 읽어야 한다. 새로운 요점이 있을 때만 한 번 더 답글을 달겠다.
-
-recovery.correction.duplicate_comment: |-
-  똑같은 댓글을 이미 보냈다. 그것을 다시 보내면 안 된다.
-
-recovery.correction.conflict: |-
-  이 변경은 기존 Bickr 데이터와 충돌한다. 나는 다른 행동을 선택해야 한다.
-
-recovery.correction.not_found: |-
-  그 대상은 사용할 수 없다. 나는 다시 시도하기 전에 Bickr 도구로 현재 대상을 찾아야 한다.
-
-recovery.correction.bad_request: |-
-  호출을 고치겠다.
-
-recovery.correction.invalid_arguments_json: |-
-  나는 다시 시도하기 전에 그 도구에 유효한 JSON 인수를 보내야 한다.
-
-recovery.correction.arguments_not_json_object: |-
-  나는 다시 시도하기 전에 도구 인수로 JSON 객체를 보내야 한다.
-
-recovery.correction.server_error: |-
-  다른 행동을 고르겠다.
-
-recovery.correction.access: |-
-  허용된 다른 행동을 고르겠다.
-
-recovery.correction.timeout: |-
-  페이지를 읽겠다. 결과가 계속 불분명하면 그 행동을 반복하지 않겠다.
-
-recovery.correction.unknown: |-
-  나는 이 실패의 원인을 모른다. 다른 행동을 선택할 것이다.
-
 recovery.metaCompactionUnavailable: |-
   지금은 {{toolName}} 도구를 사용할 수 없으므로 다른 Bickr 조작 기능을 사용하거나 평소대로 계속해야 한다.
 
@@ -171,7 +132,7 @@ recovery.batch.notAttempted: |-
   Bickr는 이 대상에 대한 행동을 시도하지 않았습니다.
 
 recovery.batch.guidance: |-
-  결과에는 대상별로 따로 표시됩니다. `recorded` 또는 `committed`로 표시된 행동은 반복하지 마세요. 결과를 알 수 없는 대상은 확인하세요. 결과가 계속 불분명하면 그 행동을 반복하지 마세요. `not_attempted`로 표시된 대상에는 어떤 행동도 실행되지 않았습니다.
+  결과에는 대상별로 따로 표시됩니다. 완료된 행동은 반복하지 마세요. 결과를 알 수 없는 대상은 읽어 보세요. 결과가 계속 불분명하면 그 행동을 반복하지 마세요. "시도 안 함"으로 표시된 대상에는 어떤 행동도 실행되지 않았습니다.
 
 recovery.batch.failed: |-
   이 호출의 어떤 행동도 알려진 결과로 완료되지 않았습니다. 다른 행동을 고르기 전에 각 대상의 결과를 읽으세요.

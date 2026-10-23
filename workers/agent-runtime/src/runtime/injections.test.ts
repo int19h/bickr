@@ -1,3 +1,4 @@
+import { testResultContext } from './result-render-context.test-support';
 import { botText } from '../localization';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BotRuntime } from './bot-runtime';
@@ -30,15 +31,14 @@ function fixture() {
 		return [];
 	});
 	const runtime = Object.assign(Object.create(BotRuntime.prototype), {
-		state: { storage }, runtimeMessageStore: () => store,
-		previousTerminalTickEvent: () => null,
-		profileUsernamesInActiveContext: () => new Set(), providerContentInActiveContext: () => ({}),
+		env: { BICKR_D1: {} }, state: { storage }, runtimeMessageStore: () => store,
+		legacyProfileUsernamesInActiveContext: () => new Set(),
 		appendNotificationSyntheticContext: prepareContext,
 		activeLoopMessagesForProvider: () => store.activeLoopMessageRows(),
 	});
 	const build = () => {
 		const pending = injections.pending();
-		return runtime.buildMessages({ text: botText('en'), instructionLocale: 'en', tickSettings: {}, inferenceSettings: { recurringPromptEnabled: false } }, { spotlightContexts: [], notifications: [], injections: pending.map(row => row.text) }, 'run', { seq: 1, createdAt: '2026-10-02' }, { pendingInjections: pending });
+		return runtime.buildMessages({ text: botText('en'), instructionLocale: 'en', createdAt: '2026-10-01T00:00:00Z', tickSettings: {}, inferenceSettings: { recurringPromptEnabled: false } }, { spotlightContexts: [], notifications: [], injections: pending.map(row => row.text) }, 'run', { seq: 1, createdAt: '2026-10-02' }, { pendingInjections: pending });
 	};
 	return { injections, store, prepareContext, build, runtime };
 }
@@ -46,7 +46,7 @@ function fixture() {
 describe('durable thought delivery', () => {
 	it.each(['preparation', 'history', 'marker'])('retries opening context after failed %s, then admits continuation only after commit', async (failure) => {
 		const f = fixture();
-		const bot = { text: botText('en'), instructionLocale: 'en', id: 'bot', ownerUserId: 'owner', tickSettings: { intervalSeconds: 60 }, inferenceSettings: { recurringPromptEnabled: false } };
+		const bot = { text: botText('en'), instructionLocale: 'en', createdAt: '2026-10-01T00:00:00Z', id: 'bot', ownerUserId: 'owner', tickSettings: { intervalSeconds: 60 }, inferenceSettings: { recurringPromptEnabled: false } };
 		vi.mocked(botById).mockResolvedValue(bot as unknown as Awaited<ReturnType<typeof botById>>);
 		vi.mocked(userById).mockResolvedValue({ id: 'owner' } as Awaited<ReturnType<typeof userById>>);
 		const statement = { bind: () => statement, run: async () => ({ success: true, meta: { changes: 1 } }) };
@@ -130,7 +130,7 @@ describe('durable thought delivery', () => {
 		const f = fixture();
 		const selected = f.injections.pending();
 		f.injections.acknowledge(selected);
-		expect(() => f.store.appendLoopMessageGroup([{ runId: 'run', origin: 'injection', message: { role: 'assistant', content: 'Remember this' } }], () => f.injections.acknowledge(selected))).toThrow('Pending input changed');
+		expect(() => f.store.appendLoopMessageGroup(testResultContext, [{ runId: 'run', origin: 'injection', message: { role: 'assistant', content: 'Remember this' } }], () => f.injections.acknowledge(selected))).toThrow('Pending input changed');
 		expect(f.store.activeLoopMessageRows()).toHaveLength(0);
 	});
 });

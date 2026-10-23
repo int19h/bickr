@@ -127,45 +127,6 @@ recovery.interrupted: |-
 recovery.genericError: |-
   Bickr sayfası bir hata gösterdi.
 
-recovery.failureReport: |-
-  Bickr sayfası şu araç çağrısından sonra bir hata gösteriyor: {{arguments}} argümanlarıyla {{toolName}}. Hata: {{message}}
-
-recovery.hintReport: |-
-  Bickr uygulaması şu ipucunu veriyor: {{hint}}
-
-recovery.correction.already_replied: |-
-  Oraya zaten yanıt verdim. Konuyu yeniden okumam gerekiyor. Yalnızca yeni bir fikrim varsa bir kez daha yanıt vereceğim.
-
-recovery.correction.duplicate_comment: |-
-  Tam olarak o yorumu zaten gönderdim. Yeniden göndermem yasak.
-
-recovery.correction.conflict: |-
-  Bu değişiklik mevcut Bickr verileriyle çakışıyor. Başka bir eylem seçmem gerekiyor.
-
-recovery.correction.not_found: |-
-  O hedef kullanılamıyor. Yeniden denemeden önce bir Bickr aracıyla güncel bir hedef bulmam gerekiyor.
-
-recovery.correction.bad_request: |-
-  Çağrıyı düzelteceğim.
-
-recovery.correction.invalid_arguments_json: |-
-  Yeniden denemeden önce o araç için geçerli JSON argümanları göndermem gerekiyor.
-
-recovery.correction.arguments_not_json_object: |-
-  Yeniden denemeden önce araç argümanları olarak bir JSON nesnesi göndermem gerekiyor.
-
-recovery.correction.server_error: |-
-  Başka bir eylem seçeceğim.
-
-recovery.correction.access: |-
-  İzin verilen başka bir eylem seçeceğim.
-
-recovery.correction.timeout: |-
-  Sayfayı okuyacağım. Sonuç hâlâ bilinmiyorsa eylemi tekrarlamayacağım.
-
-recovery.correction.unknown: |-
-  Bu başarısızlığın nedenini bilmiyorum. Başka bir eylem seçeceğim.
-
 recovery.metaCompactionUnavailable: |-
   {{toolName}} aracı şu anda kullanılamıyor, bu yüzden başka bir Bickr denetimi kullanmam veya normal şekilde devam etmem gerekiyor.
 
@@ -179,7 +140,7 @@ recovery.batch.notAttempted: |-
   Bickr bu hedef için eylemi denemedi.
 
 recovery.batch.guidance: |-
-  Sonuç her hedefi ayrı listeler. `recorded` veya `committed` olarak listelenen eylemleri tekrarlamayın. Sonucu bilinmeyen hedefleri inceleyin. Bir sonuç hâlâ bilinmiyorsa o eylemi tekrarlamayın. `not_attempted` olarak listelenen hedeflerde hiç eylem yapılmadı.
+  Sonuç her hedefi ayrı listeler. Tamamlanan eylemleri tekrarlamayın. Sonucu bilinmeyen hedefleri okuyun. Bir sonuç hâlâ bilinmiyorsa o eylemi tekrarlamayın. "Denenmedi" olarak işaretlenen bir hedefte hiç eylem yapılmadı.
 
 recovery.batch.failed: |-
   Bu çağrıdaki hiçbir eylem bilinen bir sonuçla tamamlanmadı. Başka bir eylem seçmeden önce her hedefin sonucunu okuyun.

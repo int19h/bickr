@@ -19,24 +19,24 @@ issue.note.id.characters: |-
   يمكن أن تحتوي قيمة id على الحروف والعلامات والأرقام وعلامات الترقيم والرموز والمسافات فقط. أعطِ id بوصفه عنوان الملاحظة. لملاحظة موجودة، انسخ معرّفًا من list_notes.
 
 issue.note.cursor.type: |-
-  يجب أن تكون قيمة cursor نصًا. انسخ nextCursor من نتيجة list_notes السابقة. لبدء قائمة جديدة، احذف cursor من الوسيطات.
+  يجب أن تكون قيمة cursor نصًا. استخدم قيمة cursor من نتيجة list_notes السابقة. لبدء قائمة جديدة، احذف cursor من الوسيطات.
 
 issue.note.cursor.length:
   zero: |-
-    يجب أن يكون عدد أحرف cursor بعد التطبيع ضمن {{minimum}}-{{maximum}}. انسخ nextCursor من نتيجة list_notes السابقة. لبدء قائمة جديدة، احذف cursor من الوسيطات.
+    يجب أن يكون عدد أحرف cursor بعد التطبيع ضمن {{minimum}}-{{maximum}}. استخدم قيمة cursor من نتيجة list_notes السابقة. لبدء قائمة جديدة، احذف cursor من الوسيطات.
   one: |-
-    يجب أن يكون عدد أحرف cursor بعد التطبيع ضمن {{minimum}}-{{maximum}}. انسخ nextCursor من نتيجة list_notes السابقة. لبدء قائمة جديدة، احذف cursor من الوسيطات.
+    يجب أن يكون عدد أحرف cursor بعد التطبيع ضمن {{minimum}}-{{maximum}}. استخدم قيمة cursor من نتيجة list_notes السابقة. لبدء قائمة جديدة، احذف cursor من الوسيطات.
   two: |-
-    يجب أن يكون عدد أحرف cursor بعد التطبيع ضمن {{minimum}}-{{maximum}}. انسخ nextCursor من نتيجة list_notes السابقة. لبدء قائمة جديدة، احذف cursor من الوسيطات.
+    يجب أن يكون عدد أحرف cursor بعد التطبيع ضمن {{minimum}}-{{maximum}}. استخدم قيمة cursor من نتيجة list_notes السابقة. لبدء قائمة جديدة، احذف cursor من الوسيطات.
   few: |-
-    يجب أن يكون عدد أحرف cursor بعد التطبيع ضمن {{minimum}}-{{maximum}}. انسخ nextCursor من نتيجة list_notes السابقة. لبدء قائمة جديدة، احذف cursor من الوسيطات.
+    يجب أن يكون عدد أحرف cursor بعد التطبيع ضمن {{minimum}}-{{maximum}}. استخدم قيمة cursor من نتيجة list_notes السابقة. لبدء قائمة جديدة، احذف cursor من الوسيطات.
   many: |-
-    يجب أن يكون عدد أحرف cursor بعد التطبيع ضمن {{minimum}}-{{maximum}}. انسخ nextCursor من نتيجة list_notes السابقة. لبدء قائمة جديدة، احذف cursor من الوسيطات.
+    يجب أن يكون عدد أحرف cursor بعد التطبيع ضمن {{minimum}}-{{maximum}}. استخدم قيمة cursor من نتيجة list_notes السابقة. لبدء قائمة جديدة، احذف cursor من الوسيطات.
   other: |-
-    يجب أن يكون عدد أحرف cursor بعد التطبيع ضمن {{minimum}}-{{maximum}}. انسخ nextCursor من نتيجة list_notes السابقة. لبدء قائمة جديدة، احذف cursor من الوسيطات.
+    يجب أن يكون عدد أحرف cursor بعد التطبيع ضمن {{minimum}}-{{maximum}}. استخدم قيمة cursor من نتيجة list_notes السابقة. لبدء قائمة جديدة، احذف cursor من الوسيطات.
 
 issue.note.cursor.characters: |-
-  يمكن أن تحتوي قيمة cursor على الحروف والعلامات والأرقام وعلامات الترقيم والرموز والمسافات فقط. انسخ nextCursor من نتيجة list_notes السابقة. لبدء قائمة جديدة، احذف cursor من الوسيطات.
+  يمكن أن تحتوي قيمة cursor على الحروف والعلامات والأرقام وعلامات الترقيم والرموز والمسافات فقط. استخدم قيمة cursor من نتيجة list_notes السابقة. لبدء قائمة جديدة، احذف cursor من الوسيطات.
 
 issue.note.content:
   zero: |-
