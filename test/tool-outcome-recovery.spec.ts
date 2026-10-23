@@ -1,3 +1,4 @@
+import { unknownToolOutcomeMessage } from '../workers/agent-runtime/src/runtime/tool-recovery';
 import { testResultContext } from '../workers/agent-runtime/src/runtime/result-render-context.test-support';
 import { renderStoredLoopMessage } from "../workers/agent-runtime/src/runtime/result-messages";
 import { BotRuntime, describe, expect, fakeBotDocument, it, providerResponseWithToolCalls, testToolExecutor, toolDefinitionsForProviderRound, withTestRunLiveness, withRuntimeSqliteForTest } from './helpers/index-harness';
@@ -47,8 +48,8 @@ describe('unknown tool outcome visit recovery', () => {
 			const f = fixture([new ToolOutcomeUnknownError(new Error('lost first')), new ToolOutcomeUnknownError(new Error('lost second'))], state);
 			await expect(f.run()).resolves.toMatchObject({ logOffCalled: true, unknownOutcomeCount: 2 });
 			expect(f.executed).toEqual(['vote', 'vote', 'log_off']);
-			const tools = f.messages().filter((message) => message.role === 'tool').map((message) => JSON.parse(String(message.content)));
-			expect(tools.map((result) => result.kind).filter(Boolean)).toEqual(['outcome_unknown', 'not_attempted', 'outcome_unknown', 'not_attempted']);
+			const tools = f.messages().filter((message) => message.role === 'tool').map((message) => String(message.content));
+			expect(tools.slice(0, 4)).toEqual([unknownToolOutcomeMessage(text, 'vote'), text.format('recovery.unknown.siblingNotAttempted'), unknownToolOutcomeMessage(text, 'vote'), text.format('recovery.unknown.siblingNotAttempted')]);
 			expect(f.events.some((event) => event.type === 'tick_failed')).toBe(false);
 			expect(f.messages().some((message) => String(message.content).includes('I will pause this visit because Bickr did not confirm'))).toBe(true);
 		});
@@ -58,7 +59,7 @@ describe('unknown tool outcome visit recovery', () => {
 			const f = fixture([new ToolOutcomeUnknownError(new TickStoppedError())], state);
 			await expect(f.run()).rejects.toBeInstanceOf(TickStoppedError);
 			expect(f.executed).toEqual(['vote']);
-			expect(f.messages().filter((message) => message.role === 'tool').map((message) => JSON.parse(String(message.content)).kind)).toEqual(['outcome_unknown', 'not_attempted']);
+			expect(f.messages().filter((message) => message.role === 'tool').map((message) => String(message.content))).toEqual([unknownToolOutcomeMessage(text, 'vote'), text.format('recovery.unknown.siblingNotAttempted')]);
 		});
 	});
 	it('propagates a stop behind a partial batch while retaining each target outcome', async () => {
@@ -70,7 +71,8 @@ describe('unknown tool outcome visit recovery', () => {
 			const f = fixture([error], state);
 			await expect(f.run()).rejects.toBeInstanceOf(TickStoppedError);
 			const message = f.messages().find((message) => message.role === 'tool');
-			expect(JSON.parse(String(message?.content))).toMatchObject({ kind: 'batch_outcome', items: [{ kind: 'unknown' }, { kind: 'not_attempted' }] });
+			expect(message?.content).toContain('Unknown outcome for c/target-1:');
+			expect(message?.content).toContain('Not attempted for c/other.');
 		});
 	});
 });

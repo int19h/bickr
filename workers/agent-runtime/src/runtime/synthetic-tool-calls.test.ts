@@ -43,9 +43,9 @@ describe('authored synthetic tool reasoning', () => {
 		});
 		await runtime.appendSpotlightSyntheticContext({ instructionLocale: 'en', text, id: 'bot_me', handle: 'me', createdAt: '2026-10-01T00:00:00Z' }, 'run-title', [context!],
 			new Set(), new ResultContextScope());
-		const result = JSON.parse(results[0]!.content as string);
-		if (title === undefined) expect(result.thread).not.toHaveProperty('title');
-		else expect(result.thread.title).toBe(title);
+		const result = results[0]!.content as string;
+		if (title === undefined) expect(result.split('\n')[0]).toBe('## t/thr_one');
+		else expect(result).toContain(`## t/thr_one “${title}”`);
 	});
 
 	it('reads PLAN before notifications with unique IDs and the ordinary note payload', async () => {
@@ -63,7 +63,7 @@ describe('authored synthetic tool reasoning', () => {
 		expect(chain.calls.map((call) => call.function.name)).toEqual(['read_note', 'check_notifications']);
 		expect(new Set(chain.calls.map((call) => call.id)).size).toBe(chain.calls.length);
 		expect(chain.results.map((result) => result.tool_call_id)).toEqual(chain.calls.map((call) => call.id));
-		expect(JSON.parse(chain.results[0]!.content as string)).toEqual({ id: 'PLAN', content: '- Write a poem.', links: [] });
+		expect(chain.results[0]!.content).toBe('## Note `PLAN`\n\n- Write a poem.');
 		expect(chain.narration).toContain('PLAN');
 	});
 	it.each([

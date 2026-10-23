@@ -4,6 +4,11 @@ import type { RuntimeBotDocument } from "../workers/agent-runtime/src/types";
 import type { LocalizedProviderSettings } from "../workers/agent-runtime/src/provider-requests";
 import { botText as testBotText } from "../workers/agent-runtime/src/localization";
 const englishInstructions = testBotText("en");
+function resultTextForTool(messages: Array<Record<string, unknown>>, name: string): string {
+	const calls = messages.flatMap(message => (message.tool_calls ?? []) as Array<{ id: string; function: { name: string } }>);
+	const call = calls.find(call => call.function.name === name);
+	return String(messages.find(message => message.role === 'tool' && message.tool_call_id === call?.id)?.content ?? '');
+}
 import { withTestRunLiveness } from "./helpers/index-harness";
 import { withRuntimeSqliteForTest } from "./helpers/index-harness";
 import { attachTestRunLiveness } from "./helpers/index-harness";
@@ -40,7 +45,6 @@ import {
 	providerResponseWithRawToolCalls,
 	providerResponseWithToolCall,
 	providerResponseWithToolCalls,
-	providerSelfAuthor,
 	providerSerializationContext,
 	providerToolResultPayload,
 	providerUsageForTest,
@@ -400,7 +404,7 @@ describe("Tick flow", () => {
 				expect.objectContaining({ origin: "tool_result", status: "complete", message: expect.objectContaining({ tool_call_id: "call-first" }) }),
 				expect.objectContaining({ origin: "tool_failure", status: "interrupted", message: expect.objectContaining({ tool_call_id: "call-second" }) }),
 			]);
-			expect(JSON.parse(String(toolRows[1]?.message.content))).toMatchObject({ code: "not_dispatched" });
+			expect(toolRows[1]?.message.content).toBe(englishInstructions.format("recovery.notDispatched"));
 			const event = state.storage.sql.exec<{ payload_json: string }>("SELECT payload_json FROM events WHERE type = 'tool_result' ORDER BY seq DESC LIMIT 1").one();
 			expect(JSON.parse(event.payload_json)).toMatchObject({ name: "read_thread", outcome: "not_dispatched" });
 		});
@@ -1044,34 +1048,16 @@ describe("Tick flow", () => {
 		const afterCompaction = await buildWithActiveRows([]);
 		const afterCompactionToolNames = toolNames(afterCompaction);
 		expect(afterCompactionToolNames).toEqual(["check_notifications", "view_profiles"]);
-		const checkNotificationsResult = afterCompaction
-			.filter((message) => message.role === "tool")
-			.map((message) => JSON.parse(String(message.content)))
-			.find((result) => Array.isArray(result.events));
-		expect(checkNotificationsResult).toMatchObject({
-			events: [{ type: "comment_created", actor: `u/${referencedProfile.handle}` }],
-		});
-		// A follower notice names the participant and nothing else about them; the
-		// profile itself arrives through the view_profiles call above.
-		expect(checkNotificationsResult.events[0]).not.toHaveProperty("message");
-		expect(JSON.stringify(checkNotificationsResult.events[0])).not.toContain(localizedTextString(referencedProfile.displayName));
-		const profileToolResult = afterCompaction
-			.filter((message) => message.role === "tool")
-			.map((message) => JSON.parse(String(message.content)))
-			.find((result) => Array.isArray(result.profiles));
-		expect(profileToolResult).toMatchObject({
-			profiles: [{ username: `u/${referencedProfile.handle}`, displayName: localizedTextString(referencedProfile.displayName), shortBio: expect.any(String), myNoteIds: ['notice-note'] }],
-		});
+		const notice = resultTextForTool(afterCompaction, 'check_notifications');
+		expect(notice).toContain(`u/${referencedProfile.handle}`);
+		const profiles = resultTextForTool(afterCompaction, 'view_profiles');
+		expect(profiles).toContain(`u/${referencedProfile.handle}`);
+		expect([notice, profiles].join('\n')).toContain(localizedTextString(referencedProfile.displayName));
+		expect(profiles).toContain('`notice-note`');
 		const disabled = await buildWithActiveRows([], false);
-		const disabledProfile = disabled.filter((message) => message.role === 'tool')
-			.map((message) => JSON.parse(String(message.content)))
-			.find((result) => Array.isArray(result.profiles));
-		expect(disabledProfile.profiles[0]).not.toHaveProperty('myNoteIds');
+		expect(resultTextForTool(disabled, 'view_profiles')).not.toContain('`notice-note`');
 		const exhausted = await buildWithActiveRows([], true, 80, true);
-		const exhaustedNotification = exhausted.filter((message) => message.role === 'tool')
-			.map((message) => JSON.parse(String(message.content)))
-			.find((result) => Array.isArray(result.events));
-		expect(exhaustedNotification.events).toHaveLength(1);
+		expect(resultTextForTool(exhausted, 'check_notifications')).toContain(`u/${referencedProfile.handle}`);
 		expect(toolNames(exhausted)).toEqual(['check_notifications']);
 	});
 
@@ -1221,31 +1207,15 @@ describe("Tick flow", () => {
 			"run-notification-dedupe",
 			{ seq: 1, createdAt: "2026-05-01T00:15:00.000Z" },
 		);
-		const checkNotificationsResult = built
-			.filter((message) => message.role === "tool")
-			.map((message) => JSON.parse(String(message.content)))
-			.find((result) => Array.isArray(result.events));
-		expect(checkNotificationsResult.events).toHaveLength(2);
-		expect(checkNotificationsResult.events[0]).toMatchObject({
-			deliveryReasons: ["direct_reply", "mention"],
-			thread: { threadRef: "t/thr_seen", title: "Already scoped thread" },
-			comment: { commentRef: "c/cmt_seen", threadRef: "t/thr_seen" },
-			replyTo: { commentRef: "c/cmt_parent", threadRef: "t/thr_seen" },
-			actor: `u/${referencedProfile.handle}`,
-		});
-		expect(checkNotificationsResult.events[0]).not.toHaveProperty("id");
-		expect(checkNotificationsResult.events[0]).not.toHaveProperty("message");
-		expect(checkNotificationsResult.events[0]).not.toHaveProperty("sourceObjectId");
-		expect(checkNotificationsResult.events[0]).not.toHaveProperty("world");
-		expect(checkNotificationsResult.events[0]).not.toHaveProperty("forum");
-		// Thread references never carry the root post outside a thread-post payload.
-		expect(checkNotificationsResult.events[0].thread).not.toHaveProperty("text");
-		expect(checkNotificationsResult.events[0].comment.text).toBeUndefined();
-		expect(checkNotificationsResult.events[0].replyTo.text).toBeUndefined();
-		expect(checkNotificationsResult.events[1].thread).not.toHaveProperty("text");
-		expect(checkNotificationsResult.events[1].comment).not.toHaveProperty("parentCommentId");
-		expect(checkNotificationsResult.events[1].comment.text).toBe("This new comment should be shown once.");
-		expect(checkNotificationsResult.events[1]).not.toHaveProperty("replyTo");
+		const result = resultTextForTool(built, 'check_notifications');
+		expect(result).toContain('c/cmt_seen');
+		expect(result).toContain('c/cmt_parent');
+		expect(result).toContain(`u/${referencedProfile.handle}`);
+		expect(result).toContain('(I read this text earlier.)');
+		expect(result).toContain('> This new comment should be shown once.');
+		expect(result.match(/Already scoped thread/g)).toHaveLength(1);
+		expect(result).not.toContain('sourceObjectId');
+		expect(result).not.toContain('deliveryReasons');
 	});
 
 		it("omits oversized notification events instead of trimming notification text", async () => {
@@ -1301,15 +1271,12 @@ describe("Tick flow", () => {
 			"run-notification-budget",
 			{ seq: 1, createdAt: "2026-05-01T00:15:00.000Z" },
 		);
-			const checkNotificationsResult = messages
-				.filter((message) => message.role === "tool")
-				.map((message) => JSON.parse(String(message.content)))
-				.find((result) => Array.isArray(result.events));
-			expect(Math.ceil(JSON.stringify(checkNotificationsResult).length / 4)).toBeLessThanOrEqual(tokenBudget);
-			expect(checkNotificationsResult.context).toContain("1 lower-priority or older notification was omitted; it remains pending");
-			expect(checkNotificationsResult.events).toHaveLength(0);
-			expect(JSON.stringify(checkNotificationsResult)).not.toContain(longCommentText);
-			expect(JSON.stringify(checkNotificationsResult)).not.toContain("…");
+			const result = resultTextForTool(messages, 'check_notifications');
+			expect(Math.ceil(result.length / 4)).toBeLessThanOrEqual(tokenBudget);
+			expect(result).toContain('1 lower-priority or older notification is omitted. It stays pending.');
+			expect(result).toContain('No new notifications.');
+			expect(result).not.toContain(longCommentText);
+			expect(result).not.toContain('…');
 		});
 
 		it("drops older notification events without trimming notification text", async () => {
@@ -1362,22 +1329,15 @@ describe("Tick flow", () => {
 			"run-notification-drop",
 			{ seq: 1, createdAt: "2026-05-01T00:15:00.000Z" },
 		);
-		const checkNotificationsResult = messages
-			.filter((message) => message.role === "tool")
-			.map((message) => JSON.parse(String(message.content)))
-			.find((result) => Array.isArray(result.events));
-		expect(Math.ceil(JSON.stringify(checkNotificationsResult).length / 4)).toBeLessThanOrEqual(tokenBudget);
-		expect(checkNotificationsResult.context).toContain("lower-priority or older notification");
-			expect(checkNotificationsResult.events.length).toBeGreaterThan(0);
-			expect(checkNotificationsResult.events.length).toBeLessThan(notifications.length);
-			// The caller hands these over in delivery order, so the budget is spent
-			// from the front and the tail is what gets dropped.
-			expect(checkNotificationsResult.events[0].comment.commentRef).toBe("c/cmt_drop_0");
-			expect(checkNotificationsResult.events.at(-1).comment.commentRef).not.toBe("c/cmt_drop_7");
-			expect(checkNotificationsResult.events[0].comment.author).toBe(replier.username);
-			expect(checkNotificationsResult.events[0].replyTo.author).toBe(`u/${selfProfile.handle} (${providerSelfAuthor})`);
-			expect(checkNotificationsResult.events[0].comment.text).toBe("Comment 0 stays whole.");
-			expect(JSON.stringify(checkNotificationsResult)).not.toContain("…");
+		const result = resultTextForTool(messages, 'check_notifications');
+		expect(Math.ceil(result.length / 4)).toBeLessThanOrEqual(tokenBudget);
+		expect(result).toContain('lower-priority or older notification');
+		expect(result).toContain('c/cmt_drop_0');
+		expect(result).not.toContain('c/cmt_drop_7');
+		expect(result).toContain(replier.username);
+		expect(result).toContain('I posted:');
+		expect(result).toContain('> Comment 0 stays whole.');
+		expect(result).not.toContain('…');
 		});
 
 	it("deduplicates explicit read result comment bodies while keeping comment IDs", () => {
@@ -1710,7 +1670,7 @@ describe("Tick flow", () => {
 		expect(parsed?.content[0]).not.toHaveProperty("My focus is on this comment");
 	});
 
-	it("builds spotlight setup as parallel synthetic read calls with parent-chain JSON", async () => {
+	it("builds spotlight setup as parallel synthetic reads with flat parent refs", async () => {
 		const cookie = await authCookie();
 		await seedWorld(cookie);
 		const selfProfile = await createBotForTest(cookie, "spotlight-self");
@@ -1885,35 +1845,18 @@ describe("Tick flow", () => {
 			"read_thread_by_id",
 		]);
 		expect(setupToolCallMessages.slice(1).every((message) => message.content === null)).toBe(true);
-		const toolResults = built
-			.filter((message) => message.role === "tool")
-			.map((message) => JSON.parse(String(message.content)));
-		expect(toolResults.find((result) => result.operation === "read_comment_by_id")).toMatchObject({
-			targetCommentRef: "c/cmt_spotlight",
-			content: [
-				{
-					commentRef: "c/cmt_spotlight_root",
-					ancestorOnly: true,
-					replies: [{
-						commentRef: "c/cmt_spotlight_parent",
-						body: "…",
-						ancestorOnly: true,
-						replies: [{ commentRef: "c/cmt_spotlight", body: "Target comment.", focused: true }],
-					}],
-				},
-			],
-		});
-		expect(toolResults.find((result) => result.operation === "read_thread_by_id")).toMatchObject({
-			thread: { threadRef: "t/thr_spotlight_thread", title: "Thread spotlight" },
-			content: [{
-				commentRef: "c/cmt_spotlight_thread_root",
-				body: "Thread target.",
-				replies: [{ commentRef: "c/cmt_spotlight_thread_reply", body: "…" }],
-			}],
-		});
-		expect(toolResults.find((result) => result.operation === "read_thread_by_id")?.context).toContain("body ending in …");
-		expect(JSON.stringify(toolResults.find((result) => result.operation === "read_thread_by_id"))).not.toContain(spotlightThreadReplyBody);
-		expect(toolResults).toHaveLength(2);
+		const commentResult = resultTextForTool(built, 'read_comment_by_id');
+		const threadResult = resultTextForTool(built, 'read_thread_by_id');
+		expect(commentResult).toContain('### c/cmt_spotlight_root');
+		expect(commentResult).toContain('in response to c/cmt_spotlight_root:');
+		expect(commentResult).toContain('in response to c/cmt_spotlight_parent:');
+		expect(commentResult).toContain('### c/cmt_spotlight (my focus)');
+		expect(commentResult).toContain('> Target comment.');
+		expect(threadResult).toContain('## t/thr_spotlight_thread “Thread spotlight”');
+		expect(threadResult).toContain('> Thread target.');
+		expect(threadResult).toContain('Shortened.');
+		expect(threadResult).not.toContain(spotlightThreadReplyBody);
+		expect(built.filter(message => message.role === 'tool')).toHaveLength(2);
 		const finalReadResultIndex = built.findLastIndex((message) => message.role === "tool");
 		const focusMessageIndex = built.findIndex(
 			(message) => message.role === "assistant" && message.content === `My focus: ${focus}`,
@@ -1923,7 +1866,7 @@ describe("Tick flow", () => {
 		expect(focusMessageIndex).toBe(built.length - 1);
 	});
 
-	it("renders the participant's own spotlight thread and comments as u/handle (MYSELF)", async () => {
+	it("renders the participant's own spotlight posts in the first person", async () => {
 		const cookie = await authCookie();
 		await seedWorld(cookie);
 		const selfProfile = await createBotForTest(cookie, "spotlight-self-author");
@@ -2013,36 +1956,16 @@ describe("Tick flow", () => {
 			{ seq: 1, createdAt: "2026-05-01T00:15:00.000Z" },
 			{ setupMode: "spotlight" },
 		);
-		const profileRead = built.filter((message) => message.role === 'tool')
-			.map((message) => JSON.parse(String(message.content)))
-			.find((result) => Array.isArray(result.profiles));
-		expect(profileRead?.profiles[0]?.myNoteIds).toEqual(['spotlight-note']);
-		const readResultContent = built
-			.filter((message) => message.role === "tool")
-			.map((message) => String(message.content))
-			.find((content) => content.includes("read_comment_by_id"));
-		expect(readResultContent).toBeDefined();
-		const selfAuthor = `u/${selfProfile.handle} (${providerSelfAuthor})`;
-		expect(JSON.parse(String(readResultContent))).toMatchObject({
-			thread: { threadRef: "t/thr_self_spotlight", author: selfAuthor },
-			content: [
-				{
-					commentRef: "c/cmt_self_root",
-					author: selfAuthor,
-					replies: [{
-						commentRef: "c/cmt_other_reply",
-						author: `u/${otherProfile.handle}`,
-						replies: [{
-							commentRef: "c/cmt_self_reply",
-							author: selfAuthor,
-							focused: true,
-						}],
-					}],
-				},
-			],
-		});
-		expect(readResultContent).not.toContain(selfProfile.id);
-		expect(readResultContent).toContain(selfAuthor);
+		const profileRead = resultTextForTool(built, 'view_profiles');
+		expect(profileRead).toContain('`spotlight-note`');
+		const result = resultTextForTool(built, 'read_comment_by_id');
+		expect(result).toContain('## t/thr_self_spotlight');
+		expect(result).toContain('### c/cmt_self_root');
+		expect(result).toContain('I posted:');
+		expect(result).toContain('### c/cmt_self_reply (my focus)');
+		expect(result).toContain('I wrote in response to c/cmt_other_reply:');
+		expect(result).toContain(`u/${otherProfile.handle}`);
+		expect(result).not.toContain(selfProfile.id);
 	});
 
 	it("builds deep spotlight comment chains without re-nesting replies exponentially", async () => {
@@ -2119,14 +2042,10 @@ describe("Tick flow", () => {
 		);
 		expect(Date.now() - start).toBeLessThan(2_000);
 		expect(built.find((message) => message.content === "My focus: Please pay attention to the deepest comment.")).toBeTruthy();
-		const readResult = built
-			.filter((message) => message.role === "tool")
-			.map((message) => JSON.parse(String(message.content)))
-			.find((result) => result.operation === "read_comment_by_id");
-		expect(readResult).toMatchObject({
-			targetCommentRef: "c/cmt_deep_spotlight_23",
-			content: [{ commentRef: "c/cmt_deep_spotlight_0" }],
-		});
+		const result = resultTextForTool(built, 'read_comment_by_id');
+		expect(result).toContain('### c/cmt_deep_spotlight_0');
+		expect(result).toContain('### c/cmt_deep_spotlight_23 (my focus)');
+		expect(result).toContain('in response to c/cmt_deep_spotlight_22:');
 	});
 
 	it("queues busy spotlight ticks only when the active tick misses the injection", async () => {

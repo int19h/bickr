@@ -52,7 +52,7 @@ describe('current time configuration for stored results', () => {
 			const first = await runtime.ensureProviderPromptWithinBudget(bot, settings, 'first-request', new AbortController().signal, []);
 			const second = await runtime.ensureProviderPromptWithinBudget(bot, settings, 'second-request', new AbortController().signal, []);
 			const content = first.requestMessages.find((message: { role: string }) => message.role === 'tool')?.content;
-			expect(JSON.parse(content)).toEqual([{ forum: `f/saved-forum ${text.format('result.reference.deleted')}`, description: 'An old forum', readOnly: false }]);
+			expect(content).toContain(`| f/saved-forum ${text.format('result.reference.deleted')} | An old forum |`);
 			expect(second.requestMessages).toEqual(first.requestMessages);
 			expect(first.promptTokens).toBeLessThan(first.allowedPromptTokens);
 		});
@@ -74,8 +74,8 @@ describe('current time configuration for stored results', () => {
 			const providerMessages = renderToolResultView(view, first);
 			await updateBot(testEnv.BICKR_KV, testEnv.BICKR_D1, created.id, document.ownerUserId, { handle: 'owner-renamed' });
 			const second = await runtime.resultRenderContextForRows(created.id, rows);
-			expect(JSON.parse(renderToolResultView(view, first)).links[0].handle).toBe('owner-reader');
-			expect(JSON.parse(renderToolResultView(view, second)).links[0].handle).toBe('owner-renamed');
+			expect(renderToolResultView(view, first)).toContain('- u/owner-reader');
+			expect(renderToolResultView(view, second)).toContain('- u/owner-renamed');
 			expect(renderToolResultView(view, first)).toBe(providerMessages);
 		});
 	});

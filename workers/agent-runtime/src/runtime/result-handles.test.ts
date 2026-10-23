@@ -58,9 +58,10 @@ describe('current handles for result views', () => {
 		expect(renderResultReference(ref, handles, mark)).toBe(`${entityKind === 'participant' ? 'u' : 'f'}/${expectedHandle}${deleted ? mark : ''}`);
 		const view: ToolResultView = { ...resultViewBase(text), kind: 'read_note', id: 'one', content: 'Authored u/saved-name', links: [{ ref, deleted: false }] };
 		const context = await buildResultRenderContext(f.db, { instructionLocale: 'en', createdAt: '2026-10-01' } as EffectiveBotDocument, [view]);
-		const payload = JSON.parse(renderToolResultView(view, context));
-		expect(payload).toEqual({ id: 'one', content: 'Authored u/saved-name', links: [{ kind: entityKind, handle: expectedHandle, deleted }] });
-		expect(renderToolResultView(view, contextWithProducedReferences(context, [view]))).toBe(JSON.stringify(payload));
+		const payload = renderToolResultView(view, context);
+		expect(payload).toContain(`${entityKind === 'participant' ? 'u' : 'f'}/${expectedHandle}${deleted ? ' (deleted)' : ''}`);
+		expect(payload).toContain('Authored u/saved-name');
+		expect(renderToolResultView(view, contextWithProducedReferences(context, [view]))).toBe(payload);
 		expect(f.calls).toHaveLength(2);
 	});
 	it('uses the deletion handle and falls back to the view when a backfill is still missing', async () => {

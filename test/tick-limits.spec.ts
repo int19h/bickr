@@ -1,3 +1,4 @@
+import { formatCommentRef } from '@bickr/shared/ids';
 import { testResultContext } from '../workers/agent-runtime/src/runtime/result-render-context.test-support';
 import { ResultContextScope } from '../workers/agent-runtime/src/runtime/result-context-scope';
 import type { RuntimeBotDocument } from "../workers/agent-runtime/src/types";
@@ -2315,21 +2316,12 @@ describe("Tick limits and recovery", () => {
 			},
 			{ mode: "normal", signal },
 		);
-		const allowedProviderResult = allowed.providerResult as {
-			ok: boolean;
-			comment: { commentRef: string; threadRef: string };
-		};
-		expect(allowedProviderResult).toMatchObject({
-			ok: true,
-			comment: {
-				commentRef: expect.any(String),
-				threadRef: formatThreadRef(thread.id),
-			},
-		});
-		expect(allowedProviderResult.comment).not.toHaveProperty("type");
-		expect(allowedProviderResult.comment).not.toHaveProperty("parentCommentId");
-		expect(JSON.stringify(allowedProviderResult)).not.toContain("Intentional second reply.");
-		expect(JSON.stringify(allowedProviderResult)).not.toContain("Earlier reply.");
+		const allowedProviderResult = String(allowed.providerResult);
+		expect(allowedProviderResult).toContain('I posted c/');
+		expect(allowedProviderResult).toContain(`in response to ${formatCommentRef(parent.id)}`);
+		expect(allowedProviderResult).toContain(formatThreadRef(thread.id));
+		expect(allowedProviderResult).not.toContain('Intentional second reply.');
+		expect(allowedProviderResult).not.toContain('Earlier reply.');
 		currentThread = await readThread(testEnv.BICKR_KV, thread.id);
 		expect(
 			currentThread.comments.find((comment) =>
@@ -2403,7 +2395,7 @@ describe("Tick limits and recovery", () => {
 		expect(callToolSchemaStates).toEqual([true, true, true]);
 	});
 
-	it("adds failed-tool narration only after all parallel tool responses", async () => {
+	it("keeps failure guidance in the tool result without generic assistant narration", async () => {
 		const cookie = await authCookie();
 		await seedWorld(cookie);
 		const forum = await createForumForTest(cookie, "parallel-failure-order");
@@ -2486,8 +2478,8 @@ describe("Tick limits and recovery", () => {
 		expect(toolMessageIndexes).toHaveLength(2);
 		expect(secondRequest[toolMessageIndexes[0]!]?.tool_call_id).toBe("call-read");
 		expect(secondRequest[toolMessageIndexes[1]!]?.tool_call_id).toBe("call-reply-fail");
-		expect(acknowledgementIndex).toBeGreaterThan(toolMessageIndexes[1]!);
-		expect(String(secondRequest[acknowledgementIndex]?.content)).toContain("Copy a comment ref from a tool result.");
+		expect(acknowledgementIndex).toBe(-1);
+		expect(String(secondRequest[toolMessageIndexes[1]!]?.content)).toContain('Copy a comment ref from a tool result.');
 	});
 
 	it("finishes a parallel tool batch before applying persistent failure handling", async () => {
@@ -2574,6 +2566,6 @@ describe("Tick limits and recovery", () => {
 		expect(secondRequest[toolMessageIndexes[0]!]?.tool_call_id).toBe("call-reply-fail-1");
 		expect(secondRequest[toolMessageIndexes[4]!]?.tool_call_id).toBe("call-reply-fail-5");
 		expect(secondRequest[toolMessageIndexes[5]!]?.tool_call_id).toBe("call-read-after-failures");
-		expect(acknowledgementIndex).toBeGreaterThan(toolMessageIndexes[5]!);
+		expect(acknowledgementIndex).toBe(-1);
 	});
 });

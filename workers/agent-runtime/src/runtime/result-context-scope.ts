@@ -1,6 +1,6 @@
 export type ResultFacet = 'comment_body' | 'thread_body' | 'thread_title' | 'profile_display_name' | 'profile_bio' | 'forum_description';
 export type FacetIdentity = { entityId: string; facet: ResultFacet };
-export type ResultFacetValue = FacetIdentity & (
+export type ResultFacetValue = FacetIdentity & { shortened?: boolean } & (
 	| { state: 'shown'; fingerprint: string; value: string }
 	| { state: 'known'; fingerprint: string; value?: string }
 );
@@ -65,7 +65,7 @@ export function hydrateResultFacets(removed: readonly ResultFacetValue[], kept: 
 			const key = JSON.stringify([facetKey(facet), facet.fingerprint]);
 			const shown = values.get(key);
 			if (!shown) continue;
-			facets[index] = { entityId: facet.entityId, facet: facet.facet, state: 'shown', fingerprint: facet.fingerprint, value: shown.value };
+			facets[index] = { entityId: facet.entityId, facet: facet.facet, state: 'shown', fingerprint: facet.fingerprint, value: shown.value, ...(shown.shortened ? { shortened: true } : {}) };
 			values.delete(key);
 			restored += 1;
 		}

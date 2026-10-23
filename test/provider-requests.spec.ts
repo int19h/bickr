@@ -278,10 +278,10 @@ describe("Provider requests", () => {
 
 		for (const name of ["read_thread", "read_thread_by_id", "read_comment_by_id"]) {
 			const readTool = toolDefinitions.find((definition) => definition.function.name === name);
-			expect(readTool?.function.description).toContain("If `replies` is a number");
-			expect(readTool?.function.description).toContain("read_comment_by_id with that");
-			expect(readTool?.function.description).toContain("ends with …");
-			expect(readTool?.function.description).toContain("see all of it");
+			expect(readTool?.function.description).toContain("If a post reports hidden replies");
+			expect(readTool?.function.description).toContain("read_comment_by_id with its ref");
+			expect(readTool?.function.description).toContain("marked as shortened");
+			expect(readTool?.function.description).toContain("read the full text");
 		}
 
 		const reply = toolDefinitions.find((definition) => definition.function.name === "reply_to_comment");
@@ -342,7 +342,7 @@ describe("Provider requests", () => {
 		);
 	});
 
-	it("serializes the reading participant's own forum content as u/handle (MYSELF) through the tool path", async () => {
+	it("renders the reading participant's own forum posts in the first person through the tool path", async () => {
 		const cookie = await authCookie();
 		await seedWorld(cookie);
 		const forum = await createForumForTest(cookie, "self-author-tools");
@@ -364,7 +364,7 @@ describe("Provider requests", () => {
 		}).executeTool.bind(runtime);
 		const bot = await runtimeParticipant(reader.id);
 		const signal = new AbortController().signal;
-		const selfAuthor = `u/${reader.handle} (${providerSelfAuthor})`;
+		const selfAuthor = `u/${reader.handle} (me)`;
 
 		const readResult = await executeTool(
 			bot,
@@ -373,24 +373,15 @@ describe("Provider requests", () => {
 			{ threadId: thread.id },
 			{ mode: "normal", signal },
 		);
-		expect(readResult.providerResult).toMatchObject({
-			thread: { threadRef: formatThreadRef(thread.id), author: selfAuthor },
-			content: [
-				{
-					commentRef: formatCommentRef(thread.rootCommentId),
-					author: selfAuthor,
-					replies: [{
-						commentRef: formatCommentRef(theirReply.id),
-						author: `u/${other.handle}`,
-						replies: [{ commentRef: formatCommentRef(myFollowUp.id), author: selfAuthor }],
-					}],
-				},
-			],
-		});
-		// The raw stored result keeps canonical identity; only the provider payload renders the self annotation.
+		expect(readResult.providerResult).toContain(`## ${formatThreadRef(thread.id)}`);
+		expect(readResult.providerResult).toContain(`### ${formatCommentRef(thread.rootCommentId)}`);
+		expect(readResult.providerResult).toContain('I posted:');
+		expect(readResult.providerResult).toContain(`u/${other.handle}`);
+		expect(readResult.providerResult).toContain(`I wrote in response to ${formatCommentRef(theirReply.id)}:`);
+		// The stored result keeps canonical identity. The provider sees first-person headers.
 		expect(JSON.stringify(readResult.result)).toContain(reader.id);
 		expect(JSON.stringify(readResult.providerResult)).not.toContain(reader.id);
-		expect(JSON.stringify(readResult.providerResult)).toContain(selfAuthor);
+		expect(readResult.providerResult).toContain('I wrote');
 
 		const listResult = await executeTool(
 			bot,
@@ -399,7 +390,8 @@ describe("Provider requests", () => {
 			{ forumHandle: forum.handle },
 			{ mode: "normal", signal },
 		);
-		expect(listResult.providerResult).toMatchObject([{ threadRef: formatThreadRef(thread.id), author: selfAuthor }]);
+		expect(listResult.providerResult).toContain(formatThreadRef(thread.id));
+		expect(listResult.providerResult).toContain(selfAuthor);
 
 		const searchResult = await executeTool(
 			bot,
@@ -408,13 +400,10 @@ describe("Provider requests", () => {
 			{ query: "follow-up" },
 			{ mode: "normal", signal },
 		);
-		const searchHits = searchResult.providerResult as Array<Record<string, unknown>>;
-		expect(searchHits.length).toBeGreaterThan(0);
-		expect(searchHits).toEqual(expect.arrayContaining([
-			expect.objectContaining({ commentRef: formatCommentRef(myFollowUp.id), author: selfAuthor }),
-		]));
-		expect(searchHits.every((hit) => hit.author === selfAuthor)).toBe(true);
-		expect(JSON.stringify(searchHits)).not.toContain(reader.id);
+		const searchHits = String(searchResult.providerResult);
+		expect(searchHits).toContain(formatCommentRef(myFollowUp.id));
+		expect(searchHits).toContain(selfAuthor);
+		expect(searchHits).not.toContain(reader.id);
 	});
 
 	it("executes bulk vote and profile follow tool calls", async () => {
@@ -487,18 +476,8 @@ describe("Provider requests", () => {
 			{ mode: "normal", signal },
 		);
 		expect(Array.isArray(voteResult.result)).toBe(true);
-		expect(Array.isArray(voteResult.providerResult)).toBe(true);
-		expect(voteResult.providerResult).toHaveLength(2);
-		expect(voteResult.providerResult).toMatchObject([
-			{
-				value: 1,
-				target: { commentRef: formatCommentRef(thread.rootCommentId), threadRef: formatThreadRef(thread.id) },
-			},
-			{
-				value: -1,
-				target: { commentRef: formatCommentRef(comment.id), threadRef: formatThreadRef(thread.id) },
-			},
-		]);
+		expect(voteResult.providerResult).toContain(`I upvoted ${formatCommentRef(thread.rootCommentId)} in ${formatThreadRef(thread.id)}`);
+		expect(voteResult.providerResult).toContain(`I downvoted ${formatCommentRef(comment.id)} in ${formatThreadRef(thread.id)}`);
 		expect(JSON.stringify(voteResult.providerResult)).not.toContain("Comment body.");
 		expect(JSON.stringify(voteResult.providerResult)).not.toContain("Child comment body.");
 		const updatedThread = await readThread(testEnv.BICKR_KV, thread.id);
@@ -512,10 +491,8 @@ describe("Provider requests", () => {
 			{ forumHandle: forum.handle, title: requiredLt("Compact provider result"), body: requiredLt("This thread body should not be echoed back.") },
 			{ mode: "normal", signal },
 			);
-			expect(createThreadResult.providerResult).toMatchObject({
-				ok: true,
-				thread: { title: "Compact provider result" },
-			});
+			expect(createThreadResult.providerResult).toContain('“Compact provider result”');
+			expect(createThreadResult.providerResult).toContain(`in f/${forum.handle}`);
 			expect(JSON.stringify(createThreadResult.providerResult)).not.toContain("This thread body should not be echoed back.");
 
 			await createThreadForTest(forum.id, author.id, "Needle provider result one", "Needle body one.");
@@ -540,8 +517,8 @@ describe("Provider requests", () => {
 				{ mode: "normal", signal },
 			);
 			expect(Array.isArray(searchToolResult.result)).toBe(true);
-			expect(Array.isArray(searchToolResult.providerResult)).toBe(true);
-			expect((searchToolResult.providerResult as unknown[]).length).toBeLessThan((searchToolResult.result as unknown[]).length);
+			expect(searchToolResult.providerResult).toContain('did not fit in this result.');
+			expect(String(searchToolResult.providerResult).length / 4).toBeLessThanOrEqual(50);
 			expect(tinyProviderBudgetRuntime.events.find((event) => event.seq === searchToolResult.displayEventSeq)?.payload).toMatchObject({
 				name: "search_threads",
 				result: searchToolResult.result,
@@ -560,20 +537,13 @@ describe("Provider requests", () => {
 			name: "read_thread_by_id",
 			result: readThreadResult.result,
 		});
-		const readThreadContent = (readThreadResult.providerResult as { content: Array<Record<string, unknown>> }).content;
-		expect(readThreadContent.map((item) => item.commentRef)).toEqual([formatCommentRef(thread.rootCommentId)]);
-		expect(readThreadContent).toMatchObject([
-			{
-				commentRef: formatCommentRef(thread.rootCommentId),
-				body: "Root body.",
-				replies: [{
-					commentRef: formatCommentRef(comment.id),
-					body: "Comment body.",
-					replies: [{ commentRef: formatCommentRef(childComment.id), body: "Child comment body." }],
-				}],
-			},
-		]);
-
+		const readThreadContent = String(readThreadResult.providerResult);
+		expect(readThreadContent).toContain(`### ${formatCommentRef(thread.rootCommentId)}`);
+		expect(readThreadContent).toContain('> Root body.');
+		expect(readThreadContent).toContain('> Comment body.');
+		expect(readThreadContent).toContain('> Child comment body.');
+		expect(readThreadContent.indexOf(formatCommentRef(thread.rootCommentId))).toBeLessThan(readThreadContent.indexOf(formatCommentRef(comment.id)));
+		expect(readThreadContent.indexOf(formatCommentRef(comment.id))).toBeLessThan(readThreadContent.indexOf(formatCommentRef(childComment.id)));
 		const readCommentResult = await executeTool(
 			bot,
 			"run-read-comment-tree",
@@ -581,18 +551,8 @@ describe("Provider requests", () => {
 			{ commentId: childComment.id },
 			{ mode: "normal", signal },
 		);
-		expect((readCommentResult.providerResult as { content: Array<Record<string, unknown>> }).content).toMatchObject([
-			{
-				commentRef: formatCommentRef(thread.rootCommentId),
-				ancestorOnly: true,
-				replies: [{
-					commentRef: formatCommentRef(comment.id),
-					ancestorOnly: true,
-					replies: [{ commentRef: formatCommentRef(childComment.id), focused: true }],
-				}],
-			},
-		]);
-
+		expect(readCommentResult.providerResult).toContain(`### ${formatCommentRef(childComment.id)} (my focus)`);
+		expect(readCommentResult.providerResult).toContain('Its other replies are not shown here.');
 		const readBranchResult = await executeTool(
 			bot,
 			"run-read-comment-branch",
@@ -600,18 +560,8 @@ describe("Provider requests", () => {
 			{ commentId: comment.id },
 			{ mode: "normal", signal },
 		);
-		expect((readBranchResult.providerResult as { content: Array<Record<string, unknown>> }).content).toMatchObject([
-			{
-				commentRef: formatCommentRef(thread.rootCommentId),
-				ancestorOnly: true,
-				replies: [{
-					commentRef: formatCommentRef(comment.id),
-					focused: true,
-					replies: [{ commentRef: formatCommentRef(childComment.id), body: "Child comment body." }],
-				}],
-			},
-		]);
-
+		expect(readBranchResult.providerResult).toContain(`### ${formatCommentRef(comment.id)} (my focus)`);
+		expect(readBranchResult.providerResult).toContain('> Child comment body.');
 		const pruningRuntime = Object.assign(testRuntimeForToolExecution(), {
 			readCommentTreeTokenBudget: async () => 1,
 		});
@@ -636,23 +586,14 @@ describe("Provider requests", () => {
 			{ threadId: largeThread.id },
 			{ mode: "normal", signal },
 		);
-		const prunedProviderResult = prunedReadResult.providerResult as { context: string; content: Array<Record<string, unknown>> };
-		expect(prunedProviderResult.context).toContain("numeric `replies` value");
-		expect(prunedProviderResult.context).toContain("body ending in …");
-		expect(prunedProviderResult.content).toMatchObject([
-			{
-				commentRef: formatCommentRef(largeThread.rootCommentId),
-				body: "Root body stays visible.",
-				replies: [{
-					commentRef: formatCommentRef(immediateReply.id),
-					body: "…",
-					replies: 1,
-				}],
-			},
-		]);
-		expect(JSON.stringify(prunedProviderResult)).not.toContain(immediateReplyBody);
-		expect(JSON.stringify(prunedProviderResult)).not.toContain("Grandchild should be collapsed.");
-
+		const prunedProviderResult = String(prunedReadResult.providerResult);
+		expect(prunedProviderResult).toContain('> Root body stays visible.');
+		expect(prunedProviderResult).toContain('> …');
+		expect(prunedProviderResult).toContain('Shortened.');
+		expect(prunedProviderResult).toContain('1 more reply to this comment is hidden.');
+		expect(prunedProviderResult).not.toContain(immediateReplyBody);
+		expect(prunedProviderResult).not.toContain('Grandchild should be collapsed.');
+		expect(prunedProviderResult).toContain(formatCommentRef(immediateReply.id));
 		const focusedThread = await createThreadForTest(forum.id, author.id, "Focused branch", "Focused root stays visible.");
 		const targetReply = await createCommentForTest(focusedThread.id, author.id, "Focused target body stays visible.");
 		const descendantBody = `Focused descendant should be shortened. ${"y".repeat(2_000)}`;
@@ -664,24 +605,13 @@ describe("Provider requests", () => {
 			{ commentId: targetReply.id },
 			{ mode: "normal", signal },
 		);
-		const prunedBranchContent = (prunedBranchResult.providerResult as { context: string; content: Array<Record<string, unknown>> }).content;
-		expect(prunedBranchContent).toMatchObject([
-			{
-				commentRef: formatCommentRef(focusedThread.rootCommentId),
-				body: "Focused root stays visible.",
-				replies: [{
-					commentRef: formatCommentRef(targetReply.id),
-					body: "Focused target body stays visible.",
-					focused: true,
-					replies: [{
-						commentRef: formatCommentRef(descendantReply.id),
-						body: "…",
-					}],
-				}],
-			},
-		]);
-		expect(JSON.stringify(prunedBranchContent)).not.toContain(descendantBody);
-
+		const prunedBranchContent = String(prunedBranchResult.providerResult);
+		expect(prunedBranchContent).toContain('> Focused root stays visible.');
+		expect(prunedBranchContent).toContain('> Focused target body stays visible.');
+		expect(prunedBranchContent).toContain(`### ${formatCommentRef(targetReply.id)} (my focus)`);
+		expect(prunedBranchContent).toContain(formatCommentRef(descendantReply.id));
+		expect(prunedBranchContent).toContain('Shortened.');
+		expect(prunedBranchContent).not.toContain(descendantBody);
 		const profilesResult = await executeTool(
 			bot,
 			"run-view-profiles",
@@ -689,19 +619,12 @@ describe("Provider requests", () => {
 			{ usernames: [firstProfile.handle, `u/${secondProfile.handle}`] },
 			{ mode: "normal", signal },
 		);
-		expect(profilesResult.providerResult).toMatchObject({
-			profiles: [
-				{ username: `u/${firstProfile.handle}`, displayName: localizedTextString(firstProfile.displayName), shortBio: expect.any(String), isFollowedByMe: false, isFollowingMe: false, followers: 0 },
-				{ username: `u/${secondProfile.handle}`, displayName: localizedTextString(secondProfile.displayName), shortBio: expect.any(String), isFollowedByMe: false, isFollowingMe: false, followers: 0 },
-			],
-		});
-		for (const profile of (profilesResult.providerResult as { profiles: Array<Record<string, unknown>> }).profiles) {
-			expect(profile).not.toHaveProperty("id");
-			expect(profile).not.toHaveProperty("world");
-			expect(profile).not.toHaveProperty("createdAt");
-			expect(profile).not.toHaveProperty("updatedAt");
-			expect(profile).not.toHaveProperty("following");
+		for (const profile of [firstProfile, secondProfile]) {
+			expect(profilesResult.providerResult).toContain(`u/${profile.handle}`);
+			expect(profilesResult.providerResult).toContain(localizedTextString(profile.displayName));
+			expect(profilesResult.providerResult).not.toContain(profile.id);
 		}
+		expect(profilesResult.providerResult).toContain('| Profile | Bio | Followers | Relation | My notes |');
 		const legacyProfileResult = await executeTool(
 			bot,
 			"run-view-profile-legacy",
@@ -709,9 +632,7 @@ describe("Provider requests", () => {
 			{ username: firstProfile.handle },
 			{ mode: "normal", signal },
 		);
-		expect(legacyProfileResult.providerResult).toMatchObject({
-			profiles: [{ username: `u/${firstProfile.handle}` }],
-		});
+		expect(legacyProfileResult.providerResult).toContain(`u/${firstProfile.handle}`);
 		const listWindowResult = await executeTool(
 			bot,
 			"run-list-profiles-window",
@@ -719,17 +640,9 @@ describe("Provider requests", () => {
 			{ mode: "window", limit: 2, offset: 1 },
 			{ mode: "normal", signal },
 		);
-		expect(listWindowResult.providerResult).toMatchObject({
-			mode: "window",
-			offset: 1,
-			limit: 2,
-			total: 3,
-			hasMore: false,
-			profiles: [
-				{ username: `u/${firstProfile.handle}`, displayName: localizedTextString(firstProfile.displayName), shortBio: expect.any(String), isFollowedByMe: false, isFollowingMe: false, followers: 0 },
-				{ username: `u/${secondProfile.handle}`, displayName: localizedTextString(secondProfile.displayName), shortBio: expect.any(String), isFollowedByMe: false, isFollowingMe: false, followers: 0 },
-			],
-		});
+		expect(listWindowResult.providerResult).toContain('Profiles 2–3 of 3.');
+		expect(listWindowResult.providerResult).toContain(`u/${firstProfile.handle}`);
+		expect(listWindowResult.providerResult).toContain(`u/${secondProfile.handle}`);
 		expect(await completeToolBookkeeping(testEnv.BICKR_D1, bot, 'run-list-profiles-window', listWindowResult)).toEqual([]);
 		const seenProfiles = await testEnv.BICKR_D1
 			.prepare(
@@ -753,16 +666,13 @@ describe("Provider requests", () => {
 			{ mode: "random", limit: 2 },
 			{ mode: "normal", signal },
 		);
-		const randomProviderResult = randomListResult.providerResult as { mode: string; limit: number; total: number; profiles: Array<{ username: string }> };
-		expect(randomProviderResult).toMatchObject({
-			mode: "random",
-			limit: 2,
-			total: 3,
-		});
-		expect(randomProviderResult.profiles.length).toBeLessThanOrEqual(2);
-		expect(new Set(randomProviderResult.profiles.map((profile) => profile.username)).size).toBe(randomProviderResult.profiles.length);
-		expect(randomProviderResult.profiles.map((profile) => profile.username)).not.toContain(`u/${bot.handle}`);
-		expect(randomProviderResult.profiles.map((profile) => profile.username)).not.toContain("u/bulk-target-away");
+		const randomProviderResult = String(randomListResult.providerResult);
+		expect(randomProviderResult).toContain('A random sample of 2 of 3 profiles.');
+		expect(randomProviderResult).not.toContain(`u/${bot.handle}`);
+		expect(randomProviderResult).not.toContain('u/bulk-target-away');
+		const randomPage = randomListResult.result as { profiles: Array<{ handle: string }> };
+		expect(randomPage.profiles).toHaveLength(2);
+		expect(new Set(randomPage.profiles.map(profile => profile.handle)).size).toBe(2);
 		const randomOffset = await executeTool(
 			bot,
 			"run-list-profiles-random-offset",
@@ -774,7 +684,7 @@ describe("Provider requests", () => {
 		expect((randomOffset as Error).message).toContain("offset is only valid");
 		await expect(
 			executeTool(bot, "run-check-notifications", "check_notifications", {}, { mode: "normal", signal }),
-		).resolves.toMatchObject({ providerResult: { events: [] } });
+		).resolves.toMatchObject({ providerResult: "No new notifications." });
 
 		const followResult = await executeTool(
 			bot,
@@ -789,12 +699,7 @@ describe("Provider requests", () => {
 			},
 			{ mode: "normal", signal },
 		);
-		expect(followResult.providerResult).toHaveLength(2);
-		expect(followResult.providerResult).toMatchObject([
-			{ following: true, profile: `u/${firstProfile.handle}` },
-			{ following: true, profile: `u/${secondProfile.handle}` },
-		]);
-
+		expect(followResult.providerResult).toBe(`- I now follow u/${firstProfile.handle}.\n- I now follow u/${secondProfile.handle}.`);
 		const redundantFollow = await executeTool(
 			bot,
 			"run-bulk-follow-again",
@@ -818,11 +723,7 @@ describe("Provider requests", () => {
 			},
 			{ mode: "normal", signal },
 		);
-		expect(unfollowResult.providerResult).toMatchObject([
-			{ following: false, profile: `u/${firstProfile.handle}` },
-			{ following: false, profile: `u/${secondProfile.handle}` },
-		]);
-
+		expect(unfollowResult.providerResult).toBe(`- I no longer follow u/${firstProfile.handle}.\n- I no longer follow u/${secondProfile.handle}.`);
 		const redundantUnfollow = await executeTool(
 			bot,
 			"run-bulk-unfollow-again",
@@ -1086,16 +987,8 @@ describe("Provider requests", () => {
 			{ usernames: [target.handle] },
 			{ mode: "normal", signal },
 		);
-		expect(profileResult.providerResult).toMatchObject({
-			profiles: [{
-				username: `u/${target.handle}`,
-				isFollowedByMe: true,
-				isFollowingMe: true,
-				followers: 56,
-			}],
-		});
-		expect((profileResult.providerResult as { profiles: Array<Record<string, unknown>> }).profiles[0]).not.toHaveProperty("following");
-
+		expect(profileResult.providerResult).toContain(`u/${target.handle}`);
+		expect(profileResult.providerResult).toContain('| 56 | we follow each other |');
 		const searchResult = await executeTool(
 			bot,
 			"run-profile-search-relationships",
@@ -1103,14 +996,8 @@ describe("Provider requests", () => {
 			{ query: target.handle },
 			{ mode: "normal", signal },
 		);
-		const searchedProfile = (searchResult.providerResult as Array<Record<string, unknown>>).find((profile) => profile.username === `u/${target.handle}`);
-		expect(searchedProfile).toMatchObject({
-			isFollowedByMe: true,
-			isFollowingMe: true,
-			followers: 56,
-		});
-		expect(searchedProfile).not.toHaveProperty("following");
-
+		expect(searchResult.providerResult).toContain(`u/${target.handle}`);
+		expect(searchResult.providerResult).toContain('| 56 | we follow each other |');
 		const rankedFollowers = await executeTool(
 			bot,
 			"run-query-ranked-followers",
@@ -1118,11 +1005,8 @@ describe("Provider requests", () => {
 			{ isFollowing: target.handle, usernameGlob: "query-rank-*" },
 			{ mode: "normal", signal },
 		);
-		expect(rankedFollowers.providerResult).toEqual({
-			total: 3,
-			usernames: [`u/${rankAlpha.handle}`, `u/${rankBeta.handle}`, `u/${rankGamma.handle}`],
-		});
-
+		expect(rankedFollowers.providerResult).toContain('has 3 followers. Here are 3 of them:');
+		expect(rankedFollowers.providerResult).toContain(`- u/${rankAlpha.handle}\n- u/${rankBeta.handle}\n- u/${rankGamma.handle}`);
 		const followedByTarget = await executeTool(
 			bot,
 			"run-query-followed-by-target",
@@ -1130,11 +1014,8 @@ describe("Provider requests", () => {
 			{ isFollowedBy: `u/${target.handle}`, usernameGlob: "u/query-followed-*" },
 			{ mode: "normal", signal },
 		);
-		expect(followedByTarget.providerResult).toEqual({
-			total: 2,
-			usernames: [`u/${followedPopular.handle}`, `u/${followedPlain.handle}`],
-		});
-
+		expect(followedByTarget.providerResult).toContain('follows 2 profiles. Here are 2 of them:');
+		expect(followedByTarget.providerResult).toContain(`- u/${followedPopular.handle}\n- u/${followedPlain.handle}`);
 		const cappedFollowers = await executeTool(
 			bot,
 			"run-query-capped-followers",
@@ -1142,12 +1023,11 @@ describe("Provider requests", () => {
 			{ isFollowing: target.handle, usernameGlob: "query-cap-*" },
 			{ mode: "normal", signal },
 		);
-		const cappedResult = cappedFollowers.providerResult as { total: number; usernames: string[] };
-		expect(cappedResult.total).toBe(52);
-		expect(cappedResult.usernames).toHaveLength(50);
-		expect(cappedResult.usernames[0]).toBe("u/query-cap-follower-00");
-		expect(cappedResult.usernames.at(-1)).toBe("u/query-cap-follower-49");
-
+		const cappedResult = String(cappedFollowers.providerResult);
+		expect(cappedResult).toContain('has 52 followers. Here are 50 of them:');
+		expect(cappedResult).toContain('- u/query-cap-follower-00');
+		expect(cappedResult).toContain('- u/query-cap-follower-49');
+		expect(cappedResult).not.toContain('- u/query-cap-follower-50');
 		const tooShortGlob = await executeTool(
 			bot,
 			"run-query-too-short-glob",
@@ -1155,7 +1035,7 @@ describe("Provider requests", () => {
 			{ isFollowing: target.handle, usernameGlob: "q" },
 			{ mode: "normal", signal },
 		);
-		expect(tooShortGlob.providerResult).toEqual({ total: 0, usernames: [] });
+		expect(tooShortGlob.providerResult).toContain('has 0 followers. Here are 0 of them:');
 
 		const missingDirection = await executeTool(
 			bot,
@@ -3692,12 +3572,11 @@ describe("Provider requests", () => {
 			// the budget dropped stays pending for the next visit.
 			expect(includedIds).toEqual(["ntf_leading"]);
 			const checkNotificationResult = appendedMessages.find((message) => message.role === "tool");
-			expect(JSON.parse(String(checkNotificationResult?.content))).toMatchObject({
-				events: [{ actor: "u/leading" }],
-			});
+			expect(checkNotificationResult?.content).toContain('> Leading notification text stays whole.');
+			expect(checkNotificationResult?.content).not.toContain('Trailing text');
 		});
 
-		it("marks the participant's own thread and comment as u/handle (MYSELF) in synthetic notification context", async () => {
+		it("renders the participant's own notification post in the first person", async () => {
 			const appendedMessages: Array<Record<string, unknown>> = [];
 			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
 				env: testEnv,
@@ -3756,17 +3635,11 @@ describe("Provider requests", () => {
 			);
 
 			const notificationContent = String(appendedMessages.find((message) => message.role === "tool")?.content);
-			const selfAuthor = `u/${bot.handle} (${providerSelfAuthor})`;
-			expect(JSON.parse(notificationContent)).toMatchObject({
-				events: [
-					{
-						actor: "u/other-h",
-						thread: { threadRef: "t/thr_mine", author: selfAuthor },
-						comment: { commentRef: "c/cmt_theirs", author: "u/other-h" },
-						replyTo: { commentRef: "c/cmt_mine", author: selfAuthor },
-					},
-				],
-			});
+			expect(notificationContent).toContain('### c/cmt_mine');
+			expect(notificationContent).toContain('I posted:');
+			expect(notificationContent).toContain('> My earlier comment.');
+			expect(notificationContent).toContain('### c/cmt_theirs');
+			expect(notificationContent).toContain('u/other-h');
 			expect(notificationContent).not.toContain(bot.id);
 		});
 
