@@ -1,6 +1,7 @@
 {{! view: ResultBodyTemplate }}
 {{!
 Quote all post bodies. A known body needs an explanation. No internal fields reach this partial.
+A blank line separates every notice from the quote. Without it, Markdown continues the quote into the notice.
 Example output:
 > A post.
 }}
@@ -8,6 +9,7 @@ Example output:
 {{:case shown}}
 {{body.value | quote}}
 {{#if body.trimmed}}
+
 {{t "result.comment.trimmed" ref=ref}}
 {{/if}}
 {{:case known}}

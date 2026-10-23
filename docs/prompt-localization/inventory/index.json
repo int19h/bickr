@@ -501,7 +501,7 @@
         }
       ],
       "status": "english_placeholder",
-      "sourceTemplateHash": "010746ca13f6915d09c3afaedeb909ad1413925e7e24cd8d8acd1a3a83f61303"
+      "sourceTemplateHash": "97cf5990d731a19b51457436092f031172ab4643c9b1cfc3f79e15d3e69b91cc"
     },
     {
       "id": "result.comment.opening",
@@ -552,7 +552,7 @@
         }
       ],
       "status": "english_placeholder",
-      "sourceTemplateHash": "76c15d34fc97fcef90265668cad145b2182933a95796c501931088cf938ce386"
+      "sourceTemplateHash": "5a881e58ff35a38606c87f8837e24e8165be321f4b8c4a76e87a012c3a68e341"
     },
     {
       "id": "result.comment.seen_earlier",
@@ -586,7 +586,7 @@
         }
       ],
       "status": "english_placeholder",
-      "sourceTemplateHash": "519ba585a6e67a75d841be1471d11f514a88bac57050814b716ced624edae6b2"
+      "sourceTemplateHash": "feb1f49b6c4b40774f8e912963629b8c10883811e8366ba1ae91d701d25eb1f3"
     },
     {
       "id": "result.comment.ancestor_only",
@@ -642,7 +642,7 @@
         }
       ],
       "status": "english_placeholder",
-      "sourceTemplateHash": "2a51e57036941e5fd5fa11544267b8eabce2dbf2655ef895c0f96bcb1eb92faa"
+      "sourceTemplateHash": "3ab54ac43cf4f0b86980fa37d95173157276a3221b66958aba013cb5decc9479"
     },
     {
       "id": "result.list.omitted",
@@ -1069,7 +1069,7 @@
         }
       ],
       "status": "english_placeholder",
-      "sourceTemplateHash": "6feb825d781446c227dfa04184d12e60ffb61516623ff7554bb85ef8ab70f349"
+      "sourceTemplateHash": "4288fe2095ae724fe31e97318b5e0cc37daa656e02580a209eb95b97b49c8fe2"
     },
     {
       "id": "result.forums.read_only",
@@ -1154,7 +1154,7 @@
         }
       ],
       "status": "english_placeholder",
-      "sourceTemplateHash": "056ce2520c61908c80e25ae6385188f3994146f7eaf1c3f87a77f4dddfbe268f"
+      "sourceTemplateHash": "8e535d8143bc77f00b578e12cab45b93f957a293e97f573629ff00d0c0df022e"
     },
     {
       "id": "result.profiles.none",
@@ -1392,7 +1392,7 @@
         }
       ],
       "status": "english_placeholder",
-      "sourceTemplateHash": "5b9998b2a604e95a91395dccf47fee5d68ef1de5034e8e78225ad86f71aabb89"
+      "sourceTemplateHash": "33909e38f9333c1f134c2df103c9c1a132390efc9f0487ffda087db00d115347"
     },
     {
       "id": "result.notifications.thread_post.followed",
@@ -1465,7 +1465,7 @@
         }
       ],
       "status": "english_placeholder",
-      "sourceTemplateHash": "1acc1343aaf5ec9d3f8541822dc228af1402878dde97902a7e2354ee537ea3b5"
+      "sourceTemplateHash": "1371478080d776979e8aadc560af14417e7b08f24a978b165cada393bdc34d2d"
     },
     {
       "id": "result.notifications.notice.unfollow",
@@ -1533,7 +1533,7 @@
         }
       ],
       "status": "english_placeholder",
-      "sourceTemplateHash": "e4776bc6e9261f7ad2ff50edfa2405732dc2edb6e3f1930c18b9337e6cf81cd1"
+      "sourceTemplateHash": "4092272d143d6aafe0e64b481618a187abd4bc523f27ead68d7da7f86d0a081a"
     },
     {
       "id": "result.activity.heading",
@@ -1584,7 +1584,7 @@
         }
       ],
       "status": "english_placeholder",
-      "sourceTemplateHash": "922e41f9547213b31316f2c41588d30666c6ffbe538494dd5abff48c40dfb586"
+      "sourceTemplateHash": "20e4934eeef9d935c6b9397475bc5e230448926bce15b99018ad2abf7a4823b7"
     },
     {
       "id": "result.activity.reply",
@@ -1601,7 +1601,7 @@
         }
       ],
       "status": "english_placeholder",
-      "sourceTemplateHash": "0e80ded3eb4e146753c91884c0c92e9214d75ce034799ef6d4b1a6b7a2323b17"
+      "sourceTemplateHash": "c99b2c8d924bcdaf726a307c79563f481640d21aab3c6aebc63c67eee3988960"
     },
     {
       "id": "result.activity.comment",
@@ -1618,7 +1618,7 @@
         }
       ],
       "status": "english_placeholder",
-      "sourceTemplateHash": "1566f6cf27d34bf76bd8d10e376c328239965de3d0fcac22d53b03000e76c28c"
+      "sourceTemplateHash": "0cf0f806225f205120bdb786f4ef939ad12c8457bb71957c63e22761bf332c06"
     },
     {
       "id": "result.activity.parent_preview",
@@ -1635,7 +1635,7 @@
         }
       ],
       "status": "english_placeholder",
-      "sourceTemplateHash": "34d94485ebebda911e6d650005d1b2d2822be70233244b0fe7a4e9fad17fb514"
+      "sourceTemplateHash": "4691e9241163eae1b5f70f5f631e34d903a1625ddffa371b90b8cb6e5a6de559"
     },
     {
       "id": "result.activity.vote",
@@ -1652,7 +1652,7 @@
         }
       ],
       "status": "english_placeholder",
-      "sourceTemplateHash": "b9b65214263ff4f5930fe29b1f062c610ab130abcadf2e30ad152a3260c6b848"
+      "sourceTemplateHash": "707b75db4f45e397de25cec57552790a5e840b15257210ae6197b2c818e4852a"
     },
     {
       "id": "result.activity.target_preview",
@@ -1703,7 +1703,7 @@
         }
       ],
       "status": "english_placeholder",
-      "sourceTemplateHash": "87aacf993649339743a44e2df2b1310245dbe07f741ee5b2d6035ef9476e580e"
+      "sourceTemplateHash": "9cb0ea66581c6768d950faa973bcc48d013d21b455a2a3ca5410c3f2eab63452"
     },
     {
       "id": "result.activity.unfollow",
@@ -1720,7 +1720,7 @@
         }
       ],
       "status": "english_placeholder",
-      "sourceTemplateHash": "5ee32f4c1900205024fcc65af63fc00a53c6303728da0ce1a872a56f2df92a35"
+      "sourceTemplateHash": "dc7a460f1b25666564f952f396c68d02e127c0e3c719cd1f3fd7a5069a9fd4ed"
     },
     {
       "id": "result.followers.followers",
@@ -1737,7 +1737,7 @@
         }
       ],
       "status": "english_placeholder",
-      "sourceTemplateHash": "35518280e6f32c75445ff9d4e4ced6f303c4fe0c58b01a2cb3e359d91c6479cb"
+      "sourceTemplateHash": "18983f4e199a3fda266908eb6570d0701372795df61e401cc21a4157e6798085"
     },
     {
       "id": "result.followers.following",
@@ -1754,7 +1754,7 @@
         }
       ],
       "status": "english_placeholder",
-      "sourceTemplateHash": "630a02b269a6ad63e1ce3dafad0a3ca5ce7bad5758969c8dd9d0342205761c2a"
+      "sourceTemplateHash": "64b3667cb7e0b038884108c5e9882772ed1bace7708973f11f6d08e70b585ecf"
     },
     {
       "id": "result.follow.now_following",
@@ -1839,7 +1839,7 @@
         }
       ],
       "status": "english_placeholder",
-      "sourceTemplateHash": "dd858216fee0a5df49902b0b2d09398682acf4e45e582ef20d08ab30437cea37"
+      "sourceTemplateHash": "aa0aaeb4cf2349dbc8bbd4b86757e4719c54edc703a47bb1ed165bf94cb43260"
     },
     {
       "id": "result.random.draw",
@@ -1907,7 +1907,7 @@
         }
       ],
       "status": "english_placeholder",
-      "sourceTemplateHash": "b2f355416a7e56e1934aee2537ed6e65845f2e11fb1606bab0b63a25cdf75e84"
+      "sourceTemplateHash": "ad57ab03e4ff582e19c133ac3dcd2831e06a9f332313fba4e82c2d666462c88a"
     },
     {
       "id": "result.note.heading",
@@ -1992,7 +1992,7 @@
         }
       ],
       "status": "english_placeholder",
-      "sourceTemplateHash": "11d8dd7042ceabd39343bcb7fa29cd996ec3ab4044e2c0f1c8dd3eecbc62f49a"
+      "sourceTemplateHash": "1a2a383a860f755dba579ebd9ee0b8fd5345cf613940ce5cf92b892b4a87154a"
     },
     {
       "id": "result.note.deleted",
@@ -2077,7 +2077,7 @@
         }
       ],
       "status": "english_placeholder",
-      "sourceTemplateHash": "29d126752bbb4e9834b921726448b472c9ed039f3cdd8c0c8a6f16fb06e8846a"
+      "sourceTemplateHash": "52a26e6f71deb3e7c182b62ee7d017cf19fa5e6ad0370eb0e74583fcfe7da61c"
     },
     {
       "id": "result.batch.refused",
@@ -2111,7 +2111,7 @@
         }
       ],
       "status": "english_placeholder",
-      "sourceTemplateHash": "c78a6c3fca9ca535e6eb6d5561b0dc7f60b2fef61784ca5c043b1adda0d8b109"
+      "sourceTemplateHash": "ece87d8600d65db7e8aed111a07caf29cfb3e79de5366a854a7478a5123e8cfd"
     },
     {
       "id": "result.batch.not_attempted",
@@ -2204,7 +2204,7 @@
         }
       ],
       "status": "english_placeholder",
-      "sourceTemplateHash": "53ea9dc227bf1deb08c05cf4c82e9c85255d56d5366391a5b67a38cbffd30a61"
+      "sourceTemplateHash": "fb4d04898e39aadf6ec1eddf93c06f1e64d2375edd4d4bcd9ae604fed320beaa"
     },
     {
       "id": "result.notes.none",
@@ -2277,7 +2277,7 @@
         }
       ],
       "status": "english_placeholder",
-      "sourceTemplateHash": "53ea9dc227bf1deb08c05cf4c82e9c85255d56d5366391a5b67a38cbffd30a61"
+      "sourceTemplateHash": "fb4d04898e39aadf6ec1eddf93c06f1e64d2375edd4d4bcd9ae604fed320beaa"
     },
     {
       "id": "report.timestamp.relative",
@@ -2328,7 +2328,7 @@
         }
       ],
       "protectedTokens": [],
-      "sourceTemplateHash": "53de078fddab522f8dfb1c39abccb6917e12d16dfb1253c5ef3351e5aadff761",
+      "sourceTemplateHash": "0c29a24dbcf85455e741c2fc0a25a00fbc061f7426ff4d07baf608eb429c2c9c",
       "parameterNotes": {
         "svgElements": {
           "currentValue": 1500,
@@ -2436,7 +2436,7 @@
         }
       ],
       "protectedTokens": [],
-      "sourceTemplateHash": "177887332b69c423d7e8d2eddf35603ee55a3fe8e0867c4783d99f5a01f281e3",
+      "sourceTemplateHash": "a78d0d71031a0e3493c219581fdf4e898c24c693dd682ba1e91b2c1ffc30712a",
       "status": "english_placeholder"
     },
     {
@@ -2463,7 +2463,7 @@
         }
       ],
       "protectedTokens": [],
-      "sourceTemplateHash": "c8c760eefb5e632d12b30c3b69bf766880d0c4b038fd5909bf71599be8363b48",
+      "sourceTemplateHash": "8538b03d729a2ceb5cffad21cf24ec49270837b80979ba364057c3732e1784e0",
       "status": "english_placeholder"
     },
     {
@@ -2490,7 +2490,7 @@
         }
       ],
       "protectedTokens": [],
-      "sourceTemplateHash": "a8310c51f4c8cd031e21d58bb2fd866301f3d00ad836c8dc26a6ea4c02b34fa3",
+      "sourceTemplateHash": "c332bf21f7e2bde7d14d4c93ba923e9694ddd00d435d2d61227d135bdfa1e5ce",
       "status": "english_placeholder"
     },
     {
@@ -2517,7 +2517,7 @@
         }
       ],
       "protectedTokens": [],
-      "sourceTemplateHash": "ff4804d01d906e8d17719070d3df67df1a32da72b495360b4144fa98e18ba19b",
+      "sourceTemplateHash": "12b75f10c19d4674277cfe16428eccef71dd180cdf5bc97a468e06f417bfef94",
       "status": "english_placeholder"
     },
     {
@@ -2586,7 +2586,7 @@
         }
       ],
       "status": "english_placeholder",
-      "sourceTemplateHash": "1e2b69a543ded79ee877957aea1166b5ec2aa3faa1aed2593cd7d2f22061f583"
+      "sourceTemplateHash": "bba030bc2305d43a25f40c18f56c419f4f09eb3216aa6a60f29621c03501600d"
     },
     {
       "id": "result.notifications.thread_post.followed.without_forum",
@@ -2620,7 +2620,7 @@
         }
       ],
       "status": "english_placeholder",
-      "sourceTemplateHash": "477aa8af5c4fc9e126667fb7e547a0b43586ecb63f20f79027a036d77064e4fb"
+      "sourceTemplateHash": "504d23ebecd14621a7fe5c5049664b5cc6adc3fe3c322adce933f77851df0203"
     },
     {
       "id": "result.activity.comment.without_forum",
@@ -2637,7 +2637,7 @@
         }
       ],
       "status": "english_placeholder",
-      "sourceTemplateHash": "be63bd8eba2b3fabfe90be7d5fedff3e9986653d3afbe61f4201556264cdacb9"
+      "sourceTemplateHash": "b22673460141d4f9aab827b79eb897f06e9fbfe2b5ef79be84185a837ef4a972"
     },
     {
       "id": "result.activity.reply.without_forum",
@@ -2654,7 +2654,7 @@
         }
       ],
       "status": "english_placeholder",
-      "sourceTemplateHash": "14bcf48a1e682ce51e273158febb4a1bf72cb8bd44806fd9f4da53d325efbca4"
+      "sourceTemplateHash": "186a2d941af7467efab07959b744e07e1701107c8912270ffcc2cbcd6abee47c"
     },
     {
       "id": "result.activity.vote.without_thread",
@@ -2671,7 +2671,7 @@
         }
       ],
       "status": "english_placeholder",
-      "sourceTemplateHash": "de1b522d67671e26c9b8d8cbb7d9bfad21c45bddd929755eb30430f48871080a"
+      "sourceTemplateHash": "67c3035e90e818f00e4872ba527f24abd81523a692e2eddc8a65118eb4c1665d"
     }
   ]
 }

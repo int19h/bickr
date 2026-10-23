@@ -377,7 +377,7 @@ describe("Provider requests", () => {
 		expect(readResult.providerResult).toContain(`### ${formatCommentRef(thread.rootCommentId)}`);
 		expect(readResult.providerResult).toContain('I posted:');
 		expect(readResult.providerResult).toContain(`u/${other.handle}`);
-		expect(readResult.providerResult).toContain(`I wrote in response to ${formatCommentRef(theirReply.id)}:`);
+		expect(readResult.providerResult).toContain(`I wrote in reply to ${formatCommentRef(theirReply.id)}:`);
 		// The stored result keeps canonical identity. The provider sees first-person headers.
 		expect(JSON.stringify(readResult.result)).toContain(reader.id);
 		expect(JSON.stringify(readResult.providerResult)).not.toContain(reader.id);
@@ -589,8 +589,8 @@ describe("Provider requests", () => {
 		const prunedProviderResult = String(prunedReadResult.providerResult);
 		expect(prunedProviderResult).toContain('> Root body stays visible.');
 		expect(prunedProviderResult).toContain('> …');
-		expect(prunedProviderResult).toContain('Shortened.');
-		expect(prunedProviderResult).toContain('1 more reply to this comment is hidden.');
+		expect(prunedProviderResult).toContain('This text is shortened.');
+		expect(prunedProviderResult).toContain('1 more reply to this comment is not shown.');
 		expect(prunedProviderResult).not.toContain(immediateReplyBody);
 		expect(prunedProviderResult).not.toContain('Grandchild should be collapsed.');
 		expect(prunedProviderResult).toContain(formatCommentRef(immediateReply.id));
@@ -610,7 +610,7 @@ describe("Provider requests", () => {
 		expect(prunedBranchContent).toContain('> Focused target body stays visible.');
 		expect(prunedBranchContent).toContain(`### ${formatCommentRef(targetReply.id)} (my focus)`);
 		expect(prunedBranchContent).toContain(formatCommentRef(descendantReply.id));
-		expect(prunedBranchContent).toContain('Shortened.');
+		expect(prunedBranchContent).toContain('This text is shortened.');
 		expect(prunedBranchContent).not.toContain(descendantBody);
 		const profilesResult = await executeTool(
 			bot,
@@ -1005,7 +1005,7 @@ describe("Provider requests", () => {
 			{ isFollowing: target.handle, usernameGlob: "query-rank-*" },
 			{ mode: "normal", signal },
 		);
-		expect(rankedFollowers.providerResult).toContain('has 3 followers. Here are 3 of them:');
+		expect(rankedFollowers.providerResult).toContain('has 3 followers. This list shows 3:');
 		expect(rankedFollowers.providerResult).toContain(`- u/${rankAlpha.handle}\n- u/${rankBeta.handle}\n- u/${rankGamma.handle}`);
 		const followedByTarget = await executeTool(
 			bot,
@@ -1014,7 +1014,7 @@ describe("Provider requests", () => {
 			{ isFollowedBy: `u/${target.handle}`, usernameGlob: "u/query-followed-*" },
 			{ mode: "normal", signal },
 		);
-		expect(followedByTarget.providerResult).toContain('follows 2 profiles. Here are 2 of them:');
+		expect(followedByTarget.providerResult).toContain('follows 2 profiles. This list shows 2:');
 		expect(followedByTarget.providerResult).toContain(`- u/${followedPopular.handle}\n- u/${followedPlain.handle}`);
 		const cappedFollowers = await executeTool(
 			bot,
@@ -1024,7 +1024,7 @@ describe("Provider requests", () => {
 			{ mode: "normal", signal },
 		);
 		const cappedResult = String(cappedFollowers.providerResult);
-		expect(cappedResult).toContain('has 52 followers. Here are 50 of them:');
+		expect(cappedResult).toContain('has 52 followers. This list shows 50:');
 		expect(cappedResult).toContain('- u/query-cap-follower-00');
 		expect(cappedResult).toContain('- u/query-cap-follower-49');
 		expect(cappedResult).not.toContain('- u/query-cap-follower-50');
@@ -1035,7 +1035,7 @@ describe("Provider requests", () => {
 			{ isFollowing: target.handle, usernameGlob: "q" },
 			{ mode: "normal", signal },
 		);
-		expect(tooShortGlob.providerResult).toContain('has 0 followers. Here are 0 of them:');
+		expect(tooShortGlob.providerResult).toContain('has 0 followers. This list shows 0:');
 
 		const missingDirection = await executeTool(
 			bot,

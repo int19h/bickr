@@ -5,4 +5,4 @@ tools.list_notes.properties.entities.description: |-
   İsteğe bağlı u/name veya f/name referansları listesi. Listedeki herhangi bir öğeyle eşleşen notlar döndürülür.
 
 tools.list_notes.properties.cursor.description: |-
-  Use the cursor shown for the next page from the previous page to continue listing IDs.
+  To continue the list, copy the cursor from the next-page line of the previous result.

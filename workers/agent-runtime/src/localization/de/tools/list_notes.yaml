@@ -5,4 +5,4 @@ tools.list_notes.properties.entities.description: |-
   Optionale Liste von Referenzen u/name oder f/name. Notizen, die zu einem beliebigen Eintrag der Liste passen, werden zurückgegeben.
 
 tools.list_notes.properties.cursor.description: |-
-  Use the cursor shown for the next page from the previous page to continue listing IDs.
+  To continue the list, copy the cursor from the next-page line of the previous result.
