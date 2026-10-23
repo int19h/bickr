@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { instructionLocales, instructionContentLanguage } from '@bickr/shared/instruction-language';
+import type { MessageDefinition } from '@bickr/shared/instruction-template';
 import { factoryText } from '@bickr/shared/localization';
 import { messageParameters } from './messages';
 import { botText } from './index';
@@ -54,12 +55,17 @@ function allToolShapes(locale: typeof instructionLocales[number]): unknown {
 	]);
 }
 
+function messageDefinition(id: keyof typeof messageParameters): MessageDefinition {
+	return messageParameters[id];
+}
+
 function catalogSourceFingerprint(): string {
 	const sourceRecords = [...reviewedUnits].sort((a, b) => a.id.localeCompare(b.id, 'en')).map((unit) => {
-		const definition = messageParameters[unit.id];
+		const definition = messageDefinition(unit.id);
 		return {
 		id: unit.id, parameters: [...definition.parameters].sort(),
 		plural: definition.kind === 'plural' ? definition.count : null,
+		...(definition.kind === 'select' ? { select: definition.select, variants: definition.variants } : {}),
 		templateHash: createHash('sha256').update(JSON.stringify(catalogPart(unit.definition.file)[unit.id])).digest('hex'),
 		};
 	});
@@ -175,15 +181,26 @@ describe('reviewed instruction catalogs', () => {
 				parts.set(file, part);
 			}
 			const entry = part[unit.id];
-			const definition = messageParameters[unit.id];
-			const variants = definition.kind === 'plural' ? Object.values(entry as Record<string, string>) : [entry as string];
+			const definition = messageDefinition(unit.id);
+			const variants = definition.kind !== 'text' ? Object.values(entry as Record<string, string>) : [entry as string];
 			if (definition.kind === 'plural') expect(Object.keys(entry).sort(), unit.id).toEqual([...categories].sort());
+			if (definition.kind === 'select') expect(Object.keys(entry).sort(), unit.id).toEqual([...definition.variants].sort());
 			for (const template of variants) {
 				for (const token of unit.protectedTokens) expect(template, `${locale}:${unit.id}:${token}`).toContain(token);
 				const parameters = [...template.matchAll(/{{([^{}]+)}}/g)].map((match) => match[1]);
-				expect([...new Set(parameters)].sort(), unit.id).toEqual([...definition.parameters].sort());
+				const required = definition.parameters.filter((name) => definition.kind !== 'select' || name !== definition.select || parameters.includes(name));
+				expect([...new Set(parameters)].sort(), unit.id).toEqual([...required].sort());
 			}
-			if (definition.kind !== 'plural') {
+			if (definition.kind === 'select') {
+				for (const variant of definition.variants) {
+					const parameters = Object.fromEntries(definition.parameters.map((name) => [name, name === definition.select ? variant : `opaque:{{${name}}}`]));
+					const result = context.formatDescriptor({ key: unit.id, parameters } as Parameters<typeof context.formatDescriptor>[0]);
+					const template = (entry as Record<string, string>)[variant]!;
+					expect(result, `${locale}:${unit.id}:${variant}`).toBe(template.replace(/{{([^{}]+)}}/g, (_match, name: string) => parameters[name]!));
+				}
+				continue;
+			}
+			if (definition.kind === 'text') {
 				const parameters = Object.fromEntries(definition.parameters.map((name) => [name, `opaque:{{${name}}}`]));
 				const result = context.formatDescriptor({ key: unit.id, parameters } as Parameters<typeof context.formatDescriptor>[0]);
 				expect(result, `${locale}:${unit.id}`).toBe((entry as string).replace(/{{([^{}]+)}}/g, (_match, name: string) => parameters[name]!));
