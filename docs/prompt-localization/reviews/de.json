@@ -1,8 +1,8 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "catalogSourceHash": "1ea4d0935facacfea35be251f30fc67822b5de7e36d4075fd21c7595bffff89e",
+  "catalogSourceHash": "569c6dc99760c3c93e1594717e4078e6e25111ee4b5b788935ef32b6d2cb5cab",
   "locale": "de",
-  "status": "accepted_by_lead",
+  "status": "partially_pending_translation",
   "leadReason": "Accept the German catalog after both reviewers accept both exact follow-up units. The direct Mermaid imperative keeps the required maximum. The SVG clause names its fence and label plainly. The profile-result actor is explicit. Darf nicht leer sein preserves the required nonempty constraint.",
   "terminologyDecisions": {
     "unfollow": "Use the ordinary social-action verb entfolgen in the tool description, as all four independent drafts do. Explanatory nicht mehr folgen remains acceptable in the schema fields.",
@@ -3303,7 +3303,7 @@
     },
     "serialization": {
       "finalHash": "fe213f5acda714fcd07c1afe6b2ffc9e541aac56ddf8d3e205bb486b2ad517fd",
-      "finalTemplateHash": "5bfcd97789673aa8ed5f0c6045ad63d99f6a9302eb8f275378b98df86b8265f5",
+      "finalTemplateHash": "7b4f1f424312ff56c991976b9e9337a9dc6651f88fa7b534b6aa02068945c20b",
       "draftHashes": {
         "codex": "f571065479f461236ea7f23956d7e56e6356683ba0657d92b3cacc98027444fc",
         "opus": "295bb9dac2d4205cb58c00753fb6dddf23e4e3b74dc8e107141da1f2220f993b",
@@ -3315,149 +3315,6 @@
         "grok": "ade1c001a91b0d6671702437c4201f3c457656b98ef499e73b08ddc4ca9e96ac"
       },
       "decisions": {
-        "time.just_now": {
-          "finalValueHash": "f0665aa264d30c874f68188895211d61a763f2eba03de82a298cb659dc64167b",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All four preserve just now as the native gerade eben.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept gerade eben. It is a compact fragment for just now.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "time.year.future": {
-          "finalValueHash": "de197264b187f2d6903396e6c65b81703ff050ff54f6423b1537cdd0d3a55f7e",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All four one and other forms agree on year future, numeric count and native case after in.",
-          "opusDecision": "accept",
-          "opusReason": "Explicit pattern with correct singular and dative plural.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex, opus, grok, gemini. one is exactly 1 and other is 0 and 2 or more; both forms were read. English: in {{count}} year in {{count}} years",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "time.year.past": {
-          "finalValueHash": "927066608f1131cba8042ae6db8d1a0d6c2b155766a15a2d8cea0487c31a985c",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All four one and other forms agree on year past, numeric count and native case after vor.",
-          "opusDecision": "accept",
-          "opusReason": "Explicit pattern with correct singular and dative plural.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex, opus, grok, gemini. one is exactly 1 and other is 0 and 2 or more; both forms were read. English: {{count}} year ago {{count}} years ago",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "time.month.future": {
-          "finalValueHash": "185592b697bd67e91675920ca5c505018caaabb8bf917bbfa55baef0017e9997",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All four one and other forms agree on month future, numeric count and native case after in.",
-          "opusDecision": "accept",
-          "opusReason": "Explicit pattern with correct singular and dative plural.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex, opus, grok, gemini. one is exactly 1 and other is 0 and 2 or more; both forms were read. English: in {{count}} month in {{count}} months",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "time.month.past": {
-          "finalValueHash": "fe7407a7b4b547702467ea75ebfc08ef2e2144636e592f9e15f0cab2ecb0ab81",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All four one and other forms agree on month past, numeric count and native case after vor.",
-          "opusDecision": "accept",
-          "opusReason": "Explicit pattern with correct singular and dative plural.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex, opus, grok, gemini. one is exactly 1 and other is 0 and 2 or more; both forms were read. English: {{count}} month ago {{count}} months ago",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "time.day.future": {
-          "finalValueHash": "24a4073198abeef48549752f33930d39bb1ba2dfd7fcbf6cccd5fecef5f611a8",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All four one and other forms agree on day future, numeric count and native case after in.",
-          "opusDecision": "accept",
-          "opusReason": "Explicit pattern with correct singular and dative plural.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex, opus, grok, gemini. one is exactly 1 and other is 0 and 2 or more; both forms were read. English: in {{count}} day in {{count}} days",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "time.day.past": {
-          "finalValueHash": "94c306363e797f568c7678deb2a338335ba147c9dcfc34f1f4c069980737f068",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All four one and other forms agree on day past, numeric count and native case after vor.",
-          "opusDecision": "accept",
-          "opusReason": "Explicit pattern with correct singular and dative plural.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex, opus, grok, gemini. one is exactly 1 and other is 0 and 2 or more; both forms were read. English: {{count}} day ago {{count}} days ago",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "time.hour.future": {
-          "finalValueHash": "197c5ab384937821b23a6dbe5910e1e6a9dac81fad01df904438d4ec17c272b6",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All four one and other forms agree on hour future, numeric count and native case after in.",
-          "opusDecision": "accept",
-          "opusReason": "Explicit pattern with correct singular and dative plural.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex, opus, grok, gemini. one is exactly 1 and other is 0 and 2 or more; both forms were read. English: in {{count}} hour in {{count}} hours",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "time.hour.past": {
-          "finalValueHash": "63cc996ebae35c562ae43b7b5ba834278a6deb1272c9e2f4ed5727f76fd017ab",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All four one and other forms agree on hour past, numeric count and native case after vor.",
-          "opusDecision": "accept",
-          "opusReason": "Explicit pattern with correct singular and dative plural.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex, opus, grok, gemini. one is exactly 1 and other is 0 and 2 or more; both forms were read. English: {{count}} hour ago {{count}} hours ago",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "time.minute.future": {
-          "finalValueHash": "377eb7891ffcef9b8849815af859d3b3af315737710c6703b0988e60692b524a",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All four one and other forms agree on minute future, numeric count and native case after in.",
-          "opusDecision": "accept",
-          "opusReason": "Explicit pattern with correct singular and dative plural.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex, opus, grok, gemini. one is exactly 1 and other is 0 and 2 or more; both forms were read. English: in {{count}} minute in {{count}} minutes",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "time.minute.past": {
-          "finalValueHash": "ea3d2338aa2519398d5993cf053da5623f83a943348eb0f2878b1a4c87b72238",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All four one and other forms agree on minute past, numeric count and native case after vor.",
-          "opusDecision": "accept",
-          "opusReason": "Explicit pattern with correct singular and dative plural.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex, opus, grok, gemini. one is exactly 1 and other is 0 and 2 or more; both forms were read. English: {{count}} minute ago {{count}} minutes ago",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
         "read.context.basic": {
           "finalValueHash": "664abacc8c62e1876531d682d556c29fdc693843527f3f670911bb335a9acecd",
           "chosenFrom": "codex",
@@ -4072,7 +3929,7 @@
     },
     "reports": {
       "finalHash": "b95fc15458f16e9d7049d693e4c01b1481812176008a9e6b3241812dbd359f5d",
-      "finalTemplateHash": "5e1ce144f2948f91ccfc58c036ab493e8400a9540e79ed2670f8b3540c197cc0",
+      "finalTemplateHash": "c235daf236aaefbf2f2ac729e55f54493b3f02fb8e450438dcaf29fe31d1e9c8",
       "draftHashes": {
         "codex": "b95fc15458f16e9d7049d693e4c01b1481812176008a9e6b3241812dbd359f5d",
         "opus": "f9f5ace47437de4f6c11ccb13446dae077071b9f0c0903dd2f3ff51925772008",
@@ -4083,73 +3940,12 @@
         "opus": "7e3b3247cd34a9f808d29698e728baee17627311a9a61a2eebf5489a9d06a7e6",
         "grok": "499e9fcf2576cf7ca9e4135cb2fd2a1b3ad836cab6357356715ae4fa1aa45868"
       },
-      "decisions": {
-        "report.elapsed.moment": {
-          "finalValueHash": "2c813c45da7e62f252dccb9ea9c68cf82ef96c80fb00d825220c573d0ee733ab",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Native Augenblick preserves a moment since the previous visit. Gemini is equivalent; Opus/Grok use Moment.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex. actor, tense, limits, and parameters match the English. English: A moment passed since your previous visit.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "report.elapsed.second": {
-          "finalValueHash": "ab62bdd1f5ccb77ff44dfbe52adcbbb73f6cb041396ccd72c22e00b3b317a30e",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Both categories preserve elapsed seconds since your previous visit with correct singular/plural noun and verb. Codex/Grok agree; Gemini only changes word order.",
-          "opusDecision": "accept",
-          "opusReason": "Correct singular and plural with ist/sind.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex, opus, grok. one is exactly 1 and other is 0 and 2 or more; both forms were read. English: {{count}} second passed since your previous visit. {{count}} seconds passed since your previous visit.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "report.elapsed.minute": {
-          "finalValueHash": "7404ec5e0bed66724d3a1c4e5ba2700e83fbf01ae1778605429e75af7a05980b",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Both categories preserve elapsed minutes since your previous visit with correct singular/plural noun and verb. Codex/Grok agree; Gemini only changes word order.",
-          "opusDecision": "accept",
-          "opusReason": "Correct singular and plural with ist/sind.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex, opus, grok. one is exactly 1 and other is 0 and 2 or more; both forms were read. English: {{count}} minute passed since your previous visit. {{count}} minutes passed since your previous visit.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "report.elapsed.hour": {
-          "finalValueHash": "c6a166120d5dadea3c7f113f2308708831b34e2682cd4a4fd9005b465afa32a4",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Both categories preserve elapsed hours since your previous visit with correct singular/plural noun and verb. Codex/Grok agree; Gemini only changes word order.",
-          "opusDecision": "accept",
-          "opusReason": "Correct singular and plural with ist/sind.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex, opus, grok. one is exactly 1 and other is 0 and 2 or more; both forms were read. English: {{count}} hour passed since your previous visit. {{count}} hours passed since your previous visit.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "report.elapsed.day": {
-          "finalValueHash": "108c03479947a904ccb0e9695ae746c55a559c3f589f9d04e456210c38b60e78",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Both categories preserve elapsed days since your previous visit with correct singular/plural noun and verb. Codex/Grok agree; Gemini only changes word order.",
-          "opusDecision": "accept",
-          "opusReason": "Correct singular and plural with ist/sind.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex, opus, grok. one is exactly 1 and other is 0 and 2 or more; both forms were read. English: {{count}} day passed since your previous visit. {{count}} days passed since your previous visit.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        }
-      }
+      "decisions": {},
+      "status": "pending_translation",
+      "pendingTranslationKeys": [
+        "report.timestamp.relative",
+        "report.timestamp.absolute"
+      ]
     },
     "recovery": {
       "finalHash": "ef227799fb5d15e9b978e94ab2752969172d2b20631ceb6496b3c9cb9655b19a",

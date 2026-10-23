@@ -656,15 +656,6 @@ describe("Tick flow", () => {
 			{ role: "assistant", content: "I should look for the changelog next." },
 		];
 		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
-			previousTerminalTickEvent: () => ({
-				seq: 7,
-				run_id: "run-previous",
-				type: "tick_completed",
-				payload_json: JSON.stringify({}),
-				token_estimate: 1,
-				created_at: "2026-05-01T00:00:00.000Z",
-				compacted_by: null,
-			}),
 			appendLoopMessage: (_runId: string, message: { role: string; content?: string | null }) => {
 				ledgerMessages.push(message);
 				return {
@@ -694,6 +685,7 @@ describe("Tick flow", () => {
 		const messages = await buildMessages(
 				{ ...{
 					handle: "release-sage",
+				createdAt: "2026-05-01T00:00:00.000Z",
 					language: testLanguage,
 					displayName: lt("Release Sage"),
 					shortBio: lt("Reads changelogs."),
@@ -712,7 +704,7 @@ describe("Tick flow", () => {
 
 		expect(messages[0]).toEqual({ role: "assistant", content: "I remember that I promised Müller I would follow up on release notes." });
 		expect(messages[1]).toEqual({ role: "assistant", content: "I should look for the changelog next." });
-		expect(messages.some((message) => message.role === "user" && message.content === "15 minutes passed since your previous visit.")).toBe(true);
+		expect(messages.some((message) => message.role === "user" && message.content === "Current timestamp: 0d0h15m since your Bickr account was created.")).toBe(true);
 		expect(messages.some((message) => message.role === "assistant" && message.content === "I log into Bickr and check my notifications.")).toBe(true);
 		expect(messages.some((message) => message.role === "assistant" && message.content === "Check the daily thread.")).toBe(true);
 		expect(messages.some((message) => typeof message.content === "string" && message.content.includes("I have this private thought in mind."))).toBe(false);
@@ -755,6 +747,7 @@ describe("Tick flow", () => {
 		const messages = await buildMessages(
 				{ ...{
 					handle: "release-sage",
+				createdAt: "2026-05-01T00:00:00.000Z",
 					language: testLanguage,
 					displayName: lt("Release Sage"),
 					shortBio: lt("Reads changelogs."),
@@ -778,6 +771,7 @@ describe("Tick flow", () => {
 		const base = {
 			text: englishInstructions,
 			handle: "release-sage",
+				createdAt: "2026-05-01T00:00:00.000Z",
 			inferenceSettings: { recurringPrompt: lt("I should inspect the release notes.  ") },
 		};
 		expect(effectiveLoopRecurringPrompt(base)).toBe("I should inspect the release notes.  ");
@@ -830,6 +824,7 @@ describe("Tick flow", () => {
 		const messages = await buildMessages(
 			{ ...{
 				handle: "release-sage",
+				createdAt: "2026-05-01T00:00:00.000Z",
 				language: testLanguage,
 				displayName: lt("Release Sage"),
 				shortBio: lt("Reads changelogs."),
@@ -890,9 +885,6 @@ describe("Tick flow", () => {
 			{ role: "assistant", content: "I am already in the middle of reading Bickr." },
 		];
 		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
-			previousTerminalTickEvent: () => {
-				throw new Error("Continuation ticks should not calculate elapsed visit time.");
-			},
 			appendLoopMessage: (_runId: string, message: { role: string; content?: string | null }) => {
 				ledgerMessages.push(message);
 				return {
@@ -923,6 +915,7 @@ describe("Tick flow", () => {
 		const messages = await buildMessages(
 			{ ...{
 				handle: "release-sage",
+				createdAt: "2026-05-01T00:00:00.000Z",
 				language: testLanguage,
 				displayName: lt("Release Sage"),
 				shortBio: lt("Reads changelogs."),
@@ -942,7 +935,7 @@ describe("Tick flow", () => {
 			{ setupMode: "continuation" },
 		);
 
-		expect(messages.some((message) => message.role === "user" && message.content === "15 minutes passed since your previous visit.")).toBe(false);
+		expect(messages.some((message) => message.role === "user" && message.content === "Current timestamp: 0d0h15m since your Bickr account was created.")).toBe(true);
 		expect(messages.some((message) => typeof message.content === "string" && message.content.includes("checking my notifications"))).toBe(false);
 		expect(messages.some((message) => typeof message.content === "string" && message.content.includes("This should not be injected again."))).toBe(false);
 		expect(messages.some((message) => typeof message.content === "string" && message.content.includes("Keep reading the daily thread."))).toBe(true);
@@ -1388,7 +1381,7 @@ describe("Tick flow", () => {
 	it("deduplicates explicit read result comment bodies while keeping comment IDs", () => {
 		const activeContext = providerSerializationContext(englishInstructions,
 			{ botId: "bot_reader" },
-			{ commentsWithText: new Set(["cmt_seen"]), threadsWithText: new Set<string>() },
+			{ commentsWithText: new Set(["cmt_seen"]), threadsWithText: new Set<string>() }, { settings: { mode: "relative", timezone: "UTC" }, createdAt: "2026-01-01T00:00:00Z" },
 		);
 		const threadResult = providerToolResultPayload(
 			"read_thread_by_id",
@@ -1450,7 +1443,7 @@ describe("Tick flow", () => {
 			{},
 			providerSerializationContext(englishInstructions,
 				{ botId: "bot_reader" },
-				{ commentsWithText: new Set(["cmt_seen"]), threadsWithText: new Set<string>() },
+				{ commentsWithText: new Set(["cmt_seen"]), threadsWithText: new Set<string>() }, { settings: { mode: "relative", timezone: "UTC" }, createdAt: "2026-01-01T00:00:00Z" },
 			),
 		) as { content: Array<Record<string, unknown>> };
 		expect(commentResult.content[0]).toMatchObject({ commentRef: "c/cmt_seen" });
@@ -1471,7 +1464,7 @@ describe("Tick flow", () => {
 					{ id: "frm_archive", worldHandle: "primary", handle: "archive", description: "Closed archive.", readOnly: true },
 				],
 				{},
-				providerSerializationContext(englishInstructions, { botId: "bot_reader" }),
+				providerSerializationContext(englishInstructions, { botId: "bot_reader" }, undefined, { settings: { mode: "relative", timezone: "UTC" }, createdAt: "2026-01-01T00:00:00Z" }),
 			);
 			expect(forumResult).toEqual([
 				{ forum: "f/random", description: "Random chatter.", readOnly: false },
@@ -1494,7 +1487,7 @@ describe("Tick flow", () => {
 					lock: { kind: "comment_limit", limit: 3 },
 					lastActivityAt: "2026-05-01T00:00:00.000Z",
 				},
-			], {}, providerSerializationContext(englishInstructions, { botId: "bot_reader" }));
+			], {}, providerSerializationContext(englishInstructions, { botId: "bot_reader" }, undefined, { settings: { mode: "relative", timezone: "UTC" }, createdAt: "2026-01-01T00:00:00Z" }));
 			expect(recentResult).toMatchObject([
 				{
 					threadRef: "t/thr_recent",
@@ -1505,7 +1498,7 @@ describe("Tick flow", () => {
 					voteScore: 7,
 					locked: true,
 					commentLimit: 3,
-					lastActivity: "7 days ago",
+					lastActivity: "4m0d0h0m",
 				},
 			]);
 			expect(recentResult).not.toMatchObject([{ forum: expect.anything() }]);
@@ -1520,8 +1513,8 @@ describe("Tick flow", () => {
 					authorHandle: "bob",
 					lastActivityAt: "2026-05-07T22:00:00.000Z",
 				},
-			], {}, providerSerializationContext(englishInstructions, { botId: "bot_reader" }));
-			expect(hotResult).toMatchObject([{ threadRef: "t/thr_hot", forum: "f/weird", author: "u/bob", lastActivity: "2 hours ago" }]);
+			], {}, providerSerializationContext(englishInstructions, { botId: "bot_reader" }, undefined, { settings: { mode: "relative", timezone: "UTC" }, createdAt: "2026-01-01T00:00:00Z" }));
+			expect(hotResult).toMatchObject([{ threadRef: "t/thr_hot", forum: "f/weird", author: "u/bob", lastActivity: "4m6d22h0m" }]);
 
 			const searchResult = providerToolResultPayload("search_threads", [
 				{
@@ -1536,7 +1529,7 @@ describe("Tick flow", () => {
 					createdAt: "2026-05-07T00:00:00.000Z",
 					score: 0.91,
 				},
-			], {}, providerSerializationContext(englishInstructions, { botId: "bot_reader" }));
+			], {}, providerSerializationContext(englishInstructions, { botId: "bot_reader" }, undefined, { settings: { mode: "relative", timezone: "UTC" }, createdAt: "2026-01-01T00:00:00Z" }));
 			expect(searchResult).toMatchObject([
 				{
 					threadRef: "t/thr_search",
@@ -1545,7 +1538,7 @@ describe("Tick flow", () => {
 					title: "Search hit",
 					snippet: "A useful comment.",
 					author: "u/carol",
-					when: "1 day ago",
+					when: "4m6d0h0m",
 				},
 			]);
 			expect((searchResult as Array<Record<string, unknown>>)[0]).not.toHaveProperty("rootCommentId");
@@ -1566,7 +1559,7 @@ describe("Tick flow", () => {
 				{},
 				providerSerializationContext(englishInstructions,
 					{ botId: "bot_reader" },
-					{ commentsWithText: new Set(["cmt_search"]), threadsWithText: new Set<string>() },
+					{ commentsWithText: new Set(["cmt_search"]), threadsWithText: new Set<string>() }, { settings: { mode: "relative", timezone: "UTC" }, createdAt: "2026-01-01T00:00:00Z" },
 				),
 			);
 			expect((compactedSearchResult as Array<Record<string, unknown>>)[0]).toMatchObject({
@@ -1587,7 +1580,7 @@ describe("Tick flow", () => {
 					comment: { id: "cmt_notice", threadId: "thr_notice", parentCommentId: "cmt_parent", text: "Notice body." },
 					vote: { targetType: "comment", commentId: "cmt_notice", value: 1 },
 				}],
-			}, {}, providerSerializationContext(englishInstructions, { botId: "bot_reader" }));
+			}, {}, providerSerializationContext(englishInstructions, { botId: "bot_reader" }, undefined, { settings: { mode: "relative", timezone: "UTC" }, createdAt: "2026-01-01T00:00:00Z" }));
 			expect(notificationResult).toMatchObject({
 				events: [{
 					type: "vote_cast",
@@ -1649,17 +1642,17 @@ describe("Tick flow", () => {
 						createdAt: "2026-05-03T00:00:00.000Z",
 					},
 				],
-			}, {}, providerSerializationContext(englishInstructions, { botId: "bot_reader" }));
+			}, {}, providerSerializationContext(englishInstructions, { botId: "bot_reader" }, undefined, { settings: { mode: "relative", timezone: "UTC" }, createdAt: "2026-01-01T00:00:00Z" }));
 				expect(activityResult).toMatchObject({
 					profile: "u/owner",
 					activities: [
-						{ type: "thread", threadRef: "t/thr_activity", forum: "f/random", when: "2 days ago" },
+						{ type: "thread", threadRef: "t/thr_activity", forum: "f/random", when: "4m5d0h0m" },
 						{
 							type: "comment",
 							commentRef: "c/cmt_activity",
 							forum: "f/random",
 							replyTo: { author: "u/dave", bodyPreview: "Parent preview." },
-							when: "3 days ago",
+							when: "4m4d0h0m",
 						},
 						{
 						type: "vote",
@@ -1668,9 +1661,9 @@ describe("Tick flow", () => {
 						threadRef: "t/thr_vote",
 						forum: "f/polls",
 						targetComment: { commentRef: "c/cmt_vote", author: "u/erin", bodyPreview: "Vote target." },
-						when: "4 days ago",
+						when: "4m3d0h0m",
 					},
-					{ type: "follow", profile: "u/friend", when: "5 days ago" },
+					{ type: "follow", profile: "u/friend", when: "4m2d0h0m" },
 					],
 				});
 				expect((activityResult as { activities: Array<Record<string, unknown>> }).activities[0]).not.toHaveProperty("rootCommentId");

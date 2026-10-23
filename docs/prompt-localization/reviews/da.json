@@ -1,8 +1,8 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "catalogSourceHash": "1ea4d0935facacfea35be251f30fc67822b5de7e36d4075fd21c7595bffff89e",
+  "catalogSourceHash": "569c6dc99760c3c93e1594717e4078e6e25111ee4b5b788935ef32b6d2cb5cab",
   "locale": "da",
-  "status": "accepted_by_lead",
+  "status": "partially_pending_translation",
   "leadReason": "Accept the exact Danish proposal. Both reviewers accept all sixteen disputed units and find no additional defect. Native om/for ... siden fragments preserve the time value and direction without the ambiguous i år construction. Reference terminology, identification by u/username, and member-list headers preserve the source and use ordinary Danish.",
   "terminologyDecisions": {
     "reference": "Use reference for the defined comment reference. Preserve protocol property names.",
@@ -3081,7 +3081,7 @@
     },
     "serialization": {
       "finalHash": "9d729c46dc689203516f82a38c46d191480b8e3703f181e8a476812ff6f2308a",
-      "finalTemplateHash": "799c47947d1aaa5bfd9cdae480d56f947823409c9c7b592cf23ff4101224b503",
+      "finalTemplateHash": "8ae20d06559d9b29e31cd4103960d86393ca1b02359c21be48bdf965ea9f5b45",
       "draftHashes": {
         "codex": "acf08457af9f3ba1372f81b4db8635df828a8e316954060766fa3b380d66b5ae",
         "opus": "4c10e2d5f9458f9990386f1eba672d7151fcd2453f5baefea0f69ac44ac27b17",
@@ -3093,259 +3093,6 @@
         "grok": "6076772edc0d1bb00546175aa4df624be47cb024accebb8d33278fc82d72dd43"
       },
       "decisions": {
-        "time.just_now": {
-          "finalValueHash": "ced325e01ed5b1452b515f477b205e5d5066ab61c0a56c5650a10c0c676161cb",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All four use the same idiomatic immediate-time expression.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept lige nu as the compact fragment for just now.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "time.year.future": {
-          "finalValueHash": "995ba88a07e66c8a6259ac46b3b0a173791e587e1a07ee62f99c943c6259cd52",
-          "chosenFrom": "opus",
-          "leadReason": "Use the ordinary native om/for ... siden time phrase. All three other independent drafts support this construction. The candidate’s i år is ambiguous with this year and its complete interval sentence is unnatural as a time field. Preserve exact count, singular/plural form, direction, and unit.",
-          "candidateReason": "Codex supplies complete future year count sentences in both categories. The other three use accurate but incomplete time fragments.",
-          "opusDecision": "required_change",
-          "opusReason": "Format and meaning defect: this string is the value of the \"when\" or \"lastActivity\" field in tool results. The candidate renders a sentence (\"Den resterende/forløbne tid i X er N.\"). For years, \"i år\" means \"this year\", so \"Den resterende tid i år er 3.\" reads as \"the remaining time this year is 3\". The opus and grok drafts agree on the native phrases (om N år, for N dage siden).",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex. one is exactly 1 and other includes 0, and the shared wording is grammatical for both. English: in {{count}} year in {{count}} years",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change. The candidate's sentence used \"i år\" for the unit, which in Danish means \"this year\". Its interval sentence also does not fit a JSON \"when\" value. \"om N …\" for the future and \"for N … siden\" for the past are the native fragments the lead decided on. one (exactly 1) uses the singular, and other (including 0) the plural; for \"år\" the two forms are identical, which is correct.",
-              "proposedValueHash": "995ba88a07e66c8a6259ac46b3b0a173791e587e1a07ee62f99c943c6259cd52"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept om {{count}} år in one and other. English is the future label in {{count}} year or years. år does not inflect, so the shared wording is grammatical for 1 and for 0. The candidate’s i år means this year, so that interval sentence does not count years. om keeps the future direction. Danish one is exactly 1. other includes 0 and the ordinary plural. {{count}} stays visible in both categories.",
-              "proposedValueHash": "995ba88a07e66c8a6259ac46b3b0a173791e587e1a07ee62f99c943c6259cd52"
-            }
-          }
-        },
-        "time.year.past": {
-          "finalValueHash": "1ce1e7aeea0efbede189d064859f925c109ea7f14b20e410ac8237370fd7af6a",
-          "chosenFrom": "opus",
-          "leadReason": "Use the ordinary native om/for ... siden time phrase. All three other independent drafts support this construction. The candidate’s i år is ambiguous with this year and its complete interval sentence is unnatural as a time field. Preserve exact count, singular/plural form, direction, and unit.",
-          "candidateReason": "Codex supplies complete past year count sentences in both categories. The other three use accurate but incomplete time fragments.",
-          "opusDecision": "required_change",
-          "opusReason": "Format and meaning defect: this string is the value of the \"when\" or \"lastActivity\" field in tool results. The candidate renders a sentence (\"Den resterende/forløbne tid i X er N.\"). For years, \"i år\" means \"this year\", so \"Den resterende tid i år er 3.\" reads as \"the remaining time this year is 3\". The opus and grok drafts agree on the native phrases (om N år, for N dage siden).",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex. one is exactly 1 and other includes 0, and the shared wording is grammatical for both. English: {{count}} year ago {{count}} years ago",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change. The candidate's sentence used \"i år\" for the unit, which in Danish means \"this year\". Its interval sentence also does not fit a JSON \"when\" value. \"om N …\" for the future and \"for N … siden\" for the past are the native fragments the lead decided on. one (exactly 1) uses the singular, and other (including 0) the plural; for \"år\" the two forms are identical, which is correct.",
-              "proposedValueHash": "1ce1e7aeea0efbede189d064859f925c109ea7f14b20e410ac8237370fd7af6a"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept for {{count}} år siden in one and other. English is {{count}} year or years ago. år does not inflect, and the shared wording fits 1 and 0. for ... siden keeps the past direction. The candidate’s i år means this year. Danish one is exactly 1. other includes 0 and the ordinary plural. {{count}} stays visible in both categories.",
-              "proposedValueHash": "1ce1e7aeea0efbede189d064859f925c109ea7f14b20e410ac8237370fd7af6a"
-            }
-          }
-        },
-        "time.month.future": {
-          "finalValueHash": "387ee7ad6e2aedc98cf9dedd4f7a945189a89b74e418afc2308158e90674a33a",
-          "chosenFrom": "opus",
-          "leadReason": "Use the ordinary native om/for ... siden time phrase. All three other independent drafts support this construction. The candidate’s i år is ambiguous with this year and its complete interval sentence is unnatural as a time field. Preserve exact count, singular/plural form, direction, and unit.",
-          "candidateReason": "Codex supplies complete future month count sentences in both categories. The other three use accurate but incomplete time fragments.",
-          "opusDecision": "required_change",
-          "opusReason": "Format and meaning defect: this string is the value of the \"when\" or \"lastActivity\" field in tool results. The candidate renders a sentence (\"Den resterende/forløbne tid i X er N.\"). For years, \"i år\" means \"this year\", so \"Den resterende tid i år er 3.\" reads as \"the remaining time this year is 3\". The opus and grok drafts agree on the native phrases (om N år, for N dage siden).",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex. one is exactly 1 and other includes 0, and the shared wording is grammatical for both. English: in {{count}} month in {{count}} months",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change. The candidate's sentence used \"i år\" for the unit, which in Danish means \"this year\". Its interval sentence also does not fit a JSON \"when\" value. \"om N …\" for the future and \"for N … siden\" for the past are the native fragments the lead decided on. one (exactly 1) uses the singular, and other (including 0) the plural; for \"år\" the two forms are identical, which is correct.",
-              "proposedValueHash": "387ee7ad6e2aedc98cf9dedd4f7a945189a89b74e418afc2308158e90674a33a"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept om {{count}} måned in one and om {{count}} måneder in other. The singular is grammatical at exactly 1, and the plural is grammatical at 0. om keeps the future month. The candidate used plural måneder in both categories inside a definition sentence. Danish one is exactly 1. other includes 0 and the ordinary plural. {{count}} stays visible in both categories.",
-              "proposedValueHash": "387ee7ad6e2aedc98cf9dedd4f7a945189a89b74e418afc2308158e90674a33a"
-            }
-          }
-        },
-        "time.month.past": {
-          "finalValueHash": "9de75337674110597e01eed42c077d9a7e7aadc45ab5629e51efd11bcf79a52c",
-          "chosenFrom": "opus",
-          "leadReason": "Use the ordinary native om/for ... siden time phrase. All three other independent drafts support this construction. The candidate’s i år is ambiguous with this year and its complete interval sentence is unnatural as a time field. Preserve exact count, singular/plural form, direction, and unit.",
-          "candidateReason": "Codex supplies complete past month count sentences in both categories. The other three use accurate but incomplete time fragments.",
-          "opusDecision": "required_change",
-          "opusReason": "Format and meaning defect: this string is the value of the \"when\" or \"lastActivity\" field in tool results. The candidate renders a sentence (\"Den resterende/forløbne tid i X er N.\"). For years, \"i år\" means \"this year\", so \"Den resterende tid i år er 3.\" reads as \"the remaining time this year is 3\". The opus and grok drafts agree on the native phrases (om N år, for N dage siden).",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex. one is exactly 1 and other includes 0, and the shared wording is grammatical for both. English: {{count}} month ago {{count}} months ago",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change. The candidate's sentence used \"i år\" for the unit, which in Danish means \"this year\". Its interval sentence also does not fit a JSON \"when\" value. \"om N …\" for the future and \"for N … siden\" for the past are the native fragments the lead decided on. one (exactly 1) uses the singular, and other (including 0) the plural; for \"år\" the two forms are identical, which is correct.",
-              "proposedValueHash": "9de75337674110597e01eed42c077d9a7e7aadc45ab5629e51efd11bcf79a52c"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept for {{count}} måned siden in one and for {{count}} måneder siden in other. The singular fits exactly 1, and the plural fits 0. for ... siden keeps the past month. Danish one is exactly 1. other includes 0 and the ordinary plural. {{count}} stays visible in both categories.",
-              "proposedValueHash": "9de75337674110597e01eed42c077d9a7e7aadc45ab5629e51efd11bcf79a52c"
-            }
-          }
-        },
-        "time.day.future": {
-          "finalValueHash": "e43063fe1c81c770530bdee1dc0249259f6d9eacc3c734bee82af594ded89a79",
-          "chosenFrom": "opus",
-          "leadReason": "Use the ordinary native om/for ... siden time phrase. All three other independent drafts support this construction. The candidate’s i år is ambiguous with this year and its complete interval sentence is unnatural as a time field. Preserve exact count, singular/plural form, direction, and unit.",
-          "candidateReason": "Codex supplies complete future day count sentences in both categories. The other three use accurate but incomplete time fragments.",
-          "opusDecision": "required_change",
-          "opusReason": "Format and meaning defect: this string is the value of the \"when\" or \"lastActivity\" field in tool results. The candidate renders a sentence (\"Den resterende/forløbne tid i X er N.\"). For years, \"i år\" means \"this year\", so \"Den resterende tid i år er 3.\" reads as \"the remaining time this year is 3\". The opus and grok drafts agree on the native phrases (om N år, for N dage siden).",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex. one is exactly 1 and other includes 0, and the shared wording is grammatical for both. English: in {{count}} day in {{count}} days",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change. The candidate's sentence used \"i år\" for the unit, which in Danish means \"this year\". Its interval sentence also does not fit a JSON \"when\" value. \"om N …\" for the future and \"for N … siden\" for the past are the native fragments the lead decided on. one (exactly 1) uses the singular, and other (including 0) the plural; for \"år\" the two forms are identical, which is correct.",
-              "proposedValueHash": "e43063fe1c81c770530bdee1dc0249259f6d9eacc3c734bee82af594ded89a79"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept om {{count}} dag in one and om {{count}} dage in other. The singular fits exactly 1, and the plural fits 0. om keeps the future day. Danish one is exactly 1. other includes 0 and the ordinary plural. {{count}} stays visible in both categories.",
-              "proposedValueHash": "e43063fe1c81c770530bdee1dc0249259f6d9eacc3c734bee82af594ded89a79"
-            }
-          }
-        },
-        "time.day.past": {
-          "finalValueHash": "c54f2450b0f51f6bd3569990e49e2c8eeabcaedccb6af2714bad288e074d57bf",
-          "chosenFrom": "opus",
-          "leadReason": "Use the ordinary native om/for ... siden time phrase. All three other independent drafts support this construction. The candidate’s i år is ambiguous with this year and its complete interval sentence is unnatural as a time field. Preserve exact count, singular/plural form, direction, and unit.",
-          "candidateReason": "Codex supplies complete past day count sentences in both categories. The other three use accurate but incomplete time fragments.",
-          "opusDecision": "required_change",
-          "opusReason": "Format and meaning defect: this string is the value of the \"when\" or \"lastActivity\" field in tool results. The candidate renders a sentence (\"Den resterende/forløbne tid i X er N.\"). For years, \"i år\" means \"this year\", so \"Den resterende tid i år er 3.\" reads as \"the remaining time this year is 3\". The opus and grok drafts agree on the native phrases (om N år, for N dage siden).",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex. one is exactly 1 and other includes 0, and the shared wording is grammatical for both. English: {{count}} day ago {{count}} days ago",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change. The candidate's sentence used \"i år\" for the unit, which in Danish means \"this year\". Its interval sentence also does not fit a JSON \"when\" value. \"om N …\" for the future and \"for N … siden\" for the past are the native fragments the lead decided on. one (exactly 1) uses the singular, and other (including 0) the plural; for \"år\" the two forms are identical, which is correct.",
-              "proposedValueHash": "c54f2450b0f51f6bd3569990e49e2c8eeabcaedccb6af2714bad288e074d57bf"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept for {{count}} dag siden in one and for {{count}} dage siden in other. The singular fits exactly 1, and the plural fits 0. for ... siden keeps the past day. Danish one is exactly 1. other includes 0 and the ordinary plural. {{count}} stays visible in both categories.",
-              "proposedValueHash": "c54f2450b0f51f6bd3569990e49e2c8eeabcaedccb6af2714bad288e074d57bf"
-            }
-          }
-        },
-        "time.hour.future": {
-          "finalValueHash": "3dd921781dbd6dcac8ed6cf5ce675b3102629f9e6f41319ca0d5a98cf7e9e52c",
-          "chosenFrom": "opus",
-          "leadReason": "Use the ordinary native om/for ... siden time phrase. All three other independent drafts support this construction. The candidate’s i år is ambiguous with this year and its complete interval sentence is unnatural as a time field. Preserve exact count, singular/plural form, direction, and unit.",
-          "candidateReason": "Codex supplies complete future hour count sentences in both categories. The other three use accurate but incomplete time fragments.",
-          "opusDecision": "required_change",
-          "opusReason": "Format and meaning defect: this string is the value of the \"when\" or \"lastActivity\" field in tool results. The candidate renders a sentence (\"Den resterende/forløbne tid i X er N.\"). For years, \"i år\" means \"this year\", so \"Den resterende tid i år er 3.\" reads as \"the remaining time this year is 3\". The opus and grok drafts agree on the native phrases (om N år, for N dage siden).",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex. one is exactly 1 and other includes 0, and the shared wording is grammatical for both. English: in {{count}} hour in {{count}} hours",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change. The candidate's sentence used \"i år\" for the unit, which in Danish means \"this year\". Its interval sentence also does not fit a JSON \"when\" value. \"om N …\" for the future and \"for N … siden\" for the past are the native fragments the lead decided on. one (exactly 1) uses the singular, and other (including 0) the plural; for \"år\" the two forms are identical, which is correct.",
-              "proposedValueHash": "3dd921781dbd6dcac8ed6cf5ce675b3102629f9e6f41319ca0d5a98cf7e9e52c"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept om {{count}} time in one and om {{count}} timer in other. time is the Danish hour unit. The singular fits exactly 1, and the plural fits 0. om keeps the future hour. Danish one is exactly 1. other includes 0 and the ordinary plural. {{count}} stays visible in both categories.",
-              "proposedValueHash": "3dd921781dbd6dcac8ed6cf5ce675b3102629f9e6f41319ca0d5a98cf7e9e52c"
-            }
-          }
-        },
-        "time.hour.past": {
-          "finalValueHash": "4b6a84ec5449bed7d8e83e887b1b7ff10a1509bc2faeec2a407190e347315f6c",
-          "chosenFrom": "opus",
-          "leadReason": "Use the ordinary native om/for ... siden time phrase. All three other independent drafts support this construction. The candidate’s i år is ambiguous with this year and its complete interval sentence is unnatural as a time field. Preserve exact count, singular/plural form, direction, and unit.",
-          "candidateReason": "Codex supplies complete past hour count sentences in both categories. The other three use accurate but incomplete time fragments.",
-          "opusDecision": "required_change",
-          "opusReason": "Format and meaning defect: this string is the value of the \"when\" or \"lastActivity\" field in tool results. The candidate renders a sentence (\"Den resterende/forløbne tid i X er N.\"). For years, \"i år\" means \"this year\", so \"Den resterende tid i år er 3.\" reads as \"the remaining time this year is 3\". The opus and grok drafts agree on the native phrases (om N år, for N dage siden).",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex. one is exactly 1 and other includes 0, and the shared wording is grammatical for both. English: {{count}} hour ago {{count}} hours ago",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change. The candidate's sentence used \"i år\" for the unit, which in Danish means \"this year\". Its interval sentence also does not fit a JSON \"when\" value. \"om N …\" for the future and \"for N … siden\" for the past are the native fragments the lead decided on. one (exactly 1) uses the singular, and other (including 0) the plural; for \"år\" the two forms are identical, which is correct.",
-              "proposedValueHash": "4b6a84ec5449bed7d8e83e887b1b7ff10a1509bc2faeec2a407190e347315f6c"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept for {{count}} time siden in one and for {{count}} timer siden in other. time is the Danish hour unit. The singular fits exactly 1, and the plural fits 0. for ... siden keeps the past hour. Danish one is exactly 1. other includes 0 and the ordinary plural. {{count}} stays visible in both categories.",
-              "proposedValueHash": "4b6a84ec5449bed7d8e83e887b1b7ff10a1509bc2faeec2a407190e347315f6c"
-            }
-          }
-        },
-        "time.minute.future": {
-          "finalValueHash": "0f54a3b2a59a439991c68a86b21b7bbaf745def3f017e35ee6c0d98cbb37d5fa",
-          "chosenFrom": "opus",
-          "leadReason": "Use the ordinary native om/for ... siden time phrase. All three other independent drafts support this construction. The candidate’s i år is ambiguous with this year and its complete interval sentence is unnatural as a time field. Preserve exact count, singular/plural form, direction, and unit.",
-          "candidateReason": "Codex supplies complete future minute count sentences in both categories. The other three use accurate but incomplete time fragments.",
-          "opusDecision": "required_change",
-          "opusReason": "Format and meaning defect: this string is the value of the \"when\" or \"lastActivity\" field in tool results. The candidate renders a sentence (\"Den resterende/forløbne tid i X er N.\"). For years, \"i år\" means \"this year\", so \"Den resterende tid i år er 3.\" reads as \"the remaining time this year is 3\". The opus and grok drafts agree on the native phrases (om N år, for N dage siden).",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex. one is exactly 1 and other includes 0, and the shared wording is grammatical for both. English: in {{count}} minute in {{count}} minutes",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change. The candidate's sentence used \"i år\" for the unit, which in Danish means \"this year\". Its interval sentence also does not fit a JSON \"when\" value. \"om N …\" for the future and \"for N … siden\" for the past are the native fragments the lead decided on. one (exactly 1) uses the singular, and other (including 0) the plural; for \"år\" the two forms are identical, which is correct.",
-              "proposedValueHash": "0f54a3b2a59a439991c68a86b21b7bbaf745def3f017e35ee6c0d98cbb37d5fa"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept om {{count}} minut in one and om {{count}} minutter in other. The singular fits exactly 1, and the plural fits 0. om keeps the future minute. Danish one is exactly 1. other includes 0 and the ordinary plural. {{count}} stays visible in both categories.",
-              "proposedValueHash": "0f54a3b2a59a439991c68a86b21b7bbaf745def3f017e35ee6c0d98cbb37d5fa"
-            }
-          }
-        },
-        "time.minute.past": {
-          "finalValueHash": "768d3fef17731ed382609939918e29053fb28d347fd303cebf5c9ac769156e9b",
-          "chosenFrom": "opus",
-          "leadReason": "Use the ordinary native om/for ... siden time phrase. All three other independent drafts support this construction. The candidate’s i år is ambiguous with this year and its complete interval sentence is unnatural as a time field. Preserve exact count, singular/plural form, direction, and unit.",
-          "candidateReason": "Codex supplies complete past minute count sentences in both categories. The other three use accurate but incomplete time fragments.",
-          "opusDecision": "required_change",
-          "opusReason": "Format and meaning defect: this string is the value of the \"when\" or \"lastActivity\" field in tool results. The candidate renders a sentence (\"Den resterende/forløbne tid i X er N.\"). For years, \"i år\" means \"this year\", so \"Den resterende tid i år er 3.\" reads as \"the remaining time this year is 3\". The opus and grok drafts agree on the native phrases (om N år, for N dage siden).",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex. one is exactly 1 and other includes 0, and the shared wording is grammatical for both. English: {{count}} minute ago {{count}} minutes ago",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change. The candidate's sentence used \"i år\" for the unit, which in Danish means \"this year\". Its interval sentence also does not fit a JSON \"when\" value. \"om N …\" for the future and \"for N … siden\" for the past are the native fragments the lead decided on. one (exactly 1) uses the singular, and other (including 0) the plural; for \"år\" the two forms are identical, which is correct.",
-              "proposedValueHash": "768d3fef17731ed382609939918e29053fb28d347fd303cebf5c9ac769156e9b"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept for {{count}} minut siden in one and for {{count}} minutter siden in other. The singular fits exactly 1, and the plural fits 0. for ... siden keeps the past minute. Danish one is exactly 1. other includes 0 and the ordinary plural. {{count}} stays visible in both categories.",
-              "proposedValueHash": "768d3fef17731ed382609939918e29053fb28d347fd303cebf5c9ac769156e9b"
-            }
-          }
-        },
         "read.context.basic": {
           "finalValueHash": "4d675a3521f420305c929e4d0d9e487773d17014bc246cc4c422bce96f593762",
           "chosenFrom": "codex",
@@ -3971,7 +3718,7 @@
     },
     "reports": {
       "finalHash": "7fadd2931e924739492a2902fe2fe76dc6b3b7715e4ce446ab017f883f24c63a",
-      "finalTemplateHash": "cb53f10d3e4c0e3ebac569573f0ab8753c8e54f63ad66bbeca2c73eead327289",
+      "finalTemplateHash": "c235daf236aaefbf2f2ac729e55f54493b3f02fb8e450438dcaf29fe31d1e9c8",
       "draftHashes": {
         "codex": "0c3d485e7adce8d312dc1a0ba21edfe016c9791e38fd7f19fd3bfe162b9cbca9",
         "opus": "7fadd2931e924739492a2902fe2fe76dc6b3b7715e4ce446ab017f883f24c63a",
@@ -3982,73 +3729,12 @@
         "opus": "dd7e6f7826e739f6615f7595ec802770f21f89102d2698c47f1e13e80b1f02d3",
         "grok": "534bcef2d88b44492830b84df81e3d8cfd85d2e8f583cc0277d6866c485ad0df"
       },
-      "decisions": {
-        "report.elapsed.moment": {
-          "finalValueHash": "d175a8d9b58dbd822718740c029303c25ad8be2c508b60bee359ce8200798861",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Opus and Grok use the idiomatic completed-elapsed-time report; Codex and Gemini use an awkward past-tense construction with siden.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and opus, grok. actor, tense, limits, and parameters match the English. English: A moment passed since your previous visit.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "report.elapsed.second": {
-          "finalValueHash": "d0892f41692c31922c8c37b97bc57ec82d1ad372a79e6674a1075306ed5adedf",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Opus and Grok use natural complete elapsed-second sentences with correct one and other agreement. Codex uses a count label and Gemini an awkward past construction.",
-          "opusDecision": "accept",
-          "opusReason": "Correct singular and plural.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and opus, grok. one is singular for exactly 1, and other is plural for 0 and for 2 and above. English: {{count}} second passed since your previous visit. {{count}} seconds passed since your previous visit.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "report.elapsed.minute": {
-          "finalValueHash": "84664bf9a6e61333d1661d2effe399efb5d89e885a89ba96954fc6642f2e8efa",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Opus and Grok use natural complete elapsed-minute sentences with correct one and other agreement. Codex uses a count label and Gemini an awkward past construction.",
-          "opusDecision": "accept",
-          "opusReason": "Correct singular and plural.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and opus, grok. one is singular for exactly 1, and other is plural for 0 and for 2 and above. English: {{count}} minute passed since your previous visit. {{count}} minutes passed since your previous visit.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "report.elapsed.hour": {
-          "finalValueHash": "e4d20d292e9e8d6cdfaa89ce2ca3ed7246a0011b91d51a889184b9507d0e7650",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Opus and Grok use natural complete elapsed-hour sentences with correct one and other agreement. Codex uses a count label and Gemini an awkward past construction.",
-          "opusDecision": "accept",
-          "opusReason": "Correct singular and plural.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and opus, grok. one is singular for exactly 1, and other is plural for 0 and for 2 and above. English: {{count}} hour passed since your previous visit. {{count}} hours passed since your previous visit.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "report.elapsed.day": {
-          "finalValueHash": "3850a4b5d8e06d7348aa723133106f24b6efbacea70f4518ac0c34b3663b6e0c",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Opus and Grok use natural complete elapsed-day sentences with correct one and other agreement. Codex uses a count label and Gemini an awkward past construction.",
-          "opusDecision": "accept",
-          "opusReason": "Correct singular and plural.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and opus, grok. one is singular for exactly 1, and other is plural for 0 and for 2 and above. English: {{count}} day passed since your previous visit. {{count}} days passed since your previous visit.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        }
-      }
+      "decisions": {},
+      "status": "pending_translation",
+      "pendingTranslationKeys": [
+        "report.timestamp.relative",
+        "report.timestamp.absolute"
+      ]
     },
     "recovery": {
       "finalHash": "18fa1e09b1a0b342265d85e16ba1eb180515d2b852f36ab1b8e783adf35e70eb",

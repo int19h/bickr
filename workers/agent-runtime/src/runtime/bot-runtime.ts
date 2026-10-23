@@ -1,3 +1,4 @@
+import { formatParticipantTime, participantTimeSettings } from "@bickr/shared/participant-time";
 import { RuntimeFollowerActivityDelivery } from './follower-activity-delivery';
 import type { FollowerActivitySelection, NotificationDeliveryCandidate } from '@bickr/shared/follower-activity';
 import { instructionLocalizationVersion, instructionLocalizationStateKey } from '@bickr/shared/instruction-localization-migration';
@@ -3944,7 +3945,7 @@ export class BotRuntime {
 					if (error instanceof ToolBatchOutcomeError) {
 						selfCorrectionAcknowledgements.push(...error.selfCorrectionMessages);
 						const outcome = providerBatchOutcome(bot.text, canonicalName, error.items,
-							providerSerializationContext(bot.text, { botId: bot.id }),
+							providerSerializationContext(bot.text, { botId: bot.id }, undefined, { settings: participantTimeSettings(bot.timeSettings), createdAt: bot.createdAt }),
 							(targetArgs, cause) => toolFailurePayload(bot.text, canonicalName, targetArgs, cause));
 						const committed = error.items.filter((item) => item.kind === 'recorded' || item.kind === 'committed');
 						const unknown = error.items.some((item) => item.kind === 'unknown');
@@ -6260,11 +6261,11 @@ export class BotRuntime {
 		const prepared: LoopMessageGroupEntry[] = [];
 		const collect = (entries: LoopMessageGroupEntry[]): void => { prepared.push(...entries); };
 		const deliveredNotificationIds = new Set<string>();
-		const elapsed =
-			setupMode === 'new_iteration' ? formatElapsedTimeSincePreviousVisit(bot.text, this.previousTerminalTickEvent(runId), inputEvent.createdAt) : '';
-		if (elapsed) {
-			prepared.push({ runId, message: { role: 'user', content: elapsed }, origin: 'input' });
-		}
+		const timeSettings = participantTimeSettings(bot.timeSettings);
+		const timestamp = formatParticipantTime(inputEvent.createdAt, timeSettings, bot.createdAt);
+		prepared.push({ runId, message: { role: 'user', content: bot.text.format(
+			timeSettings.mode === 'relative' ? 'report.timestamp.relative' : 'report.timestamp.absolute', { timestamp },
+		) }, origin: 'input' });
 		const existingProfileUsernames = this.profileUsernamesInActiveContext();
 		const existingProviderContent = this.providerContentInActiveContext();
 		if (input.spotlightContexts.length > 0) {
@@ -6322,7 +6323,7 @@ export class BotRuntime {
 	): Promise<string[]> {
 		const toolCalls: SyntheticToolCall[] = [];
 		const results: ChatMessage[] = [];
-		const providerContext = providerSerializationContext(bot.text, { botId: bot.id }, cloneProviderContextContentScope(existingProviderContent));
+		const providerContext = providerSerializationContext(bot.text, { botId: bot.id }, cloneProviderContextContentScope(existingProviderContent), { settings: participantTimeSettings(bot.timeSettings), createdAt: bot.createdAt });
 		if (planEnabled(bot.toolSettings)) {
 			const plan = this.notes.read(bot.text, planNoteId);
 			if (plan) {
@@ -6378,7 +6379,7 @@ export class BotRuntime {
 	): Promise<void> {
 		const chains = contexts.flatMap(spotlightSyntheticToolChains);
 		const toolCalls: SyntheticToolCall[] = chains.map((chain, index) => syntheticToolCall(runId, chain.toolName, index, chain.args));
-		const providerContext = providerSerializationContext(bot.text, { botId: bot.id }, cloneProviderContextContentScope(existingProviderContent));
+		const providerContext = providerSerializationContext(bot.text, { botId: bot.id }, cloneProviderContextContentScope(existingProviderContent), { settings: participantTimeSettings(bot.timeSettings), createdAt: bot.createdAt });
 		const tokenBudget = await this.readCommentTreeTokenBudget(bot);
 		const results: ChatMessage[] = chains.map((chain, index) => ({
 			role: 'tool',
@@ -6524,22 +6525,6 @@ export class BotRuntime {
 			}
 		}
 		return scope;
-	}
-
-	private previousTerminalTickEvent(runId: string): RuntimeRow | null {
-		return (
-			this.state.storage.sql
-				.exec<RuntimeRow>(
-					`SELECT seq, run_id, type, payload_json, token_estimate, compacted_by, created_at
-				 FROM events
-				 WHERE run_id != ?
-				   AND type IN ('tick_completed', 'tick_failed', 'tick_stopped')
-				 ORDER BY seq DESC
-				 LIMIT 1`,
-					runId,
-				)
-				.toArray()[0] ?? null
-		);
 	}
 
 	private currentIterationStartedSinceLastLogOff(): boolean {
@@ -9299,28 +9284,6 @@ function tokenUsageAverageDays(rows: ProviderUsageRow[], windowEndMs: number): n
 	return Math.min(7, Math.max(1, Math.ceil((windowEndMs - firstUsedAt) / dayMs)));
 }
 
-function formatElapsedTimeSincePreviousVisit(text: BotText, previous: Pick<RuntimeRow, 'created_at'> | null, inputCreatedAt: string): string {
-	if (!previous) {
-		return '';
-	}
-	const previousMs = Date.parse(previous.created_at);
-	const currentMs = Date.parse(inputCreatedAt);
-	if (!Number.isFinite(previousMs) || !Number.isFinite(currentMs) || currentMs < previousMs) {
-		return '';
-	}
-	return elapsedTimePhrase(text, currentMs - previousMs);
-}
-
-function elapsedTimePhrase(text: BotText, elapsedMs: number): string {
-	const seconds = Math.max(0, Math.round(elapsedMs / 1_000));
-	if (seconds < 60) return seconds <= 1 ? text.format('report.elapsed.moment') : text.format('report.elapsed.second', { count: seconds });
-	const minutes = Math.round(seconds / 60);
-	if (minutes < 60) return text.format('report.elapsed.minute', { count: minutes });
-	const hours = Math.round(minutes / 60);
-	if (hours < 24) return text.format('report.elapsed.hour', { count: hours });
-	return text.format('report.elapsed.day', { count: Math.round(hours / 24) });
-}
-
 function compactedSummaryForContext(payload: unknown): string {
 	const summary = stringValue(runtimeRecord(payload).summary);
 	if (!summary) {
@@ -9469,7 +9432,7 @@ export function formatRuntimeEventForContext(
  const quoted = (value: string) => markdownQuoteForContext(value, 700);
  // Old events can lack identity. An empty ID cannot match a stored author ID,
  // so these records retain handles without guessing which author is the reader.
- const context = providerSerializationContext(text, { botId: details.selfBotId ?? '' });
+ const context = providerSerializationContext(text, { botId: details.selfBotId ?? '' }, undefined, null);
  const data = (value: unknown) => quoted(JSON.stringify(value) ?? '');
  switch (type) {
   case 'tool_call': {

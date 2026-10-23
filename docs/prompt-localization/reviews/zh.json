@@ -1,8 +1,8 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "catalogSourceHash": "1ea4d0935facacfea35be251f30fc67822b5de7e36d4075fd21c7595bffff89e",
+  "catalogSourceHash": "569c6dc99760c3c93e1594717e4078e6e25111ee4b5b788935ef32b6d2cb5cab",
   "locale": "zh",
-  "status": "accepted_by_lead",
+  "status": "partially_pending_translation",
   "leadReason": "The lead accepts the exact reconciled proposal. Both requested reviewers discussed every disputed unit and accepted every proposed value. Neither reviewer reported another finding or unresolved language question. Every other unit received the complete four-draft comparison and both initial reviews.",
   "terminologyDecisions": {
     "handle": "Use 标识.",
@@ -2931,7 +2931,7 @@
     },
     "serialization": {
       "finalHash": "7717183af6327ccbfcaabadb23a588ee36dc367bdd0274dbe488b4791c56b523",
-      "finalTemplateHash": "52a80ea41ebbe07de91850a7f9792a7af66cdd1cf2e2f9c2d8affc28427e1469",
+      "finalTemplateHash": "1093dbe0be496c835e283515d22e0187aae9f71202e958ae5e7bfb36a65d7e2a",
       "draftHashes": {
         "codex": "0784a0eaf4c884bbeffd4f713338f3db08f49fc268bb01f6295c0bbd00639227",
         "opus": "e61fda3cf2a1425552605c25c14553cd7f0f685697558636b2f300e2a3eac3da",
@@ -2943,138 +2943,6 @@
         "grok": "b2a72092791e55a38e2ab1b3cd2faf3ef41343b368327b6d7fdf0c69b8640cbe"
       },
       "decisions": {
-        "time.just_now": {
-          "finalValueHash": "d87bd4efd1a45ff66f9dc7b3498f62676f2058f9798f53fed0c5dd9cb248c5ec",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All four match on just now.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex, opus, grok, gemini. actor, tense, limits, and parameters match the English. English: just now",
-          "changedAfterComparison": false,
-          "finalDiscussion": {}
-        },
-        "time.year.future": {
-          "finalValueHash": "30c6157786a579dee43be460b915e5113d04d5a9c5cfd45acad6a6c1b12899ae",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Every other variant retains future years and the numeric count. Codex, Opus, and Gemini agree on units and spacing; Grok removes value spacing without improving meaning.",
-          "opusDecision": "accept",
-          "opusReason": "Single other variant; natural relative time.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex, opus, gemini. the only Chinese category other was read and the count stays visible. English: in {{count}} year in {{count}} years",
-          "changedAfterComparison": false,
-          "finalDiscussion": {}
-        },
-        "time.year.past": {
-          "finalValueHash": "30a728fe116a5e823c344af80cfe04acfe84cd67e2f78bf0361514e99f00b5d4",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Every other variant retains past years and the numeric count. Codex, Opus, and Gemini agree on units and spacing; Grok removes value spacing without improving meaning.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex, opus, gemini. the only Chinese category other was read and the count stays visible. English: {{count}} year ago {{count}} years ago",
-          "changedAfterComparison": false,
-          "finalDiscussion": {}
-        },
-        "time.month.future": {
-          "finalValueHash": "06b6cd2495e93ed77b9f13dbb97f552b25a2c1a1e6a39292e5d3a1c1fc0dbefc",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Every other variant retains future months and the numeric count. Codex, Opus, and Gemini agree on units and spacing; Grok removes value spacing without improving meaning.",
-          "opusDecision": "accept",
-          "opusReason": "个月 measure word correct.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex, opus, gemini. the only Chinese category other was read and the count stays visible. English: in {{count}} month in {{count}} months",
-          "changedAfterComparison": false,
-          "finalDiscussion": {}
-        },
-        "time.month.past": {
-          "finalValueHash": "4a89019fb902650ec766a5197483f2f65eabc0780112d94ec0945906729f441b",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Every other variant retains past months and the numeric count. Codex, Opus, and Gemini agree on units and spacing; Grok removes value spacing without improving meaning.",
-          "opusDecision": "accept",
-          "opusReason": "Correct.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex, opus, gemini. the only Chinese category other was read and the count stays visible. English: {{count}} month ago {{count}} months ago",
-          "changedAfterComparison": false,
-          "finalDiscussion": {}
-        },
-        "time.day.future": {
-          "finalValueHash": "e988d2630c0ed77b64736b2763a909998062d9ce0c18e24655a7ecfc23567b28",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Every other variant retains future days and the numeric count. Codex, Opus, and Gemini agree on units and spacing; Grok removes value spacing without improving meaning.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex, opus, gemini. the only Chinese category other was read and the count stays visible. English: in {{count}} day in {{count}} days",
-          "changedAfterComparison": false,
-          "finalDiscussion": {}
-        },
-        "time.day.past": {
-          "finalValueHash": "e4426d42e25e14bb357dd6cc77aba5266d142cc637b782bdde46bcf8d38ba164",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Every other variant retains past days and the numeric count. Codex, Opus, and Gemini agree on units and spacing; Grok removes value spacing without improving meaning.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex, opus, gemini. the only Chinese category other was read and the count stays visible. English: {{count}} day ago {{count}} days ago",
-          "changedAfterComparison": false,
-          "finalDiscussion": {}
-        },
-        "time.hour.future": {
-          "finalValueHash": "9561ec92032772d63ed0fa44589badb8569608a84224028724ea9ee7a2dad80e",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Every other variant retains future hours and the numeric count. Codex, Opus, and Gemini agree on units and spacing; Grok removes value spacing without improving meaning.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex, opus, gemini. the only Chinese category other was read and the count stays visible. English: in {{count}} hour in {{count}} hours",
-          "changedAfterComparison": false,
-          "finalDiscussion": {}
-        },
-        "time.hour.past": {
-          "finalValueHash": "ccf0f09a7b1898cdc41edf2b9c419796a2401e3761ed5ca02c93f6bd9c703f08",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Every other variant retains past hours and the numeric count. Codex, Opus, and Gemini agree on units and spacing; Grok removes value spacing without improving meaning.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex, opus, gemini. the only Chinese category other was read and the count stays visible. English: {{count}} hour ago {{count}} hours ago",
-          "changedAfterComparison": false,
-          "finalDiscussion": {}
-        },
-        "time.minute.future": {
-          "finalValueHash": "e9a691f641736800ed5e84904d303a308fff54ba9427d4ef11db47a4dc972110",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Every other variant retains future minutes and the numeric count. Codex, Opus, and Gemini agree on units and spacing; Grok removes value spacing without improving meaning.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex, opus, gemini. the only Chinese category other was read and the count stays visible. English: in {{count}} minute in {{count}} minutes",
-          "changedAfterComparison": false,
-          "finalDiscussion": {}
-        },
-        "time.minute.past": {
-          "finalValueHash": "579e137e4c3f441e0ab368291861cd8e971545ad6f18f1f62864e4da9ffdb5d8",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Every other variant retains past minutes and the numeric count. Codex, Opus, and Gemini agree on units and spacing; Grok removes value spacing without improving meaning.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex, opus, gemini. the only Chinese category other was read and the count stays visible. English: {{count}} minute ago {{count}} minutes ago",
-          "changedAfterComparison": false,
-          "finalDiscussion": {}
-        },
         "read.context.basic": {
           "finalValueHash": "0484837c869815d9d5a85899d64af569e800b3ec0284030761185f6541b21f6d",
           "chosenFrom": "opus",
@@ -3623,7 +3491,7 @@
     },
     "reports": {
       "finalHash": "02f11bea0db1792190ce472a92882df468eaf78c134005bff47547cdf2ff104a",
-      "finalTemplateHash": "d89a11b154d79cb08586c11c10c802e0b02a5133faaf53bc7dd31fc0e3565dc5",
+      "finalTemplateHash": "c235daf236aaefbf2f2ac729e55f54493b3f02fb8e450438dcaf29fe31d1e9c8",
       "draftHashes": {
         "codex": "2765ea124705f5a022457da2c0042913517ef7bd473cff57dafe0b070ce1d48e",
         "opus": "02f11bea0db1792190ce472a92882df468eaf78c134005bff47547cdf2ff104a",
@@ -3634,68 +3502,12 @@
         "opus": "9120ab7327ae03911dfaf6eff9b1994124e4daf6511e53b25eec3d37ee6a234e",
         "grok": "d70dd72edac8cc2b730f99fac221b2a6b48f756c9474b664988ebb3397320618"
       },
-      "decisions": {
-        "report.elapsed.moment": {
-          "finalValueHash": "7fe9b82e3331cfdba0f60401c9607e6e3ea68fc255dafb92ba21b39870722877",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All retain a short elapsed moment. Opus keeps your previous visit and no extra only qualifier, unlike Codex and Gemini.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and opus. actor, tense, limits, and parameters match the English. English: A moment passed since your previous visit.",
-          "changedAfterComparison": false,
-          "finalDiscussion": {}
-        },
-        "report.elapsed.second": {
-          "finalValueHash": "e16f1f3d8471eb388bbcf2c011f892be228b7a1ee4ec08db7ac866aeb4994676",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Every other variant retains elapsed seconds and exact count. Opus gives natural complete app narration and your previous visit; Gemini omits your.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and opus. the only Chinese category other was read and the count stays visible. English: {{count}} second passed since your previous visit. {{count}} seconds passed since your previous visit.",
-          "changedAfterComparison": false,
-          "finalDiscussion": {}
-        },
-        "report.elapsed.minute": {
-          "finalValueHash": "b93626b9abaed48e178f33faf398cbd0dd913934065b854506e3e0fce1837cbc",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Every other variant retains elapsed minutes and exact count. Opus gives natural complete app narration and your previous visit; Gemini omits your.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and opus. the only Chinese category other was read and the count stays visible. English: {{count}} minute passed since your previous visit. {{count}} minutes passed since your previous visit.",
-          "changedAfterComparison": false,
-          "finalDiscussion": {}
-        },
-        "report.elapsed.hour": {
-          "finalValueHash": "4f6a03ea37ef44870ab019b177276bc637886a299f63044ace02a994cb96a121",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Every other variant retains elapsed hours and exact count. Opus gives natural complete app narration and your previous visit; Gemini omits your.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and opus. the only Chinese category other was read and the count stays visible. English: {{count}} hour passed since your previous visit. {{count}} hours passed since your previous visit.",
-          "changedAfterComparison": false,
-          "finalDiscussion": {}
-        },
-        "report.elapsed.day": {
-          "finalValueHash": "d53110eefd4535a42421c5df088884b2c5931eb08348663577e6632ede12d459",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Every other variant retains elapsed days and exact count. Opus gives natural complete app narration and your previous visit; Gemini omits your.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and opus. the only Chinese category other was read and the count stays visible. English: {{count}} day passed since your previous visit. {{count}} days passed since your previous visit.",
-          "changedAfterComparison": false,
-          "finalDiscussion": {}
-        }
-      }
+      "decisions": {},
+      "status": "pending_translation",
+      "pendingTranslationKeys": [
+        "report.timestamp.relative",
+        "report.timestamp.absolute"
+      ]
     },
     "recovery": {
       "finalHash": "22e3499e8096e9db4aae506ed708abf3064e5bb770241ac0f8344275c3a1bab5",

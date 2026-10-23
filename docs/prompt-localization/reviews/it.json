@@ -1,8 +1,8 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "catalogSourceHash": "1ea4d0935facacfea35be251f30fc67822b5de7e36d4075fd21c7595bffff89e",
+  "catalogSourceHash": "569c6dc99760c3c93e1594717e4078e6e25111ee4b5b788935ef32b6d2cb5cab",
   "locale": "it",
-  "status": "accepted_by_lead",
+  "status": "partially_pending_translation",
   "leadReason": "Accept the Italian catalog after both reviewers accept all three exact follow-up units. Non può consistently expresses cannot. Numeric many forms do not insert an absent milione or milioni noun. The standard subjunctive and gender-neutral conviction clause preserve the speaker role. Destinatario stays the consistent action-target term.",
   "terminologyDecisions": {
     "numericMany": "Count parameters render ordinary digits. The many category does not insert milione or milioni. Use di only when the actual written numeral construction requires it. Native numeric plural forms remain correct without an automatic di.",
@@ -3264,7 +3264,7 @@
     },
     "serialization": {
       "finalHash": "fde144654416ba68eef1f202520d604d598196edd04e8736532845b5e8407ac5",
-      "finalTemplateHash": "c74dc8819e85e414ebb59d90c3ed1c75522b816eed10975a62d6a5ff0fd01068",
+      "finalTemplateHash": "78a6ee96a1b58a1ce8c661b225598d6c7ac80cefd669afe90e2b93c958b059d6",
       "draftHashes": {
         "codex": "c0e6d26c4bab75dcffbca6b5c49dcc04ce37f65863668328a3b468dbf9cd291a",
         "opus": "e3d65c9dc17ddd9e493e76f591536db6ffe0e2bbd5594bb6b5b77f392edc217f",
@@ -3276,259 +3276,6 @@
         "grok": "5a1581df90f2344f5cc7b2a858907e63dc0b1149d2b7dd5e35abd26e38c92729"
       },
       "decisions": {
-        "time.just_now": {
-          "finalValueHash": "0d6aee43f7bb3d99e9857eedb4d7235dd99c4da528620c9dfa195955ad53003b",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All agree on just-now phrase.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept the compact fragment for just now.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "time.year.future": {
-          "finalValueHash": "31cd0e84a74f5f3d0cb13bd856832d8a72feeb55c4ba8647ef0285b384097e64",
-          "chosenFrom": "synthesis",
-          "leadReason": "Use an ordinary native relative-time phrase rather than a full interval-definition sentence with an implicit moment antecedent. Preserve past/future direction, exact count, and unit. The count renders digits, so many does not insert milione or milioni and does not automatically require di. Native Intl.RelativeTimeFormat uses the direct numeric plural.",
-          "candidateReason": "Every future-anni variant compared. Peers have native relative direction but unnecessary numeric di in many; Codex remaining time shifts meaning. Use a complete future interval count label.",
-          "opusDecision": "required_change",
-          "opusReason": "Format defect: this string is the value of the \"when\" or \"lastActivity\" field in tool results (providerRelativeTime). The candidate renders a full sentence with a period (\"L’intervallo ... da quel momento, in X, è N.\"), where \"quel momento\" has no antecedent in a field value. Native relative-time phrases fit the slot and match the other locales. The opus and gemini drafts agree on them, including di in many as the it reference requires.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and no single draft; the wording is a synthesis. one is exactly 1, other includes 0 and the ordinary plural, and many was read. English: in {{count}} year in {{count}} years",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change. The candidate was a sentence with an unanchored \"quel momento\" in a JSON \"when\" value. \"tra N …\" for the future and \"N … fa\" for the past are the native fragments. one is singular, and other (including 0) and many are plural. As in the other count units, no \"di\" belongs before a digit count.",
-              "proposedValueHash": "31cd0e84a74f5f3d0cb13bd856832d8a72feeb55c4ba8647ef0285b384097e64"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept the ordinary relative-time phrase. tra is future and fa is past. one is singular for exactly 1. many and other are plural, and other also covers 0. The digits do not write milione, so many does not add di. A full interval-definition sentence is not required for this label. The lead evidence tra 1.000.000 anni matches this direct numeric plural.",
-              "proposedValueHash": "31cd0e84a74f5f3d0cb13bd856832d8a72feeb55c4ba8647ef0285b384097e64"
-            }
-          }
-        },
-        "time.year.past": {
-          "finalValueHash": "af83cc8f1a4add794c0edff69f6396ad43b1b304a9275a8ab941cc1fbbe1df0b",
-          "chosenFrom": "synthesis",
-          "leadReason": "Use an ordinary native relative-time phrase rather than a full interval-definition sentence with an implicit moment antecedent. Preserve past/future direction, exact count, and unit. The count renders digits, so many does not insert milione or milioni and does not automatically require di. Native Intl.RelativeTimeFormat uses the direct numeric plural.",
-          "candidateReason": "Every past-anni variant compared. Preserve past relative direction with a complete count label and remove peers unnecessary numeric di in many.",
-          "opusDecision": "required_change",
-          "opusReason": "Format defect: this string is the value of the \"when\" or \"lastActivity\" field in tool results (providerRelativeTime). The candidate renders a full sentence with a period (\"L’intervallo ... da quel momento, in X, è N.\"), where \"quel momento\" has no antecedent in a field value. Native relative-time phrases fit the slot and match the other locales. The opus and gemini drafts agree on them, including di in many as the it reference requires.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and no single draft; the wording is a synthesis. one is exactly 1, other includes 0 and the ordinary plural, and many was read. English: {{count}} year ago {{count}} years ago",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change. The candidate was a sentence with an unanchored \"quel momento\" in a JSON \"when\" value. \"tra N …\" for the future and \"N … fa\" for the past are the native fragments. one is singular, and other (including 0) and many are plural. As in the other count units, no \"di\" belongs before a digit count.",
-              "proposedValueHash": "af83cc8f1a4add794c0edff69f6396ad43b1b304a9275a8ab941cc1fbbe1df0b"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept the ordinary relative-time phrase. tra is future and fa is past. one is singular for exactly 1. many and other are plural, and other also covers 0. The digits do not write milione, so many does not add di. A full interval-definition sentence is not required for this label. The lead evidence tra 1.000.000 anni matches this direct numeric plural.",
-              "proposedValueHash": "af83cc8f1a4add794c0edff69f6396ad43b1b304a9275a8ab941cc1fbbe1df0b"
-            }
-          }
-        },
-        "time.month.future": {
-          "finalValueHash": "8ac51d5b4bec83fc5d45db57ef7cb78c528829c0a5b9925e353b386f54f911a5",
-          "chosenFrom": "synthesis",
-          "leadReason": "Use an ordinary native relative-time phrase rather than a full interval-definition sentence with an implicit moment antecedent. Preserve past/future direction, exact count, and unit. The count renders digits, so many does not insert milione or milioni and does not automatically require di. Native Intl.RelativeTimeFormat uses the direct numeric plural.",
-          "candidateReason": "Every future-mesi variant compared. Peers have native relative direction but unnecessary numeric di in many; Codex remaining time shifts meaning. Use a complete future interval count label.",
-          "opusDecision": "required_change",
-          "opusReason": "Format defect: this string is the value of the \"when\" or \"lastActivity\" field in tool results (providerRelativeTime). The candidate renders a full sentence with a period (\"L’intervallo ... da quel momento, in X, è N.\"), where \"quel momento\" has no antecedent in a field value. Native relative-time phrases fit the slot and match the other locales. The opus and gemini drafts agree on them, including di in many as the it reference requires.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and no single draft; the wording is a synthesis. one is exactly 1, other includes 0 and the ordinary plural, and many was read. English: in {{count}} month in {{count}} months",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change. The candidate was a sentence with an unanchored \"quel momento\" in a JSON \"when\" value. \"tra N …\" for the future and \"N … fa\" for the past are the native fragments. one is singular, and other (including 0) and many are plural. As in the other count units, no \"di\" belongs before a digit count.",
-              "proposedValueHash": "8ac51d5b4bec83fc5d45db57ef7cb78c528829c0a5b9925e353b386f54f911a5"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept the ordinary relative-time phrase. tra is future and fa is past. one is singular for exactly 1. many and other are plural, and other also covers 0. The digits do not write milione, so many does not add di. A full interval-definition sentence is not required for this label. The lead evidence tra 1.000.000 anni matches this direct numeric plural.",
-              "proposedValueHash": "8ac51d5b4bec83fc5d45db57ef7cb78c528829c0a5b9925e353b386f54f911a5"
-            }
-          }
-        },
-        "time.month.past": {
-          "finalValueHash": "9aea1738583b082523972c5a7011b791f97264057e8d2a5af045885d30e82187",
-          "chosenFrom": "synthesis",
-          "leadReason": "Use an ordinary native relative-time phrase rather than a full interval-definition sentence with an implicit moment antecedent. Preserve past/future direction, exact count, and unit. The count renders digits, so many does not insert milione or milioni and does not automatically require di. Native Intl.RelativeTimeFormat uses the direct numeric plural.",
-          "candidateReason": "Every past-mesi variant compared. Preserve past relative direction with a complete count label and remove peers unnecessary numeric di in many.",
-          "opusDecision": "required_change",
-          "opusReason": "Format defect: this string is the value of the \"when\" or \"lastActivity\" field in tool results (providerRelativeTime). The candidate renders a full sentence with a period (\"L’intervallo ... da quel momento, in X, è N.\"), where \"quel momento\" has no antecedent in a field value. Native relative-time phrases fit the slot and match the other locales. The opus and gemini drafts agree on them, including di in many as the it reference requires.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and no single draft; the wording is a synthesis. one is exactly 1, other includes 0 and the ordinary plural, and many was read. English: {{count}} month ago {{count}} months ago",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change. The candidate was a sentence with an unanchored \"quel momento\" in a JSON \"when\" value. \"tra N …\" for the future and \"N … fa\" for the past are the native fragments. one is singular, and other (including 0) and many are plural. As in the other count units, no \"di\" belongs before a digit count.",
-              "proposedValueHash": "9aea1738583b082523972c5a7011b791f97264057e8d2a5af045885d30e82187"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept the ordinary relative-time phrase. tra is future and fa is past. one is singular for exactly 1. many and other are plural, and other also covers 0. The digits do not write milione, so many does not add di. A full interval-definition sentence is not required for this label. The lead evidence tra 1.000.000 anni matches this direct numeric plural.",
-              "proposedValueHash": "9aea1738583b082523972c5a7011b791f97264057e8d2a5af045885d30e82187"
-            }
-          }
-        },
-        "time.day.future": {
-          "finalValueHash": "4042ddf24e1b48c7f4f6bdbe120542d6d64e50191cd33ed55caa216caa3048c9",
-          "chosenFrom": "synthesis",
-          "leadReason": "Use an ordinary native relative-time phrase rather than a full interval-definition sentence with an implicit moment antecedent. Preserve past/future direction, exact count, and unit. The count renders digits, so many does not insert milione or milioni and does not automatically require di. Native Intl.RelativeTimeFormat uses the direct numeric plural.",
-          "candidateReason": "Every future-giorni variant compared. Peers have native relative direction but unnecessary numeric di in many; Codex remaining time shifts meaning. Use a complete future interval count label.",
-          "opusDecision": "required_change",
-          "opusReason": "Format defect: this string is the value of the \"when\" or \"lastActivity\" field in tool results (providerRelativeTime). The candidate renders a full sentence with a period (\"L’intervallo ... da quel momento, in X, è N.\"), where \"quel momento\" has no antecedent in a field value. Native relative-time phrases fit the slot and match the other locales. The opus and gemini drafts agree on them, including di in many as the it reference requires.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and no single draft; the wording is a synthesis. one is exactly 1, other includes 0 and the ordinary plural, and many was read. English: in {{count}} day in {{count}} days",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change. The candidate was a sentence with an unanchored \"quel momento\" in a JSON \"when\" value. \"tra N …\" for the future and \"N … fa\" for the past are the native fragments. one is singular, and other (including 0) and many are plural. As in the other count units, no \"di\" belongs before a digit count.",
-              "proposedValueHash": "4042ddf24e1b48c7f4f6bdbe120542d6d64e50191cd33ed55caa216caa3048c9"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept the ordinary relative-time phrase. tra is future and fa is past. one is singular for exactly 1. many and other are plural, and other also covers 0. The digits do not write milione, so many does not add di. A full interval-definition sentence is not required for this label. The lead evidence tra 1.000.000 anni matches this direct numeric plural.",
-              "proposedValueHash": "4042ddf24e1b48c7f4f6bdbe120542d6d64e50191cd33ed55caa216caa3048c9"
-            }
-          }
-        },
-        "time.day.past": {
-          "finalValueHash": "73c463cfdcd4915ba4f66f974e31ee0de94f69bdbd50a16f56ee36bdfaccc28e",
-          "chosenFrom": "synthesis",
-          "leadReason": "Use an ordinary native relative-time phrase rather than a full interval-definition sentence with an implicit moment antecedent. Preserve past/future direction, exact count, and unit. The count renders digits, so many does not insert milione or milioni and does not automatically require di. Native Intl.RelativeTimeFormat uses the direct numeric plural.",
-          "candidateReason": "Every past-giorni variant compared. Preserve past relative direction with a complete count label and remove peers unnecessary numeric di in many.",
-          "opusDecision": "required_change",
-          "opusReason": "Format defect: this string is the value of the \"when\" or \"lastActivity\" field in tool results (providerRelativeTime). The candidate renders a full sentence with a period (\"L’intervallo ... da quel momento, in X, è N.\"), where \"quel momento\" has no antecedent in a field value. Native relative-time phrases fit the slot and match the other locales. The opus and gemini drafts agree on them, including di in many as the it reference requires.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and no single draft; the wording is a synthesis. one is exactly 1, other includes 0 and the ordinary plural, and many was read. English: {{count}} day ago {{count}} days ago",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change. The candidate was a sentence with an unanchored \"quel momento\" in a JSON \"when\" value. \"tra N …\" for the future and \"N … fa\" for the past are the native fragments. one is singular, and other (including 0) and many are plural. As in the other count units, no \"di\" belongs before a digit count.",
-              "proposedValueHash": "73c463cfdcd4915ba4f66f974e31ee0de94f69bdbd50a16f56ee36bdfaccc28e"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept the ordinary relative-time phrase. tra is future and fa is past. one is singular for exactly 1. many and other are plural, and other also covers 0. The digits do not write milione, so many does not add di. A full interval-definition sentence is not required for this label. The lead evidence tra 1.000.000 anni matches this direct numeric plural.",
-              "proposedValueHash": "73c463cfdcd4915ba4f66f974e31ee0de94f69bdbd50a16f56ee36bdfaccc28e"
-            }
-          }
-        },
-        "time.hour.future": {
-          "finalValueHash": "3d4c3a4da231af175b86374846f71674a30cf35d3d27450b18aee031b25b0f53",
-          "chosenFrom": "synthesis",
-          "leadReason": "Use an ordinary native relative-time phrase rather than a full interval-definition sentence with an implicit moment antecedent. Preserve past/future direction, exact count, and unit. The count renders digits, so many does not insert milione or milioni and does not automatically require di. Native Intl.RelativeTimeFormat uses the direct numeric plural.",
-          "candidateReason": "Every future-ore variant compared. Peers have native relative direction but unnecessary numeric di in many; Codex remaining time shifts meaning. Use a complete future interval count label.",
-          "opusDecision": "required_change",
-          "opusReason": "Format defect: this string is the value of the \"when\" or \"lastActivity\" field in tool results (providerRelativeTime). The candidate renders a full sentence with a period (\"L’intervallo ... da quel momento, in X, è N.\"), where \"quel momento\" has no antecedent in a field value. Native relative-time phrases fit the slot and match the other locales. The opus and gemini drafts agree on them, including di in many as the it reference requires.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and no single draft; the wording is a synthesis. one is exactly 1, other includes 0 and the ordinary plural, and many was read. English: in {{count}} hour in {{count}} hours",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change. The candidate was a sentence with an unanchored \"quel momento\" in a JSON \"when\" value. \"tra N …\" for the future and \"N … fa\" for the past are the native fragments. one is singular, and other (including 0) and many are plural. As in the other count units, no \"di\" belongs before a digit count.",
-              "proposedValueHash": "3d4c3a4da231af175b86374846f71674a30cf35d3d27450b18aee031b25b0f53"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept the ordinary relative-time phrase. tra is future and fa is past. one is singular for exactly 1. many and other are plural, and other also covers 0. The digits do not write milione, so many does not add di. A full interval-definition sentence is not required for this label. The lead evidence tra 1.000.000 anni matches this direct numeric plural.",
-              "proposedValueHash": "3d4c3a4da231af175b86374846f71674a30cf35d3d27450b18aee031b25b0f53"
-            }
-          }
-        },
-        "time.hour.past": {
-          "finalValueHash": "8c099ad26c75a756991883d8e622eb2bd92f1bb4a3d010c67268b5863bced9e5",
-          "chosenFrom": "synthesis",
-          "leadReason": "Use an ordinary native relative-time phrase rather than a full interval-definition sentence with an implicit moment antecedent. Preserve past/future direction, exact count, and unit. The count renders digits, so many does not insert milione or milioni and does not automatically require di. Native Intl.RelativeTimeFormat uses the direct numeric plural.",
-          "candidateReason": "Every past-ore variant compared. Preserve past relative direction with a complete count label and remove peers unnecessary numeric di in many.",
-          "opusDecision": "required_change",
-          "opusReason": "Format defect: this string is the value of the \"when\" or \"lastActivity\" field in tool results (providerRelativeTime). The candidate renders a full sentence with a period (\"L’intervallo ... da quel momento, in X, è N.\"), where \"quel momento\" has no antecedent in a field value. Native relative-time phrases fit the slot and match the other locales. The opus and gemini drafts agree on them, including di in many as the it reference requires.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and no single draft; the wording is a synthesis. one is exactly 1, other includes 0 and the ordinary plural, and many was read. English: {{count}} hour ago {{count}} hours ago",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change. The candidate was a sentence with an unanchored \"quel momento\" in a JSON \"when\" value. \"tra N …\" for the future and \"N … fa\" for the past are the native fragments. one is singular, and other (including 0) and many are plural. As in the other count units, no \"di\" belongs before a digit count.",
-              "proposedValueHash": "8c099ad26c75a756991883d8e622eb2bd92f1bb4a3d010c67268b5863bced9e5"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept the ordinary relative-time phrase. tra is future and fa is past. one is singular for exactly 1. many and other are plural, and other also covers 0. The digits do not write milione, so many does not add di. A full interval-definition sentence is not required for this label. The lead evidence tra 1.000.000 anni matches this direct numeric plural.",
-              "proposedValueHash": "8c099ad26c75a756991883d8e622eb2bd92f1bb4a3d010c67268b5863bced9e5"
-            }
-          }
-        },
-        "time.minute.future": {
-          "finalValueHash": "f097ea71d2ded7fbd1905b22a584066658c403888a5dfdca0f866261bbfbdca7",
-          "chosenFrom": "synthesis",
-          "leadReason": "Use an ordinary native relative-time phrase rather than a full interval-definition sentence with an implicit moment antecedent. Preserve past/future direction, exact count, and unit. The count renders digits, so many does not insert milione or milioni and does not automatically require di. Native Intl.RelativeTimeFormat uses the direct numeric plural.",
-          "candidateReason": "Every future-minuti variant compared. Peers have native relative direction but unnecessary numeric di in many; Codex remaining time shifts meaning. Use a complete future interval count label.",
-          "opusDecision": "required_change",
-          "opusReason": "Format defect: this string is the value of the \"when\" or \"lastActivity\" field in tool results (providerRelativeTime). The candidate renders a full sentence with a period (\"L’intervallo ... da quel momento, in X, è N.\"), where \"quel momento\" has no antecedent in a field value. Native relative-time phrases fit the slot and match the other locales. The opus and gemini drafts agree on them, including di in many as the it reference requires.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and no single draft; the wording is a synthesis. one is exactly 1, other includes 0 and the ordinary plural, and many was read. English: in {{count}} minute in {{count}} minutes",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change. The candidate was a sentence with an unanchored \"quel momento\" in a JSON \"when\" value. \"tra N …\" for the future and \"N … fa\" for the past are the native fragments. one is singular, and other (including 0) and many are plural. As in the other count units, no \"di\" belongs before a digit count.",
-              "proposedValueHash": "f097ea71d2ded7fbd1905b22a584066658c403888a5dfdca0f866261bbfbdca7"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept the ordinary relative-time phrase. tra is future and fa is past. one is singular for exactly 1. many and other are plural, and other also covers 0. The digits do not write milione, so many does not add di. A full interval-definition sentence is not required for this label. The lead evidence tra 1.000.000 anni matches this direct numeric plural.",
-              "proposedValueHash": "f097ea71d2ded7fbd1905b22a584066658c403888a5dfdca0f866261bbfbdca7"
-            }
-          }
-        },
-        "time.minute.past": {
-          "finalValueHash": "29bc6f7cd2b7638d0dc241ca27f132a70a185ec8615bd1c68c38b7df69329d0f",
-          "chosenFrom": "synthesis",
-          "leadReason": "Use an ordinary native relative-time phrase rather than a full interval-definition sentence with an implicit moment antecedent. Preserve past/future direction, exact count, and unit. The count renders digits, so many does not insert milione or milioni and does not automatically require di. Native Intl.RelativeTimeFormat uses the direct numeric plural.",
-          "candidateReason": "Every past-minuti variant compared. Preserve past relative direction with a complete count label and remove peers unnecessary numeric di in many.",
-          "opusDecision": "required_change",
-          "opusReason": "Format defect: this string is the value of the \"when\" or \"lastActivity\" field in tool results (providerRelativeTime). The candidate renders a full sentence with a period (\"L’intervallo ... da quel momento, in X, è N.\"), where \"quel momento\" has no antecedent in a field value. Native relative-time phrases fit the slot and match the other locales. The opus and gemini drafts agree on them, including di in many as the it reference requires.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and no single draft; the wording is a synthesis. one is exactly 1, other includes 0 and the ordinary plural, and many was read. English: {{count}} minute ago {{count}} minutes ago",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change. The candidate was a sentence with an unanchored \"quel momento\" in a JSON \"when\" value. \"tra N …\" for the future and \"N … fa\" for the past are the native fragments. one is singular, and other (including 0) and many are plural. As in the other count units, no \"di\" belongs before a digit count.",
-              "proposedValueHash": "29bc6f7cd2b7638d0dc241ca27f132a70a185ec8615bd1c68c38b7df69329d0f"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept the ordinary relative-time phrase. tra is future and fa is past. one is singular for exactly 1. many and other are plural, and other also covers 0. The digits do not write milione, so many does not add di. A full interval-definition sentence is not required for this label. The lead evidence tra 1.000.000 anni matches this direct numeric plural.",
-              "proposedValueHash": "29bc6f7cd2b7638d0dc241ca27f132a70a185ec8615bd1c68c38b7df69329d0f"
-            }
-          }
-        },
         "read.context.basic": {
           "finalValueHash": "30db01fbc7b034bfbc337bee7e2eb546d7fec1512dec78990985fc2b9d91b455",
           "chosenFrom": "grok",
@@ -4231,7 +3978,7 @@
     },
     "reports": {
       "finalHash": "215425d5288895c8b219a2a9da0a68b6b9d968cb52edd2094d87e5986cb4bebc",
-      "finalTemplateHash": "16c9ee702cdd8b17d8db4d3ff7a9aa1893dff5ea21b9964c4953633dc0ae0467",
+      "finalTemplateHash": "c235daf236aaefbf2f2ac729e55f54493b3f02fb8e450438dcaf29fe31d1e9c8",
       "draftHashes": {
         "codex": "b2d4160ab857211f669a05b63ca765658097a29e52a2ebf47103b8a21daca6c9",
         "opus": "8131220702a441d1873d7555e21fba40dd544ce40036e918691b43ac95a47275",
@@ -4242,117 +3989,12 @@
         "opus": "8e52f1b31e44bf0a18c5eca5901fcea71cdb1dc42fe0b7d0c0cf2457fe7c5520",
         "grok": "40b509e1c480aea46247b18a150b064bcc10f651ff113520ef089e6dc5b49bae"
       },
-      "decisions": {
-        "report.elapsed.moment": {
-          "finalValueHash": "1074b15f2785244a15fb4869b031420b673b5a154d9d91e5777c7e03d89ef4e6",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Three keep a moment passed since YOUR previous visit; native passato is plain.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex, opus, grok. actor, tense, limits, and parameters match the English. English: A moment passed since your previous visit.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "report.elapsed.second": {
-          "finalValueHash": "09a6e98e91fb3da8c59dabad582d800e780a9ed31f893949035ebbe5b440a128",
-          "chosenFrom": "candidate",
-          "leadReason": "Retain the grammatical direct numeric many variant. The formatter inserts digits, not the noun milione or milioni. A CLDR category alone does not require di before the counted noun. Native numeric relative-time labels demonstrate the same construction. Reject automatic di insertion, including proposals that place it after the property placeholder rather than the count. Preserve every original condition, bound, count, and protected value.",
-          "candidateReason": "Every seconds category compared. Opus/Grok native one/other count agreement and YOUR previous visit retained. Use plural other for many without numeric di; Codex label is not a complete sentence.",
-          "opusDecision": "optional_change",
-          "opusReason": "one and other are correct. The it reference requires the di construction in the many category (round millions, e.g. \"1.000.000 di caratteri\"); the candidate repeats the other form. This count rarely or never reaches a million, so the change is for catalog correctness only.",
-          "grokDecision": "required_change",
-          "grokReason": "Italian many is the large round count, including 1000000, and that numeral takes di before secondi. one stays the singular for exactly 1. other stays the ordinary plural for 0 and for 2 and above. Opus, grok, and gemini put di in many. The rest of the sentence stays.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "I withdraw the original opus optional \"di\" change, and I do not support Grok's required version. The count is rendered by String(value) as digits (\"1000000\"), never as the noun \"milione\". \"di\" is required after that written noun, not after a digit string, and the platform formatter itself writes \"tra 1.000.000 anni\". The revised it.md says a many variant can match other when the numeral is all digits. I checked every variant: one (exactly 1) is singular, other (including 0) is plural, and many is the same grammatical plural.",
-              "proposedValueHash": "09a6e98e91fb3da8c59dabad582d800e780a9ed31f893949035ebbe5b440a128"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept the direct numeric forms. Italian one is exactly 1 and stays singular. other is the ordinary plural and also covers 0. many is the large round count and uses that same plural. {{count}} is inserted as digits, not the word milione or milioni. The recorded relative-time evidence is tra 1.000.000 anni, without di. A CLDR many label alone does not require di. The reference uses di only when the written numeral construction needs it. Do not infer the spoken noun from the category label. The sentence still states how many seconds passed since the previous visit.",
-              "proposedValueHash": "09a6e98e91fb3da8c59dabad582d800e780a9ed31f893949035ebbe5b440a128"
-            }
-          }
-        },
-        "report.elapsed.minute": {
-          "finalValueHash": "8810d157cb756d93de422a6a50836a42eb6308dc99b44b4ef2e6659998c4afe5",
-          "chosenFrom": "candidate",
-          "leadReason": "Retain the grammatical direct numeric many variant. The formatter inserts digits, not the noun milione or milioni. A CLDR category alone does not require di before the counted noun. Native numeric relative-time labels demonstrate the same construction. Reject automatic di insertion, including proposals that place it after the property placeholder rather than the count. Preserve every original condition, bound, count, and protected value.",
-          "candidateReason": "Every minutes category compared. Opus/Grok native one/other count agreement and YOUR previous visit retained. Use plural other for many without numeric di; Codex label is not a complete sentence.",
-          "opusDecision": "optional_change",
-          "opusReason": "one and other are correct. The it reference requires the di construction in the many category (round millions, e.g. \"1.000.000 di caratteri\"); the candidate repeats the other form. This count rarely or never reaches a million, so the change is for catalog correctness only.",
-          "grokDecision": "required_change",
-          "grokReason": "Italian many is the large round count, including 1000000, and that numeral takes di before minuti. one stays the singular for exactly 1. other stays the ordinary plural for 0 and for 2 and above. Opus, grok, and gemini put di in many. The rest of the sentence stays.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "I withdraw the original opus optional \"di\" change, and I do not support Grok's required version. The count is rendered by String(value) as digits (\"1000000\"), never as the noun \"milione\". \"di\" is required after that written noun, not after a digit string, and the platform formatter itself writes \"tra 1.000.000 anni\". The revised it.md says a many variant can match other when the numeral is all digits. I checked every variant: one (exactly 1) is singular, other (including 0) is plural, and many is the same grammatical plural.",
-              "proposedValueHash": "8810d157cb756d93de422a6a50836a42eb6308dc99b44b4ef2e6659998c4afe5"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept the direct numeric forms. Italian one is exactly 1 and stays singular. other is the ordinary plural and also covers 0. many is the large round count and uses that same plural. {{count}} is inserted as digits, not the word milione or milioni. The recorded relative-time evidence is tra 1.000.000 anni, without di. A CLDR many label alone does not require di. The reference uses di only when the written numeral construction needs it. Do not infer the spoken noun from the category label. The sentence still states how many minutes passed since the previous visit.",
-              "proposedValueHash": "8810d157cb756d93de422a6a50836a42eb6308dc99b44b4ef2e6659998c4afe5"
-            }
-          }
-        },
-        "report.elapsed.hour": {
-          "finalValueHash": "f0b3eded9d6425923e1b6a8afcf0e84be0d12b54917e01f18f434facf39fb844",
-          "chosenFrom": "candidate",
-          "leadReason": "Retain the grammatical direct numeric many variant. The formatter inserts digits, not the noun milione or milioni. A CLDR category alone does not require di before the counted noun. Native numeric relative-time labels demonstrate the same construction. Reject automatic di insertion, including proposals that place it after the property placeholder rather than the count. Preserve every original condition, bound, count, and protected value.",
-          "candidateReason": "Every hours category compared. Opus/Grok native one/other count agreement and YOUR previous visit retained. Use plural other for many without numeric di; Codex label is not a complete sentence.",
-          "opusDecision": "optional_change",
-          "opusReason": "one and other are correct. The it reference requires the di construction in the many category (round millions, e.g. \"1.000.000 di caratteri\"); the candidate repeats the other form. This count rarely or never reaches a million, so the change is for catalog correctness only.",
-          "grokDecision": "required_change",
-          "grokReason": "Italian many is the large round count, including 1000000, and that numeral takes di before ore. one stays the singular for exactly 1. other stays the ordinary plural for 0 and for 2 and above. Opus, grok, and gemini put di in many. The rest of the sentence stays.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "I withdraw the original opus optional \"di\" change, and I do not support Grok's required version. The count is rendered by String(value) as digits (\"1000000\"), never as the noun \"milione\". \"di\" is required after that written noun, not after a digit string, and the platform formatter itself writes \"tra 1.000.000 anni\". The revised it.md says a many variant can match other when the numeral is all digits. I checked every variant: one (exactly 1) is singular, other (including 0) is plural, and many is the same grammatical plural.",
-              "proposedValueHash": "f0b3eded9d6425923e1b6a8afcf0e84be0d12b54917e01f18f434facf39fb844"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept the direct numeric forms. Italian one is exactly 1 and stays singular. other is the ordinary plural and also covers 0. many is the large round count and uses that same plural. {{count}} is inserted as digits, not the word milione or milioni. The recorded relative-time evidence is tra 1.000.000 anni, without di. A CLDR many label alone does not require di. The reference uses di only when the written numeral construction needs it. Do not infer the spoken noun from the category label. The sentence still states how many hours passed since the previous visit.",
-              "proposedValueHash": "f0b3eded9d6425923e1b6a8afcf0e84be0d12b54917e01f18f434facf39fb844"
-            }
-          }
-        },
-        "report.elapsed.day": {
-          "finalValueHash": "8dc8f37b40a7ed7e28cf7824b01a778845cdb08ed465620559036db5f2ee9977",
-          "chosenFrom": "candidate",
-          "leadReason": "Retain the grammatical direct numeric many variant. The formatter inserts digits, not the noun milione or milioni. A CLDR category alone does not require di before the counted noun. Native numeric relative-time labels demonstrate the same construction. Reject automatic di insertion, including proposals that place it after the property placeholder rather than the count. Preserve every original condition, bound, count, and protected value.",
-          "candidateReason": "Every days category compared. Opus/Grok native one/other count agreement and YOUR previous visit retained. Use plural other for many without numeric di; Codex label is not a complete sentence.",
-          "opusDecision": "optional_change",
-          "opusReason": "one and other are correct. The it reference requires the di construction in the many category (round millions, e.g. \"1.000.000 di caratteri\"); the candidate repeats the other form. This count rarely or never reaches a million, so the change is for catalog correctness only.",
-          "grokDecision": "required_change",
-          "grokReason": "Italian many is the large round count, including 1000000, and that numeral takes di before giorni. one stays the singular for exactly 1. other stays the ordinary plural for 0 and for 2 and above. Opus, grok, and gemini put di in many. The rest of the sentence stays.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "I withdraw the original opus optional \"di\" change, and I do not support Grok's required version. The count is rendered by String(value) as digits (\"1000000\"), never as the noun \"milione\". \"di\" is required after that written noun, not after a digit string, and the platform formatter itself writes \"tra 1.000.000 anni\". The revised it.md says a many variant can match other when the numeral is all digits. I checked every variant: one (exactly 1) is singular, other (including 0) is plural, and many is the same grammatical plural.",
-              "proposedValueHash": "8dc8f37b40a7ed7e28cf7824b01a778845cdb08ed465620559036db5f2ee9977"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept the direct numeric forms. Italian one is exactly 1 and stays singular. other is the ordinary plural and also covers 0. many is the large round count and uses that same plural. {{count}} is inserted as digits, not the word milione or milioni. The recorded relative-time evidence is tra 1.000.000 anni, without di. A CLDR many label alone does not require di. The reference uses di only when the written numeral construction needs it. Do not infer the spoken noun from the category label. The sentence still states how many days passed since the previous visit.",
-              "proposedValueHash": "8dc8f37b40a7ed7e28cf7824b01a778845cdb08ed465620559036db5f2ee9977"
-            }
-          }
-        }
-      }
+      "decisions": {},
+      "status": "pending_translation",
+      "pendingTranslationKeys": [
+        "report.timestamp.relative",
+        "report.timestamp.absolute"
+      ]
     },
     "recovery": {
       "finalHash": "2541a3a58b03082a10cd80577d73cf223fb68343653ebe360704f3a217547545",

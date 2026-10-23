@@ -899,80 +899,6 @@ export const messageParameters = { ...sharedMessageDefinitions, ...agentIssueMes
 			"toolName"
 		]
 	},
-	"time.just_now": {
-		"kind": "text",
-		"parameters": []
-	},
-	"time.year.future": {
-		"kind": "plural",
-		"parameters": [
-			"count"
-		],
-		"count": "count"
-	},
-	"time.year.past": {
-		"kind": "plural",
-		"parameters": [
-			"count"
-		],
-		"count": "count"
-	},
-	"time.month.future": {
-		"kind": "plural",
-		"parameters": [
-			"count"
-		],
-		"count": "count"
-	},
-	"time.month.past": {
-		"kind": "plural",
-		"parameters": [
-			"count"
-		],
-		"count": "count"
-	},
-	"time.day.future": {
-		"kind": "plural",
-		"parameters": [
-			"count"
-		],
-		"count": "count"
-	},
-	"time.day.past": {
-		"kind": "plural",
-		"parameters": [
-			"count"
-		],
-		"count": "count"
-	},
-	"time.hour.future": {
-		"kind": "plural",
-		"parameters": [
-			"count"
-		],
-		"count": "count"
-	},
-	"time.hour.past": {
-		"kind": "plural",
-		"parameters": [
-			"count"
-		],
-		"count": "count"
-	},
-	"time.minute.future": {
-		"kind": "plural",
-		"parameters": [
-			"count"
-		],
-		"count": "count"
-	},
-	"time.minute.past": {
-		"kind": "plural",
-		"parameters": [
-			"count"
-		],
-		"count": "count"
-	},
 	"read.context.basic": {
 		"kind": "text",
 		"parameters": [
@@ -1197,38 +1123,8 @@ export const messageParameters = { ...sharedMessageDefinitions, ...agentIssueMes
 		],
 		"count": "count"
 	},
-	"report.elapsed.moment": {
-		"kind": "text",
-		"parameters": []
-	},
-	"report.elapsed.second": {
-		"kind": "plural",
-		"parameters": [
-			"count"
-		],
-		"count": "count"
-	},
-	"report.elapsed.minute": {
-		"kind": "plural",
-		"parameters": [
-			"count"
-		],
-		"count": "count"
-	},
-	"report.elapsed.hour": {
-		"kind": "plural",
-		"parameters": [
-			"count"
-		],
-		"count": "count"
-	},
-	"report.elapsed.day": {
-		"kind": "plural",
-		"parameters": [
-			"count"
-		],
-		"count": "count"
-	},
+	"report.timestamp.relative": { "kind": "text", "parameters": ["timestamp"] },
+	"report.timestamp.absolute": { "kind": "text", "parameters": ["timestamp"] },
 	"synthetic.reasoning.read_note": {
 		"kind": "text",
 		"parameters": []
