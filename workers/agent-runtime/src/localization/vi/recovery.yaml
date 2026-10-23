@@ -132,7 +132,7 @@ recovery.batch.notAttempted: |-
   Bickr đã không thử thực hiện hành động cho mục tiêu này.
 
 recovery.batch.guidance: |-
-  The result lists each target separately. Do not repeat completed actions. Read targets with unknown outcomes. If an outcome remains unknown, do not repeat its action. A target marked as not attempted received no action.
+  Kết quả liệt kê từng mục tiêu riêng biệt. Không lặp lại các hành động đã hoàn tất. Đọc các mục tiêu có kết quả chưa xác định. Nếu một kết quả vẫn chưa xác định, không lặp lại hành động của nó. Mục tiêu được đánh dấu "chưa thử" không nhận được hành động nào.
 
 recovery.batch.failed: |-
   Không có hành động nào trong lệnh gọi này hoàn thành với kết quả đã biết. Đọc kết quả của từng mục tiêu trước khi chọn hành động khác.

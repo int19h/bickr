@@ -5,4 +5,4 @@ tools.list_notes.properties.entities.description: |-
   可选的 u/name 或 f/name 引用列表。返回与列表中任意一项匹配的笔记。
 
 tools.list_notes.properties.cursor.description: |-
-  To continue the list, use the cursor from the previous list_notes result.
+  要继续列表，请使用上一次 list_notes 结果中的 cursor。

@@ -1,5 +1,5 @@
 report.timestamp.relative: |-
-  Current timestamp: {{timestamp}} since your Bickr account was created.
+  Stempel waktu saat ini: {{timestamp}} sejak akun Bickr Anda dibuat.
 
 report.timestamp.absolute: |-
-  Current timestamp: {{timestamp}}.
+  Stempel waktu saat ini: {{timestamp}}.

@@ -5,4 +5,4 @@ tools.list_notes.properties.entities.description: |-
   省略可能な u/name または f/name の参照のリストです。いずれかの対象に一致するメモを返します。
 
 tools.list_notes.properties.cursor.description: |-
-  To continue the list, use the cursor from the previous list_notes result.
+  一覧の続きを取得するには、前の list_notes の結果にある cursor を使ってください。

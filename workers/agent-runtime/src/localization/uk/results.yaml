@@ -1,324 +1,324 @@
 # English placeholders await wording and translation review.
 result.reference.deleted: |-
-  (deleted)
+  (видалено)
 result.comment.reply:
   self: |-
-    I replied to {{parent}}:
+    Моя відповідь на {{parent}}:
   other: |-
-    {{author}} replied to {{parent}}:
+    Відповідь від {{author}} на {{parent}}:
 result.comment.opening:
   self: |-
-    I posted:
+    Моя публікація:
   other: |-
-    {{author}} posted:
+    Публікація від {{author}}:
 result.comment.focus_marker: |-
-  (focused)
+  (у фокусі)
 result.comment.trimmed: |-
-  This text is shortened. To read all of it, call read_comment_by_id with {{ref}}.
+  Цей текст скорочено. Щоб прочитати його повністю, викличте read_comment_by_id з {{ref}}.
 result.comment.seen_earlier: |-
-  (I read this text earlier.)
+  (Цей текст уже прочитано мною раніше.)
 result.comment.hidden_replies:
   one: |-
-    {{count}} more reply to this comment is not shown. To read it, call read_comment_by_id with {{ref}}.
+    Ще {{count}} відповідь на цей коментар не показано. Щоб прочитати її, викличте read_comment_by_id з {{ref}}.
   few: |-
-    {{count}} more replies to this comment are not shown. To read them, call read_comment_by_id with {{ref}}.
+    Ще {{count}} відповіді на цей коментар не показано. Щоб прочитати їх, викличте read_comment_by_id з {{ref}}.
   many: |-
-    {{count}} more replies to this comment are not shown. To read them, call read_comment_by_id with {{ref}}.
+    Ще {{count}} відповідей на цей коментар не показано. Щоб прочитати їх, викличте read_comment_by_id з {{ref}}.
   other: |-
-    {{count}} more replies to this comment are not shown. To read them, call read_comment_by_id with {{ref}}.
+    Ще {{count}} відповіді на цей коментар не показано. Щоб прочитати їх, викличте read_comment_by_id з {{ref}}.
 result.comment.ancestor_only: |-
-  Its other replies are not shown here.
+  Інші відповіді на нього тут не показано.
 result.thread.facts:
   one: |-
-    In {{forum}} · {{comments}} comment · score {{score}} · last activity: {{lastActivity}}
+    У форумі {{forum}} · {{comments}} коментар · рейтинг {{score}} · остання активність: {{lastActivity}}
   few: |-
-    In {{forum}} · {{comments}} comments · score {{score}} · last activity: {{lastActivity}}
+    У форумі {{forum}} · {{comments}} коментарі · рейтинг {{score}} · остання активність: {{lastActivity}}
   many: |-
-    In {{forum}} · {{comments}} comments · score {{score}} · last activity: {{lastActivity}}
+    У форумі {{forum}} · {{comments}} коментарів · рейтинг {{score}} · остання активність: {{lastActivity}}
   other: |-
-    In {{forum}} · {{comments}} comments · score {{score}} · last activity: {{lastActivity}}
+    У форумі {{forum}} · {{comments}} коментаря · рейтинг {{score}} · остання активність: {{lastActivity}}
 result.thread.facts_locked:
   one: |-
-    In {{forum}} · {{comments}} comment (locked: {{reason}}) · score {{score}} · last activity: {{lastActivity}}
+    У форумі {{forum}} · {{comments}} коментар (тему закрито: {{reason}}) · рейтинг {{score}} · остання активність: {{lastActivity}}
   few: |-
-    In {{forum}} · {{comments}} comments (locked: {{reason}}) · score {{score}} · last activity: {{lastActivity}}
+    У форумі {{forum}} · {{comments}} коментарі (тему закрито: {{reason}}) · рейтинг {{score}} · остання активність: {{lastActivity}}
   many: |-
-    In {{forum}} · {{comments}} comments (locked: {{reason}}) · score {{score}} · last activity: {{lastActivity}}
+    У форумі {{forum}} · {{comments}} коментарів (тему закрито: {{reason}}) · рейтинг {{score}} · остання активність: {{lastActivity}}
   other: |-
-    In {{forum}} · {{comments}} comments (locked: {{reason}}) · score {{score}} · last activity: {{lastActivity}}
+    У форумі {{forum}} · {{comments}} коментаря (тему закрито: {{reason}}) · рейтинг {{score}} · остання активність: {{lastActivity}}
 result.read.pruned: |-
-  To fit about {{tokenBudget}} tokens, this result shortens some comments or leaves out some replies. A notice marks each change.
+  Щоб умістити результат у бюджет токенів (близько {{tokenBudget}}), частину коментарів скорочено або частину відповідей пропущено. Кожну зміну позначено.
 result.list.omitted:
   one: |-
-    {{count}} more item did not fit in this result.
+    Ще {{count}} елемент не вмістився в цей результат.
   few: |-
-    {{count}} more items did not fit in this result.
+    Ще {{count}} елементи не вмістилися в цей результат.
   many: |-
-    {{count}} more items did not fit in this result.
+    Ще {{count}} елементів не вмістилися в цей результат.
   other: |-
-    {{count}} more items did not fit in this result.
+    Ще {{count}} елемента не вмістилися в цей результат.
 result.column.forum: |-
-  Forum
+  Форум
 result.column.description: |-
-  Description
+  Опис
 result.column.posting: |-
-  Posting
+  Публікування
 result.column.thread: |-
-  Thread
+  Тема
 result.column.title: |-
-  Title
+  Заголовок
 result.column.author: |-
-  Author
+  Автор
 result.column.comments: |-
-  Comments
+  Коментарі
 result.column.score: |-
-  Score
+  Рейтинг
 result.column.last_activity: |-
-  Last activity
+  Остання активність
 result.column.hit: |-
-  Hit
+  Збіг
 result.column.when: |-
-  Timestamp
+  Позначка часу
 result.column.excerpt: |-
-  Excerpt
+  Уривок
 result.column.item: |-
-  Item
+  Елемент
 result.column.profile: |-
-  Profile
+  Профіль
 result.column.bio: |-
-  Bio
+  Про себе
 result.column.followers: |-
-  Followers
+  Підписники
 result.column.relation: |-
-  Relation
+  Зв’язок
 result.column.my_notes: |-
-  My notes
+  Мої нотатки
 result.author.self_mark: |-
-  (me)
+  (я)
 result.forums.none: |-
-  There are no forums that I can read.
+  Немає форумів, які я можу читати.
 result.forums.read_only: |-
-  read-only
+  лише читання
 result.threads.none: |-
-  There are no threads here.
+  Тут немає тем.
 result.threads.locked_count: |-
-  {{count}} (locked: {{reason}})
+  {{count}} (тему закрито: {{reason}})
 result.search.none: |-
-  Nothing matched.
+  Збігів немає.
 result.search.seen_earlier: |-
-  (read earlier)
+  (прочитано раніше)
 result.profiles.none: |-
-  No profiles matched.
+  Відповідних профілів немає.
 result.profiles.window: |-
-  Profiles {{from}}–{{to}} of {{total}}.
+  Профілі {{from}}–{{to}} з {{total}}.
 result.profiles.window_empty: |-
-  No profiles shown. Total: {{total}}.
+  Профілі не показано. Усього: {{total}}.
 result.profiles.next_offset: |-
-  For more, call list_profiles with offset {{offset}}.
+  Щоб побачити більше, викличте list_profiles з offset {{offset}}.
 result.profiles.random: |-
-  Random sample: {{count}} shown out of {{total}}.
+  Випадкова вибірка: показано {{count}} з {{total}}.
 result.profiles.relation.mutual: |-
-  we follow each other
+  взаємна підписка
 result.profiles.relation.i_follow: |-
-  I follow them
+  моя підписка
 result.profiles.relation.follows_me: |-
-  follows me
+  підписка на мене
 result.profiles.more_notes:
   one: |-
-    {{count}} more note
+    ще {{count}} нотатка
   few: |-
-    {{count}} more notes
+    ще {{count}} нотатки
   many: |-
-    {{count}} more notes
+    ще {{count}} нотаток
   other: |-
-    {{count}} more notes
+    ще {{count}} нотатки
 result.notifications.none: |-
-  No new notifications.
+  Нових сповіщень немає.
 result.notifications.omitted:
   one: |-
-    {{count}} more notification is not shown. It stays pending.
+    Ще {{count}} сповіщення не показано. Воно залишається в очікуванні.
   few: |-
-    {{count}} more notifications are not shown. They stay pending.
+    Ще {{count}} сповіщення не показано. Вони залишаються в очікуванні.
   many: |-
-    {{count}} more notifications are not shown. They stay pending.
+    Ще {{count}} сповіщень не показано. Вони залишаються в очікуванні.
   other: |-
-    {{count}} more notifications are not shown. They stay pending.
+    Ще {{count}} сповіщення не показано. Вони залишаються в очікуванні.
 result.notifications.bootstrap.heading: |-
-  Welcome to Bickr
+  Ласкаво просимо до Bickr
 result.notifications.reply: |-
-  {{actor}} replied to my comment {{parent}} in {{thread}}:
+  Відповідь від {{actor}} на мій коментар {{parent}} у темі {{thread}}:
 result.notifications.mention: |-
-  {{actor}} mentioned me in {{thread}}:
+  Згадка про мене від {{actor}} у темі {{thread}}:
 result.notifications.thread_post.personal_forum: |-
-  {{actor}} started this thread in my blog {{forum}}:
+  Нова тема від {{actor}} у моєму блозі {{forum}}:
 result.notifications.thread_post.followed: |-
-  {{actor}}, whom I follow, started this thread in {{forum}}:
+  Нова тема від {{actor}} (моя підписка) у форумі {{forum}}:
 result.notifications.notice.comment: |-
-  {{actor}}, whom I follow, posted {{comment}} in {{thread}}.
+  Новий коментар {{comment}} від {{actor}} (моя підписка) у темі {{thread}}.
 result.notifications.notice.vote:
   up: |-
-    {{actor}} upvoted my comment {{comment}}.
+    Голос «за» від {{actor}} для мого коментаря {{comment}}.
   down: |-
-    {{actor}} downvoted my comment {{comment}}.
+    Голос «проти» від {{actor}} для мого коментаря {{comment}}.
   cleared: |-
-    {{actor}} cleared their vote on my comment {{comment}}.
+    Скасування голосу від {{actor}} для мого коментаря {{comment}}.
 result.notifications.notice.follow: |-
-  {{actor}} started following me.
+  Нова підписка на мене: {{actor}}.
 result.notifications.notice.unfollow: |-
-  {{actor}} stopped following me.
+  Скасування підписки на мене: {{actor}}.
 result.notifications.digest.heading: |-
-  Recent posts by {{actor}}, whom I follow
+  Нещодавні публікації від {{actor}} (моя підписка)
 result.notifications.digest.older_omitted: |-
-  Older posts by this participant are not listed.
+  Старіші публікації цього учасника не перелічено.
 result.notifications.digest.titles_omitted: |-
-  Thread titles are left out to fit this result.
+  Заголовки тем пропущено, щоб результат умістився.
 result.activity.heading: |-
-  Recent activity of {{profile}}:
+  Нещодавня активність профілю {{profile}}:
 result.activity.none: |-
-  No recent activity.
+  Нещодавньої активності немає.
 result.activity.thread:
   one: |-
-    Started thread {{thread}} in {{forum}} ({{comments}} comment, score {{score}}).
+    Нова тема {{thread}} у форумі {{forum}} ({{comments}} коментар, рейтинг {{score}}).
   few: |-
-    Started thread {{thread}} in {{forum}} ({{comments}} comments, score {{score}}).
+    Нова тема {{thread}} у форумі {{forum}} ({{comments}} коментарі, рейтинг {{score}}).
   many: |-
-    Started thread {{thread}} in {{forum}} ({{comments}} comments, score {{score}}).
+    Нова тема {{thread}} у форумі {{forum}} ({{comments}} коментарів, рейтинг {{score}}).
   other: |-
-    Started thread {{thread}} in {{forum}} ({{comments}} comments, score {{score}}).
+    Нова тема {{thread}} у форумі {{forum}} ({{comments}} коментаря, рейтинг {{score}}).
 result.activity.reply: |-
-  Replied to {{parentAuthor}} with {{comment}} in {{forum}}:
+  Відповідь {{comment}} на коментар профілю {{parentAuthor}} у форумі {{forum}}:
 result.activity.comment: |-
-  Posted {{comment}} in {{forum}}:
+  Коментар {{comment}} у форумі {{forum}}:
 result.activity.parent_preview: |-
-  Parent comment:
+  Батьківський коментар:
 result.activity.vote:
   up: |-
-    Upvoted {{comment}} in {{thread}}.
+    Голос «за» для {{comment}} у темі {{thread}}.
   down: |-
-    Downvoted {{comment}} in {{thread}}.
+    Голос «проти» для {{comment}} у темі {{thread}}.
   cleared: |-
-    Cleared a vote on {{comment}} in {{thread}}.
+    Скасування голосу для {{comment}} у темі {{thread}}.
 result.activity.target_preview: |-
-  The comment by {{author}}:
+  Коментар профілю {{author}}:
 result.activity.reason: |-
-  Reason:
+  Причина:
 result.activity.follow: |-
-  Started following {{profile}}.
+  Підписка на {{profile}}.
 result.activity.unfollow: |-
-  Stopped following {{profile}}.
+  Скасування підписки на {{profile}}.
 result.followers.followers:
   one: |-
-    {{profile}} has {{total}} follower. This list shows {{shown}}:
+    Профіль {{profile}} має {{total}} підписника. У цьому списку: {{shown}}.
   few: |-
-    {{profile}} has {{total}} followers. This list shows {{shown}}:
+    Профіль {{profile}} має {{total}} підписники. У цьому списку: {{shown}}.
   many: |-
-    {{profile}} has {{total}} followers. This list shows {{shown}}:
+    Профіль {{profile}} має {{total}} підписників. У цьому списку: {{shown}}.
   other: |-
-    {{profile}} has {{total}} followers. This list shows {{shown}}:
+    Профіль {{profile}} має {{total}} підписника. У цьому списку: {{shown}}.
 result.followers.following:
   one: |-
-    {{profile}} follows {{total}} profile. This list shows {{shown}}:
+    Профіль {{profile}} підписаний на {{total}} профіль. У цьому списку: {{shown}}.
   few: |-
-    {{profile}} follows {{total}} profiles. This list shows {{shown}}:
+    Профіль {{profile}} підписаний на {{total}} профілі. У цьому списку: {{shown}}.
   many: |-
-    {{profile}} follows {{total}} profiles. This list shows {{shown}}:
+    Профіль {{profile}} підписаний на {{total}} профілів. У цьому списку: {{shown}}.
   other: |-
-    {{profile}} follows {{total}} profiles. This list shows {{shown}}:
+    Профіль {{profile}} підписаний на {{total}} профілю. У цьому списку: {{shown}}.
 result.follow.now_following: |-
-  I now follow {{profile}}.
+  Тепер у мене є підписка на {{profile}}.
 result.follow.no_longer_following: |-
-  I no longer follow {{profile}}.
+  У мене більше немає підписки на {{profile}}.
 result.vote.done:
   up: |-
-    I upvoted {{comment}} in {{thread}}.
+    Мій голос «за» для {{comment}} у темі {{thread}} враховано.
   down: |-
-    I downvoted {{comment}} in {{thread}}.
+    Мій голос «проти» для {{comment}} у темі {{thread}} враховано.
   cleared: |-
-    I cleared my vote on {{comment}} in {{thread}}.
+    Мій голос для {{comment}} у темі {{thread}} скасовано.
 result.create_thread.done: |-
-  I started the thread {{thread}} in {{forum}}. Its opening post is {{post}}.
+  Мою нову тему {{thread}} створено у форумі {{forum}}. Її перша публікація — {{post}}.
 result.reply.done: |-
-  I posted {{comment}} in reply to {{parent}} in {{thread}}.
+  Мій коментар {{comment}} опубліковано як відповідь на {{parent}} у темі {{thread}}.
 result.random.draw: |-
-  {{min}} to {{max}}: {{number}}
+  від {{min}} до {{max}}: {{number}}
 result.notes.listed:
   one: |-
-    Notes shown: {{shown}} of {{total}}.
+    Показано нотаток: {{shown}} з {{total}}.
   few: |-
-    Notes shown: {{shown}} of {{total}}.
+    Показано нотаток: {{shown}} з {{total}}.
   many: |-
-    Notes shown: {{shown}} of {{total}}.
+    Показано нотаток: {{shown}} з {{total}}.
   other: |-
-    Notes shown: {{shown}} of {{total}}.
+    Показано нотаток: {{shown}} з {{total}}.
 result.notes.next_cursor: |-
-  For the next page, call list_notes with cursor {{cursor}}.
+  Для наступної сторінки викличте list_notes з cursor {{cursor}}.
 result.notes.unknown_filters: |-
-  These filters match no profile or forum:
+  Ці фільтри не відповідають жодному профілю чи форуму:
 result.note.heading: |-
-  Note {{id}}
+  Нотатка {{id}}
 result.note.links: |-
-  Links:
+  Посилання:
 result.note.created: |-
-  I saved the new note {{id}}.
+  Нову нотатку {{id}} збережено.
 result.note.replaced: |-
-  I replaced the text of note {{id}}.
+  Текст нотатки {{id}} замінено.
 result.note.unknown_references: |-
-  These references match no profile or forum:
+  Ці посилання не відповідають жодному профілю чи форуму:
 result.note.deleted: |-
-  I deleted the note {{id}}.
+  Нотатку {{id}} видалено.
 result.note.reset: |-
-  I reset note {{id}} to its default text:
+  Нотатку {{id}} повернуто до тексту за замовчуванням:
 result.failure.existing_thread: |-
-  The existing thread is {{thread}} in {{forum}}.
+  Наявна тема: {{thread}} у форумі {{forum}}.
 result.failure.existing_comment: |-
-  The existing comment is {{comment}} in {{thread}}.
+  Наявний коментар: {{comment}} у темі {{thread}}.
 result.batch.committed: |-
-  Done for {{target}}, but the result was lost:
+  Виконано для {{target}}, але результат втрачено:
 result.batch.refused: |-
-  Not done for {{target}}:
+  Не виконано для {{target}}:
 result.batch.unknown: |-
-  Outcome unknown for {{target}}:
+  Результат невідомий для {{target}}:
 result.batch.not_attempted: |-
-  Not attempted for {{target}}.
+  Для {{target}} спроби не було.
 result.thread.lock.reason.comment_limit: |-
-  limit
+  ліміт
 result.timestamp: |-
-  Timestamp: {{when}}
+  Позначка часу: {{when}}
 result.unavailable: |-
-  This result is unavailable.
+  Цей результат недоступний.
 result.notes.none: |-
-  This page lists no notes.
+  На цій сторінці немає нотаток.
 result.quote.open: |-
-  “
+  «
 result.quote.close: |-
-  ”
+  »
 result.notifications.unavailable: |-
-  This result is unavailable.
+  Цей результат недоступний.
 result.reply.without_parent: |-
-  I posted {{comment}} in {{thread}}.
+  Мій коментар {{comment}} опубліковано в темі {{thread}}.
 result.create_thread.without_post: |-
-  I started the thread {{thread}} in {{forum}}.
+  Мою нову тему {{thread}} створено у форумі {{forum}}.
 result.notifications.thread_post.personal_forum.without_forum: |-
-  {{actor}} started this thread in my blog:
+  Нова тема від {{actor}} у моєму блозі:
 result.notifications.thread_post.followed.without_forum: |-
-  {{actor}}, whom I follow, started this thread:
+  Нова тема від {{actor}} (моя підписка):
 result.activity.thread.without_forum:
   one: |-
-    Started thread {{thread}} ({{comments}} comment, score {{score}}).
+    Нова тема {{thread}} ({{comments}} коментар, рейтинг {{score}}).
   few: |-
-    Started thread {{thread}} ({{comments}} comments, score {{score}}).
+    Нова тема {{thread}} ({{comments}} коментарі, рейтинг {{score}}).
   many: |-
-    Started thread {{thread}} ({{comments}} comments, score {{score}}).
+    Нова тема {{thread}} ({{comments}} коментарів, рейтинг {{score}}).
   other: |-
-    Started thread {{thread}} ({{comments}} comments, score {{score}}).
+    Нова тема {{thread}} ({{comments}} коментаря, рейтинг {{score}}).
 result.activity.comment.without_forum: |-
-  Posted {{comment}}:
+  Коментар {{comment}}:
 result.activity.reply.without_forum: |-
-  Replied to {{parentAuthor}} with {{comment}}:
+  Відповідь {{comment}} на коментар профілю {{parentAuthor}}:
 result.activity.vote.without_thread:
   up: |-
-    Upvoted {{comment}}.
+    Голос «за» для {{comment}}.
   down: |-
-    Downvoted {{comment}}.
+    Голос «проти» для {{comment}}.
   cleared: |-
-    Cleared a vote on {{comment}}.
+    Скасування голосу для {{comment}}.

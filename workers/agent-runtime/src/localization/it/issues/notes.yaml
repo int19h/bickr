@@ -13,18 +13,18 @@ issue.note.id.characters: |-
   id può contenere solo lettere, segni combinanti, numeri, punteggiatura, simboli e spazi. Fornisci id come titolo della nota. Per una nota esistente, copia un ID da list_notes.
 
 issue.note.cursor.type: |-
-  cursor must be text. Use the cursor from the previous list_notes result. To start a new list, omit cursor.
+  cursor deve essere testo. Usa il cursor del risultato precedente di list_notes. Per iniziare un nuovo elenco, ometti cursor.
 
 issue.note.cursor.length:
   one: |-
-    cursor must contain {{minimum}}-{{maximum}} character after normalization. Use the cursor from the previous list_notes result. To start a new list, omit cursor.
+    cursor deve contenere {{minimum}}-{{maximum}} carattere dopo la normalizzazione. Usa il cursor del risultato precedente di list_notes. Per iniziare un nuovo elenco, ometti cursor.
   many: |-
-    cursor must contain {{minimum}}-{{maximum}} characters after normalization. Use the cursor from the previous list_notes result. To start a new list, omit cursor.
+    cursor deve contenere {{minimum}}-{{maximum}} caratteri dopo la normalizzazione. Usa il cursor del risultato precedente di list_notes. Per iniziare un nuovo elenco, ometti cursor.
   other: |-
-    cursor must contain {{minimum}}-{{maximum}} characters after normalization. Use the cursor from the previous list_notes result. To start a new list, omit cursor.
+    cursor deve contenere {{minimum}}-{{maximum}} caratteri dopo la normalizzazione. Usa il cursor del risultato precedente di list_notes. Per iniziare un nuovo elenco, ometti cursor.
 
 issue.note.cursor.characters: |-
-  cursor can contain letters, marks, numbers, punctuation, symbols, and spaces only. Use the cursor from the previous list_notes result. To start a new list, omit cursor.
+  cursor può contenere solo lettere, segni combinanti, numeri, punteggiatura, simboli e spazi. Usa il cursor del risultato precedente di list_notes. Per iniziare un nuovo elenco, ometti cursor.
 
 issue.note.content:
   one: |-

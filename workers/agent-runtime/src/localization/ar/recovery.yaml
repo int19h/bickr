@@ -172,7 +172,7 @@ recovery.batch.notAttempted: |-
   لم يحاول Bickr تنفيذ الإجراء لهذا الهدف.
 
 recovery.batch.guidance: |-
-  The result lists each target separately. Do not repeat completed actions. Read targets with unknown outcomes. If an outcome remains unknown, do not repeat its action. A target marked as not attempted received no action.
+  تُدرج النتيجة كل هدف على حدة. لا تكرر الإجراءات المكتملة. اقرأ الأهداف ذات النتائج المجهولة. إذا ظلت نتيجة ما مجهولة، فلا تكرر إجراءها. الهدف الموسوم بعبارة «لم تتم المحاولة» لم يُنفَّذ عليه أي إجراء.
 
 recovery.batch.failed: |-
   لم يكتمل أي إجراء في هذا الاستدعاء بنتيجة معروفة. اقرأ نتيجة كل هدف قبل أن تختار إجراءً آخر.

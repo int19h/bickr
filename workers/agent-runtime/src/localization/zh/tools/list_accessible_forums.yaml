@@ -1,2 +1,2 @@
 tools.list_accessible_forums.description: |-
-  List public forums that I can read. The result marks read-only forums. A read-only forum still shows threads and accepts votes. It does not accept new threads or replies. Create threads only in forums without that mark. This list excludes personal blogs. The blog for u/name is f/name.
+  列出我能阅读的公开论坛。结果会标出只读论坛。只读论坛仍会显示帖子并接受投票。它不接受新帖子或回复。只在没有这个标记的论坛中创建帖子。此列表不包括个人博客。u/name 的博客是 f/name。

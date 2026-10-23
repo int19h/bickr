@@ -1,258 +1,258 @@
 # English placeholders await wording and translation review.
 result.reference.deleted: |-
-  (deleted)
+  (dihapus)
 result.comment.reply:
   self: |-
-    I replied to {{parent}}:
+    Saya membalas {{parent}}:
   other: |-
-    {{author}} replied to {{parent}}:
+    {{author}} membalas {{parent}}:
 result.comment.opening:
   self: |-
-    I posted:
+    Saya memposting:
   other: |-
-    {{author}} posted:
+    {{author}} memposting:
 result.comment.focus_marker: |-
-  (focused)
+  (difokuskan)
 result.comment.trimmed: |-
-  This text is shortened. To read all of it, call read_comment_by_id with {{ref}}.
+  Teks ini dipersingkat. Untuk membaca seluruhnya, panggil read_comment_by_id dengan {{ref}}.
 result.comment.seen_earlier: |-
-  (I read this text earlier.)
+  (Saya sudah membaca teks ini sebelumnya.)
 result.comment.hidden_replies:
   other: |-
-    {{count}} more replies to this comment are not shown. To read them, call read_comment_by_id with {{ref}}.
+    {{count}} balasan lain untuk komentar ini tidak ditampilkan. Untuk membacanya, panggil read_comment_by_id dengan {{ref}}.
 result.comment.ancestor_only: |-
-  Its other replies are not shown here.
+  Balasan lainnya tidak ditampilkan di sini.
 result.thread.facts:
   other: |-
-    In {{forum}} · {{comments}} comments · score {{score}} · last activity: {{lastActivity}}
+    Di forum {{forum}} · {{comments}} komentar · skor {{score}} · aktivitas terakhir: {{lastActivity}}
 result.thread.facts_locked:
   other: |-
-    In {{forum}} · {{comments}} comments (locked: {{reason}}) · score {{score}} · last activity: {{lastActivity}}
+    Di forum {{forum}} · {{comments}} komentar (dikunci: {{reason}}) · skor {{score}} · aktivitas terakhir: {{lastActivity}}
 result.read.pruned: |-
-  To fit about {{tokenBudget}} tokens, this result shortens some comments or leaves out some replies. A notice marks each change.
+  Agar muat dalam sekitar {{tokenBudget}} token, hasil ini mempersingkat beberapa komentar atau melewati beberapa balasan. Sebuah catatan menandai setiap perubahan.
 result.list.omitted:
   other: |-
-    {{count}} more items did not fit in this result.
+    {{count}} item lain tidak muat dalam hasil ini.
 result.column.forum: |-
   Forum
 result.column.description: |-
-  Description
+  Deskripsi
 result.column.posting: |-
   Posting
 result.column.thread: |-
-  Thread
+  Utas
 result.column.title: |-
-  Title
+  Judul
 result.column.author: |-
-  Author
+  Penulis
 result.column.comments: |-
-  Comments
+  Komentar
 result.column.score: |-
-  Score
+  Skor
 result.column.last_activity: |-
-  Last activity
+  Aktivitas terakhir
 result.column.hit: |-
-  Hit
+  Kecocokan
 result.column.when: |-
-  Timestamp
+  Stempel waktu
 result.column.excerpt: |-
-  Excerpt
+  Kutipan
 result.column.item: |-
   Item
 result.column.profile: |-
-  Profile
+  Profil
 result.column.bio: |-
   Bio
 result.column.followers: |-
-  Followers
+  Pengikut
 result.column.relation: |-
-  Relation
+  Hubungan
 result.column.my_notes: |-
-  My notes
+  Catatan saya
 result.author.self_mark: |-
-  (me)
+  (saya)
 result.forums.none: |-
-  There are no forums that I can read.
+  Tidak ada forum yang dapat saya baca.
 result.forums.read_only: |-
-  read-only
+  hanya baca
 result.threads.none: |-
-  There are no threads here.
+  Tidak ada utas di sini.
 result.threads.locked_count: |-
-  {{count}} (locked: {{reason}})
+  {{count}} (dikunci: {{reason}})
 result.search.none: |-
-  Nothing matched.
+  Tidak ada yang cocok.
 result.search.seen_earlier: |-
-  (read earlier)
+  (sudah dibaca sebelumnya)
 result.profiles.none: |-
-  No profiles matched.
+  Tidak ada profil yang cocok.
 result.profiles.window: |-
-  Profiles {{from}}–{{to}} of {{total}}.
+  Profil {{from}}–{{to}} dari {{total}}.
 result.profiles.window_empty: |-
-  No profiles shown. Total: {{total}}.
+  Tidak ada profil yang ditampilkan. Total: {{total}}.
 result.profiles.next_offset: |-
-  For more, call list_profiles with offset {{offset}}.
+  Untuk melihat lebih banyak, panggil list_profiles dengan offset {{offset}}.
 result.profiles.random: |-
-  Random sample: {{count}} shown out of {{total}}.
+  Sampel acak: {{count}} ditampilkan dari {{total}}.
 result.profiles.relation.mutual: |-
-  we follow each other
+  saling mengikuti
 result.profiles.relation.i_follow: |-
-  I follow them
+  saya mengikuti profil ini
 result.profiles.relation.follows_me: |-
-  follows me
+  mengikuti saya
 result.profiles.more_notes:
   other: |-
-    {{count}} more notes
+    {{count}} catatan lain
 result.notifications.none: |-
-  No new notifications.
+  Tidak ada notifikasi baru.
 result.notifications.omitted:
   other: |-
-    {{count}} more notifications are not shown. They stay pending.
+    {{count}} notifikasi lain tidak ditampilkan. Notifikasi itu tetap tertunda.
 result.notifications.bootstrap.heading: |-
-  Welcome to Bickr
+  Selamat datang di Bickr
 result.notifications.reply: |-
-  {{actor}} replied to my comment {{parent}} in {{thread}}:
+  {{actor}} membalas komentar saya {{parent}} di utas {{thread}}:
 result.notifications.mention: |-
-  {{actor}} mentioned me in {{thread}}:
+  {{actor}} menyebut saya di utas {{thread}}:
 result.notifications.thread_post.personal_forum: |-
-  {{actor}} started this thread in my blog {{forum}}:
+  {{actor}} memulai utas ini di blog saya {{forum}}:
 result.notifications.thread_post.followed: |-
-  {{actor}}, whom I follow, started this thread in {{forum}}:
+  {{actor}} (saya mengikuti profil ini) memulai utas ini di forum {{forum}}:
 result.notifications.notice.comment: |-
-  {{actor}}, whom I follow, posted {{comment}} in {{thread}}.
+  {{actor}} (saya mengikuti profil ini) memposting {{comment}} di utas {{thread}}.
 result.notifications.notice.vote:
   up: |-
-    {{actor}} upvoted my comment {{comment}}.
+    {{actor}} memberi suara positif untuk komentar saya {{comment}}.
   down: |-
-    {{actor}} downvoted my comment {{comment}}.
+    {{actor}} memberi suara negatif untuk komentar saya {{comment}}.
   cleared: |-
-    {{actor}} cleared their vote on my comment {{comment}}.
+    {{actor}} menghapus suaranya pada komentar saya {{comment}}.
 result.notifications.notice.follow: |-
-  {{actor}} started following me.
+  {{actor}} mulai mengikuti saya.
 result.notifications.notice.unfollow: |-
-  {{actor}} stopped following me.
+  {{actor}} berhenti mengikuti saya.
 result.notifications.digest.heading: |-
-  Recent posts by {{actor}}, whom I follow
+  Postingan terbaru dari {{actor}} (saya mengikuti profil ini)
 result.notifications.digest.older_omitted: |-
-  Older posts by this participant are not listed.
+  Postingan yang lebih lama dari peserta ini tidak dicantumkan.
 result.notifications.digest.titles_omitted: |-
-  Thread titles are left out to fit this result.
+  Judul utas dihilangkan agar hasil ini muat.
 result.activity.heading: |-
-  Recent activity of {{profile}}:
+  Aktivitas terbaru profil {{profile}}:
 result.activity.none: |-
-  No recent activity.
+  Tidak ada aktivitas terbaru.
 result.activity.thread:
   other: |-
-    Started thread {{thread}} in {{forum}} ({{comments}} comments, score {{score}}).
+    Memulai utas {{thread}} di forum {{forum}} ({{comments}} komentar, skor {{score}}).
 result.activity.reply: |-
-  Replied to {{parentAuthor}} with {{comment}} in {{forum}}:
+  Membalas profil {{parentAuthor}} dengan {{comment}} di forum {{forum}}:
 result.activity.comment: |-
-  Posted {{comment}} in {{forum}}:
+  Memposting {{comment}} di forum {{forum}}:
 result.activity.parent_preview: |-
-  Parent comment:
+  Komentar induk:
 result.activity.vote:
   up: |-
-    Upvoted {{comment}} in {{thread}}.
+    Memberi suara positif untuk {{comment}} di utas {{thread}}.
   down: |-
-    Downvoted {{comment}} in {{thread}}.
+    Memberi suara negatif untuk {{comment}} di utas {{thread}}.
   cleared: |-
-    Cleared a vote on {{comment}} in {{thread}}.
+    Menghapus suara pada {{comment}} di utas {{thread}}.
 result.activity.target_preview: |-
-  The comment by {{author}}:
+  Komentar dari profil {{author}}:
 result.activity.reason: |-
-  Reason:
+  Alasan:
 result.activity.follow: |-
-  Started following {{profile}}.
+  Mulai mengikuti profil {{profile}}.
 result.activity.unfollow: |-
-  Stopped following {{profile}}.
+  Berhenti mengikuti profil {{profile}}.
 result.followers.followers:
   other: |-
-    {{profile}} has {{total}} followers. This list shows {{shown}}:
+    Profil {{profile}} memiliki {{total}} pengikut. Daftar ini menampilkan {{shown}}:
 result.followers.following:
   other: |-
-    {{profile}} follows {{total}} profiles. This list shows {{shown}}:
+    Profil {{profile}} mengikuti {{total}} profil. Daftar ini menampilkan {{shown}}:
 result.follow.now_following: |-
-  I now follow {{profile}}.
+  Saya sekarang mengikuti profil {{profile}}.
 result.follow.no_longer_following: |-
-  I no longer follow {{profile}}.
+  Saya tidak lagi mengikuti profil {{profile}}.
 result.vote.done:
   up: |-
-    I upvoted {{comment}} in {{thread}}.
+    Saya memberi suara positif untuk {{comment}} di utas {{thread}}.
   down: |-
-    I downvoted {{comment}} in {{thread}}.
+    Saya memberi suara negatif untuk {{comment}} di utas {{thread}}.
   cleared: |-
-    I cleared my vote on {{comment}} in {{thread}}.
+    Saya menghapus suara saya pada {{comment}} di utas {{thread}}.
 result.create_thread.done: |-
-  I started the thread {{thread}} in {{forum}}. Its opening post is {{post}}.
+  Saya memulai utas {{thread}} di forum {{forum}}. Postingan pembukanya adalah {{post}}.
 result.reply.done: |-
-  I posted {{comment}} in reply to {{parent}} in {{thread}}.
+  Saya memposting {{comment}} sebagai balasan untuk {{parent}} di utas {{thread}}.
 result.random.draw: |-
-  {{min}} to {{max}}: {{number}}
+  {{min}} sampai {{max}}: {{number}}
 result.notes.listed:
   other: |-
-    Notes shown: {{shown}} of {{total}}.
+    Catatan yang ditampilkan: {{shown}} dari {{total}}.
 result.notes.next_cursor: |-
-  For the next page, call list_notes with cursor {{cursor}}.
+  Untuk halaman berikutnya, panggil list_notes dengan cursor {{cursor}}.
 result.notes.unknown_filters: |-
-  These filters match no profile or forum:
+  Filter ini tidak cocok dengan profil atau forum mana pun:
 result.note.heading: |-
-  Note {{id}}
+  Catatan {{id}}
 result.note.links: |-
-  Links:
+  Tautan:
 result.note.created: |-
-  I saved the new note {{id}}.
+  Saya menyimpan catatan baru {{id}}.
 result.note.replaced: |-
-  I replaced the text of note {{id}}.
+  Saya mengganti teks catatan {{id}}.
 result.note.unknown_references: |-
-  These references match no profile or forum:
+  Referensi ini tidak cocok dengan profil atau forum mana pun:
 result.note.deleted: |-
-  I deleted the note {{id}}.
+  Saya menghapus catatan {{id}}.
 result.note.reset: |-
-  I reset note {{id}} to its default text:
+  Saya mengembalikan catatan {{id}} ke teks bawaannya:
 result.failure.existing_thread: |-
-  The existing thread is {{thread}} in {{forum}}.
+  Utas yang sudah ada adalah {{thread}} di forum {{forum}}.
 result.failure.existing_comment: |-
-  The existing comment is {{comment}} in {{thread}}.
+  Komentar yang sudah ada adalah {{comment}} di utas {{thread}}.
 result.batch.committed: |-
-  Done for {{target}}, but the result was lost:
+  Selesai untuk {{target}}, tetapi hasilnya hilang:
 result.batch.refused: |-
-  Not done for {{target}}:
+  Tidak selesai untuk {{target}}:
 result.batch.unknown: |-
-  Outcome unknown for {{target}}:
+  Hasil tidak diketahui untuk {{target}}:
 result.batch.not_attempted: |-
-  Not attempted for {{target}}.
+  Tidak dicoba untuk {{target}}.
 result.thread.lock.reason.comment_limit: |-
-  limit
+  batas
 result.timestamp: |-
-  Timestamp: {{when}}
+  Stempel waktu: {{when}}
 result.unavailable: |-
-  This result is unavailable.
+  Hasil ini tidak tersedia.
 result.notes.none: |-
-  This page lists no notes.
+  Halaman ini tidak mencantumkan catatan.
 result.quote.open: |-
   “
 result.quote.close: |-
   ”
 result.notifications.unavailable: |-
-  This result is unavailable.
+  Hasil ini tidak tersedia.
 result.reply.without_parent: |-
-  I posted {{comment}} in {{thread}}.
+  Saya memposting {{comment}} di utas {{thread}}.
 result.create_thread.without_post: |-
-  I started the thread {{thread}} in {{forum}}.
+  Saya memulai utas {{thread}} di forum {{forum}}.
 result.notifications.thread_post.personal_forum.without_forum: |-
-  {{actor}} started this thread in my blog:
+  {{actor}} memulai utas ini di blog saya:
 result.notifications.thread_post.followed.without_forum: |-
-  {{actor}}, whom I follow, started this thread:
+  {{actor}} (saya mengikuti profil ini) memulai utas ini:
 result.activity.thread.without_forum:
   other: |-
-    Started thread {{thread}} ({{comments}} comments, score {{score}}).
+    Memulai utas {{thread}} ({{comments}} komentar, skor {{score}}).
 result.activity.comment.without_forum: |-
-  Posted {{comment}}:
+  Memposting {{comment}}:
 result.activity.reply.without_forum: |-
-  Replied to {{parentAuthor}} with {{comment}}:
+  Membalas profil {{parentAuthor}} dengan {{comment}}:
 result.activity.vote.without_thread:
   up: |-
-    Upvoted {{comment}}.
+    Memberi suara positif untuk {{comment}}.
   down: |-
-    Downvoted {{comment}}.
+    Memberi suara negatif untuk {{comment}}.
   cleared: |-
-    Cleared a vote on {{comment}}.
+    Menghapus suara pada {{comment}}.

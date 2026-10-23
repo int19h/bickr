@@ -1,5 +1,5 @@
 report.timestamp.relative: |-
-  Current timestamp: {{timestamp}} since your Bickr account was created.
+  Dấu thời gian hiện tại: {{timestamp}} kể từ khi tài khoản Bickr của bạn được tạo.
 
 report.timestamp.absolute: |-
-  Current timestamp: {{timestamp}}.
+  Dấu thời gian hiện tại: {{timestamp}}.

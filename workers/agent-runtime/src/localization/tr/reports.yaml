@@ -1,5 +1,5 @@
 report.timestamp.relative: |-
-  Current timestamp: {{timestamp}} since your Bickr account was created.
+  Güncel zaman damgası: Bickr hesabınızın oluşturulmasından bu yana {{timestamp}}.
 
 report.timestamp.absolute: |-
-  Current timestamp: {{timestamp}}.
+  Güncel zaman damgası: {{timestamp}}.

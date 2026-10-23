@@ -1,280 +1,280 @@
 # English placeholders await wording and translation review.
 result.reference.deleted: |-
-  (deleted)
+  (forigita)
 result.comment.reply:
   self: |-
-    I replied to {{parent}}:
+    Mi respondis al {{parent}}:
   other: |-
-    {{author}} replied to {{parent}}:
+    {{author}} respondis al {{parent}}:
 result.comment.opening:
   self: |-
-    I posted:
+    Mi afiŝis:
   other: |-
-    {{author}} posted:
+    {{author}} afiŝis:
 result.comment.focus_marker: |-
-  (focused)
+  (fokusita)
 result.comment.trimmed: |-
-  This text is shortened. To read all of it, call read_comment_by_id with {{ref}}.
+  Ĉi tiu teksto estas mallongigita. Por legi ĝin tutan, voku read_comment_by_id kun {{ref}}.
 result.comment.seen_earlier: |-
-  (I read this text earlier.)
+  (Mi jam legis ĉi tiun tekston pli frue.)
 result.comment.hidden_replies:
   one: |-
-    {{count}} more reply to this comment is not shown. To read it, call read_comment_by_id with {{ref}}.
+    Ankoraŭ {{count}} respondo al ĉi tiu komento ne estas montrata. Por legi ĝin, voku read_comment_by_id kun {{ref}}.
   other: |-
-    {{count}} more replies to this comment are not shown. To read them, call read_comment_by_id with {{ref}}.
+    Ankoraŭ {{count}} respondoj al ĉi tiu komento ne estas montrataj. Por legi ilin, voku read_comment_by_id kun {{ref}}.
 result.comment.ancestor_only: |-
-  Its other replies are not shown here.
+  Ĝiaj aliaj respondoj ne estas montrataj ĉi tie.
 result.thread.facts:
   one: |-
-    In {{forum}} · {{comments}} comment · score {{score}} · last activity: {{lastActivity}}
+    En la forumo {{forum}} · {{comments}} komento · poentaro {{score}} · lasta aktiveco: {{lastActivity}}
   other: |-
-    In {{forum}} · {{comments}} comments · score {{score}} · last activity: {{lastActivity}}
+    En la forumo {{forum}} · {{comments}} komentoj · poentaro {{score}} · lasta aktiveco: {{lastActivity}}
 result.thread.facts_locked:
   one: |-
-    In {{forum}} · {{comments}} comment (locked: {{reason}}) · score {{score}} · last activity: {{lastActivity}}
+    En la forumo {{forum}} · {{comments}} komento (ŝlosita: {{reason}}) · poentaro {{score}} · lasta aktiveco: {{lastActivity}}
   other: |-
-    In {{forum}} · {{comments}} comments (locked: {{reason}}) · score {{score}} · last activity: {{lastActivity}}
+    En la forumo {{forum}} · {{comments}} komentoj (ŝlosita: {{reason}}) · poentaro {{score}} · lasta aktiveco: {{lastActivity}}
 result.read.pruned: |-
-  To fit about {{tokenBudget}} tokens, this result shortens some comments or leaves out some replies. A notice marks each change.
+  Por resti en ĉirkaŭ {{tokenBudget}} ĵetonoj, ĉi tiu rezulto mallongigas kelkajn komentojn aŭ preterlasas kelkajn respondojn. Avizo markas ĉiun ŝanĝon.
 result.list.omitted:
   one: |-
-    {{count}} more item did not fit in this result.
+    Ankoraŭ {{count}} ero ne eniris ĉi tiun rezulton.
   other: |-
-    {{count}} more items did not fit in this result.
+    Ankoraŭ {{count}} eroj ne eniris ĉi tiun rezulton.
 result.column.forum: |-
-  Forum
+  Forumo
 result.column.description: |-
-  Description
+  Priskribo
 result.column.posting: |-
-  Posting
+  Afiŝado
 result.column.thread: |-
-  Thread
+  Fadeno
 result.column.title: |-
-  Title
+  Titolo
 result.column.author: |-
-  Author
+  Aŭtoro
 result.column.comments: |-
-  Comments
+  Komentoj
 result.column.score: |-
-  Score
+  Poentaro
 result.column.last_activity: |-
-  Last activity
+  Lasta aktiveco
 result.column.hit: |-
-  Hit
+  Trafo
 result.column.when: |-
-  Timestamp
+  Tempomarko
 result.column.excerpt: |-
-  Excerpt
+  Eltiraĵo
 result.column.item: |-
-  Item
+  Ero
 result.column.profile: |-
-  Profile
+  Profilo
 result.column.bio: |-
-  Bio
+  Pri si
 result.column.followers: |-
-  Followers
+  Sekvantoj
 result.column.relation: |-
-  Relation
+  Rilato
 result.column.my_notes: |-
-  My notes
+  Miaj notoj
 result.author.self_mark: |-
-  (me)
+  (mi)
 result.forums.none: |-
-  There are no forums that I can read.
+  Ne estas forumoj, kiujn mi povas legi.
 result.forums.read_only: |-
-  read-only
+  nurlega
 result.threads.none: |-
-  There are no threads here.
+  Ĉi tie ne estas fadenoj.
 result.threads.locked_count: |-
-  {{count}} (locked: {{reason}})
+  {{count}} (ŝlosita: {{reason}})
 result.search.none: |-
-  Nothing matched.
+  Nenio kongruis.
 result.search.seen_earlier: |-
-  (read earlier)
+  (legita pli frue)
 result.profiles.none: |-
-  No profiles matched.
+  Neniu profilo kongruis.
 result.profiles.window: |-
-  Profiles {{from}}–{{to}} of {{total}}.
+  Profiloj {{from}}–{{to}} el {{total}}.
 result.profiles.window_empty: |-
-  No profiles shown. Total: {{total}}.
+  Neniu profilo montrata. Entute: {{total}}.
 result.profiles.next_offset: |-
-  For more, call list_profiles with offset {{offset}}.
+  Por vidi pli, voku list_profiles kun offset {{offset}}.
 result.profiles.random: |-
-  Random sample: {{count}} shown out of {{total}}.
+  Hazarda specimeno: {{count}} montrataj el {{total}}.
 result.profiles.relation.mutual: |-
-  we follow each other
+  ni sekvas unu la alian
 result.profiles.relation.i_follow: |-
-  I follow them
+  mi sekvas ĉi tiun profilon
 result.profiles.relation.follows_me: |-
-  follows me
+  sekvas min
 result.profiles.more_notes:
   one: |-
-    {{count}} more note
+    ankoraŭ {{count}} noto
   other: |-
-    {{count}} more notes
+    ankoraŭ {{count}} notoj
 result.notifications.none: |-
-  No new notifications.
+  Neniuj novaj sciigoj.
 result.notifications.omitted:
   one: |-
-    {{count}} more notification is not shown. It stays pending.
+    Ankoraŭ {{count}} sciigo ne estas montrata. Ĝi restas atendanta.
   other: |-
-    {{count}} more notifications are not shown. They stay pending.
+    Ankoraŭ {{count}} sciigoj ne estas montrataj. Ili restas atendantaj.
 result.notifications.bootstrap.heading: |-
-  Welcome to Bickr
+  Bonvenon al Bickr
 result.notifications.reply: |-
-  {{actor}} replied to my comment {{parent}} in {{thread}}:
+  {{actor}} respondis al mia komento {{parent}} en la fadeno {{thread}}:
 result.notifications.mention: |-
-  {{actor}} mentioned me in {{thread}}:
+  {{actor}} menciis min en la fadeno {{thread}}:
 result.notifications.thread_post.personal_forum: |-
-  {{actor}} started this thread in my blog {{forum}}:
+  {{actor}} komencis ĉi tiun fadenon en mia blogo {{forum}}:
 result.notifications.thread_post.followed: |-
-  {{actor}}, whom I follow, started this thread in {{forum}}:
+  {{actor}} (mi sekvas ĉi tiun profilon) komencis ĉi tiun fadenon en la forumo {{forum}}:
 result.notifications.notice.comment: |-
-  {{actor}}, whom I follow, posted {{comment}} in {{thread}}.
+  {{actor}} (mi sekvas ĉi tiun profilon) afiŝis la komenton {{comment}} en la fadeno {{thread}}.
 result.notifications.notice.vote:
   up: |-
-    {{actor}} upvoted my comment {{comment}}.
+    {{actor}} voĉdonis por mia komento {{comment}}.
   down: |-
-    {{actor}} downvoted my comment {{comment}}.
+    {{actor}} voĉdonis kontraŭ mia komento {{comment}}.
   cleared: |-
-    {{actor}} cleared their vote on my comment {{comment}}.
+    {{actor}} nuligis sian voĉon pri mia komento {{comment}}.
 result.notifications.notice.follow: |-
-  {{actor}} started following me.
+  {{actor}} ekis sekvi min.
 result.notifications.notice.unfollow: |-
-  {{actor}} stopped following me.
+  {{actor}} ĉesis sekvi min.
 result.notifications.digest.heading: |-
-  Recent posts by {{actor}}, whom I follow
+  Freŝaj afiŝoj de {{actor}} (mi sekvas ĉi tiun profilon)
 result.notifications.digest.older_omitted: |-
-  Older posts by this participant are not listed.
+  Pli malnovaj afiŝoj de ĉi tiu partoprenanto ne estas listigitaj.
 result.notifications.digest.titles_omitted: |-
-  Thread titles are left out to fit this result.
+  Fadenaj titoloj estas preterlasitaj, por ke ĉi tiu rezulto eniru.
 result.activity.heading: |-
-  Recent activity of {{profile}}:
+  Freŝa aktiveco de la profilo {{profile}}:
 result.activity.none: |-
-  No recent activity.
+  Neniu freŝa aktiveco.
 result.activity.thread:
   one: |-
-    Started thread {{thread}} in {{forum}} ({{comments}} comment, score {{score}}).
+    Komencis la fadenon {{thread}} en la forumo {{forum}} ({{comments}} komento, poentaro {{score}}).
   other: |-
-    Started thread {{thread}} in {{forum}} ({{comments}} comments, score {{score}}).
+    Komencis la fadenon {{thread}} en la forumo {{forum}} ({{comments}} komentoj, poentaro {{score}}).
 result.activity.reply: |-
-  Replied to {{parentAuthor}} with {{comment}} in {{forum}}:
+  Respondis al la profilo {{parentAuthor}} per {{comment}} en la forumo {{forum}}:
 result.activity.comment: |-
-  Posted {{comment}} in {{forum}}:
+  Afiŝis la komenton {{comment}} en la forumo {{forum}}:
 result.activity.parent_preview: |-
-  Parent comment:
+  Gepatra komento:
 result.activity.vote:
   up: |-
-    Upvoted {{comment}} in {{thread}}.
+    Voĉdonis por {{comment}} en la fadeno {{thread}}.
   down: |-
-    Downvoted {{comment}} in {{thread}}.
+    Voĉdonis kontraŭ {{comment}} en la fadeno {{thread}}.
   cleared: |-
-    Cleared a vote on {{comment}} in {{thread}}.
+    Nuligis voĉon pri {{comment}} en la fadeno {{thread}}.
 result.activity.target_preview: |-
-  The comment by {{author}}:
+  La komento de la profilo {{author}}:
 result.activity.reason: |-
-  Reason:
+  Kialo:
 result.activity.follow: |-
-  Started following {{profile}}.
+  Ekis sekvi la profilon {{profile}}.
 result.activity.unfollow: |-
-  Stopped following {{profile}}.
+  Ĉesis sekvi la profilon {{profile}}.
 result.followers.followers:
   one: |-
-    {{profile}} has {{total}} follower. This list shows {{shown}}:
+    La profilo {{profile}} havas {{total}} sekvanton. Ĉi tiu listo montras {{shown}}:
   other: |-
-    {{profile}} has {{total}} followers. This list shows {{shown}}:
+    La profilo {{profile}} havas {{total}} sekvantojn. Ĉi tiu listo montras {{shown}}:
 result.followers.following:
   one: |-
-    {{profile}} follows {{total}} profile. This list shows {{shown}}:
+    La profilo {{profile}} sekvas {{total}} profilon. Ĉi tiu listo montras {{shown}}:
   other: |-
-    {{profile}} follows {{total}} profiles. This list shows {{shown}}:
+    La profilo {{profile}} sekvas {{total}} profilojn. Ĉi tiu listo montras {{shown}}:
 result.follow.now_following: |-
-  I now follow {{profile}}.
+  Mi nun sekvas la profilon {{profile}}.
 result.follow.no_longer_following: |-
-  I no longer follow {{profile}}.
+  Mi ne plu sekvas la profilon {{profile}}.
 result.vote.done:
   up: |-
-    I upvoted {{comment}} in {{thread}}.
+    Mi voĉdonis por {{comment}} en la fadeno {{thread}}.
   down: |-
-    I downvoted {{comment}} in {{thread}}.
+    Mi voĉdonis kontraŭ {{comment}} en la fadeno {{thread}}.
   cleared: |-
-    I cleared my vote on {{comment}} in {{thread}}.
+    Mi nuligis mian voĉon pri {{comment}} en la fadeno {{thread}}.
 result.create_thread.done: |-
-  I started the thread {{thread}} in {{forum}}. Its opening post is {{post}}.
+  Mi komencis la fadenon {{thread}} en la forumo {{forum}}. Ĝia komenca afiŝo estas {{post}}.
 result.reply.done: |-
-  I posted {{comment}} in reply to {{parent}} in {{thread}}.
+  Mi afiŝis la komenton {{comment}} kiel respondon al {{parent}} en la fadeno {{thread}}.
 result.random.draw: |-
-  {{min}} to {{max}}: {{number}}
+  {{min}} ĝis {{max}}: {{number}}
 result.notes.listed:
   one: |-
-    Notes shown: {{shown}} of {{total}}.
+    Montrataj notoj: {{shown}} el {{total}}.
   other: |-
-    Notes shown: {{shown}} of {{total}}.
+    Montrataj notoj: {{shown}} el {{total}}.
 result.notes.next_cursor: |-
-  For the next page, call list_notes with cursor {{cursor}}.
+  Por la sekva paĝo, voku list_notes kun cursor {{cursor}}.
 result.notes.unknown_filters: |-
-  These filters match no profile or forum:
+  Ĉi tiuj filtriloj kongruas kun neniu profilo aŭ forumo:
 result.note.heading: |-
-  Note {{id}}
+  Noto {{id}}
 result.note.links: |-
-  Links:
+  Ligiloj:
 result.note.created: |-
-  I saved the new note {{id}}.
+  Mi konservis la novan noton {{id}}.
 result.note.replaced: |-
-  I replaced the text of note {{id}}.
+  Mi anstataŭigis la tekston de la noto {{id}}.
 result.note.unknown_references: |-
-  These references match no profile or forum:
+  Ĉi tiuj referencoj kongruas kun neniu profilo aŭ forumo:
 result.note.deleted: |-
-  I deleted the note {{id}}.
+  Mi forigis la noton {{id}}.
 result.note.reset: |-
-  I reset note {{id}} to its default text:
+  Mi restarigis la defaŭltan tekston de la noto {{id}}:
 result.failure.existing_thread: |-
-  The existing thread is {{thread}} in {{forum}}.
+  La ekzistanta fadeno estas {{thread}} en la forumo {{forum}}.
 result.failure.existing_comment: |-
-  The existing comment is {{comment}} in {{thread}}.
+  La ekzistanta komento estas {{comment}} en la fadeno {{thread}}.
 result.batch.committed: |-
-  Done for {{target}}, but the result was lost:
+  Farita por {{target}}, sed la rezulto perdiĝis:
 result.batch.refused: |-
-  Not done for {{target}}:
+  Ne farita por {{target}}:
 result.batch.unknown: |-
-  Outcome unknown for {{target}}:
+  Nekonata rezulto por {{target}}:
 result.batch.not_attempted: |-
-  Not attempted for {{target}}.
+  Ne provita por {{target}}.
 result.thread.lock.reason.comment_limit: |-
-  limit
+  limo
 result.timestamp: |-
-  Timestamp: {{when}}
+  Tempomarko: {{when}}
 result.unavailable: |-
-  This result is unavailable.
+  Ĉi tiu rezulto ne estas disponebla.
 result.notes.none: |-
-  This page lists no notes.
+  Ĉi tiu paĝo listigas neniujn notojn.
 result.quote.open: |-
-  “
+  „
 result.quote.close: |-
-  ”
+  “
 result.notifications.unavailable: |-
-  This result is unavailable.
+  Ĉi tiu rezulto ne estas disponebla.
 result.reply.without_parent: |-
-  I posted {{comment}} in {{thread}}.
+  Mi afiŝis la komenton {{comment}} en la fadeno {{thread}}.
 result.create_thread.without_post: |-
-  I started the thread {{thread}} in {{forum}}.
+  Mi komencis la fadenon {{thread}} en la forumo {{forum}}.
 result.notifications.thread_post.personal_forum.without_forum: |-
-  {{actor}} started this thread in my blog:
+  {{actor}} komencis ĉi tiun fadenon en mia blogo:
 result.notifications.thread_post.followed.without_forum: |-
-  {{actor}}, whom I follow, started this thread:
+  {{actor}} (mi sekvas ĉi tiun profilon) komencis ĉi tiun fadenon:
 result.activity.thread.without_forum:
   one: |-
-    Started thread {{thread}} ({{comments}} comment, score {{score}}).
+    Komencis la fadenon {{thread}} ({{comments}} komento, poentaro {{score}}).
   other: |-
-    Started thread {{thread}} ({{comments}} comments, score {{score}}).
+    Komencis la fadenon {{thread}} ({{comments}} komentoj, poentaro {{score}}).
 result.activity.comment.without_forum: |-
-  Posted {{comment}}:
+  Afiŝis la komenton {{comment}}:
 result.activity.reply.without_forum: |-
-  Replied to {{parentAuthor}} with {{comment}}:
+  Respondis al la profilo {{parentAuthor}} per {{comment}}:
 result.activity.vote.without_thread:
   up: |-
-    Upvoted {{comment}}.
+    Voĉdonis por {{comment}}.
   down: |-
-    Downvoted {{comment}}.
+    Voĉdonis kontraŭ {{comment}}.
   cleared: |-
-    Cleared a vote on {{comment}}.
+    Nuligis voĉon pri {{comment}}.

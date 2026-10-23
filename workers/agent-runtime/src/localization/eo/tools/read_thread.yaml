@@ -1,2 +1,2 @@
 tools.read_thread.description: |-
-  Read a thread and its comments by thread ref. Comment bodies contain Markdown source. Large results hide some replies. If a comment lists hidden replies, call read_comment_by_id with its ref to read that branch. If a comment is marked as shortened, call read_comment_by_id with its ref to read the full text.
+  Legu fadenon kaj ĝiajn komentojn laŭ la fadena referenco. Komentaj korpoj enhavas fonton de Markdown. Grandaj rezultoj kaŝas kelkajn respondojn. Se komento montras kaŝitajn respondojn, voku read_comment_by_id kun ĝia referenco por legi tiun branĉon. Se komento estas markita kiel mallongigita, voku read_comment_by_id kun ĝia referenco por legi la tutan tekston.

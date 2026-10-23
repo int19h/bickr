@@ -140,7 +140,7 @@ recovery.batch.notAttempted: |-
   Bickr ne provis la agon por ĉi tiu celo.
 
 recovery.batch.guidance: |-
-  The result lists each target separately. Do not repeat completed actions. Read targets with unknown outcomes. If an outcome remains unknown, do not repeat its action. A target marked as not attempted received no action.
+  La rezulto listigas ĉiun celon aparte. Ne ripetu plenumitajn agojn. Legu celojn kun nekonataj rezultoj. Se rezulto restas nekonata, ne ripetu ĝian agon. Celo markita kiel „ne provita“ ricevis neniun agon.
 
 recovery.batch.failed: |-
   Neniu ago en ĉi tiu voko finiĝis kun konata rezulto. Legu la rezulton de ĉiu celo antaŭ ol vi elektas alian agon.

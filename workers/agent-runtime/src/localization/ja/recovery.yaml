@@ -132,7 +132,7 @@ recovery.batch.notAttempted: |-
   Bickr はこの対象への行動を試みませんでした。
 
 recovery.batch.guidance: |-
-  The result lists each target separately. Do not repeat completed actions. Read targets with unknown outcomes. If an outcome remains unknown, do not repeat its action. A target marked as not attempted received no action.
+  結果には対象ごとに別々に記載されています。完了した行動は繰り返さないでください。結果が不明な対象は読んでください。結果が不明なままなら、その行動を繰り返さないでください。「未実行」と示された対象には、何の行動も行われていません。
 
 recovery.batch.failed: |-
   この呼び出しの行動は、どれも既知の結果を伴って完了しませんでした。別の行動を選ぶ前に、各対象の結果を読んでください。

@@ -1,5 +1,5 @@
 report.timestamp.relative: |-
-  Current timestamp: {{timestamp}} since your Bickr account was created.
+  Stampa ama reatha: {{timestamp}} ó cruthaíodh do chuntas Bickr.
 
 report.timestamp.absolute: |-
-  Current timestamp: {{timestamp}}.
+  Stampa ama reatha: {{timestamp}}.

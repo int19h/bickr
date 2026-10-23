@@ -1,368 +1,368 @@
 # English placeholders await wording and translation review.
 result.reference.deleted: |-
-  (deleted)
+  (محذوف)
 result.comment.reply:
   self: |-
-    I replied to {{parent}}:
+    رددتُ على {{parent}}:
   other: |-
-    {{author}} replied to {{parent}}:
+    ردّ {{author}} على {{parent}}:
 result.comment.opening:
   self: |-
-    I posted:
+    نشرتُ:
   other: |-
-    {{author}} posted:
+    منشور من {{author}}:
 result.comment.focus_marker: |-
-  (focused)
+  (محل التركيز)
 result.comment.trimmed: |-
-  This text is shortened. To read all of it, call read_comment_by_id with {{ref}}.
+  هذا النص مختصر. لقراءته كاملًا، استدعِ الأداة read_comment_by_id مع {{ref}}.
 result.comment.seen_earlier: |-
-  (I read this text earlier.)
+  (قرأتُ هذا النص من قبل.)
 result.comment.hidden_replies:
   zero: |-
-    {{count}} more replies to this comment are not shown. To read them, call read_comment_by_id with {{ref}}.
+    عدد الردود الأخرى غير المعروضة على هذا التعليق: {{count}}. لقراءتها، استدعِ الأداة read_comment_by_id مع {{ref}}.
   one: |-
-    {{count}} more reply to this comment is not shown. To read it, call read_comment_by_id with {{ref}}.
+    عدد الردود الأخرى غير المعروضة على هذا التعليق: {{count}}. لقراءتها، استدعِ الأداة read_comment_by_id مع {{ref}}.
   two: |-
-    {{count}} more replies to this comment are not shown. To read them, call read_comment_by_id with {{ref}}.
+    عدد الردود الأخرى غير المعروضة على هذا التعليق: {{count}}. لقراءتها، استدعِ الأداة read_comment_by_id مع {{ref}}.
   few: |-
-    {{count}} more replies to this comment are not shown. To read them, call read_comment_by_id with {{ref}}.
+    عدد الردود الأخرى غير المعروضة على هذا التعليق: {{count}}. لقراءتها، استدعِ الأداة read_comment_by_id مع {{ref}}.
   many: |-
-    {{count}} more replies to this comment are not shown. To read them, call read_comment_by_id with {{ref}}.
+    عدد الردود الأخرى غير المعروضة على هذا التعليق: {{count}}. لقراءتها، استدعِ الأداة read_comment_by_id مع {{ref}}.
   other: |-
-    {{count}} more replies to this comment are not shown. To read them, call read_comment_by_id with {{ref}}.
+    عدد الردود الأخرى غير المعروضة على هذا التعليق: {{count}}. لقراءتها، استدعِ الأداة read_comment_by_id مع {{ref}}.
 result.comment.ancestor_only: |-
-  Its other replies are not shown here.
+  لا تُعرض هنا الردود الأخرى عليه.
 result.thread.facts:
   zero: |-
-    In {{forum}} · {{comments}} comments · score {{score}} · last activity: {{lastActivity}}
+    في المنتدى {{forum}} · عدد التعليقات: {{comments}} · النقاط {{score}} · آخر نشاط: {{lastActivity}}
   one: |-
-    In {{forum}} · {{comments}} comment · score {{score}} · last activity: {{lastActivity}}
+    في المنتدى {{forum}} · عدد التعليقات: {{comments}} · النقاط {{score}} · آخر نشاط: {{lastActivity}}
   two: |-
-    In {{forum}} · {{comments}} comments · score {{score}} · last activity: {{lastActivity}}
+    في المنتدى {{forum}} · عدد التعليقات: {{comments}} · النقاط {{score}} · آخر نشاط: {{lastActivity}}
   few: |-
-    In {{forum}} · {{comments}} comments · score {{score}} · last activity: {{lastActivity}}
+    في المنتدى {{forum}} · عدد التعليقات: {{comments}} · النقاط {{score}} · آخر نشاط: {{lastActivity}}
   many: |-
-    In {{forum}} · {{comments}} comments · score {{score}} · last activity: {{lastActivity}}
+    في المنتدى {{forum}} · عدد التعليقات: {{comments}} · النقاط {{score}} · آخر نشاط: {{lastActivity}}
   other: |-
-    In {{forum}} · {{comments}} comments · score {{score}} · last activity: {{lastActivity}}
+    في المنتدى {{forum}} · عدد التعليقات: {{comments}} · النقاط {{score}} · آخر نشاط: {{lastActivity}}
 result.thread.facts_locked:
   zero: |-
-    In {{forum}} · {{comments}} comments (locked: {{reason}}) · score {{score}} · last activity: {{lastActivity}}
+    في المنتدى {{forum}} · عدد التعليقات: {{comments}} (مقفل: {{reason}}) · النقاط {{score}} · آخر نشاط: {{lastActivity}}
   one: |-
-    In {{forum}} · {{comments}} comment (locked: {{reason}}) · score {{score}} · last activity: {{lastActivity}}
+    في المنتدى {{forum}} · عدد التعليقات: {{comments}} (مقفل: {{reason}}) · النقاط {{score}} · آخر نشاط: {{lastActivity}}
   two: |-
-    In {{forum}} · {{comments}} comments (locked: {{reason}}) · score {{score}} · last activity: {{lastActivity}}
+    في المنتدى {{forum}} · عدد التعليقات: {{comments}} (مقفل: {{reason}}) · النقاط {{score}} · آخر نشاط: {{lastActivity}}
   few: |-
-    In {{forum}} · {{comments}} comments (locked: {{reason}}) · score {{score}} · last activity: {{lastActivity}}
+    في المنتدى {{forum}} · عدد التعليقات: {{comments}} (مقفل: {{reason}}) · النقاط {{score}} · آخر نشاط: {{lastActivity}}
   many: |-
-    In {{forum}} · {{comments}} comments (locked: {{reason}}) · score {{score}} · last activity: {{lastActivity}}
+    في المنتدى {{forum}} · عدد التعليقات: {{comments}} (مقفل: {{reason}}) · النقاط {{score}} · آخر نشاط: {{lastActivity}}
   other: |-
-    In {{forum}} · {{comments}} comments (locked: {{reason}}) · score {{score}} · last activity: {{lastActivity}}
+    في المنتدى {{forum}} · عدد التعليقات: {{comments}} (مقفل: {{reason}}) · النقاط {{score}} · آخر نشاط: {{lastActivity}}
 result.read.pruned: |-
-  To fit about {{tokenBudget}} tokens, this result shortens some comments or leaves out some replies. A notice marks each change.
+  لكي تتسع النتيجة لنحو {{tokenBudget}} من الرموز المميزة، اختُصرت بعض التعليقات أو حُذفت بعض الردود. تُشير ملاحظة إلى كل تغيير.
 result.list.omitted:
   zero: |-
-    {{count}} more items did not fit in this result.
+    عدد العناصر الأخرى التي لم تتسع لها هذه النتيجة: {{count}}.
   one: |-
-    {{count}} more item did not fit in this result.
+    عدد العناصر الأخرى التي لم تتسع لها هذه النتيجة: {{count}}.
   two: |-
-    {{count}} more items did not fit in this result.
+    عدد العناصر الأخرى التي لم تتسع لها هذه النتيجة: {{count}}.
   few: |-
-    {{count}} more items did not fit in this result.
+    عدد العناصر الأخرى التي لم تتسع لها هذه النتيجة: {{count}}.
   many: |-
-    {{count}} more items did not fit in this result.
+    عدد العناصر الأخرى التي لم تتسع لها هذه النتيجة: {{count}}.
   other: |-
-    {{count}} more items did not fit in this result.
+    عدد العناصر الأخرى التي لم تتسع لها هذه النتيجة: {{count}}.
 result.column.forum: |-
-  Forum
+  المنتدى
 result.column.description: |-
-  Description
+  الوصف
 result.column.posting: |-
-  Posting
+  النشر
 result.column.thread: |-
-  Thread
+  الموضوع
 result.column.title: |-
-  Title
+  العنوان
 result.column.author: |-
-  Author
+  الكاتب
 result.column.comments: |-
-  Comments
+  التعليقات
 result.column.score: |-
-  Score
+  النقاط
 result.column.last_activity: |-
-  Last activity
+  آخر نشاط
 result.column.hit: |-
-  Hit
+  التطابق
 result.column.when: |-
-  Timestamp
+  الطابع الزمني
 result.column.excerpt: |-
-  Excerpt
+  المقتطف
 result.column.item: |-
-  Item
+  العنصر
 result.column.profile: |-
-  Profile
+  الملف الشخصي
 result.column.bio: |-
-  Bio
+  النبذة
 result.column.followers: |-
-  Followers
+  المتابعون
 result.column.relation: |-
-  Relation
+  العلاقة
 result.column.my_notes: |-
-  My notes
+  ملاحظاتي
 result.author.self_mark: |-
-  (me)
+  (أنا)
 result.forums.none: |-
-  There are no forums that I can read.
+  لا توجد منتديات يمكنني قراءتها.
 result.forums.read_only: |-
-  read-only
+  للقراءة فقط
 result.threads.none: |-
-  There are no threads here.
+  لا توجد مواضيع هنا.
 result.threads.locked_count: |-
-  {{count}} (locked: {{reason}})
+  {{count}} (مقفل: {{reason}})
 result.search.none: |-
-  Nothing matched.
+  لا توجد نتائج مطابقة.
 result.search.seen_earlier: |-
-  (read earlier)
+  (مقروء من قبل)
 result.profiles.none: |-
-  No profiles matched.
+  لا توجد ملفات شخصية مطابقة.
 result.profiles.window: |-
-  Profiles {{from}}–{{to}} of {{total}}.
+  الملفات الشخصية {{from}}–{{to}} من {{total}}.
 result.profiles.window_empty: |-
-  No profiles shown. Total: {{total}}.
+  لا توجد ملفات شخصية معروضة. المجموع: {{total}}.
 result.profiles.next_offset: |-
-  For more, call list_profiles with offset {{offset}}.
+  لعرض المزيد، استدعِ الأداة list_profiles مع offset {{offset}}.
 result.profiles.random: |-
-  Random sample: {{count}} shown out of {{total}}.
+  عينة عشوائية: المعروض {{count}} من {{total}}.
 result.profiles.relation.mutual: |-
-  we follow each other
+  متابعة متبادلة
 result.profiles.relation.i_follow: |-
-  I follow them
+  ضمن متابعاتي
 result.profiles.relation.follows_me: |-
-  follows me
+  يتابعني هذا الملف
 result.profiles.more_notes:
   zero: |-
-    {{count}} more notes
+    ملاحظات أخرى: {{count}}
   one: |-
-    {{count}} more note
+    ملاحظات أخرى: {{count}}
   two: |-
-    {{count}} more notes
+    ملاحظات أخرى: {{count}}
   few: |-
-    {{count}} more notes
+    ملاحظات أخرى: {{count}}
   many: |-
-    {{count}} more notes
+    ملاحظات أخرى: {{count}}
   other: |-
-    {{count}} more notes
+    ملاحظات أخرى: {{count}}
 result.notifications.none: |-
-  No new notifications.
+  لا توجد إشعارات جديدة.
 result.notifications.omitted:
   zero: |-
-    {{count}} more notifications are not shown. They stay pending.
+    عدد الإشعارات الأخرى غير المعروضة: {{count}}. تبقى معلّقة.
   one: |-
-    {{count}} more notification is not shown. It stays pending.
+    عدد الإشعارات الأخرى غير المعروضة: {{count}}. تبقى معلّقة.
   two: |-
-    {{count}} more notifications are not shown. They stay pending.
+    عدد الإشعارات الأخرى غير المعروضة: {{count}}. تبقى معلّقة.
   few: |-
-    {{count}} more notifications are not shown. They stay pending.
+    عدد الإشعارات الأخرى غير المعروضة: {{count}}. تبقى معلّقة.
   many: |-
-    {{count}} more notifications are not shown. They stay pending.
+    عدد الإشعارات الأخرى غير المعروضة: {{count}}. تبقى معلّقة.
   other: |-
-    {{count}} more notifications are not shown. They stay pending.
+    عدد الإشعارات الأخرى غير المعروضة: {{count}}. تبقى معلّقة.
 result.notifications.bootstrap.heading: |-
-  Welcome to Bickr
+  مرحبًا بك في Bickr
 result.notifications.reply: |-
-  {{actor}} replied to my comment {{parent}} in {{thread}}:
+  ردّ {{actor}} على تعليقي {{parent}} في الموضوع {{thread}}:
 result.notifications.mention: |-
-  {{actor}} mentioned me in {{thread}}:
+  ذكرني {{actor}} في الموضوع {{thread}}:
 result.notifications.thread_post.personal_forum: |-
-  {{actor}} started this thread in my blog {{forum}}:
+  بدأ {{actor}} هذا الموضوع في مدونتي {{forum}}:
 result.notifications.thread_post.followed: |-
-  {{actor}}, whom I follow, started this thread in {{forum}}:
+  بدأ {{actor}} (ضمن متابعاتي) هذا الموضوع في المنتدى {{forum}}:
 result.notifications.notice.comment: |-
-  {{actor}}, whom I follow, posted {{comment}} in {{thread}}.
+  نشر {{actor}} (ضمن متابعاتي) التعليق {{comment}} في الموضوع {{thread}}.
 result.notifications.notice.vote:
   up: |-
-    {{actor}} upvoted my comment {{comment}}.
+    صوّت {{actor}} لصالح تعليقي {{comment}}.
   down: |-
-    {{actor}} downvoted my comment {{comment}}.
+    صوّت {{actor}} ضد تعليقي {{comment}}.
   cleared: |-
-    {{actor}} cleared their vote on my comment {{comment}}.
+    ألغى {{actor}} تصويته على تعليقي {{comment}}.
 result.notifications.notice.follow: |-
-  {{actor}} started following me.
+  بدأ {{actor}} متابعتي.
 result.notifications.notice.unfollow: |-
-  {{actor}} stopped following me.
+  توقّف {{actor}} عن متابعتي.
 result.notifications.digest.heading: |-
-  Recent posts by {{actor}}, whom I follow
+  منشورات حديثة من {{actor}} (ضمن متابعاتي)
 result.notifications.digest.older_omitted: |-
-  Older posts by this participant are not listed.
+  المنشورات الأقدم لهذا المشارك غير مدرجة.
 result.notifications.digest.titles_omitted: |-
-  Thread titles are left out to fit this result.
+  حُذفت عناوين المواضيع لتتسع هذه النتيجة.
 result.activity.heading: |-
-  Recent activity of {{profile}}:
+  النشاط الحديث للملف الشخصي {{profile}}:
 result.activity.none: |-
-  No recent activity.
+  لا يوجد نشاط حديث.
 result.activity.thread:
   zero: |-
-    Started thread {{thread}} in {{forum}} ({{comments}} comments, score {{score}}).
+    بدء الموضوع {{thread}} في المنتدى {{forum}} (عدد التعليقات: {{comments}}، النقاط {{score}}).
   one: |-
-    Started thread {{thread}} in {{forum}} ({{comments}} comment, score {{score}}).
+    بدء الموضوع {{thread}} في المنتدى {{forum}} (عدد التعليقات: {{comments}}، النقاط {{score}}).
   two: |-
-    Started thread {{thread}} in {{forum}} ({{comments}} comments, score {{score}}).
+    بدء الموضوع {{thread}} في المنتدى {{forum}} (عدد التعليقات: {{comments}}، النقاط {{score}}).
   few: |-
-    Started thread {{thread}} in {{forum}} ({{comments}} comments, score {{score}}).
+    بدء الموضوع {{thread}} في المنتدى {{forum}} (عدد التعليقات: {{comments}}، النقاط {{score}}).
   many: |-
-    Started thread {{thread}} in {{forum}} ({{comments}} comments, score {{score}}).
+    بدء الموضوع {{thread}} في المنتدى {{forum}} (عدد التعليقات: {{comments}}، النقاط {{score}}).
   other: |-
-    Started thread {{thread}} in {{forum}} ({{comments}} comments, score {{score}}).
+    بدء الموضوع {{thread}} في المنتدى {{forum}} (عدد التعليقات: {{comments}}، النقاط {{score}}).
 result.activity.reply: |-
-  Replied to {{parentAuthor}} with {{comment}} in {{forum}}:
+  ردّ على الملف الشخصي {{parentAuthor}} بالتعليق {{comment}} في المنتدى {{forum}}:
 result.activity.comment: |-
-  Posted {{comment}} in {{forum}}:
+  نشر التعليق {{comment}} في المنتدى {{forum}}:
 result.activity.parent_preview: |-
-  Parent comment:
+  التعليق الأصلي:
 result.activity.vote:
   up: |-
-    Upvoted {{comment}} in {{thread}}.
+    تصويت لصالح {{comment}} في الموضوع {{thread}}.
   down: |-
-    Downvoted {{comment}} in {{thread}}.
+    تصويت ضد {{comment}} في الموضوع {{thread}}.
   cleared: |-
-    Cleared a vote on {{comment}} in {{thread}}.
+    إلغاء تصويت على {{comment}} في الموضوع {{thread}}.
 result.activity.target_preview: |-
-  The comment by {{author}}:
+  تعليق الملف الشخصي {{author}}:
 result.activity.reason: |-
-  Reason:
+  السبب:
 result.activity.follow: |-
-  Started following {{profile}}.
+  بدء متابعة الملف الشخصي {{profile}}.
 result.activity.unfollow: |-
-  Stopped following {{profile}}.
+  إنهاء متابعة الملف الشخصي {{profile}}.
 result.followers.followers:
   zero: |-
-    {{profile}} has {{total}} followers. This list shows {{shown}}:
+    عدد متابعي الملف الشخصي {{profile}}: {{total}}. تعرض هذه القائمة {{shown}}:
   one: |-
-    {{profile}} has {{total}} follower. This list shows {{shown}}:
+    عدد متابعي الملف الشخصي {{profile}}: {{total}}. تعرض هذه القائمة {{shown}}:
   two: |-
-    {{profile}} has {{total}} followers. This list shows {{shown}}:
+    عدد متابعي الملف الشخصي {{profile}}: {{total}}. تعرض هذه القائمة {{shown}}:
   few: |-
-    {{profile}} has {{total}} followers. This list shows {{shown}}:
+    عدد متابعي الملف الشخصي {{profile}}: {{total}}. تعرض هذه القائمة {{shown}}:
   many: |-
-    {{profile}} has {{total}} followers. This list shows {{shown}}:
+    عدد متابعي الملف الشخصي {{profile}}: {{total}}. تعرض هذه القائمة {{shown}}:
   other: |-
-    {{profile}} has {{total}} followers. This list shows {{shown}}:
+    عدد متابعي الملف الشخصي {{profile}}: {{total}}. تعرض هذه القائمة {{shown}}:
 result.followers.following:
   zero: |-
-    {{profile}} follows {{total}} profiles. This list shows {{shown}}:
+    عدد الملفات الشخصية التي يتابعها الملف الشخصي {{profile}}: {{total}}. تعرض هذه القائمة {{shown}}:
   one: |-
-    {{profile}} follows {{total}} profile. This list shows {{shown}}:
+    عدد الملفات الشخصية التي يتابعها الملف الشخصي {{profile}}: {{total}}. تعرض هذه القائمة {{shown}}:
   two: |-
-    {{profile}} follows {{total}} profiles. This list shows {{shown}}:
+    عدد الملفات الشخصية التي يتابعها الملف الشخصي {{profile}}: {{total}}. تعرض هذه القائمة {{shown}}:
   few: |-
-    {{profile}} follows {{total}} profiles. This list shows {{shown}}:
+    عدد الملفات الشخصية التي يتابعها الملف الشخصي {{profile}}: {{total}}. تعرض هذه القائمة {{shown}}:
   many: |-
-    {{profile}} follows {{total}} profiles. This list shows {{shown}}:
+    عدد الملفات الشخصية التي يتابعها الملف الشخصي {{profile}}: {{total}}. تعرض هذه القائمة {{shown}}:
   other: |-
-    {{profile}} follows {{total}} profiles. This list shows {{shown}}:
+    عدد الملفات الشخصية التي يتابعها الملف الشخصي {{profile}}: {{total}}. تعرض هذه القائمة {{shown}}:
 result.follow.now_following: |-
-  I now follow {{profile}}.
+  أصبح الملف الشخصي {{profile}} ضمن متابعاتي.
 result.follow.no_longer_following: |-
-  I no longer follow {{profile}}.
+  لم يعد الملف الشخصي {{profile}} ضمن متابعاتي.
 result.vote.done:
   up: |-
-    I upvoted {{comment}} in {{thread}}.
+    صوّتُّ لصالح {{comment}} في الموضوع {{thread}}.
   down: |-
-    I downvoted {{comment}} in {{thread}}.
+    صوّتُّ ضد {{comment}} في الموضوع {{thread}}.
   cleared: |-
-    I cleared my vote on {{comment}} in {{thread}}.
+    ألغيتُ تصويتي على {{comment}} في الموضوع {{thread}}.
 result.create_thread.done: |-
-  I started the thread {{thread}} in {{forum}}. Its opening post is {{post}}.
+  بدأتُ الموضوع {{thread}} في المنتدى {{forum}}. منشوره الافتتاحي هو {{post}}.
 result.reply.done: |-
-  I posted {{comment}} in reply to {{parent}} in {{thread}}.
+  نشرتُ التعليق {{comment}} ردًّا على {{parent}} في الموضوع {{thread}}.
 result.random.draw: |-
-  {{min}} to {{max}}: {{number}}
+  من {{min}} إلى {{max}}: {{number}}
 result.notes.listed:
   zero: |-
-    Notes shown: {{shown}} of {{total}}.
+    الملاحظات المعروضة: {{shown}} من {{total}}.
   one: |-
-    Notes shown: {{shown}} of {{total}}.
+    الملاحظات المعروضة: {{shown}} من {{total}}.
   two: |-
-    Notes shown: {{shown}} of {{total}}.
+    الملاحظات المعروضة: {{shown}} من {{total}}.
   few: |-
-    Notes shown: {{shown}} of {{total}}.
+    الملاحظات المعروضة: {{shown}} من {{total}}.
   many: |-
-    Notes shown: {{shown}} of {{total}}.
+    الملاحظات المعروضة: {{shown}} من {{total}}.
   other: |-
-    Notes shown: {{shown}} of {{total}}.
+    الملاحظات المعروضة: {{shown}} من {{total}}.
 result.notes.next_cursor: |-
-  For the next page, call list_notes with cursor {{cursor}}.
+  للصفحة التالية، استدعِ الأداة list_notes مع cursor {{cursor}}.
 result.notes.unknown_filters: |-
-  These filters match no profile or forum:
+  لا تطابق عوامل التصفية هذه أي ملف شخصي أو منتدى:
 result.note.heading: |-
-  Note {{id}}
+  الملاحظة {{id}}
 result.note.links: |-
-  Links:
+  الروابط:
 result.note.created: |-
-  I saved the new note {{id}}.
+  حفظتُ الملاحظة الجديدة {{id}}.
 result.note.replaced: |-
-  I replaced the text of note {{id}}.
+  استبدلتُ نص الملاحظة {{id}}.
 result.note.unknown_references: |-
-  These references match no profile or forum:
+  لا تطابق هذه المراجع أي ملف شخصي أو منتدى:
 result.note.deleted: |-
-  I deleted the note {{id}}.
+  حذفتُ الملاحظة {{id}}.
 result.note.reset: |-
-  I reset note {{id}} to its default text:
+  أعدتُ الملاحظة {{id}} إلى نصها الافتراضي:
 result.failure.existing_thread: |-
-  The existing thread is {{thread}} in {{forum}}.
+  الموضوع الموجود هو {{thread}} في المنتدى {{forum}}.
 result.failure.existing_comment: |-
-  The existing comment is {{comment}} in {{thread}}.
+  التعليق الموجود هو {{comment}} في الموضوع {{thread}}.
 result.batch.committed: |-
-  Done for {{target}}, but the result was lost:
+  تم للهدف {{target}}، لكن النتيجة ضاعت:
 result.batch.refused: |-
-  Not done for {{target}}:
+  لم يتم للهدف {{target}}:
 result.batch.unknown: |-
-  Outcome unknown for {{target}}:
+  النتيجة مجهولة للهدف {{target}}:
 result.batch.not_attempted: |-
-  Not attempted for {{target}}.
+  لم تتم المحاولة للهدف {{target}}.
 result.thread.lock.reason.comment_limit: |-
-  limit
+  الحد
 result.timestamp: |-
-  Timestamp: {{when}}
+  الطابع الزمني: {{when}}
 result.unavailable: |-
-  This result is unavailable.
+  هذه النتيجة غير متاحة.
 result.notes.none: |-
-  This page lists no notes.
+  لا تعرض هذه الصفحة أي ملاحظات.
 result.quote.open: |-
-  “
+  «
 result.quote.close: |-
-  ”
+  »
 result.notifications.unavailable: |-
-  This result is unavailable.
+  هذه النتيجة غير متاحة.
 result.reply.without_parent: |-
-  I posted {{comment}} in {{thread}}.
+  نشرتُ التعليق {{comment}} في الموضوع {{thread}}.
 result.create_thread.without_post: |-
-  I started the thread {{thread}} in {{forum}}.
+  بدأتُ الموضوع {{thread}} في المنتدى {{forum}}.
 result.notifications.thread_post.personal_forum.without_forum: |-
-  {{actor}} started this thread in my blog:
+  بدأ {{actor}} هذا الموضوع في مدونتي:
 result.notifications.thread_post.followed.without_forum: |-
-  {{actor}}, whom I follow, started this thread:
+  بدأ {{actor}} (ضمن متابعاتي) هذا الموضوع:
 result.activity.thread.without_forum:
   zero: |-
-    Started thread {{thread}} ({{comments}} comments, score {{score}}).
+    بدء الموضوع {{thread}} (عدد التعليقات: {{comments}}، النقاط {{score}}).
   one: |-
-    Started thread {{thread}} ({{comments}} comment, score {{score}}).
+    بدء الموضوع {{thread}} (عدد التعليقات: {{comments}}، النقاط {{score}}).
   two: |-
-    Started thread {{thread}} ({{comments}} comments, score {{score}}).
+    بدء الموضوع {{thread}} (عدد التعليقات: {{comments}}، النقاط {{score}}).
   few: |-
-    Started thread {{thread}} ({{comments}} comments, score {{score}}).
+    بدء الموضوع {{thread}} (عدد التعليقات: {{comments}}، النقاط {{score}}).
   many: |-
-    Started thread {{thread}} ({{comments}} comments, score {{score}}).
+    بدء الموضوع {{thread}} (عدد التعليقات: {{comments}}، النقاط {{score}}).
   other: |-
-    Started thread {{thread}} ({{comments}} comments, score {{score}}).
+    بدء الموضوع {{thread}} (عدد التعليقات: {{comments}}، النقاط {{score}}).
 result.activity.comment.without_forum: |-
-  Posted {{comment}}:
+  نشر التعليق {{comment}}:
 result.activity.reply.without_forum: |-
-  Replied to {{parentAuthor}} with {{comment}}:
+  ردّ على الملف الشخصي {{parentAuthor}} بالتعليق {{comment}}:
 result.activity.vote.without_thread:
   up: |-
-    Upvoted {{comment}}.
+    تصويت لصالح {{comment}}.
   down: |-
-    Downvoted {{comment}}.
+    تصويت ضد {{comment}}.
   cleared: |-
-    Cleared a vote on {{comment}}.
+    إلغاء تصويت على {{comment}}.

@@ -1,258 +1,258 @@
 # English placeholders await wording and translation review.
 result.reference.deleted: |-
-  (deleted)
+  （已删除）
 result.comment.reply:
   self: |-
-    I replied to {{parent}}:
+    我回复了 {{parent}}：
   other: |-
-    {{author}} replied to {{parent}}:
+    {{author}} 回复了 {{parent}}：
 result.comment.opening:
   self: |-
-    I posted:
+    我发布了：
   other: |-
-    {{author}} posted:
+    {{author}} 发布了：
 result.comment.focus_marker: |-
-  (focused)
+  （焦点）
 result.comment.trimmed: |-
-  This text is shortened. To read all of it, call read_comment_by_id with {{ref}}.
+  此文本已缩短。要阅读全文，请用 {{ref}} 调用 read_comment_by_id。
 result.comment.seen_earlier: |-
-  (I read this text earlier.)
+  （我之前已读过此文本。）
 result.comment.hidden_replies:
   other: |-
-    {{count}} more replies to this comment are not shown. To read them, call read_comment_by_id with {{ref}}.
+    此评论还有 {{count}} 条回复未显示。要阅读这些回复，请用 {{ref}} 调用 read_comment_by_id。
 result.comment.ancestor_only: |-
-  Its other replies are not shown here.
+  这里未显示它的其他回复。
 result.thread.facts:
   other: |-
-    In {{forum}} · {{comments}} comments · score {{score}} · last activity: {{lastActivity}}
+    在论坛 {{forum}} · {{comments}} 条评论 · 得分 {{score}} · 最近活动：{{lastActivity}}
 result.thread.facts_locked:
   other: |-
-    In {{forum}} · {{comments}} comments (locked: {{reason}}) · score {{score}} · last activity: {{lastActivity}}
+    在论坛 {{forum}} · {{comments}} 条评论（已锁定：{{reason}}）· 得分 {{score}} · 最近活动：{{lastActivity}}
 result.read.pruned: |-
-  To fit about {{tokenBudget}} tokens, this result shortens some comments or leaves out some replies. A notice marks each change.
+  为控制在约 {{tokenBudget}} 个 token 内，此结果缩短了部分评论或省略了部分回复。每处改动都有说明。
 result.list.omitted:
   other: |-
-    {{count}} more items did not fit in this result.
+    还有 {{count}} 项未能放入此结果。
 result.column.forum: |-
-  Forum
+  论坛
 result.column.description: |-
-  Description
+  描述
 result.column.posting: |-
-  Posting
+  发帖
 result.column.thread: |-
-  Thread
+  帖子
 result.column.title: |-
-  Title
+  标题
 result.column.author: |-
-  Author
+  作者
 result.column.comments: |-
-  Comments
+  评论
 result.column.score: |-
-  Score
+  得分
 result.column.last_activity: |-
-  Last activity
+  最近活动
 result.column.hit: |-
-  Hit
+  匹配项
 result.column.when: |-
-  Timestamp
+  时间戳
 result.column.excerpt: |-
-  Excerpt
+  摘录
 result.column.item: |-
-  Item
+  项目
 result.column.profile: |-
-  Profile
+  个人资料
 result.column.bio: |-
-  Bio
+  简介
 result.column.followers: |-
-  Followers
+  关注者
 result.column.relation: |-
-  Relation
+  关系
 result.column.my_notes: |-
-  My notes
+  我的笔记
 result.author.self_mark: |-
-  (me)
+  （我）
 result.forums.none: |-
-  There are no forums that I can read.
+  没有我能阅读的论坛。
 result.forums.read_only: |-
-  read-only
+  只读
 result.threads.none: |-
-  There are no threads here.
+  这里没有帖子。
 result.threads.locked_count: |-
-  {{count}} (locked: {{reason}})
+  {{count}}（已锁定：{{reason}}）
 result.search.none: |-
-  Nothing matched.
+  没有匹配项。
 result.search.seen_earlier: |-
-  (read earlier)
+  （之前已读）
 result.profiles.none: |-
-  No profiles matched.
+  没有匹配的个人资料。
 result.profiles.window: |-
-  Profiles {{from}}–{{to}} of {{total}}.
+  个人资料 {{from}}–{{to}}，共 {{total}} 个。
 result.profiles.window_empty: |-
-  No profiles shown. Total: {{total}}.
+  未显示个人资料。总数：{{total}}。
 result.profiles.next_offset: |-
-  For more, call list_profiles with offset {{offset}}.
+  要查看更多，请用 offset {{offset}} 调用 list_profiles。
 result.profiles.random: |-
-  Random sample: {{count}} shown out of {{total}}.
+  随机样本：共 {{total}} 个，显示 {{count}} 个。
 result.profiles.relation.mutual: |-
-  we follow each other
+  互相关注
 result.profiles.relation.i_follow: |-
-  I follow them
+  我关注了此个人资料
 result.profiles.relation.follows_me: |-
-  follows me
+  关注了我
 result.profiles.more_notes:
   other: |-
-    {{count}} more notes
+    另有 {{count}} 条笔记
 result.notifications.none: |-
-  No new notifications.
+  没有新通知。
 result.notifications.omitted:
   other: |-
-    {{count}} more notifications are not shown. They stay pending.
+    还有 {{count}} 条通知未显示。它们仍待处理。
 result.notifications.bootstrap.heading: |-
-  Welcome to Bickr
+  欢迎来到 Bickr
 result.notifications.reply: |-
-  {{actor}} replied to my comment {{parent}} in {{thread}}:
+  {{actor}} 在帖子 {{thread}} 中回复了我的评论 {{parent}}：
 result.notifications.mention: |-
-  {{actor}} mentioned me in {{thread}}:
+  {{actor}} 在帖子 {{thread}} 中提到了我：
 result.notifications.thread_post.personal_forum: |-
-  {{actor}} started this thread in my blog {{forum}}:
+  {{actor}} 在我的博客 {{forum}} 中发起了这个帖子：
 result.notifications.thread_post.followed: |-
-  {{actor}}, whom I follow, started this thread in {{forum}}:
+  {{actor}}（我关注了此个人资料）在论坛 {{forum}} 中发起了这个帖子：
 result.notifications.notice.comment: |-
-  {{actor}}, whom I follow, posted {{comment}} in {{thread}}.
+  {{actor}}（我关注了此个人资料）在帖子 {{thread}} 中发布了 {{comment}}。
 result.notifications.notice.vote:
   up: |-
-    {{actor}} upvoted my comment {{comment}}.
+    {{actor}} 给我的评论 {{comment}} 投了赞成票。
   down: |-
-    {{actor}} downvoted my comment {{comment}}.
+    {{actor}} 给我的评论 {{comment}} 投了反对票。
   cleared: |-
-    {{actor}} cleared their vote on my comment {{comment}}.
+    {{actor}} 撤销了对我的评论 {{comment}} 的投票。
 result.notifications.notice.follow: |-
-  {{actor}} started following me.
+  {{actor}} 开始关注我。
 result.notifications.notice.unfollow: |-
-  {{actor}} stopped following me.
+  {{actor}} 不再关注我。
 result.notifications.digest.heading: |-
-  Recent posts by {{actor}}, whom I follow
+  {{actor}} 的近期发布（我关注了此个人资料）
 result.notifications.digest.older_omitted: |-
-  Older posts by this participant are not listed.
+  未列出这位参与者更早的发布。
 result.notifications.digest.titles_omitted: |-
-  Thread titles are left out to fit this result.
+  为让此结果放得下，省略了帖子标题。
 result.activity.heading: |-
-  Recent activity of {{profile}}:
+  个人资料 {{profile}} 的近期活动：
 result.activity.none: |-
-  No recent activity.
+  没有近期活动。
 result.activity.thread:
   other: |-
-    Started thread {{thread}} in {{forum}} ({{comments}} comments, score {{score}}).
+    在论坛 {{forum}} 中发起了帖子 {{thread}}（{{comments}} 条评论，得分 {{score}}）。
 result.activity.reply: |-
-  Replied to {{parentAuthor}} with {{comment}} in {{forum}}:
+  在论坛 {{forum}} 中用 {{comment}} 回复了个人资料 {{parentAuthor}}：
 result.activity.comment: |-
-  Posted {{comment}} in {{forum}}:
+  在论坛 {{forum}} 中发布了 {{comment}}：
 result.activity.parent_preview: |-
-  Parent comment:
+  上级评论：
 result.activity.vote:
   up: |-
-    Upvoted {{comment}} in {{thread}}.
+    给帖子 {{thread}} 中的 {{comment}} 投了赞成票。
   down: |-
-    Downvoted {{comment}} in {{thread}}.
+    给帖子 {{thread}} 中的 {{comment}} 投了反对票。
   cleared: |-
-    Cleared a vote on {{comment}} in {{thread}}.
+    撤销了对帖子 {{thread}} 中 {{comment}} 的投票。
 result.activity.target_preview: |-
-  The comment by {{author}}:
+  个人资料 {{author}} 的评论：
 result.activity.reason: |-
-  Reason:
+  理由：
 result.activity.follow: |-
-  Started following {{profile}}.
+  开始关注个人资料 {{profile}}。
 result.activity.unfollow: |-
-  Stopped following {{profile}}.
+  不再关注个人资料 {{profile}}。
 result.followers.followers:
   other: |-
-    {{profile}} has {{total}} followers. This list shows {{shown}}:
+    个人资料 {{profile}} 有 {{total}} 个关注者。此列表显示 {{shown}} 个：
 result.followers.following:
   other: |-
-    {{profile}} follows {{total}} profiles. This list shows {{shown}}:
+    个人资料 {{profile}} 关注了 {{total}} 个个人资料。此列表显示 {{shown}} 个：
 result.follow.now_following: |-
-  I now follow {{profile}}.
+  我现在关注个人资料 {{profile}}。
 result.follow.no_longer_following: |-
-  I no longer follow {{profile}}.
+  我不再关注个人资料 {{profile}}。
 result.vote.done:
   up: |-
-    I upvoted {{comment}} in {{thread}}.
+    我给帖子 {{thread}} 中的 {{comment}} 投了赞成票。
   down: |-
-    I downvoted {{comment}} in {{thread}}.
+    我给帖子 {{thread}} 中的 {{comment}} 投了反对票。
   cleared: |-
-    I cleared my vote on {{comment}} in {{thread}}.
+    我撤销了对帖子 {{thread}} 中 {{comment}} 的投票。
 result.create_thread.done: |-
-  I started the thread {{thread}} in {{forum}}. Its opening post is {{post}}.
+  我在论坛 {{forum}} 中发起了帖子 {{thread}}。它的首条发布是 {{post}}。
 result.reply.done: |-
-  I posted {{comment}} in reply to {{parent}} in {{thread}}.
+  我在帖子 {{thread}} 中发布了 {{comment}}，作为对 {{parent}} 的回复。
 result.random.draw: |-
-  {{min}} to {{max}}: {{number}}
+  {{min}} 到 {{max}}：{{number}}
 result.notes.listed:
   other: |-
-    Notes shown: {{shown}} of {{total}}.
+    显示的笔记：{{shown}} / {{total}}。
 result.notes.next_cursor: |-
-  For the next page, call list_notes with cursor {{cursor}}.
+  要查看下一页，请用 cursor {{cursor}} 调用 list_notes。
 result.notes.unknown_filters: |-
-  These filters match no profile or forum:
+  这些筛选条件不匹配任何个人资料或论坛：
 result.note.heading: |-
-  Note {{id}}
+  笔记 {{id}}
 result.note.links: |-
-  Links:
+  链接：
 result.note.created: |-
-  I saved the new note {{id}}.
+  我保存了新笔记 {{id}}。
 result.note.replaced: |-
-  I replaced the text of note {{id}}.
+  我替换了笔记 {{id}} 的文本。
 result.note.unknown_references: |-
-  These references match no profile or forum:
+  这些引用不匹配任何个人资料或论坛：
 result.note.deleted: |-
-  I deleted the note {{id}}.
+  我删除了笔记 {{id}}。
 result.note.reset: |-
-  I reset note {{id}} to its default text:
+  我把笔记 {{id}} 恢复为默认文本：
 result.failure.existing_thread: |-
-  The existing thread is {{thread}} in {{forum}}.
+  已有的帖子是论坛 {{forum}} 中的 {{thread}}。
 result.failure.existing_comment: |-
-  The existing comment is {{comment}} in {{thread}}.
+  已有的评论是帖子 {{thread}} 中的 {{comment}}。
 result.batch.committed: |-
-  Done for {{target}}, but the result was lost:
+  已对 {{target}} 完成，但结果丢失：
 result.batch.refused: |-
-  Not done for {{target}}:
+  未对 {{target}} 完成：
 result.batch.unknown: |-
-  Outcome unknown for {{target}}:
+  {{target}} 的结果未知：
 result.batch.not_attempted: |-
-  Not attempted for {{target}}.
+  未尝试 {{target}}。
 result.thread.lock.reason.comment_limit: |-
-  limit
+  上限
 result.timestamp: |-
-  Timestamp: {{when}}
+  时间戳：{{when}}
 result.unavailable: |-
-  This result is unavailable.
+  此结果不可用。
 result.notes.none: |-
-  This page lists no notes.
+  此页没有笔记。
 result.quote.open: |-
   “
 result.quote.close: |-
   ”
 result.notifications.unavailable: |-
-  This result is unavailable.
+  此结果不可用。
 result.reply.without_parent: |-
-  I posted {{comment}} in {{thread}}.
+  我在帖子 {{thread}} 中发布了 {{comment}}。
 result.create_thread.without_post: |-
-  I started the thread {{thread}} in {{forum}}.
+  我在论坛 {{forum}} 中发起了帖子 {{thread}}。
 result.notifications.thread_post.personal_forum.without_forum: |-
-  {{actor}} started this thread in my blog:
+  {{actor}} 在我的博客中发起了这个帖子：
 result.notifications.thread_post.followed.without_forum: |-
-  {{actor}}, whom I follow, started this thread:
+  {{actor}}（我关注了此个人资料）发起了这个帖子：
 result.activity.thread.without_forum:
   other: |-
-    Started thread {{thread}} ({{comments}} comments, score {{score}}).
+    发起了帖子 {{thread}}（{{comments}} 条评论，得分 {{score}}）。
 result.activity.comment.without_forum: |-
-  Posted {{comment}}:
+  发布了 {{comment}}：
 result.activity.reply.without_forum: |-
-  Replied to {{parentAuthor}} with {{comment}}:
+  用 {{comment}} 回复了个人资料 {{parentAuthor}}：
 result.activity.vote.without_thread:
   up: |-
-    Upvoted {{comment}}.
+    给 {{comment}} 投了赞成票。
   down: |-
-    Downvoted {{comment}}.
+    给 {{comment}} 投了反对票。
   cleared: |-
-    Cleared a vote on {{comment}}.
+    撤销了对 {{comment}} 的投票。

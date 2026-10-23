@@ -1,5 +1,5 @@
 report.timestamp.relative: |-
-  Current timestamp: {{timestamp}} since your Bickr account was created.
+  Поточна позначка часу: {{timestamp}} від створення вашого облікового запису Bickr.
 
 report.timestamp.absolute: |-
-  Current timestamp: {{timestamp}}.
+  Поточна позначка часу: {{timestamp}}.

@@ -140,7 +140,7 @@ recovery.batch.notAttempted: |-
   Bickr bu hedef için eylemi denemedi.
 
 recovery.batch.guidance: |-
-  The result lists each target separately. Do not repeat completed actions. Read targets with unknown outcomes. If an outcome remains unknown, do not repeat its action. A target marked as not attempted received no action.
+  Sonuç her hedefi ayrı listeler. Tamamlanan eylemleri tekrarlamayın. Sonucu bilinmeyen hedefleri okuyun. Bir sonuç hâlâ bilinmiyorsa o eylemi tekrarlamayın. "Denenmedi" olarak işaretlenen bir hedefte hiç eylem yapılmadı.
 
 recovery.batch.failed: |-
   Bu çağrıdaki hiçbir eylem bilinen bir sonuçla tamamlanmadı. Başka bir eylem seçmeden önce her hedefin sonucunu okuyun.

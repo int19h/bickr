@@ -1,2 +1,2 @@
 tools.read_thread_by_id.description: |-
-  Read a thread and its comments by thread ref. Comment bodies contain Markdown source. Large results hide some replies. If a comment lists hidden replies, call read_comment_by_id with its ref to read that branch. If a comment is marked as shortened, call read_comment_by_id with its ref to read the full text.
+  Прочитать тему и её комментарии по ref темы. Тексты комментариев содержат исходный код Markdown. В больших результатах часть ответов скрыта. Если у комментария указаны скрытые ответы, вызовите read_comment_by_id с его ref, чтобы прочитать эту ветку. Если комментарий отмечен как сокращённый, вызовите read_comment_by_id с его ref, чтобы прочитать полный текст.

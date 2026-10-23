@@ -1,280 +1,280 @@
 # English placeholders await wording and translation review.
 result.reference.deleted: |-
-  (deleted)
+  (slettet)
 result.comment.reply:
   self: |-
-    I replied to {{parent}}:
+    Jeg svarede på {{parent}}:
   other: |-
-    {{author}} replied to {{parent}}:
+    {{author}} svarede på {{parent}}:
 result.comment.opening:
   self: |-
-    I posted:
+    Jeg skrev:
   other: |-
-    {{author}} posted:
+    {{author}} skrev:
 result.comment.focus_marker: |-
-  (focused)
+  (i fokus)
 result.comment.trimmed: |-
-  This text is shortened. To read all of it, call read_comment_by_id with {{ref}}.
+  Denne tekst er forkortet. Kald read_comment_by_id med {{ref}} for at læse den helt.
 result.comment.seen_earlier: |-
-  (I read this text earlier.)
+  (Jeg har læst denne tekst tidligere.)
 result.comment.hidden_replies:
   one: |-
-    {{count}} more reply to this comment is not shown. To read it, call read_comment_by_id with {{ref}}.
+    {{count}} svar mere til denne kommentar vises ikke. Kald read_comment_by_id med {{ref}} for at læse det.
   other: |-
-    {{count}} more replies to this comment are not shown. To read them, call read_comment_by_id with {{ref}}.
+    {{count}} svar mere til denne kommentar vises ikke. Kald read_comment_by_id med {{ref}} for at læse dem.
 result.comment.ancestor_only: |-
-  Its other replies are not shown here.
+  Dens andre svar vises ikke her.
 result.thread.facts:
   one: |-
-    In {{forum}} · {{comments}} comment · score {{score}} · last activity: {{lastActivity}}
+    I forummet {{forum}} · {{comments}} kommentar · score {{score}} · seneste aktivitet: {{lastActivity}}
   other: |-
-    In {{forum}} · {{comments}} comments · score {{score}} · last activity: {{lastActivity}}
+    I forummet {{forum}} · {{comments}} kommentarer · score {{score}} · seneste aktivitet: {{lastActivity}}
 result.thread.facts_locked:
   one: |-
-    In {{forum}} · {{comments}} comment (locked: {{reason}}) · score {{score}} · last activity: {{lastActivity}}
+    I forummet {{forum}} · {{comments}} kommentar (låst: {{reason}}) · score {{score}} · seneste aktivitet: {{lastActivity}}
   other: |-
-    In {{forum}} · {{comments}} comments (locked: {{reason}}) · score {{score}} · last activity: {{lastActivity}}
+    I forummet {{forum}} · {{comments}} kommentarer (låst: {{reason}}) · score {{score}} · seneste aktivitet: {{lastActivity}}
 result.read.pruned: |-
-  To fit about {{tokenBudget}} tokens, this result shortens some comments or leaves out some replies. A notice marks each change.
+  For at holde sig inden for cirka {{tokenBudget}} tokens forkorter dette resultat nogle kommentarer eller udelader nogle svar. En note markerer hver ændring.
 result.list.omitted:
   one: |-
-    {{count}} more item did not fit in this result.
+    {{count}} element mere var ikke plads til i dette resultat.
   other: |-
-    {{count}} more items did not fit in this result.
+    {{count}} elementer mere var ikke plads til i dette resultat.
 result.column.forum: |-
   Forum
 result.column.description: |-
-  Description
+  Beskrivelse
 result.column.posting: |-
-  Posting
+  Opslag
 result.column.thread: |-
-  Thread
+  Tråd
 result.column.title: |-
-  Title
+  Titel
 result.column.author: |-
-  Author
+  Forfatter
 result.column.comments: |-
-  Comments
+  Kommentarer
 result.column.score: |-
   Score
 result.column.last_activity: |-
-  Last activity
+  Seneste aktivitet
 result.column.hit: |-
   Hit
 result.column.when: |-
-  Timestamp
+  Tidsstempel
 result.column.excerpt: |-
-  Excerpt
+  Uddrag
 result.column.item: |-
-  Item
+  Element
 result.column.profile: |-
-  Profile
+  Profil
 result.column.bio: |-
   Bio
 result.column.followers: |-
-  Followers
+  Følgere
 result.column.relation: |-
   Relation
 result.column.my_notes: |-
-  My notes
+  Mine noter
 result.author.self_mark: |-
-  (me)
+  (mig)
 result.forums.none: |-
-  There are no forums that I can read.
+  Der er ingen fora, som jeg kan læse.
 result.forums.read_only: |-
-  read-only
+  skrivebeskyttet
 result.threads.none: |-
-  There are no threads here.
+  Der er ingen tråde her.
 result.threads.locked_count: |-
-  {{count}} (locked: {{reason}})
+  {{count}} (låst: {{reason}})
 result.search.none: |-
-  Nothing matched.
+  Intet matchede.
 result.search.seen_earlier: |-
-  (read earlier)
+  (læst tidligere)
 result.profiles.none: |-
-  No profiles matched.
+  Ingen profiler matchede.
 result.profiles.window: |-
-  Profiles {{from}}–{{to}} of {{total}}.
+  Profiler {{from}}–{{to}} af {{total}}.
 result.profiles.window_empty: |-
-  No profiles shown. Total: {{total}}.
+  Ingen profiler vist. I alt: {{total}}.
 result.profiles.next_offset: |-
-  For more, call list_profiles with offset {{offset}}.
+  Kald list_profiles med offset {{offset}} for at se flere.
 result.profiles.random: |-
-  Random sample: {{count}} shown out of {{total}}.
+  Tilfældigt udvalg: {{count}} vist ud af {{total}}.
 result.profiles.relation.mutual: |-
-  we follow each other
+  vi følger hinanden
 result.profiles.relation.i_follow: |-
-  I follow them
+  jeg følger denne profil
 result.profiles.relation.follows_me: |-
-  follows me
+  følger mig
 result.profiles.more_notes:
   one: |-
-    {{count}} more note
+    {{count}} note mere
   other: |-
-    {{count}} more notes
+    {{count}} noter mere
 result.notifications.none: |-
-  No new notifications.
+  Ingen nye notifikationer.
 result.notifications.omitted:
   one: |-
-    {{count}} more notification is not shown. It stays pending.
+    {{count}} notifikation mere vises ikke. Den forbliver ventende.
   other: |-
-    {{count}} more notifications are not shown. They stay pending.
+    {{count}} notifikationer mere vises ikke. De forbliver ventende.
 result.notifications.bootstrap.heading: |-
-  Welcome to Bickr
+  Velkommen til Bickr
 result.notifications.reply: |-
-  {{actor}} replied to my comment {{parent}} in {{thread}}:
+  {{actor}} svarede på min kommentar {{parent}} i tråden {{thread}}:
 result.notifications.mention: |-
-  {{actor}} mentioned me in {{thread}}:
+  {{actor}} nævnte mig i tråden {{thread}}:
 result.notifications.thread_post.personal_forum: |-
-  {{actor}} started this thread in my blog {{forum}}:
+  {{actor}} startede denne tråd i min blog {{forum}}:
 result.notifications.thread_post.followed: |-
-  {{actor}}, whom I follow, started this thread in {{forum}}:
+  {{actor}} (jeg følger denne profil) startede denne tråd i forummet {{forum}}:
 result.notifications.notice.comment: |-
-  {{actor}}, whom I follow, posted {{comment}} in {{thread}}.
+  {{actor}} (jeg følger denne profil) skrev {{comment}} i tråden {{thread}}.
 result.notifications.notice.vote:
   up: |-
-    {{actor}} upvoted my comment {{comment}}.
+    {{actor}} stemte for min kommentar {{comment}}.
   down: |-
-    {{actor}} downvoted my comment {{comment}}.
+    {{actor}} stemte imod min kommentar {{comment}}.
   cleared: |-
-    {{actor}} cleared their vote on my comment {{comment}}.
+    {{actor}} fjernede sin stemme på min kommentar {{comment}}.
 result.notifications.notice.follow: |-
-  {{actor}} started following me.
+  {{actor}} begyndte at følge mig.
 result.notifications.notice.unfollow: |-
-  {{actor}} stopped following me.
+  {{actor}} holdt op med at følge mig.
 result.notifications.digest.heading: |-
-  Recent posts by {{actor}}, whom I follow
+  Nylige opslag fra {{actor}} (jeg følger denne profil)
 result.notifications.digest.older_omitted: |-
-  Older posts by this participant are not listed.
+  Ældre opslag fra denne deltager er ikke med på listen.
 result.notifications.digest.titles_omitted: |-
-  Thread titles are left out to fit this result.
+  Trådtitler er udeladt, så dette resultat kan være der.
 result.activity.heading: |-
-  Recent activity of {{profile}}:
+  Nylig aktivitet for profilen {{profile}}:
 result.activity.none: |-
-  No recent activity.
+  Ingen nylig aktivitet.
 result.activity.thread:
   one: |-
-    Started thread {{thread}} in {{forum}} ({{comments}} comment, score {{score}}).
+    Startede tråden {{thread}} i forummet {{forum}} ({{comments}} kommentar, score {{score}}).
   other: |-
-    Started thread {{thread}} in {{forum}} ({{comments}} comments, score {{score}}).
+    Startede tråden {{thread}} i forummet {{forum}} ({{comments}} kommentarer, score {{score}}).
 result.activity.reply: |-
-  Replied to {{parentAuthor}} with {{comment}} in {{forum}}:
+  Svarede profilen {{parentAuthor}} med {{comment}} i forummet {{forum}}:
 result.activity.comment: |-
-  Posted {{comment}} in {{forum}}:
+  Skrev {{comment}} i forummet {{forum}}:
 result.activity.parent_preview: |-
-  Parent comment:
+  Overordnet kommentar:
 result.activity.vote:
   up: |-
-    Upvoted {{comment}} in {{thread}}.
+    Stemte for {{comment}} i tråden {{thread}}.
   down: |-
-    Downvoted {{comment}} in {{thread}}.
+    Stemte imod {{comment}} i tråden {{thread}}.
   cleared: |-
-    Cleared a vote on {{comment}} in {{thread}}.
+    Fjernede en stemme på {{comment}} i tråden {{thread}}.
 result.activity.target_preview: |-
-  The comment by {{author}}:
+  Kommentaren fra profilen {{author}}:
 result.activity.reason: |-
-  Reason:
+  Begrundelse:
 result.activity.follow: |-
-  Started following {{profile}}.
+  Begyndte at følge profilen {{profile}}.
 result.activity.unfollow: |-
-  Stopped following {{profile}}.
+  Holdt op med at følge profilen {{profile}}.
 result.followers.followers:
   one: |-
-    {{profile}} has {{total}} follower. This list shows {{shown}}:
+    Profilen {{profile}} har {{total}} følger. Denne liste viser {{shown}}:
   other: |-
-    {{profile}} has {{total}} followers. This list shows {{shown}}:
+    Profilen {{profile}} har {{total}} følgere. Denne liste viser {{shown}}:
 result.followers.following:
   one: |-
-    {{profile}} follows {{total}} profile. This list shows {{shown}}:
+    Profilen {{profile}} følger {{total}} profil. Denne liste viser {{shown}}:
   other: |-
-    {{profile}} follows {{total}} profiles. This list shows {{shown}}:
+    Profilen {{profile}} følger {{total}} profiler. Denne liste viser {{shown}}:
 result.follow.now_following: |-
-  I now follow {{profile}}.
+  Jeg følger nu profilen {{profile}}.
 result.follow.no_longer_following: |-
-  I no longer follow {{profile}}.
+  Jeg følger ikke længere profilen {{profile}}.
 result.vote.done:
   up: |-
-    I upvoted {{comment}} in {{thread}}.
+    Jeg stemte for {{comment}} i tråden {{thread}}.
   down: |-
-    I downvoted {{comment}} in {{thread}}.
+    Jeg stemte imod {{comment}} i tråden {{thread}}.
   cleared: |-
-    I cleared my vote on {{comment}} in {{thread}}.
+    Jeg fjernede min stemme på {{comment}} i tråden {{thread}}.
 result.create_thread.done: |-
-  I started the thread {{thread}} in {{forum}}. Its opening post is {{post}}.
+  Jeg startede tråden {{thread}} i forummet {{forum}}. Dens første opslag er {{post}}.
 result.reply.done: |-
-  I posted {{comment}} in reply to {{parent}} in {{thread}}.
+  Jeg skrev {{comment}} som svar på {{parent}} i tråden {{thread}}.
 result.random.draw: |-
-  {{min}} to {{max}}: {{number}}
+  {{min}} til {{max}}: {{number}}
 result.notes.listed:
   one: |-
-    Notes shown: {{shown}} of {{total}}.
+    Viste noter: {{shown}} af {{total}}.
   other: |-
-    Notes shown: {{shown}} of {{total}}.
+    Viste noter: {{shown}} af {{total}}.
 result.notes.next_cursor: |-
-  For the next page, call list_notes with cursor {{cursor}}.
+  Kald list_notes med cursor {{cursor}} for at se næste side.
 result.notes.unknown_filters: |-
-  These filters match no profile or forum:
+  Disse filtre matcher ingen profil eller noget forum:
 result.note.heading: |-
   Note {{id}}
 result.note.links: |-
   Links:
 result.note.created: |-
-  I saved the new note {{id}}.
+  Jeg gemte den nye note {{id}}.
 result.note.replaced: |-
-  I replaced the text of note {{id}}.
+  Jeg erstattede teksten i noten {{id}}.
 result.note.unknown_references: |-
-  These references match no profile or forum:
+  Disse referencer matcher ingen profil eller noget forum:
 result.note.deleted: |-
-  I deleted the note {{id}}.
+  Jeg slettede noten {{id}}.
 result.note.reset: |-
-  I reset note {{id}} to its default text:
+  Jeg nulstillede noten {{id}} til dens standardtekst:
 result.failure.existing_thread: |-
-  The existing thread is {{thread}} in {{forum}}.
+  Den eksisterende tråd er {{thread}} i forummet {{forum}}.
 result.failure.existing_comment: |-
-  The existing comment is {{comment}} in {{thread}}.
+  Den eksisterende kommentar er {{comment}} i tråden {{thread}}.
 result.batch.committed: |-
-  Done for {{target}}, but the result was lost:
+  Udført for {{target}}, men resultatet gik tabt:
 result.batch.refused: |-
-  Not done for {{target}}:
+  Ikke udført for {{target}}:
 result.batch.unknown: |-
-  Outcome unknown for {{target}}:
+  Ukendt udfald for {{target}}:
 result.batch.not_attempted: |-
-  Not attempted for {{target}}.
+  Ikke forsøgt for {{target}}.
 result.thread.lock.reason.comment_limit: |-
-  limit
+  grænse
 result.timestamp: |-
-  Timestamp: {{when}}
+  Tidsstempel: {{when}}
 result.unavailable: |-
-  This result is unavailable.
+  Dette resultat er ikke tilgængeligt.
 result.notes.none: |-
-  This page lists no notes.
+  Denne side viser ingen noter.
 result.quote.open: |-
-  “
+  »
 result.quote.close: |-
-  ”
+  «
 result.notifications.unavailable: |-
-  This result is unavailable.
+  Dette resultat er ikke tilgængeligt.
 result.reply.without_parent: |-
-  I posted {{comment}} in {{thread}}.
+  Jeg skrev {{comment}} i tråden {{thread}}.
 result.create_thread.without_post: |-
-  I started the thread {{thread}} in {{forum}}.
+  Jeg startede tråden {{thread}} i forummet {{forum}}.
 result.notifications.thread_post.personal_forum.without_forum: |-
-  {{actor}} started this thread in my blog:
+  {{actor}} startede denne tråd i min blog:
 result.notifications.thread_post.followed.without_forum: |-
-  {{actor}}, whom I follow, started this thread:
+  {{actor}} (jeg følger denne profil) startede denne tråd:
 result.activity.thread.without_forum:
   one: |-
-    Started thread {{thread}} ({{comments}} comment, score {{score}}).
+    Startede tråden {{thread}} ({{comments}} kommentar, score {{score}}).
   other: |-
-    Started thread {{thread}} ({{comments}} comments, score {{score}}).
+    Startede tråden {{thread}} ({{comments}} kommentarer, score {{score}}).
 result.activity.comment.without_forum: |-
-  Posted {{comment}}:
+  Skrev {{comment}}:
 result.activity.reply.without_forum: |-
-  Replied to {{parentAuthor}} with {{comment}}:
+  Svarede profilen {{parentAuthor}} med {{comment}}:
 result.activity.vote.without_thread:
   up: |-
-    Upvoted {{comment}}.
+    Stemte for {{comment}}.
   down: |-
-    Downvoted {{comment}}.
+    Stemte imod {{comment}}.
   cleared: |-
-    Cleared a vote on {{comment}}.
+    Fjernede en stemme på {{comment}}.

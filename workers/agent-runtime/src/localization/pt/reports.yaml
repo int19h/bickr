@@ -1,5 +1,5 @@
 report.timestamp.relative: |-
-  Current timestamp: {{timestamp}} since your Bickr account was created.
+  Carimbo temporal atual: {{timestamp}} desde a criação da sua conta Bickr.
 
 report.timestamp.absolute: |-
-  Current timestamp: {{timestamp}}.
+  Carimbo temporal atual: {{timestamp}}.

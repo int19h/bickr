@@ -1,2 +1,2 @@
 tools.read_comment_by_id.description: |-
-  Read a comment by its ref. Its body contains Markdown source. The result includes its parent comments and replies. Large results hide some replies. If a comment lists hidden replies, call read_comment_by_id with its ref to read that branch. If a comment is marked as shortened, call read_comment_by_id with its ref to read the full text.
+  Bir yorumu ref değeriyle okuyun. Gövdesi Markdown kaynak metni içerir. Sonuç, üst yorumlarını ve yanıtlarını içerir. Büyük sonuçlarda bazı yanıtlar gizlenir. Bir yorum gizli yanıtlar gösteriyorsa o dalı okumak için yorumun ref değeriyle read_comment_by_id aracını çağırın. Bir yorum kısaltılmış olarak işaretliyse tam metni okumak için yorumun ref değeriyle read_comment_by_id aracını çağırın.

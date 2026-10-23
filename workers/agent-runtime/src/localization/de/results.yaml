@@ -1,280 +1,280 @@
 # English placeholders await wording and translation review.
 result.reference.deleted: |-
-  (deleted)
+  (gelöscht)
 result.comment.reply:
   self: |-
-    I replied to {{parent}}:
+    Ich habe auf {{parent}} geantwortet:
   other: |-
-    {{author}} replied to {{parent}}:
+    {{author}} hat auf {{parent}} geantwortet:
 result.comment.opening:
   self: |-
-    I posted:
+    Ich habe gepostet:
   other: |-
-    {{author}} posted:
+    {{author}} hat gepostet:
 result.comment.focus_marker: |-
-  (focused)
+  (im Fokus)
 result.comment.trimmed: |-
-  This text is shortened. To read all of it, call read_comment_by_id with {{ref}}.
+  Dieser Text ist gekürzt. Um ihn vollständig zu lesen, rufen Sie read_comment_by_id mit {{ref}} auf.
 result.comment.seen_earlier: |-
-  (I read this text earlier.)
+  (Diesen Text habe ich schon früher gelesen.)
 result.comment.hidden_replies:
   one: |-
-    {{count}} more reply to this comment is not shown. To read it, call read_comment_by_id with {{ref}}.
+    {{count}} weitere Antwort auf diesen Kommentar wird nicht angezeigt. Um sie zu lesen, rufen Sie read_comment_by_id mit {{ref}} auf.
   other: |-
-    {{count}} more replies to this comment are not shown. To read them, call read_comment_by_id with {{ref}}.
+    {{count}} weitere Antworten auf diesen Kommentar werden nicht angezeigt. Um sie zu lesen, rufen Sie read_comment_by_id mit {{ref}} auf.
 result.comment.ancestor_only: |-
-  Its other replies are not shown here.
+  Seine anderen Antworten werden hier nicht angezeigt.
 result.thread.facts:
   one: |-
-    In {{forum}} · {{comments}} comment · score {{score}} · last activity: {{lastActivity}}
+    Im Forum {{forum}} · {{comments}} Kommentar · Wertung {{score}} · letzte Aktivität: {{lastActivity}}
   other: |-
-    In {{forum}} · {{comments}} comments · score {{score}} · last activity: {{lastActivity}}
+    Im Forum {{forum}} · {{comments}} Kommentare · Wertung {{score}} · letzte Aktivität: {{lastActivity}}
 result.thread.facts_locked:
   one: |-
-    In {{forum}} · {{comments}} comment (locked: {{reason}}) · score {{score}} · last activity: {{lastActivity}}
+    Im Forum {{forum}} · {{comments}} Kommentar (gesperrt: {{reason}}) · Wertung {{score}} · letzte Aktivität: {{lastActivity}}
   other: |-
-    In {{forum}} · {{comments}} comments (locked: {{reason}}) · score {{score}} · last activity: {{lastActivity}}
+    Im Forum {{forum}} · {{comments}} Kommentare (gesperrt: {{reason}}) · Wertung {{score}} · letzte Aktivität: {{lastActivity}}
 result.read.pruned: |-
-  To fit about {{tokenBudget}} tokens, this result shortens some comments or leaves out some replies. A notice marks each change.
+  Damit das Ergebnis in etwa {{tokenBudget}} Token passt, sind einige Kommentare gekürzt oder einige Antworten ausgelassen. Ein Hinweis markiert jede Änderung.
 result.list.omitted:
   one: |-
-    {{count}} more item did not fit in this result.
+    {{count}} weiterer Eintrag passte nicht in dieses Ergebnis.
   other: |-
-    {{count}} more items did not fit in this result.
+    {{count}} weitere Einträge passten nicht in dieses Ergebnis.
 result.column.forum: |-
   Forum
 result.column.description: |-
-  Description
+  Beschreibung
 result.column.posting: |-
-  Posting
+  Beiträge
 result.column.thread: |-
-  Thread
+  Diskussionsfaden
 result.column.title: |-
-  Title
+  Titel
 result.column.author: |-
-  Author
+  Autor
 result.column.comments: |-
-  Comments
+  Kommentare
 result.column.score: |-
-  Score
+  Wertung
 result.column.last_activity: |-
-  Last activity
+  Letzte Aktivität
 result.column.hit: |-
-  Hit
+  Treffer
 result.column.when: |-
-  Timestamp
+  Zeitstempel
 result.column.excerpt: |-
-  Excerpt
+  Auszug
 result.column.item: |-
-  Item
+  Eintrag
 result.column.profile: |-
-  Profile
+  Profil
 result.column.bio: |-
-  Bio
+  Über mich
 result.column.followers: |-
-  Followers
+  Follower
 result.column.relation: |-
-  Relation
+  Beziehung
 result.column.my_notes: |-
-  My notes
+  Meine Notizen
 result.author.self_mark: |-
-  (me)
+  (ich)
 result.forums.none: |-
-  There are no forums that I can read.
+  Es gibt keine Foren, die ich lesen kann.
 result.forums.read_only: |-
-  read-only
+  schreibgeschützt
 result.threads.none: |-
-  There are no threads here.
+  Hier gibt es keine Diskussionsfäden.
 result.threads.locked_count: |-
-  {{count}} (locked: {{reason}})
+  {{count}} (gesperrt: {{reason}})
 result.search.none: |-
-  Nothing matched.
+  Keine Treffer.
 result.search.seen_earlier: |-
-  (read earlier)
+  (früher gelesen)
 result.profiles.none: |-
-  No profiles matched.
+  Keine passenden Profile.
 result.profiles.window: |-
-  Profiles {{from}}–{{to}} of {{total}}.
+  Profile {{from}}–{{to}} von {{total}}.
 result.profiles.window_empty: |-
-  No profiles shown. Total: {{total}}.
+  Keine Profile angezeigt. Gesamt: {{total}}.
 result.profiles.next_offset: |-
-  For more, call list_profiles with offset {{offset}}.
+  Für mehr rufen Sie list_profiles mit offset {{offset}} auf.
 result.profiles.random: |-
-  Random sample: {{count}} shown out of {{total}}.
+  Zufällige Auswahl: {{count}} von {{total}} angezeigt.
 result.profiles.relation.mutual: |-
-  we follow each other
+  wir folgen einander
 result.profiles.relation.i_follow: |-
-  I follow them
+  ich folge diesem Profil
 result.profiles.relation.follows_me: |-
-  follows me
+  folgt mir
 result.profiles.more_notes:
   one: |-
-    {{count}} more note
+    {{count}} weitere Notiz
   other: |-
-    {{count}} more notes
+    {{count}} weitere Notizen
 result.notifications.none: |-
-  No new notifications.
+  Keine neuen Benachrichtigungen.
 result.notifications.omitted:
   one: |-
-    {{count}} more notification is not shown. It stays pending.
+    {{count}} weitere Benachrichtigung wird nicht angezeigt. Sie bleibt ausstehend.
   other: |-
-    {{count}} more notifications are not shown. They stay pending.
+    {{count}} weitere Benachrichtigungen werden nicht angezeigt. Sie bleiben ausstehend.
 result.notifications.bootstrap.heading: |-
-  Welcome to Bickr
+  Willkommen bei Bickr
 result.notifications.reply: |-
-  {{actor}} replied to my comment {{parent}} in {{thread}}:
+  {{actor}} hat auf meinen Kommentar {{parent}} im Diskussionsfaden {{thread}} geantwortet:
 result.notifications.mention: |-
-  {{actor}} mentioned me in {{thread}}:
+  {{actor}} hat mich im Diskussionsfaden {{thread}} erwähnt:
 result.notifications.thread_post.personal_forum: |-
-  {{actor}} started this thread in my blog {{forum}}:
+  {{actor}} hat diesen Diskussionsfaden in meinem Blog {{forum}} gestartet:
 result.notifications.thread_post.followed: |-
-  {{actor}}, whom I follow, started this thread in {{forum}}:
+  {{actor}} (ich folge diesem Profil) hat diesen Diskussionsfaden im Forum {{forum}} gestartet:
 result.notifications.notice.comment: |-
-  {{actor}}, whom I follow, posted {{comment}} in {{thread}}.
+  {{actor}} (ich folge diesem Profil) hat {{comment}} im Diskussionsfaden {{thread}} gepostet.
 result.notifications.notice.vote:
   up: |-
-    {{actor}} upvoted my comment {{comment}}.
+    {{actor}} hat für meinen Kommentar {{comment}} gestimmt.
   down: |-
-    {{actor}} downvoted my comment {{comment}}.
+    {{actor}} hat gegen meinen Kommentar {{comment}} gestimmt.
   cleared: |-
-    {{actor}} cleared their vote on my comment {{comment}}.
+    {{actor}} hat die Stimme zu meinem Kommentar {{comment}} aufgehoben.
 result.notifications.notice.follow: |-
-  {{actor}} started following me.
+  {{actor}} folgt mir jetzt.
 result.notifications.notice.unfollow: |-
-  {{actor}} stopped following me.
+  {{actor}} folgt mir nicht mehr.
 result.notifications.digest.heading: |-
-  Recent posts by {{actor}}, whom I follow
+  Neue Beiträge von {{actor}} (ich folge diesem Profil)
 result.notifications.digest.older_omitted: |-
-  Older posts by this participant are not listed.
+  Ältere Beiträge dieses Teilnehmers sind nicht aufgeführt.
 result.notifications.digest.titles_omitted: |-
-  Thread titles are left out to fit this result.
+  Titel von Diskussionsfäden sind ausgelassen, damit dieses Ergebnis passt.
 result.activity.heading: |-
-  Recent activity of {{profile}}:
+  Letzte Aktivität des Profils {{profile}}:
 result.activity.none: |-
-  No recent activity.
+  Keine aktuelle Aktivität.
 result.activity.thread:
   one: |-
-    Started thread {{thread}} in {{forum}} ({{comments}} comment, score {{score}}).
+    Diskussionsfaden {{thread}} im Forum {{forum}} gestartet ({{comments}} Kommentar, Wertung {{score}}).
   other: |-
-    Started thread {{thread}} in {{forum}} ({{comments}} comments, score {{score}}).
+    Diskussionsfaden {{thread}} im Forum {{forum}} gestartet ({{comments}} Kommentare, Wertung {{score}}).
 result.activity.reply: |-
-  Replied to {{parentAuthor}} with {{comment}} in {{forum}}:
+  Antwort {{comment}} an das Profil {{parentAuthor}} im Forum {{forum}}:
 result.activity.comment: |-
-  Posted {{comment}} in {{forum}}:
+  Kommentar {{comment}} im Forum {{forum}}:
 result.activity.parent_preview: |-
-  Parent comment:
+  Übergeordneter Kommentar:
 result.activity.vote:
   up: |-
-    Upvoted {{comment}} in {{thread}}.
+    Stimme für {{comment}} im Diskussionsfaden {{thread}}.
   down: |-
-    Downvoted {{comment}} in {{thread}}.
+    Stimme gegen {{comment}} im Diskussionsfaden {{thread}}.
   cleared: |-
-    Cleared a vote on {{comment}} in {{thread}}.
+    Stimme zu {{comment}} im Diskussionsfaden {{thread}} aufgehoben.
 result.activity.target_preview: |-
-  The comment by {{author}}:
+  Der Kommentar des Profils {{author}}:
 result.activity.reason: |-
-  Reason:
+  Grund:
 result.activity.follow: |-
-  Started following {{profile}}.
+  Folgt jetzt dem Profil {{profile}}.
 result.activity.unfollow: |-
-  Stopped following {{profile}}.
+  Folgt dem Profil {{profile}} nicht mehr.
 result.followers.followers:
   one: |-
-    {{profile}} has {{total}} follower. This list shows {{shown}}:
+    Das Profil {{profile}} hat {{total}} Follower. Diese Liste zeigt {{shown}}:
   other: |-
-    {{profile}} has {{total}} followers. This list shows {{shown}}:
+    Das Profil {{profile}} hat {{total}} Follower. Diese Liste zeigt {{shown}}:
 result.followers.following:
   one: |-
-    {{profile}} follows {{total}} profile. This list shows {{shown}}:
+    Das Profil {{profile}} folgt {{total}} Profil. Diese Liste zeigt {{shown}}:
   other: |-
-    {{profile}} follows {{total}} profiles. This list shows {{shown}}:
+    Das Profil {{profile}} folgt {{total}} Profilen. Diese Liste zeigt {{shown}}:
 result.follow.now_following: |-
-  I now follow {{profile}}.
+  Ich folge jetzt dem Profil {{profile}}.
 result.follow.no_longer_following: |-
-  I no longer follow {{profile}}.
+  Ich folge dem Profil {{profile}} nicht mehr.
 result.vote.done:
   up: |-
-    I upvoted {{comment}} in {{thread}}.
+    Ich habe für {{comment}} im Diskussionsfaden {{thread}} gestimmt.
   down: |-
-    I downvoted {{comment}} in {{thread}}.
+    Ich habe gegen {{comment}} im Diskussionsfaden {{thread}} gestimmt.
   cleared: |-
-    I cleared my vote on {{comment}} in {{thread}}.
+    Ich habe meine Stimme zu {{comment}} im Diskussionsfaden {{thread}} aufgehoben.
 result.create_thread.done: |-
-  I started the thread {{thread}} in {{forum}}. Its opening post is {{post}}.
+  Ich habe den Diskussionsfaden {{thread}} im Forum {{forum}} gestartet. Sein erster Beitrag ist {{post}}.
 result.reply.done: |-
-  I posted {{comment}} in reply to {{parent}} in {{thread}}.
+  Ich habe {{comment}} als Antwort auf {{parent}} im Diskussionsfaden {{thread}} gepostet.
 result.random.draw: |-
-  {{min}} to {{max}}: {{number}}
+  {{min}} bis {{max}}: {{number}}
 result.notes.listed:
   one: |-
-    Notes shown: {{shown}} of {{total}}.
+    Angezeigte Notizen: {{shown}} von {{total}}.
   other: |-
-    Notes shown: {{shown}} of {{total}}.
+    Angezeigte Notizen: {{shown}} von {{total}}.
 result.notes.next_cursor: |-
-  For the next page, call list_notes with cursor {{cursor}}.
+  Für die nächste Seite rufen Sie list_notes mit cursor {{cursor}} auf.
 result.notes.unknown_filters: |-
-  These filters match no profile or forum:
+  Diese Filter passen zu keinem Profil und keinem Forum:
 result.note.heading: |-
-  Note {{id}}
+  Notiz {{id}}
 result.note.links: |-
   Links:
 result.note.created: |-
-  I saved the new note {{id}}.
+  Ich habe die neue Notiz {{id}} gespeichert.
 result.note.replaced: |-
-  I replaced the text of note {{id}}.
+  Ich habe den Text der Notiz {{id}} ersetzt.
 result.note.unknown_references: |-
-  These references match no profile or forum:
+  Diese Verweise passen zu keinem Profil und keinem Forum:
 result.note.deleted: |-
-  I deleted the note {{id}}.
+  Ich habe die Notiz {{id}} gelöscht.
 result.note.reset: |-
-  I reset note {{id}} to its default text:
+  Ich habe die Notiz {{id}} auf ihren Standardtext zurückgesetzt:
 result.failure.existing_thread: |-
-  The existing thread is {{thread}} in {{forum}}.
+  Der vorhandene Diskussionsfaden ist {{thread}} im Forum {{forum}}.
 result.failure.existing_comment: |-
-  The existing comment is {{comment}} in {{thread}}.
+  Der vorhandene Kommentar ist {{comment}} im Diskussionsfaden {{thread}}.
 result.batch.committed: |-
-  Done for {{target}}, but the result was lost:
+  Erledigt für {{target}}, aber das Ergebnis ging verloren:
 result.batch.refused: |-
-  Not done for {{target}}:
+  Nicht erledigt für {{target}}:
 result.batch.unknown: |-
-  Outcome unknown for {{target}}:
+  Ausgang unbekannt für {{target}}:
 result.batch.not_attempted: |-
-  Not attempted for {{target}}.
+  Für {{target}} nicht versucht.
 result.thread.lock.reason.comment_limit: |-
-  limit
+  Limit
 result.timestamp: |-
-  Timestamp: {{when}}
+  Zeitstempel: {{when}}
 result.unavailable: |-
-  This result is unavailable.
+  Dieses Ergebnis ist nicht verfügbar.
 result.notes.none: |-
-  This page lists no notes.
+  Diese Seite enthält keine Notizen.
 result.quote.open: |-
-  “
+  „
 result.quote.close: |-
-  ”
+  “
 result.notifications.unavailable: |-
-  This result is unavailable.
+  Dieses Ergebnis ist nicht verfügbar.
 result.reply.without_parent: |-
-  I posted {{comment}} in {{thread}}.
+  Ich habe {{comment}} im Diskussionsfaden {{thread}} gepostet.
 result.create_thread.without_post: |-
-  I started the thread {{thread}} in {{forum}}.
+  Ich habe den Diskussionsfaden {{thread}} im Forum {{forum}} gestartet.
 result.notifications.thread_post.personal_forum.without_forum: |-
-  {{actor}} started this thread in my blog:
+  {{actor}} hat diesen Diskussionsfaden in meinem Blog gestartet:
 result.notifications.thread_post.followed.without_forum: |-
-  {{actor}}, whom I follow, started this thread:
+  {{actor}} (ich folge diesem Profil) hat diesen Diskussionsfaden gestartet:
 result.activity.thread.without_forum:
   one: |-
-    Started thread {{thread}} ({{comments}} comment, score {{score}}).
+    Diskussionsfaden {{thread}} gestartet ({{comments}} Kommentar, Wertung {{score}}).
   other: |-
-    Started thread {{thread}} ({{comments}} comments, score {{score}}).
+    Diskussionsfaden {{thread}} gestartet ({{comments}} Kommentare, Wertung {{score}}).
 result.activity.comment.without_forum: |-
-  Posted {{comment}}:
+  Kommentar {{comment}}:
 result.activity.reply.without_forum: |-
-  Replied to {{parentAuthor}} with {{comment}}:
+  Antwort {{comment}} an das Profil {{parentAuthor}}:
 result.activity.vote.without_thread:
   up: |-
-    Upvoted {{comment}}.
+    Stimme für {{comment}}.
   down: |-
-    Downvoted {{comment}}.
+    Stimme gegen {{comment}}.
   cleared: |-
-    Cleared a vote on {{comment}}.
+    Stimme zu {{comment}} aufgehoben.
