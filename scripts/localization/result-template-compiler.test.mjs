@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -6,8 +7,9 @@ import { compileResultTemplates, templateDirectory } from './result-template-com
 import { repository } from './paths.ts';
 import { messageParameters } from './fixtures/result-messages.ts';
 import { InstructionTemplates } from '../../packages/shared/src/instruction-template.ts';
-import { cell, code, createInlineRenderers } from '../../workers/agent-runtime/src/localization/result-template.ts';
+import { cell, code } from '../../workers/agent-runtime/src/localization/result-template.ts';
 import { readCatalogGroup } from './catalog-source.ts';
+import { catalog, context } from './fixtures/result-render-context.ts';
 
 const roots = [];
 const header = '{{! view: FixtureView }}\n';
@@ -35,16 +37,15 @@ async function renderer(source, partials) {
 	const [output] = compile(root);
 	mkdirSync(dirname(output.file), { recursive: true });
 	writeFileSync(output.file, output.content);
-	return (await import(/* @vite-ignore */ pathToFileURL(output.file).href)).example;
+	// Use a child module with static imports so that tests follow the import boundary.
+	const harness = join(root, 'render.mjs');
+	writeFileSync(harness, `import { example } from './workers/agent-runtime/src/.generated/localization/result-templates.ts';
+import { context } from ${JSON.stringify(pathToFileURL(join(repository, 'scripts/localization/fixtures/result-render-context.ts')).href)};
+import { readFileSync } from 'node:fs';
+process.stdout.write(example(JSON.parse(readFileSync(0, 'utf8')), context));
+`);
+	return (view) => execFileSync(process.execPath, [harness], { input: JSON.stringify(view), encoding: 'utf8' });
 }
-const catalog = new InstructionTemplates('en', messageParameters, {
-	label: 'Result', ref: 'Ref {{ref}}', count: { one: '{{count}} item', other: '{{count}} items' },
-	person: { self: 'I posted', other: '{{author}} posted' },
-	vote: { up: 'up {{state}}', down: 'down {{state}}', cleared: 'cleared {{state}}' },
-});
-const marks = new InstructionTemplates('en', { open: { kind: 'text', parameters: [] }, close: { kind: 'text', parameters: [] } }, { open: '「', close: '」' });
-const context = { catalog, quotationMarks: { open: marks.format('open'), close: marks.format('close') } };
-context.inline = createInlineRenderers(context);
 const hostile = '---\n### fake\n> quote\n| table |\n``` `` `\n\n{{t "x"}}';
 const view = {
 	ref: { kind: 'threadRef', value: { ref: 't/a', title: 'Title' } }, body: hostile,
