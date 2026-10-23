@@ -7,8 +7,7 @@ describe('tick timestamp report', () => {
 	it.each(['new_iteration', 'continuation', 'spotlight'])('starts each %s tick with a user report', async setupMode => {
 		const messages: ChatMessage[] = [];
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
-			profileUsernamesInActiveContext: () => new Set(),
-			providerContentInActiveContext: () => ({ commentsWithText: new Set(), threadsWithText: new Set() }),
+			activeLoopMessageRows: () => [],
 			appendNotificationSyntheticContext: async () => [],
 			appendSpotlightSyntheticContext: vi.fn(),
 			appendLoopMessageGroup: (entries: LoopMessageGroupEntry[]) => { messages.push(...entries.map(entry => entry.message)); },
@@ -22,8 +21,7 @@ describe('tick timestamp report', () => {
 	it.each([false, true])('uses the absolute timezone before and after the sweep: %s', async legacy => {
 		const messages: ChatMessage[] = [];
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
-			profileUsernamesInActiveContext: () => new Set(),
-			providerContentInActiveContext: () => ({ commentsWithText: new Set(), threadsWithText: new Set() }),
+			activeLoopMessageRows: () => [],
 			appendLoopMessageGroup: (entries: LoopMessageGroupEntry[]) => { messages.push(...entries.map(entry => entry.message)); },
 			activeLoopMessagesForProvider: () => messages,
 		});
