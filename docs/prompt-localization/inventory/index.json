@@ -472,8 +472,8 @@
       "sourceTemplateHash": "539d7bd31eadd664039719bfb066ac3a6948e667fb880d129a3b175c2866f659",
       "sinks": [
         {
-          "file": "workers/agent-runtime/src/runtime/tool-result-views.ts",
-          "line": 351,
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 37,
           "kind": "direct"
         }
       ],
@@ -488,9 +488,9 @@
       "protectedTokens": [],
       "sinks": [
         {
-          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "file": "workers/agent-runtime/src/localization/templates/partials/comment.md",
+          "line": 15,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -505,9 +505,9 @@
       "protectedTokens": [],
       "sinks": [
         {
-          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "file": "workers/agent-runtime/src/localization/templates/partials/comment.md",
+          "line": 17,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -522,9 +522,9 @@
       "protectedTokens": [],
       "sinks": [
         {
-          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "file": "workers/agent-runtime/src/localization/templates/partials/comment.md",
+          "line": 12,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -539,9 +539,9 @@
       "protectedTokens": [],
       "sinks": [
         {
-          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "file": "workers/agent-runtime/src/localization/templates/partials/body.md",
+          "line": 11,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -556,9 +556,9 @@
       "protectedTokens": [],
       "sinks": [
         {
-          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "file": "workers/agent-runtime/src/localization/templates/partials/body.md",
+          "line": 14,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -573,9 +573,9 @@
       "protectedTokens": [],
       "sinks": [
         {
-          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "file": "workers/agent-runtime/src/localization/templates/partials/comment.md",
+          "line": 22,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -590,9 +590,9 @@
       "protectedTokens": [],
       "sinks": [
         {
-          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "file": "workers/agent-runtime/src/localization/templates/partials/comment.md",
+          "line": 25,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -608,8 +608,8 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "line": 93,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -624,9 +624,14 @@
       "protectedTokens": [],
       "sinks": [
         {
-          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "file": "workers/agent-runtime/src/localization/templates/read_comment_by_id.md",
+          "line": 12,
+          "kind": "direct"
+        },
+        {
+          "file": "workers/agent-runtime/src/localization/templates/read_thread.md",
+          "line": 12,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -641,9 +646,49 @@
       "protectedTokens": [],
       "sinks": [
         {
-          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "file": "workers/agent-runtime/src/localization/templates/follow_profile.md",
+          "line": 11,
+          "kind": "direct"
+        },
+        {
+          "file": "workers/agent-runtime/src/localization/templates/list_accessible_forums.md",
+          "line": 19,
+          "kind": "direct"
+        },
+        {
+          "file": "workers/agent-runtime/src/localization/templates/list_notes.md",
+          "line": 26,
+          "kind": "direct"
+        },
+        {
+          "file": "workers/agent-runtime/src/localization/templates/list_threads.md",
+          "line": 20,
+          "kind": "direct"
+        },
+        {
+          "file": "workers/agent-runtime/src/localization/templates/profiles.md",
+          "line": 26,
+          "kind": "direct"
+        },
+        {
+          "file": "workers/agent-runtime/src/localization/templates/query_followers.md",
+          "line": 18,
+          "kind": "direct"
+        },
+        {
+          "file": "workers/agent-runtime/src/localization/templates/search_threads.md",
+          "line": 19,
+          "kind": "direct"
+        },
+        {
+          "file": "workers/agent-runtime/src/localization/templates/view_activity.md",
+          "line": 24,
+          "kind": "direct"
+        },
+        {
+          "file": "workers/agent-runtime/src/localization/templates/vote.md",
+          "line": 11,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -658,9 +703,19 @@
       "protectedTokens": [],
       "sinks": [
         {
-          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "file": "workers/agent-runtime/src/localization/templates/list_accessible_forums.md",
+          "line": 10,
+          "kind": "direct"
+        },
+        {
+          "file": "workers/agent-runtime/src/localization/templates/list_threads.md",
+          "line": 11,
+          "kind": "direct"
+        },
+        {
+          "file": "workers/agent-runtime/src/localization/templates/search_threads.md",
+          "line": 10,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -675,9 +730,9 @@
       "protectedTokens": [],
       "sinks": [
         {
-          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "file": "workers/agent-runtime/src/localization/templates/list_accessible_forums.md",
+          "line": 10,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -692,9 +747,9 @@
       "protectedTokens": [],
       "sinks": [
         {
-          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "file": "workers/agent-runtime/src/localization/templates/list_accessible_forums.md",
+          "line": 10,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -709,9 +764,19 @@
       "protectedTokens": [],
       "sinks": [
         {
-          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "file": "workers/agent-runtime/src/localization/templates/check_notifications.md",
+          "line": 48,
+          "kind": "direct"
+        },
+        {
+          "file": "workers/agent-runtime/src/localization/templates/list_threads.md",
+          "line": 11,
+          "kind": "direct"
+        },
+        {
+          "file": "workers/agent-runtime/src/localization/templates/search_threads.md",
+          "line": 10,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -726,9 +791,9 @@
       "protectedTokens": [],
       "sinks": [
         {
-          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "file": "workers/agent-runtime/src/localization/templates/list_threads.md",
+          "line": 11,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -743,9 +808,14 @@
       "protectedTokens": [],
       "sinks": [
         {
-          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "file": "workers/agent-runtime/src/localization/templates/list_threads.md",
+          "line": 11,
+          "kind": "direct"
+        },
+        {
+          "file": "workers/agent-runtime/src/localization/templates/search_threads.md",
+          "line": 10,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -760,9 +830,9 @@
       "protectedTokens": [],
       "sinks": [
         {
-          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "file": "workers/agent-runtime/src/localization/templates/list_threads.md",
+          "line": 11,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -777,9 +847,9 @@
       "protectedTokens": [],
       "sinks": [
         {
-          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "file": "workers/agent-runtime/src/localization/templates/list_threads.md",
+          "line": 11,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -794,9 +864,9 @@
       "protectedTokens": [],
       "sinks": [
         {
-          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "file": "workers/agent-runtime/src/localization/templates/list_threads.md",
+          "line": 11,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -811,9 +881,9 @@
       "protectedTokens": [],
       "sinks": [
         {
-          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "file": "workers/agent-runtime/src/localization/templates/search_threads.md",
+          "line": 10,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -828,9 +898,14 @@
       "protectedTokens": [],
       "sinks": [
         {
-          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "file": "workers/agent-runtime/src/localization/templates/check_notifications.md",
+          "line": 48,
+          "kind": "direct"
+        },
+        {
+          "file": "workers/agent-runtime/src/localization/templates/search_threads.md",
+          "line": 10,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -845,9 +920,9 @@
       "protectedTokens": [],
       "sinks": [
         {
-          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "file": "workers/agent-runtime/src/localization/templates/search_threads.md",
+          "line": 10,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -862,9 +937,9 @@
       "protectedTokens": [],
       "sinks": [
         {
-          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "file": "workers/agent-runtime/src/localization/templates/check_notifications.md",
+          "line": 48,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -879,9 +954,9 @@
       "protectedTokens": [],
       "sinks": [
         {
-          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "file": "workers/agent-runtime/src/localization/templates/profiles.md",
+          "line": 17,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -896,9 +971,9 @@
       "protectedTokens": [],
       "sinks": [
         {
-          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "file": "workers/agent-runtime/src/localization/templates/profiles.md",
+          "line": 17,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -913,9 +988,9 @@
       "protectedTokens": [],
       "sinks": [
         {
-          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "file": "workers/agent-runtime/src/localization/templates/profiles.md",
+          "line": 17,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -930,9 +1005,9 @@
       "protectedTokens": [],
       "sinks": [
         {
-          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "file": "workers/agent-runtime/src/localization/templates/profiles.md",
+          "line": 17,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -947,9 +1022,9 @@
       "protectedTokens": [],
       "sinks": [
         {
-          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "file": "workers/agent-runtime/src/localization/templates/profiles.md",
+          "line": 17,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -965,8 +1040,8 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "line": 33,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -981,9 +1056,9 @@
       "protectedTokens": [],
       "sinks": [
         {
-          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "file": "workers/agent-runtime/src/localization/templates/list_accessible_forums.md",
+          "line": 16,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -998,9 +1073,9 @@
       "protectedTokens": [],
       "sinks": [
         {
-          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "file": "workers/agent-runtime/src/localization/templates/list_accessible_forums.md",
+          "line": 13,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -1015,9 +1090,9 @@
       "protectedTokens": [],
       "sinks": [
         {
-          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "file": "workers/agent-runtime/src/localization/templates/list_threads.md",
+          "line": 17,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -1033,8 +1108,8 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "line": 88,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -1049,9 +1124,9 @@
       "protectedTokens": [],
       "sinks": [
         {
-          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "file": "workers/agent-runtime/src/localization/templates/search_threads.md",
+          "line": 16,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -1066,9 +1141,9 @@
       "protectedTokens": [],
       "sinks": [
         {
-          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "file": "workers/agent-runtime/src/localization/templates/search_threads.md",
+          "line": 13,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -1083,9 +1158,9 @@
       "protectedTokens": [],
       "sinks": [
         {
-          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "file": "workers/agent-runtime/src/localization/templates/profiles.md",
+          "line": 23,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -1101,8 +1176,8 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "line": 115,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -1118,8 +1193,8 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "line": 116,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -1135,8 +1210,8 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "line": 115,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -1151,9 +1226,9 @@
       "protectedTokens": [],
       "sinks": [
         {
-          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "file": "workers/agent-runtime/src/localization/templates/profiles.md",
+          "line": 20,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -1168,9 +1243,9 @@
       "protectedTokens": [],
       "sinks": [
         {
-          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "file": "workers/agent-runtime/src/localization/templates/profiles.md",
+          "line": 20,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -1185,9 +1260,9 @@
       "protectedTokens": [],
       "sinks": [
         {
-          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "file": "workers/agent-runtime/src/localization/templates/profiles.md",
+          "line": 20,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -1202,9 +1277,9 @@
       "protectedTokens": [],
       "sinks": [
         {
-          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "file": "workers/agent-runtime/src/localization/templates/profiles.md",
+          "line": 20,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -1219,9 +1294,9 @@
       "protectedTokens": [],
       "sinks": [
         {
-          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "file": "workers/agent-runtime/src/localization/templates/check_notifications.md",
+          "line": 9,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -1236,9 +1311,9 @@
       "protectedTokens": [],
       "sinks": [
         {
-          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "file": "workers/agent-runtime/src/localization/templates/check_notifications.md",
+          "line": 12,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -1253,9 +1328,9 @@
       "protectedTokens": [],
       "sinks": [
         {
-          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "file": "workers/agent-runtime/src/localization/templates/check_notifications.md",
+          "line": 24,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -1271,8 +1346,8 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "line": 167,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -1288,8 +1363,8 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "line": 168,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -1305,8 +1380,8 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "line": 166,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -1322,8 +1397,8 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "line": 166,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -1339,8 +1414,13 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "line": 169,
+          "kind": "direct"
+        },
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 170,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -1356,8 +1436,8 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "line": 171,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -1373,7 +1453,7 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
+          "line": 172,
           "kind": "typed_dynamic"
         }
       ],
@@ -1390,7 +1470,7 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
+          "line": 172,
           "kind": "typed_dynamic"
         }
       ],
@@ -1407,8 +1487,8 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "line": 173,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -1423,9 +1503,9 @@
       "protectedTokens": [],
       "sinks": [
         {
-          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "file": "workers/agent-runtime/src/localization/templates/check_notifications.md",
+          "line": 54,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -1440,9 +1520,9 @@
       "protectedTokens": [],
       "sinks": [
         {
-          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "file": "workers/agent-runtime/src/localization/templates/check_notifications.md",
+          "line": 57,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -1457,9 +1537,9 @@
       "protectedTokens": [],
       "sinks": [
         {
-          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "file": "workers/agent-runtime/src/localization/templates/view_activity.md",
+          "line": 9,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -1474,9 +1554,9 @@
       "protectedTokens": [],
       "sinks": [
         {
-          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "file": "workers/agent-runtime/src/localization/templates/view_activity.md",
+          "line": 21,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -1492,8 +1572,8 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "line": 149,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -1509,8 +1589,8 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "line": 150,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -1526,8 +1606,8 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "line": 150,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -1542,9 +1622,9 @@
       "protectedTokens": [],
       "sinks": [
         {
-          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "file": "workers/agent-runtime/src/localization/templates/view_activity.md",
+          "line": 14,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -1560,8 +1640,8 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "line": 151,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -1576,9 +1656,9 @@
       "protectedTokens": [],
       "sinks": [
         {
-          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "file": "workers/agent-runtime/src/localization/templates/view_activity.md",
+          "line": 17,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -1593,9 +1673,9 @@
       "protectedTokens": [],
       "sinks": [
         {
-          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "file": "workers/agent-runtime/src/localization/templates/view_activity.md",
+          "line": 12,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -1611,7 +1691,7 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
+          "line": 152,
           "kind": "typed_dynamic"
         }
       ],
@@ -1628,7 +1708,7 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
+          "line": 152,
           "kind": "typed_dynamic"
         }
       ],
@@ -1644,9 +1724,9 @@
       "protectedTokens": [],
       "sinks": [
         {
-          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "file": "workers/agent-runtime/src/localization/templates/query_followers.md",
+          "line": 10,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -1661,9 +1741,9 @@
       "protectedTokens": [],
       "sinks": [
         {
-          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "file": "workers/agent-runtime/src/localization/templates/query_followers.md",
+          "line": 12,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -1678,9 +1758,9 @@
       "protectedTokens": [],
       "sinks": [
         {
-          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "file": "workers/agent-runtime/src/localization/templates/follow_profile.md",
+          "line": 8,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -1695,9 +1775,9 @@
       "protectedTokens": [],
       "sinks": [
         {
-          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "file": "workers/agent-runtime/src/localization/templates/follow_profile.md",
+          "line": 8,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -1712,9 +1792,9 @@
       "protectedTokens": [],
       "sinks": [
         {
-          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "file": "workers/agent-runtime/src/localization/templates/vote.md",
+          "line": 8,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -1729,9 +1809,9 @@
       "protectedTokens": [],
       "sinks": [
         {
-          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "file": "workers/agent-runtime/src/localization/templates/create_thread.md",
+          "line": 7,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -1746,9 +1826,9 @@
       "protectedTokens": [],
       "sinks": [
         {
-          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "file": "workers/agent-runtime/src/localization/templates/reply_to_comment.md",
+          "line": 7,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -1763,9 +1843,9 @@
       "protectedTokens": [],
       "sinks": [
         {
-          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "file": "workers/agent-runtime/src/localization/templates/draw_random_integers.md",
+          "line": 8,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -1780,9 +1860,9 @@
       "protectedTokens": [],
       "sinks": [
         {
-          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "file": "workers/agent-runtime/src/localization/templates/list_notes.md",
+          "line": 9,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -1797,9 +1877,9 @@
       "protectedTokens": [],
       "sinks": [
         {
-          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "file": "workers/agent-runtime/src/localization/templates/list_notes.md",
+          "line": 17,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -1814,9 +1894,9 @@
       "protectedTokens": [],
       "sinks": [
         {
-          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "file": "workers/agent-runtime/src/localization/templates/list_notes.md",
+          "line": 20,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -1831,9 +1911,9 @@
       "protectedTokens": [],
       "sinks": [
         {
-          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "file": "workers/agent-runtime/src/localization/templates/read_note.md",
+          "line": 9,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -1848,9 +1928,9 @@
       "protectedTokens": [],
       "sinks": [
         {
-          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "file": "workers/agent-runtime/src/localization/templates/partials/note_links.md",
+          "line": 9,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -1865,9 +1945,9 @@
       "protectedTokens": [],
       "sinks": [
         {
-          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "file": "workers/agent-runtime/src/localization/templates/write_note.md",
+          "line": 9,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -1882,9 +1962,9 @@
       "protectedTokens": [],
       "sinks": [
         {
-          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "file": "workers/agent-runtime/src/localization/templates/write_note.md",
+          "line": 11,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -1899,9 +1979,9 @@
       "protectedTokens": [],
       "sinks": [
         {
-          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "file": "workers/agent-runtime/src/localization/templates/write_note.md",
+          "line": 15,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -1916,9 +1996,9 @@
       "protectedTokens": [],
       "sinks": [
         {
-          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "file": "workers/agent-runtime/src/localization/templates/delete_note.md",
+          "line": 9,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -1933,9 +2013,9 @@
       "protectedTokens": [],
       "sinks": [
         {
-          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "file": "workers/agent-runtime/src/localization/templates/delete_note.md",
+          "line": 11,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -1950,9 +2030,9 @@
       "protectedTokens": [],
       "sinks": [
         {
-          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "file": "workers/agent-runtime/src/localization/templates/failure.md",
+          "line": 14,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -1967,9 +2047,9 @@
       "protectedTokens": [],
       "sinks": [
         {
-          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "file": "workers/agent-runtime/src/localization/templates/failure.md",
+          "line": 17,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -1985,7 +2065,7 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
+          "line": 141,
           "kind": "typed_dynamic"
         }
       ],
@@ -2002,7 +2082,7 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
+          "line": 141,
           "kind": "typed_dynamic"
         }
       ],
@@ -2019,7 +2099,7 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
+          "line": 141,
           "kind": "typed_dynamic"
         }
       ],
@@ -2036,7 +2116,7 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
+          "line": 141,
           "kind": "typed_dynamic"
         }
       ],
@@ -2053,7 +2133,7 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
+          "line": 88,
           "kind": "typed_dynamic"
         }
       ],
@@ -2069,9 +2149,14 @@
       "protectedTokens": [],
       "sinks": [
         {
-          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "file": "workers/agent-runtime/src/localization/templates/check_notifications.md",
+          "line": 25,
+          "kind": "direct"
+        },
+        {
+          "file": "workers/agent-runtime/src/localization/templates/partials/comment.md",
+          "line": 13,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -2087,8 +2172,8 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "line": 205,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -2104,8 +2189,8 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "line": 174,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -2120,9 +2205,9 @@
       "protectedTokens": [],
       "sinks": [
         {
-          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "file": "workers/agent-runtime/src/localization/templates/list_notes.md",
+          "line": 14,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -2138,8 +2223,8 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "line": 31,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -2155,8 +2240,8 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "line": 31,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -2172,8 +2257,8 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
-          "line": 1,
-          "kind": "typed_dynamic"
+          "line": 175,
+          "kind": "direct"
         }
       ],
       "status": "english_placeholder",
@@ -2188,8 +2273,8 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
-          "line": 6267,
-          "kind": "typed_dynamic"
+          "line": 6344,
+          "kind": "direct"
         }
       ],
       "protectedTokens": [],
@@ -2205,8 +2290,8 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
-          "line": 6267,
-          "kind": "typed_dynamic"
+          "line": 6344,
+          "kind": "direct"
         }
       ],
       "protectedTokens": [],
@@ -2428,8 +2513,8 @@
       },
       "sinks": [
         {
-          "file": "workers/agent-runtime/src/runtime/batch-outcomes.ts",
-          "line": 32,
+          "file": "workers/agent-runtime/src/runtime/tool-result-views.ts",
+          "line": 582,
           "kind": "direct"
         }
       ],
