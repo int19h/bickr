@@ -1,3 +1,4 @@
+import { hasRemovedDatetimeTool, removedDatetimeToolMessage } from "@bickr/shared/participant-time";
 import { newBotInstructionLanguageChoices, botInstructionLanguageChoices, instructionLanguagePreferenceFromChoice, newBotInstructionLanguagePreferenceFromChoice } from "@bickr/shared/instruction-language";
 import { compileInputSchema, InputSchemaError, type InputSchema, type InputValidator } from "@bickr/shared/input-schema";
 import { parseAccountMutationResult } from "@bickr/shared/account-mutation-protocol";
@@ -269,6 +270,10 @@ async function callTool(ctx: ToolContext, params: unknown): Promise<unknown> {
 		return toolError({ error: "bad_request", message: "Arguments must be an object." });
 	}
 	const args = (record.arguments ?? {}) as Record<string, unknown>;
+	if (name === "create_bot" || name === "update_bot") {
+		const operations = Array.isArray(args.operations) ? args.operations.slice(0, maxMutationOperations) : [args];
+		if (operations.some(hasRemovedDatetimeTool)) return toolError({ error: "bad_request", message: removedDatetimeToolMessage });
+	}
 	switch (tool.kind) {
 		case "read":
 			try {
@@ -713,6 +718,7 @@ const mcpTools: McpTool[] = [
 	serviceTool("create_bot", "Create bot", "Create a Bickr bot in a world. The instructionsLanguage string sets Bickr instructions separately from lang. The result returns instructionLanguage as the stored preference object and instructionLocale as the resolved language.", bodySchema({
 		worldHandle: stringSchema("World handle."),
 		handle: stringSchema("Bot handle."),
+		timeSettings: { type: "object", properties: { mode: { type: "string", enum: ["relative", "absolute"] }, timezone: { type: "string", description: "IANA name." } }, additionalProperties: false },
 		tickSettings: botTickSettingsSchema(),
 		instructionsLanguage: instructionsLanguageSchema("create"),
 		lang: requiredLanguageSchema("Selected bot language. Use a BCP 47 tag such as \"en\", \"ja\", \"zh-Hant\", or \"ar\"."),
@@ -724,14 +730,15 @@ const mcpTools: McpTool[] = [
 	serviceTool("update_bot", "Update bot", "Update a Bickr bot owned by the signed-in human user. The instructionsLanguage string sets Bickr instructions separately from lang. The result returns instructionLanguage as the stored preference object and instructionLocale as the resolved language.", bodySchema({
 		botId: stringSchema("Bot ID."),
 		handle: stringSchema("Bot handle."),
+		timeSettings: { type: "object", properties: { mode: { type: "string", enum: ["relative", "absolute"] }, timezone: { type: "string", description: "IANA name." } }, additionalProperties: false },
 		tickSettings: botTickSettingsSchema(),
 		instructionsLanguage: instructionsLanguageSchema("update"),
 		lang: languageSchema("Selected bot language. Required when updating localized bot text."),
 		displayName: localizedTextSchema("Bot display name. lang must match the selected bot language."),
 		shortBio: localizedTextSchema("Bot short bio. lang must match the selected bot language."),
 		prompt: localizedTextSchema("Bot prompt. lang must match the selected bot language."),
-		inferenceSettings: participantPromptInferenceSettingsSchema("Participant-owned recurring and avatar prompt patch."),
-		toolSettings: { type: "object", description: "Optional participant tool settings. Set bickrNotes.enabled or bickrNotes.planEnabled to true or false. PLAN works only when notes are on.", properties: {
+		inferenceSettings: participantPromptInferenceSettingsSchema("Recurring and avatar prompts."),
+		toolSettings: { type: "object", description: "PLAN requires notes.", properties: {
 			bickrNotes: { type: "object", properties: { enabled: { type: "boolean" }, planEnabled: { type: "boolean" } }, additionalProperties: false },
 		}, additionalProperties: true },
 	}), ["botId"], "write", "agent", "PATCH", (args, ctx) => `/users/${encodeURIComponent(ctx.auth.user.id)}/bots/${encodeURIComponent(text(args.botId, "Bot ID"))}`, botLanguageBody("update", "botId"), "bot"),
@@ -2644,7 +2651,7 @@ function botTickSettingsSchema(): InputSchema {
 		type: ["integer", "null"], minimum, maximum,
 	});
 	return {
-		type: "object", description: "Visit schedule and loop limits. Null clears an optional override. Omitted fields stay unchanged on update.",
+		type: "object", description: "Null clears optional values. Omitted fields keep their values.",
 		properties: {
 			enabled: { type: "boolean" },
 			intervalSeconds: { type: "integer", minimum: 30, maximum: botTickIntervalSecondsMax, description: "Seconds between visits. One year is 365 days." },

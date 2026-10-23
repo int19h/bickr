@@ -369,6 +369,36 @@ describe("MCP endpoint", () => {
 		expect(requests.at(-1)?.body).not.toHaveProperty("instructionsLanguage");
 	});
 
+	it("names timeSettings when a cached MCP client sends the datetime tool", async () => {
+		const kv = new MapKV();
+		const token = await issueAccessToken(kv, ["bickr.write"]);
+		for (const name of ["create_bot", "update_bot"]) {
+			const result = await jsonResponse(await callMcp(kv, token, {
+				jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: { operations: [{ operationId: "removed", botId: "bot_test", toolSettings: { openRouter: { datetime: { enabled: true } } } }] } },
+			}, { BICKR_D1: emptyD1() }));
+			expect(result).toMatchObject({ result: { isError: true, structuredContent: { error: "bad_request", message: expect.stringContaining("timeSettings") } } });
+		}
+	});
+
+	it("advertises and forwards participant time settings", async () => {
+		const tools = new Map(mcpToolMetadataForTest().map(tool => [tool.name, tool]));
+		for (const name of ["create_bot", "update_bot"]) expect(schemaProperty(tools, name, "timeSettings")).toMatchObject({ additionalProperties: false, properties: { mode: { enum: ["relative", "absolute"] }, timezone: { type: "string" } } });
+		const kv = new MapKV();
+		const token = await issueAccessToken(kv, ["bickr.write"]);
+		const requests: Record<string, unknown>[] = [];
+		const timeSettings = { mode: "absolute" as const, timezone: "Asia/Kolkata" };
+		const service = { fetch: async (request: Request) => {
+			if (new URL(request.url).pathname.endsWith("/inference-consumers/annotations")) return Response.json({ ok: true, data: { annotations: [], graphRevision: 1 } });
+			requests.push(await request.json() as Record<string, unknown>);
+			return Response.json({ ok: true, data: { bot: testBot({ id: "bot_test", handle: "time", timeSettings }) } });
+		} };
+		const result = await jsonResponse(await callMcp(kv, token, {
+			jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "update_bot", arguments: { operations: [{ operationId: "time-change", botId: "bot_test", timeSettings }] } },
+		}, { BICKR_D1: emptyD1(), AGENT_RUNTIME: service, INTERNAL_SERVICE_SECRET: "test-internal-service-secret" }));
+		expect(requests.at(-1)).toEqual({ timeSettings });
+		expect(result).toMatchObject({ result: { structuredContent: { results: [{ status: "succeeded", result: { data: { bot: { timeSettings } } } }] } } });
+	});
+
 	it("advertises and forwards tick patches with yearly bounds and nullable overrides", async () => {
 		const tools = new Map(mcpToolMetadataForTest().map(tool => [tool.name, tool]));
 		for (const name of ["create_bot", "update_bot"]) {
@@ -2830,6 +2860,7 @@ function testBot(
 		prompt: localized(overrides.prompt, "MCP prompt"),
 		inferenceSettings: overrides.inferenceSettings ?? {},
 		toolSettings: overrides.toolSettings ?? {},
+		timeSettings: overrides.timeSettings ?? { mode: "relative", timezone: "UTC" },
 		tickSettings: overrides.tickSettings ?? {
 			enabled: false,
 			intervalSeconds: 86_400,

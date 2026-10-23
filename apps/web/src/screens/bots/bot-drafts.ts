@@ -1,3 +1,5 @@
+import { participantTimeSettings } from "@bickr/shared/participant-time";
+import type { ParticipantTimeSettings } from "@bickr/shared/model";
 import { defaultNewBotInstructionLanguage, type InstructionLanguagePreference, type InstructionLocale } from "@bickr/shared/instruction-language";
 import {
 	localizedText,
@@ -37,6 +39,7 @@ export type BotDraft = {
 };
 
 export type BotEditDraft = {
+	timeSettings: ParticipantTimeSettings;
 	instructionLanguage: InstructionLanguagePreference;
 	language: string;
 	includeLanguageInSystemPrompt: IncludeLanguageInSystemPromptDraft;
@@ -95,10 +98,6 @@ export function toolDraftFromSettings(settings?: BotToolSettings): BotToolDraft 
 		notesEnabled: settings?.bickrNotes?.enabled !== false,
 		planEnabled: settings?.bickrNotes?.planEnabled !== false,
 		openRouter: {
-			datetime: {
-				enabled: Boolean(openRouter?.datetime?.enabled),
-				timezone: openRouter?.datetime?.timezone ?? "",
-			},
 			webSearch: {
 				enabled: Boolean(openRouter?.webSearch?.enabled),
 				engine: openRouter?.webSearch?.engine ?? "",
@@ -130,7 +129,6 @@ export function toolDraftChanged(draft: BotToolDraft, settings?: BotToolSettings
 
 export function toolDraftValid(draft: BotToolDraft): boolean {
 	return (
-		validOptionalTimezone(draft.openRouter.datetime.timezone) &&
 		validOptionalInteger(draft.openRouter.webSearch.maxResults, 1, 25) &&
 		validOptionalInteger(draft.openRouter.webSearch.maxTotalResults, 1) &&
 		validOptionalTimezone(draft.openRouter.webSearch.userLocationTimezone) &&
@@ -246,6 +244,7 @@ export function botEditDraftFromBot(bot: BotSummary): BotEditDraft {
 		prompt: textValue(profileOverrides?.prompt ?? bot.prompt ?? ""),
 		recurringPromptEnabled: inferenceSettings.recurringPromptEnabled !== false,
 		recurringPrompt: textValue(inferenceSettings.recurringPrompt ?? ""),
+		timeSettings: participantTimeSettings(bot.timeSettings),
 		tools: toolDraftFromSettings(bot.toolSettings),
 		threadBodyCharacters: optionalNumberDraftValue(bot.postingSettings.threadBodyCharacters),
 		commentBodyCharacters: optionalNumberDraftValue(bot.postingSettings.commentBodyCharacters),
@@ -299,6 +298,7 @@ export function updateBotInputFromEditDraft(
 			recurringPromptEnabled: draft.recurringPromptEnabled,
 			recurringPrompt: draft.recurringPrompt.trim() ? localizedText(draft.recurringPrompt, language) : null,
 		},
+		timeSettings: { mode: draft.timeSettings.mode, timezone: draft.timeSettings.timezone },
 		toolSettings: toolInputFromDraft(draft.tools),
 		postingSettings: {
 			threadBodyCharacters: parsed.threadBodyCharacters,

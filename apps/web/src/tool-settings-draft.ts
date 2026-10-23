@@ -5,11 +5,6 @@ import type {
 	OpenRouterWebSearchEngine,
 } from "@bickr/shared/model";
 
-export type OpenRouterDatetimeToolDraft = {
-	enabled: boolean;
-	timezone: string;
-};
-
 export type OpenRouterWebSearchToolDraft = {
 	enabled: boolean;
 	engine: string;
@@ -37,14 +32,12 @@ export type BotToolDraft = {
 	notesEnabled: boolean;
 	planEnabled: boolean;
 	openRouter: {
-		datetime: OpenRouterDatetimeToolDraft;
 		webSearch: OpenRouterWebSearchToolDraft;
 		webFetch: OpenRouterWebFetchToolDraft;
 	};
 };
 
 type OpenRouterToolInput = NonNullable<BotToolSettingsInput["openRouter"]>;
-type OpenRouterDatetimeToolInput = NonNullable<OpenRouterToolInput["datetime"]>;
 type OpenRouterWebSearchToolInput = NonNullable<OpenRouterToolInput["webSearch"]>;
 type OpenRouterWebSearchUserLocationInput = NonNullable<OpenRouterWebSearchToolInput["userLocation"]>;
 type OpenRouterWebFetchToolInput = NonNullable<OpenRouterToolInput["webFetch"]>;
@@ -53,17 +46,9 @@ export function toolInputFromDraft(draft: BotToolDraft): BotToolSettingsInput {
 	return {
 		bickrNotes: { enabled: draft.notesEnabled, planEnabled: draft.planEnabled },
 		openRouter: {
-			datetime: openRouterDatetimeInputFromDraft(draft.openRouter.datetime),
 			webSearch: openRouterWebSearchInputFromDraft(draft.openRouter.webSearch),
 			webFetch: openRouterWebFetchInputFromDraft(draft.openRouter.webFetch),
 		},
-	};
-}
-
-function openRouterDatetimeInputFromDraft(draft: OpenRouterDatetimeToolDraft): OpenRouterDatetimeToolInput {
-	return {
-		enabled: draft.enabled,
-		timezone: nullableTextInput(draft.timezone),
 	};
 }
 

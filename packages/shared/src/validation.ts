@@ -1,3 +1,4 @@
+import { isParticipantTimezone, removedDatetimeToolMessage } from "./participant-time";
 import { botServiceIssue, type BotServiceIssue } from './bot-service-issues';
 import { defaultNewBotInstructionLanguage, parseInstructionLanguagePreference, InvalidInstructionLanguagePreferenceError } from "./instruction-language";
 import { providerUrl, ProviderTransportError } from "./provider-transport";
@@ -18,7 +19,7 @@ import {
 	type CreateForumInput,
 	type CreateThreadInput,
 	type CreateWorldInput,
-	type OpenRouterDatetimeToolSettingsInput,
+	type ParticipantTimeSettings,
 	type OpenRouterSearchContextSize,
 	type OpenRouterServerToolSettingsInput,
 	type OpenRouterWebFetchEngine,
@@ -602,6 +603,7 @@ export function parseCreateBotInput(input: unknown): CreateBotInput {
 		...(record.postingSettings === undefined ?
 			{}
 		:	{ postingSettings: parsePostingSettings(record.postingSettings, defaultPostingSettings) }),
+		...(record.timeSettings === undefined ? {} : { timeSettings: parseParticipantTimeSettings(record.timeSettings) }),
 		...(record.tickSettings === undefined ? {} : { tickSettings: parseTickSettings(record.tickSettings) }),
 		...(importSource ? { importSource } : {}),
 	};
@@ -610,6 +612,7 @@ export function parseCreateBotInput(input: unknown): CreateBotInput {
 export function parseUpdateBotInput(input: unknown): UpdateBotInput {
 	const record = asRecord(input);
 	const update: UpdateBotInput = {};
+	if (record.timeSettings !== undefined) update.timeSettings = parseParticipantTimeSettings(record.timeSettings);
 	if (record.instructionLanguage !== undefined) update.instructionLanguage = instructionLanguagePreference(record.instructionLanguage);
 	const language = parseOptionalNullableLanguageTag(record.language, "Bot language");
 	const includeLanguageInSystemPrompt =
@@ -1089,7 +1092,7 @@ function parseOpenRouterToolSettings(value: unknown): OpenRouterServerToolSettin
 	const record = asRecord(value);
 	const settings: OpenRouterServerToolSettingsInput = {};
 	if (record.datetime !== undefined) {
-		settings.datetime = record.datetime === null ? null : parseOpenRouterDatetimeTool(record.datetime);
+		throw new InputError(removedDatetimeToolMessage);
 	}
 	if (record.webSearch !== undefined) {
 		settings.webSearch = record.webSearch === null ? null : parseOpenRouterWebSearchTool(record.webSearch);
@@ -1097,14 +1100,6 @@ function parseOpenRouterToolSettings(value: unknown): OpenRouterServerToolSettin
 	if (record.webFetch !== undefined) {
 		settings.webFetch = record.webFetch === null ? null : parseOpenRouterWebFetchTool(record.webFetch);
 	}
-	return settings;
-}
-
-function parseOpenRouterDatetimeTool(value: unknown): OpenRouterDatetimeToolSettingsInput {
-	const record = asRecord(value);
-	const settings: OpenRouterDatetimeToolSettingsInput = {};
-	assignOptionalBoolean(settings, "enabled", record.enabled);
-	assignOptionalTimezone(settings, "timezone", record.timezone, "Datetime timezone");
 	return settings;
 }
 
@@ -1588,4 +1583,18 @@ function boundedInteger(value: unknown, label: string, min: number, max: number)
 		throw new InputError(`${label} must be an integer between ${min} and ${max}.`);
 	}
 	return parsed;
+}
+
+export function parseParticipantTimeSettings(value: unknown): Partial<ParticipantTimeSettings> {
+	const record = asRecord(value);
+	const result: Partial<ParticipantTimeSettings> = {};
+	if (record.mode !== undefined) {
+		if (record.mode !== "relative" && record.mode !== "absolute") throw new InputError("Time mode must be relative or absolute.");
+		result.mode = record.mode;
+	}
+	if (record.timezone !== undefined) {
+		if (typeof record.timezone !== "string" || !isParticipantTimezone(record.timezone)) throw new InputError("The time zone must be an IANA timezone name.");
+		result.timezone = record.timezone;
+	}
+	return result;
 }

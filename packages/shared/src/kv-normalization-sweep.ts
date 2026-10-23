@@ -1,3 +1,4 @@
+import { migrateParticipantTime } from "./participant-time-migration";
 import {
 	schemaVersion,
 	type BotDocument,
@@ -65,15 +66,20 @@ export type KvNormalizationSweepResult = {
 	done: boolean;
 };
 
+export type BotNormalizationRequest = { botId: string; ownerUserId: string; expectedRevision: number; expectedUpdatedAt: string };
+
 export type KvNormalizationSweepBaseEnv = {
 	BICKR_D1: D1DatabaseLike;
 	BICKR_KV: KVNamespaceLike;
+	// Bot documents belong to the owner coordinator queue, including migration writes.
+	normalizeBot?: (request: BotNormalizationRequest) => Promise<ThreadNormalizationOutcome>;
 };
 export type KvNormalizationSweepEnv = KvNormalizationSweepBaseEnv & {
 	normalizeThread: (request: ThreadNormalizationRequest) => Promise<ThreadNormalizationOutcome>;
 };
 
 export type KvNormalizationSweepOptions = {
+	purpose?: "participant_time";
 	maxRowsPerRun?: number;
 	maxWritesPerRun?: number;
 	now?: string;
@@ -85,6 +91,7 @@ type ObjectIndexRow = {
 
 type KvNormalizationSweepCursor = {
 	afterObjectId: string;
+	deferred?: true;
 };
 
 type NormalizableDocument =
@@ -119,9 +126,12 @@ export async function normalizeKvDocuments(
 		"maxWritesPerRun",
 		kvNormalizationSweepMaxWritesPerRun,
 	);
-	const cursorKey = kvKeys.kvNormalizationSweepCursor(entityType);
+	if (options.purpose === "participant_time" && entityType !== "bot") throw new Error("Participant time migration requires bot documents.");
+	const cursorKey = options.purpose === "participant_time" ? kvKeys.participantTimeSweepCursor : kvKeys.kvNormalizationSweepCursor(entityType);
 	const storedCursor = await readKvNormalizationSweepCursor(env.BICKR_KV, cursorKey);
 	const nowMs = options.now === undefined ? Date.now() : requiredTimestamp(options.now, "now");
+	// Keep deferrals across pages so the final page cannot hide unfinished documents.
+	let deferred = storedCursor?.deferred === true;
 	let rewritten = 0;
 	let skippedRecentlyUpdated = 0;
 	let skippedChangedDuringSweep = 0;
@@ -149,23 +159,27 @@ export async function normalizeKvDocuments(
 				}
 				if (isWithinKvNormalizationQuietPeriod(document.updatedAt, nowMs)) {
 					skippedRecentlyUpdated += 1;
+					deferred = true;
 					continue;
 				}
 
-				if (document.type === "thread") {
-					if (!env.normalizeThread) {
-						throw new Error("Thread KV normalization requires the owning coordinator operation.");
+				if (document.type === "thread" || document.type === "bot") {
+					if (document.type === "thread" && !env.normalizeThread || document.type === "bot" && !env.normalizeBot) {
+						throw new Error("KV normalization requires the owning coordinator operation.");
 					}
-					const outcome = await env.normalizeThread({
+					const request = {
 						threadId: row.objectId,
 						expectedRevision: document.revision,
 						expectedUpdatedAt: document.updatedAt,
-					});
+					};
+					const outcome = document.type === "bot"
+						? await env.normalizeBot!({ botId: row.objectId, ownerUserId: document.ownerUserId, expectedRevision: document.revision, expectedUpdatedAt: document.updatedAt })
+						: await env.normalizeThread!(request);
 					switch (outcome.kind) {
 						case "rewritten": rewritten += 1; break;
 						case "unchanged": break;
-						case "skipped_recently_updated": skippedRecentlyUpdated += 1; break;
-						case "skipped_changed": skippedChangedDuringSweep += 1; break;
+						case "skipped_recently_updated": skippedRecentlyUpdated += 1; deferred = true; break;
+						case "skipped_changed": skippedChangedDuringSweep += 1; deferred = true; break;
 						default: {
 							const exhaustive: never = outcome;
 							return exhaustive;
@@ -175,6 +189,7 @@ export async function normalizeKvDocuments(
 					const latest = await readNormalizableDocument(env.BICKR_KV, entityType, row.objectId);
 					if (!latest || !sameDocumentVersion(document, latest)) {
 						skippedChangedDuringSweep += 1;
+						deferred = true;
 						continue;
 					}
 					const latestNormalized = normalizeDocument(latest);
@@ -198,7 +213,7 @@ export async function normalizeKvDocuments(
 		checkpoint: (afterObjectId) => writeJson(
 			env.BICKR_KV,
 			cursorKey,
-			{ afterObjectId } satisfies KvNormalizationSweepCursor,
+			{ afterObjectId, ...(deferred ? { deferred: true as const } : {}) } satisfies KvNormalizationSweepCursor,
 		),
 		complete: () => deleteKey(env.BICKR_KV, cursorKey),
 	});
@@ -209,7 +224,7 @@ export async function normalizeKvDocuments(
 		skippedRecentlyUpdated,
 		skippedChangedDuringSweep,
 		budgetExhausted: iteration.budgetExhausted,
-		done: !iteration.budgetExhausted && skippedRecentlyUpdated === 0 && skippedChangedDuringSweep === 0,
+		done: !iteration.budgetExhausted && !deferred,
 	};
 }
 
@@ -270,7 +285,9 @@ async function readKvNormalizationSweepCursor(
 		return null;
 	}
 	const afterObjectId = (value as Record<string, unknown>).afterObjectId;
-	return typeof afterObjectId === "string" && afterObjectId.length > 0 ? { afterObjectId } : null;
+	return typeof afterObjectId === "string" && afterObjectId.length > 0
+		? { afterObjectId, ...((value as Record<string, unknown>).deferred === true ? { deferred: true as const } : {}) }
+		: null;
 }
 
 async function readNormalizableDocument(
@@ -294,7 +311,7 @@ function normalizeDocument(document: NormalizableDocument): NormalizableDocument
 		case "user": return normalizeUserDefaults(document);
 		case "world": return normalizeWorldDefaults(document);
 		case "forum": return normalizeForumDefaults(document);
-		case "bot": return normalizeBotDefaults(document);
+		case "bot": return normalizeBotDefaults(migrateParticipantTime(document));
 		case "thread": return normalizeThreadDefaults(document);
 		default: {
 			const exhaustive: never = document;

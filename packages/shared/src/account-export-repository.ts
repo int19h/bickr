@@ -1,3 +1,4 @@
+import { participantTimeSettings } from "./participant-time";
 import { accountExportSections, type AccountExportPage, type AccountExportSection, type AccountExportImageReference } from "./account-export";
 import { loadOwnerInferenceConfigurationPaths } from "./inference-configuration-repository";
 import { inferenceConfigurationFields } from "./inference-configuration-owner";
@@ -82,6 +83,7 @@ export function exportBotDefinition(bot: BotDocument) {
 	const local = bot.localOverrides;
 	return {
 		...pick(bot, [...entityKeys, "homeWorldId", "homeWorldHandle", "ownerUserId", "handle", "language", "instructionLanguage", "includeLanguageInSystemPrompt", "displayName", "shortBio", "prompt", "toolSettings", "postingSettings", "tickSettings"]),
+		timeSettings: participantTimeSettings(bot.timeSettings),
 		avatar: avatar(bot.avatar), inferenceSettings: exportInferenceSettings(bot.inferenceSettings),
 		...(bot.importSource ? { importSource: pick(bot.importSource, ["provider", "originalHandle", "importedAt"]) } : {}),
 		...(bot.cloneSource ? { cloneSource: pick(bot.cloneSource, ["sourceBotId", "sourceWorldId", "sourceWorldHandle", "sourceHandle", "clonedAt", "linked", "unlinkedAt", "relinkedAt"]) } : {}),

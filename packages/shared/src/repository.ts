@@ -1,3 +1,4 @@
+import { participantTimeSettings } from "./participant-time";
 import { defaultNewBotInstructionLanguage, parseInstructionLanguagePreference, InvalidInstructionLanguagePreferenceError } from './instruction-language';
 import { botServiceIssue } from './bot-service-issues';
 import { factoryText } from './localization';
@@ -53,8 +54,6 @@ import {
 	type CreateBotInput,
 	type CreateForumInput,
 	type CreateWorldInput,
-	type OpenRouterDatetimeToolSettings,
-	type OpenRouterDatetimeToolSettingsInput,
 	type OpenRouterServerToolSettings,
 	type OpenRouterServerToolSettingsInput,
 	type OpenRouterWebFetchToolSettings,
@@ -1525,6 +1524,7 @@ async function createBot(
 		inferenceSettings,
 		toolSettings,
 		...(postingSettingsHasValues(postingSettings) ? { postingSettings } : {}),
+		timeSettings: participantTimeSettings(undefined, input.timeSettings),
 		tickSettings: mergeTickSettings(undefined, input.tickSettings),
 		...(input.importSource ? { importSource: input.importSource } : {}),
 		...(input.avatar ? { avatar: input.avatar } : {}),
@@ -1638,6 +1638,7 @@ async function updateBot(
 		inferenceSettings,
 		toolSettings,
 		...(postingSettingsHasValues(postingSettings) ? { postingSettings } : { postingSettings: undefined }),
+		timeSettings: participantTimeSettings(bot.timeSettings, input.timeSettings),
 		tickSettings: mergeTickSettings(bot.tickSettings, input.tickSettings),
 		revision: bot.revision + 1,
 		updatedAt: now,
@@ -4225,6 +4226,7 @@ export function publicBotSummary(
 			source.kind === "document" ?
 				effectivePostingSettings(options.worldPostingSettings, bot.postingSettings)
 			: source.summary.effectivePostingSettings,
+		timeSettings: participantTimeSettings(bot.timeSettings),
 		tickSettings: bot.tickSettings,
 		effectiveTickSettings:
 			source.kind === "document" ? effectiveTickSettings(bot.tickSettings) : source.summary.effectiveTickSettings,
@@ -4827,7 +4829,6 @@ function publicToolSettings(settings: BotToolSettings | undefined): BotToolSetti
 
 function cloneOpenRouterToolSettings(settings: OpenRouterServerToolSettings): OpenRouterServerToolSettings {
 	return {
-		...(settings.datetime ? { datetime: { ...settings.datetime } } : {}),
 		...(settings.webSearch ?
 			{
 				webSearch: {
@@ -4861,16 +4862,6 @@ function mergeOpenRouterToolSettings(
 	patch: OpenRouterServerToolSettingsInput | OpenRouterServerToolSettings,
 ): OpenRouterServerToolSettings | undefined {
 	const next = current ? cloneOpenRouterToolSettings(current) : {};
-	if (patch.datetime !== undefined) {
-		if (patch.datetime === null) {
-			delete next.datetime;
-		} else {
-			next.datetime = mergeOpenRouterDatetimeTool(next.datetime, patch.datetime);
-			if (!next.datetime) {
-				delete next.datetime;
-			}
-		}
-	}
 	if (patch.webSearch !== undefined) {
 		if (patch.webSearch === null) {
 			delete next.webSearch;
@@ -4892,22 +4883,6 @@ function mergeOpenRouterToolSettings(
 		}
 	}
 	return Object.keys(next).length > 0 ? next : undefined;
-}
-
-function mergeOpenRouterDatetimeTool(
-	current: OpenRouterDatetimeToolSettings | undefined,
-	patch: OpenRouterDatetimeToolSettingsInput | OpenRouterDatetimeToolSettings,
-): OpenRouterDatetimeToolSettings | undefined {
-	const next: Partial<OpenRouterDatetimeToolSettings> = current ? { ...current } : {};
-	if (patch.enabled !== undefined) {
-		next.enabled = patch.enabled;
-	}
-	assignToolString(next, "timezone", patch.timezone);
-	if (!next.enabled && !next.timezone) {
-		return undefined;
-	}
-	next.enabled ??= false;
-	return next as OpenRouterDatetimeToolSettings;
 }
 
 function mergeOpenRouterWebSearchTool(

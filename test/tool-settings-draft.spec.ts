@@ -7,7 +7,6 @@ describe("toolInputFromDraft", () => {
 		expect(toolInputFromDraft(emptyToolDraft())).toEqual({
 		bickrNotes: { enabled: true, planEnabled: true },
 			openRouter: {
-				datetime: { enabled: false, timezone: null },
 				webSearch: {
 					enabled: false,
 					engine: null,
@@ -32,13 +31,11 @@ describe("toolInputFromDraft", () => {
 
 	it("keeps disabled tool parameters so they can be saved while access is off", () => {
 		const draft = emptyToolDraft();
-		draft.openRouter.datetime.timezone = "America/Los_Angeles";
 		draft.openRouter.webSearch.allowedDomains = "Example.com, docs.example.com";
 		draft.openRouter.webFetch.maxUses = "3";
 
 		expect(toolInputFromDraft(draft)).toMatchObject({
 			openRouter: {
-				datetime: { enabled: false, timezone: "America/Los_Angeles" },
 				webSearch: { enabled: false, allowedDomains: ["example.com", "docs.example.com"] },
 				webFetch: { enabled: false, maxUses: 3 },
 			},
@@ -46,8 +43,8 @@ describe("toolInputFromDraft", () => {
 	});
 
 	it("keeps the note choice when an unrelated tool setting changes", () => {
-		expect(mergeToolSettings({ bickrNotes: { enabled: false } }, { openRouter: { datetime: { enabled: true, timezone: "UTC" } } }))
-			.toMatchObject({ bickrNotes: { enabled: false }, openRouter: { datetime: { enabled: true } } });
+		expect(mergeToolSettings({ bickrNotes: { enabled: false } }, { openRouter: { webFetch: { enabled: true } } }))
+			.toMatchObject({ bickrNotes: { enabled: false }, openRouter: { webFetch: { enabled: true } } });
 		expect(mergeToolSettings(undefined)).toMatchObject({ bickrNotes: { enabled: true } });
 		expect(mergeToolSettings({ bickrNotes: { enabled: true, planEnabled: false } }, { bickrNotes: { enabled: false } }))
 			.toMatchObject({ bickrNotes: { enabled: false, planEnabled: false } });
@@ -59,10 +56,6 @@ function emptyToolDraft(): BotToolDraft {
 		notesEnabled: true,
 		planEnabled: true,
 		openRouter: {
-			datetime: {
-				enabled: false,
-				timezone: "",
-			},
 			webSearch: {
 				enabled: false,
 				engine: "",

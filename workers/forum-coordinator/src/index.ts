@@ -81,6 +81,7 @@ import {
 	isThreadNormalizationOutcome,
 	isWithinKvNormalizationQuietPeriod,
 	normalizeKvDocuments,
+	type BotNormalizationRequest,
 	type KvNormalizationEntityType,
 	type ThreadNormalizationOutcome,
 	type ThreadNormalizationRequest,
@@ -1116,6 +1117,7 @@ async function handleForumWorkerFetch(request: Request, env: Env): Promise<Respo
 		const input = parseKvNormalizationSweepInput(await readJsonBody(request));
 		const sweepEnv = {
 			...env,
+			normalizeBot: (input: BotNormalizationRequest) => requestBotTimeNormalization(env, input),
 			normalizeThread: (normalizationRequest: ThreadNormalizationRequest) =>
 				requestThreadNormalization(env, normalizationRequest),
 		};
@@ -1948,4 +1950,19 @@ async function recoverThreadMutations(env: Env, now: string): Promise<number> {
 		}
 	}
 	return rows.results?.length ?? 0;
+}
+
+async function requestBotTimeNormalization(
+	env: Env,
+	input: BotNormalizationRequest,
+): Promise<ThreadNormalizationOutcome> {
+	const headers = new Headers({ "content-type": "application/json", "x-bickr-scheduler": "1", "x-bickr-user-id": input.ownerUserId });
+	addInternalServiceAuthHeader(headers, env.INTERNAL_SERVICE_SECRET);
+	const response = await env.AGENT_RUNTIME_SERVICE.fetch(new Request(internalServiceUrl(`/users/${encodeURIComponent(input.ownerUserId)}/bots/${encodeURIComponent(input.botId)}/normalize-time`), {
+		method: "POST", headers, body: JSON.stringify({ expectedRevision: input.expectedRevision, expectedUpdatedAt: input.expectedUpdatedAt }),
+	}));
+	if (!response.ok) throw new RepositoryError("server_error", "Participant time migration failed.", 500);
+	const payload = await response.json() as { data?: { normalization?: unknown } };
+	if (!isThreadNormalizationOutcome(payload.data?.normalization)) throw new RepositoryError("server_error", "Participant time migration returned an invalid outcome.", 500);
+	return payload.data.normalization;
 }
