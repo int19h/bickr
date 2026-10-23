@@ -2311,10 +2311,9 @@ export class BotRuntime {
 			const page = Number(url.searchParams.get('page') ?? 1);
 			const response = this.loopMessagesPage({ after: Number.isFinite(after) ? after : 0, page: Number.isFinite(page) ? page : 1 });
 			const rows = this.state.storage.sql.exec<LoopMessageRow>('SELECT * FROM loop_messages WHERE seq IN (SELECT value FROM json_each(?))', JSON.stringify(response.messages.map(message => message.seq))).toArray();
-			const bot = await botById(this.env.BICKR_KV, this.env.BICKR_D1, botId);
-			await this.refreshResultViewRendering(botTextFor(bot), rows, { settings: participantTimeSettingsOf(bot), createdAt: bot.createdAt });
+			const render = await this.ownerResultRenderer(botId, rows);
 			const bySeq = new Map(rows.map(row => [row.seq, row]));
-			return ok({ ...response, messages: response.messages.map(message => ({ ...message, message: this.renderLoopMessageRow(bySeq.get(message.seq)!) })) });
+			return ok({ ...response, messages: response.messages.map(message => ({ ...message, message: renderStoredLoopMessage(bySeq.get(message.seq)!, render) })) });
 		}
 
 		if (request.method === 'GET' && url.pathname.endsWith('/inference-logs')) {
@@ -2334,11 +2333,9 @@ export class BotRuntime {
 		if (request.method === 'GET' && messageLogSeq !== null) {
 			await this.requireOwnerOrInternal(request, botId);
 			const row = this.runtimeMessageStore().loopMessageRow(messageLogSeq);
-			if (row?.tool_result_view_json) {
-				const bot = await botById(this.env.BICKR_KV, this.env.BICKR_D1, botId);
-				await this.refreshResultViewRendering(botTextFor(bot), [row], { settings: participantTimeSettingsOf(bot), createdAt: bot.createdAt });
-			}
-			return ok(this.loopMessageLogsForSeq(messageLogSeq));
+			const response = this.loopMessageLogsForSeq(messageLogSeq);
+			if (row?.tool_result_view_json) response.message.message = renderStoredLoopMessage(row, await this.ownerResultRenderer(botId, [row]));
+			return ok(response);
 		}
 
 		if (request.method === 'GET' && url.pathname.endsWith('/submissions')) {
@@ -4879,6 +4876,16 @@ export class BotRuntime {
 			else if (row.role === 'tool') scope.include(await legacyResultFacets(JSON.parse(row.message_json).content));
 		}
 		return scope;
+	}
+
+	private async ownerResultRenderer(botId: string, rows: LoopMessageRow[]): Promise<import('./result-messages').ResultViewRenderer> {
+		const bot = await botById(this.env.BICKR_KV, this.env.BICKR_D1, botId);
+		const text = botTextFor(bot);
+		const time = { settings: participantTimeSettingsOf(bot), createdAt: bot.createdAt };
+		const views = rows.flatMap(row => { const view = toolResultViewFromRow(row); return view ? [view] : []; });
+		const handles = await currentResultHandles(this.env.BICKR_D1, views.flatMap(resultViewReferences));
+		// Owner reads can overlap a provider request. Keep their render data local.
+		return view => renderToolResultView(view, text, handles, time);
 	}
 
 	private async refreshResultViewRendering(text: BotText, rows = this.activeLoopMessageRows(), time?: import('./tool-result-views').ResultTimeContext): Promise<void> {

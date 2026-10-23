@@ -1,4 +1,6 @@
-import { authCookie, seedWorld, createBotForTest, botById, testEnv, BotRuntime, describe, expect, it } from './helpers/index-harness';
+import { RuntimeMessageStore } from '../workers/agent-runtime/src/runtime/message-store';
+import { attachToolResultView } from '../workers/agent-runtime/src/runtime/result-messages';
+import { authCookie, seedWorld, createBotForTest, botById, testEnv, BotRuntime, describe, expect, it, withRuntimeSqliteForTest } from './helpers/index-harness';
 import { updateBot } from './helpers/coordinator-mutations';
 import { botText } from '../workers/agent-runtime/src/localization';
 import { participantTimeSettingsOf } from '@bickr/shared/participant-time-migration';
@@ -23,4 +25,29 @@ describe('current time configuration for stored results', () => {
 		await updateBot(testEnv.BICKR_KV, testEnv.BICKR_D1, created.id, document.ownerUserId, { timeSettings: { mode: 'absolute', timezone: 'America/Los_Angeles' } });
 		expect(await render()).toContain('2026-10-22T17:00-07:00');
 	});
+	it('keeps owner history renders separate from provider render data', async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const created = await createBotForTest(cookie, 'owner-reader');
+		const document = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, created.id);
+		await withRuntimeSqliteForTest(async state => {
+			const store = new RuntimeMessageStore(state.storage);
+			const text = botText('en');
+			const ref = { kind: 'participant' as const, entityId: created.id, handle: created.handle };
+			const view: ToolResultView = { ...resultViewBase(text), kind: 'read_note', id: 'one', content: 'Authored text', links: [{ ref, deleted: false }] };
+			const written = store.appendLoopMessage('run', attachToolResultView({ role: 'tool', tool_call_id: 'owner', content: '' }, view), 'tool_result');
+			const rows = [store.loopMessageRow(written.seq)!];
+			const providerHandles = new Map();
+			const providerTime = { settings: { mode: 'relative', timezone: 'UTC' }, createdAt: document.createdAt };
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), { env: testEnv, resultViewHandles: providerHandles, resultViewTime: providerTime });
+			const first = await runtime.ownerResultRenderer(created.id, rows);
+			await updateBot(testEnv.BICKR_KV, testEnv.BICKR_D1, created.id, document.ownerUserId, { handle: 'owner-renamed' });
+			const second = await runtime.ownerResultRenderer(created.id, rows);
+			expect(JSON.parse(first(view)).links[0].handle).toBe('owner-reader');
+			expect(JSON.parse(second(view)).links[0].handle).toBe('owner-renamed');
+			expect(runtime.resultViewHandles).toBe(providerHandles);
+			expect(runtime.resultViewTime).toBe(providerTime);
+		});
+	});
+
 });
