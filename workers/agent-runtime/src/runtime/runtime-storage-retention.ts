@@ -409,10 +409,12 @@ export async function loadRuntimeIndexChunk(
 	db: D1DatabaseLike,
 	cursor: string | undefined,
 	limit: number,
+	includeCursor = false,
 ) {
 	const selection = runtimeIndexSelection;
+	const comparison = includeCursor ? '>=' : '>';
 	const statement = cursor
-		? db.prepare(`${selection} AND runtime.bot_id > ? ORDER BY runtime.bot_id ASC LIMIT ?`).bind(cursor, limit)
+		? db.prepare(`${selection} AND runtime.bot_id ${comparison} ? ORDER BY runtime.bot_id ASC LIMIT ?`).bind(cursor, limit)
 		: db.prepare(`${selection} ORDER BY runtime.bot_id ASC LIMIT ?`).bind(limit);
 	const result = await statement.all<BotRuntimeRetentionRow>();
 	const items = result.results ?? [];

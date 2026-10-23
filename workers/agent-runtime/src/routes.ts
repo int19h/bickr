@@ -1187,7 +1187,7 @@ export const agentRuntimeRouteTable = [
 			const body = requiredRecord(await readOptionalJsonBody(context.request));
 			const cursor = legacyHistoryCursor(body.cursor);
 			if (!context.env.BOT_RUNTIME) throw new RepositoryError('server_error', 'Runtime binding is unavailable.', 500);
-			return ok({ page: await legacyHistoryFleetPage({ ...context.env, BOT_RUNTIME: context.env.BOT_RUNTIME }, context.match[1] === 'census' ? 'census' : 'compact', cursor) });
+			return ok({ page: await legacyHistoryFleetPage({ ...context.env, BOT_RUNTIME: context.env.BOT_RUNTIME }, context.match[1] === 'census' ? 'census' : 'compact', cursor, body.limit) });
 		},
 	},
 	{

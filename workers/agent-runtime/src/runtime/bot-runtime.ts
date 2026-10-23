@@ -1,3 +1,4 @@
+import { legacyHistoryRateLimit, legacyHistoryRetryDelay, LegacyHistoryRateLimitError } from './legacy-history-maintenance';
 import type { LegacyHistoryCompactionResult, LegacyHistoryCost } from './legacy-history-maintenance';
 import { buildResultRenderContext, contextWithProducedReferences, resultViewsFromRows } from './result-render-context';
 import { type ResultRenderContext } from './tool-result-views';
@@ -6007,7 +6008,8 @@ export class BotRuntime {
 
 		if (!response.ok) {
 			const bodyText = await readProviderErrorBody(response, signal);
-			throw providerRequestErrorFromBody(response.status, settings.model, endpoint, bodyText);
+			const error = providerRequestErrorFromBody(response.status, settings.model, endpoint, bodyText);
+			throw legacyHistoryRateLimit(error) ? new LegacyHistoryRateLimitError(error, legacyHistoryRetryDelay(response.headers, bodyText)) : error;
 		}
 
 		const headerResponseId = openRouterGenerationIdFromHeaders(response.headers);
@@ -7428,7 +7430,7 @@ export class BotRuntime {
 			this.activeMaintenanceOperation = 'manual_compaction';
 			return true;
 		});
-		if (!reserved) return { kind: 'deferred', before, remaining: this.legacyToolRowCount(), ...cost };
+		if (!reserved) return { kind: 'deferred', reason: 'busy', before, remaining: this.legacyToolRowCount(), ...cost };
 		try {
 			const bot = await this.botWithEffectivePostingSettings(await botById(this.env.BICKR_KV, this.env.BICKR_D1, botId));
 			const owner = await userById(this.env.BICKR_KV, bot.ownerUserId);
@@ -7454,6 +7456,8 @@ export class BotRuntime {
 				? { kind: 'compacted', before, remaining, ...cost }
 				: { kind: 'failed', errorKind: 'legacy_rows_remain', before, remaining, ...cost };
 		} catch (error) {
+			const rateLimit = legacyHistoryRateLimit(error);
+			if (rateLimit) return { kind: 'deferred', reason: 'rate_limit', ...rateLimit, before, remaining: this.legacyToolRowCount(), ...cost };
 			const cause = runtimeErrorCause(error);
 			return { kind: 'failed', errorKind: typeof cause === 'string' ? error instanceof RepositoryError ? error.code : 'runtime_error' : cause.kind,
 				before, remaining: this.legacyToolRowCount(), ...cost };

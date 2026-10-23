@@ -14,6 +14,7 @@ describe('legacy history maintenance routes', () => {
 		expect((await request('/maintenance/legacy-history/census', {})).status).toBe(404);
 		expect((await request('/maintenance/legacy-history/compact', internalServiceTestHeaders)).status).toBe(401);
 		expect((await request('/maintenance/legacy-history/census', undefined, '{"cursor":7}')).status).toBe(400);
+		expect((await request('/maintenance/legacy-history/compact', undefined, '{"limit":6}')).status).toBe(400);
 	});
 
 	it('counts retained history and defers an indexed run during site maintenance without reclaiming it', async () => {

@@ -195,11 +195,26 @@ The proxy supplies internal service authentication.
    curl --fail-with-body -sS 'https://test.bickr.social/api/__test__/service-proxy' \
      -H 'content-type: application/json' \
      -H "x-test-auth-secret: ${TEST_AUTH_SECRET}" \
-     --data '{"service":"agent-runtime","method":"POST","path":"/maintenance/legacy-history/compact","headers":{"x-bickr-scheduler":"1"},"body":{}}'
+     --data '{"service":"agent-runtime","method":"POST","path":"/maintenance/legacy-history/compact","headers":{"x-bickr-scheduler":"1"},"body":{"limit":5}}'
    ```
 
    Follow `data.page.nextCursor` until `data.page.done` is true.
+   Copy each cursor verbatim into `body.cursor`.
+   Compaction defaults to five runtimes per page.
+   Set `body.limit` to an integer from one through five to reduce the page size.
+   Each page compacts one runtime at a time.
+   Send only one page request at a time.
    Keep the connection open until each request finishes.
+   Between pages, wait for `data.page.pauseMs` milliseconds, with a minimum pause of 60 seconds.
+   If no pause value appears, wait at least 60 seconds.
+
+   If `stoppedForRateLimit` is true, the page stopped at a provider rate limit.
+   That runtime reports `kind: deferred` and `reason: rate_limit`.
+   The page reports `retryAfterMs` when the provider supplies a delay.
+   `pauseMs` uses the longer of that delay and 60 seconds.
+   The retry cursor is an object, such as `{"retryBotId":"bot-id"}`.
+   After the pause, send that exact object as `body.cursor` to retry the deferred runtime.
+   The route does not advance past that runtime or contact later runtimes in that page.
    Each runtime reports `providerCalls`, `promptTokens`, `completionTokens`, `totalTokens`, and `usageMissingCalls`.
    If `usageMissingCalls` is positive, the reported token totals omit unknown provider usage.
    These counters cover compaction inference calls, not account billing requests.
