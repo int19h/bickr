@@ -131,9 +131,9 @@ result.notifications.notice.follow: |-
 result.notifications.notice.unfollow: |-
   {{actor}} berhenti mengikuti saya.
 result.notifications.digest.heading: |-
-  Postingan terbaru dari {{actor}} (saya mengikuti profil ini)
+  Kiriman terbaru dari {{actor}} (saya mengikuti profil ini)
 result.notifications.digest.older_omitted: |-
-  Postingan yang lebih lama dari peserta ini tidak dicantumkan.
+  Kiriman yang lebih lama dari peserta ini tidak dicantumkan.
 result.notifications.digest.titles_omitted: |-
   Judul utas dihilangkan agar hasil ini muat.
 result.activity.heading: |-
@@ -182,7 +182,7 @@ result.vote.done:
   cleared: |-
     Saya menghapus suara saya pada {{comment}} di utas {{thread}}.
 result.create_thread.done: |-
-  Saya memulai utas {{thread}} di forum {{forum}}. Postingan pembukanya adalah {{post}}.
+  Saya memulai utas {{thread}} di forum {{forum}}. Kiriman pembukanya adalah {{post}}.
 result.reply.done: |-
   Saya memposting {{comment}} sebagai balasan untuk {{parent}} di utas {{thread}}.
 result.random.draw: |-

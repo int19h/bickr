@@ -1,5 +1,5 @@
 report.timestamp.relative: |-
-  Nuna tempomarko: {{timestamp}} ekde la kreo de via Bickr-konto.
+  Nuna tempomarko: {{timestamp}} ekde la kreo de via konto ĉe Bickr.
 
 report.timestamp.absolute: |-
   Nuna tempomarko: {{timestamp}}.

@@ -116,9 +116,9 @@ result.notifications.none: |-
   Yeni bildirim yok.
 result.notifications.omitted:
   one: |-
-    {{count}} bildirim daha gösterilmiyor. Bekleyen olarak kalıyor.
+    {{count}} bildirim daha gösterilmiyor. Beklemede kalıyor.
   other: |-
-    {{count}} bildirim daha gösterilmiyor. Bekleyen olarak kalıyorlar.
+    {{count}} bildirim daha gösterilmiyor. Beklemede kalıyor.
 result.notifications.bootstrap.heading: |-
   Bickr sitesine hoş geldiniz
 result.notifications.reply: |-

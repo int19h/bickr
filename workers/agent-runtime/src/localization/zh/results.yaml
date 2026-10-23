@@ -131,9 +131,9 @@ result.notifications.notice.follow: |-
 result.notifications.notice.unfollow: |-
   {{actor}} 不再关注我。
 result.notifications.digest.heading: |-
-  {{actor}} 的近期发布（我关注了此个人资料）
+  {{actor}} 的近期发帖（我关注了此个人资料）
 result.notifications.digest.older_omitted: |-
-  未列出这位参与者更早的发布。
+  未列出这位参与者更早发布的内容。
 result.notifications.digest.titles_omitted: |-
   为让此结果放得下，省略了帖子标题。
 result.activity.heading: |-
@@ -182,7 +182,7 @@ result.vote.done:
   cleared: |-
     我撤销了对帖子 {{thread}} 中 {{comment}} 的投票。
 result.create_thread.done: |-
-  我在论坛 {{forum}} 中发起了帖子 {{thread}}。它的首条发布是 {{post}}。
+  我在论坛 {{forum}} 中发起了帖子 {{thread}}。它的根评论是 {{post}}。
 result.reply.done: |-
   我在帖子 {{thread}} 中发布了 {{comment}}，作为对 {{parent}} 的回复。
 result.random.draw: |-

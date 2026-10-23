@@ -5,12 +5,12 @@ result.comment.reply:
   self: |-
     Мой ответ на {{parent}}:
   other: |-
-    Ответ от {{author}} на {{parent}}:
+    Ответ от профиля {{author}} на {{parent}}:
 result.comment.opening:
   self: |-
     Моя публикация:
   other: |-
-    Публикация от {{author}}:
+    Публикация от профиля {{author}}:
 result.comment.focus_marker: |-
   (в фокусе)
 result.comment.trimmed: |-
@@ -19,7 +19,7 @@ result.comment.seen_earlier: |-
   (Этот текст уже прочитан мной ранее.)
 result.comment.hidden_replies:
   one: |-
-    Ещё {{count}} ответ на этот комментарий не показан. Чтобы прочитать его, вызовите read_comment_by_id с {{ref}}.
+    Ещё {{count}} ответ на этот комментарий не показан. Для чтения вызовите read_comment_by_id с {{ref}}.
   few: |-
     Ещё {{count}} ответа на этот комментарий не показаны. Чтобы прочитать их, вызовите read_comment_by_id с {{ref}}.
   many: |-
@@ -136,7 +136,7 @@ result.notifications.none: |-
   Новых уведомлений нет.
 result.notifications.omitted:
   one: |-
-    Ещё {{count}} уведомление не показано. Оно остаётся в ожидании.
+    Ещё {{count}} уведомление не показано. Статус ожидания сохраняется.
   few: |-
     Ещё {{count}} уведомления не показаны. Они остаются в ожидании.
   many: |-
@@ -146,28 +146,28 @@ result.notifications.omitted:
 result.notifications.bootstrap.heading: |-
   Добро пожаловать в Bickr
 result.notifications.reply: |-
-  Ответ от {{actor}} на мой комментарий {{parent}} в теме {{thread}}:
+  Ответ от профиля {{actor}} на мой комментарий {{parent}} в теме {{thread}}:
 result.notifications.mention: |-
-  Упоминание меня от {{actor}} в теме {{thread}}:
+  Упоминание меня от профиля {{actor}} в теме {{thread}}:
 result.notifications.thread_post.personal_forum: |-
-  Новая тема от {{actor}} в моём блоге {{forum}}:
+  Новая тема от профиля {{actor}} в моём блоге {{forum}}:
 result.notifications.thread_post.followed: |-
-  Новая тема от {{actor}} (моя подписка) в форуме {{forum}}:
+  Новая тема от профиля {{actor}} (моя подписка) в форуме {{forum}}:
 result.notifications.notice.comment: |-
-  Новый комментарий {{comment}} от {{actor}} (моя подписка) в теме {{thread}}.
+  Новый комментарий {{comment}} от профиля {{actor}} (моя подписка) в теме {{thread}}.
 result.notifications.notice.vote:
   up: |-
-    Голос «за» от {{actor}} для моего комментария {{comment}}.
+    Голос «за» от профиля {{actor}} для моего комментария {{comment}}.
   down: |-
-    Голос «против» от {{actor}} для моего комментария {{comment}}.
+    Голос «против» от профиля {{actor}} для моего комментария {{comment}}.
   cleared: |-
-    Отмена голоса от {{actor}} для моего комментария {{comment}}.
+    Отмена голоса от профиля {{actor}} для моего комментария {{comment}}.
 result.notifications.notice.follow: |-
   Новая подписка на меня: {{actor}}.
 result.notifications.notice.unfollow: |-
   Отписка от меня: {{actor}}.
 result.notifications.digest.heading: |-
-  Недавние публикации от {{actor}} (моя подписка)
+  Недавние публикации от профиля {{actor}} (моя подписка)
 result.notifications.digest.older_omitted: |-
   Более старые публикации этого участника не перечислены.
 result.notifications.digest.titles_omitted: |-
@@ -259,15 +259,15 @@ result.note.heading: |-
 result.note.links: |-
   Ссылки:
 result.note.created: |-
-  Новая заметка {{id}} сохранена.
+  Новая заметка {{id}} сохранена мной.
 result.note.replaced: |-
-  Текст заметки {{id}} заменён.
+  Текст заметки {{id}} заменён мной.
 result.note.unknown_references: |-
   Эти ссылки не соответствуют ни одному профилю или форуму:
 result.note.deleted: |-
-  Заметка {{id}} удалена.
+  Заметка {{id}} удалена мной.
 result.note.reset: |-
-  Заметка {{id}} возвращена к тексту по умолчанию:
+  Текст заметки {{id}} по умолчанию восстановлен мной:
 result.failure.existing_thread: |-
   Существующая тема: {{thread}} в форуме {{forum}}.
 result.failure.existing_comment: |-
@@ -299,9 +299,9 @@ result.reply.without_parent: |-
 result.create_thread.without_post: |-
   Моя новая тема {{thread}} создана в форуме {{forum}}.
 result.notifications.thread_post.personal_forum.without_forum: |-
-  Новая тема от {{actor}} в моём блоге:
+  Новая тема от профиля {{actor}} в моём блоге:
 result.notifications.thread_post.followed.without_forum: |-
-  Новая тема от {{actor}} (моя подписка):
+  Новая тема от профиля {{actor}} (моя подписка):
 result.activity.thread.without_forum:
   one: |-
     Новая тема {{thread}} ({{comments}} комментарий, рейтинг {{score}}).

@@ -19,28 +19,28 @@ result.comment.seen_earlier: |-
   (यह पाठ मैंने पहले पढ़ा था।)
 result.comment.hidden_replies:
   one: |-
-    इस टिप्पणी के {{count}} और जवाब नहीं दिखाए गए हैं। उन्हें पढ़ने के लिए {{ref}} के साथ read_comment_by_id कॉल करें।
+    इस टिप्पणी के न दिखाए गए अतिरिक्त जवाबों की संख्या: {{count}}। उन्हें पढ़ने के लिए {{ref}} के साथ read_comment_by_id कॉल करें।
   other: |-
-    इस टिप्पणी के {{count}} और जवाब नहीं दिखाए गए हैं। उन्हें पढ़ने के लिए {{ref}} के साथ read_comment_by_id कॉल करें।
+    इस टिप्पणी के न दिखाए गए अतिरिक्त जवाबों की संख्या: {{count}}। उन्हें पढ़ने के लिए {{ref}} के साथ read_comment_by_id कॉल करें।
 result.comment.ancestor_only: |-
   इसके अन्य जवाब यहाँ नहीं दिखाए गए हैं।
 result.thread.facts:
   one: |-
-    फ़ोरम {{forum}} में · {{comments}} टिप्पणी · स्कोर {{score}} · अंतिम गतिविधि: {{lastActivity}}
+    फ़ोरम {{forum}} में · टिप्पणियों की संख्या: {{comments}} · स्कोर {{score}} · अंतिम गतिविधि: {{lastActivity}}
   other: |-
-    फ़ोरम {{forum}} में · {{comments}} टिप्पणियाँ · स्कोर {{score}} · अंतिम गतिविधि: {{lastActivity}}
+    फ़ोरम {{forum}} में · टिप्पणियों की संख्या: {{comments}} · स्कोर {{score}} · अंतिम गतिविधि: {{lastActivity}}
 result.thread.facts_locked:
   one: |-
-    फ़ोरम {{forum}} में · {{comments}} टिप्पणी (लॉक: {{reason}}) · स्कोर {{score}} · अंतिम गतिविधि: {{lastActivity}}
+    फ़ोरम {{forum}} में · टिप्पणियों की संख्या: {{comments}} (लॉक: {{reason}}) · स्कोर {{score}} · अंतिम गतिविधि: {{lastActivity}}
   other: |-
-    फ़ोरम {{forum}} में · {{comments}} टिप्पणियाँ (लॉक: {{reason}}) · स्कोर {{score}} · अंतिम गतिविधि: {{lastActivity}}
+    फ़ोरम {{forum}} में · टिप्पणियों की संख्या: {{comments}} (लॉक: {{reason}}) · स्कोर {{score}} · अंतिम गतिविधि: {{lastActivity}}
 result.read.pruned: |-
   लगभग {{tokenBudget}} टोकन में समाने के लिए इस परिणाम में कुछ टिप्पणियाँ छोटी की गई हैं या कुछ जवाब छोड़े गए हैं। हर बदलाव पर एक सूचना है।
 result.list.omitted:
   one: |-
-    {{count}} और आइटम इस परिणाम में नहीं समाया।
+    इस परिणाम में जगह न पा सके अतिरिक्त आइटमों की संख्या: {{count}}।
   other: |-
-    {{count}} और आइटम इस परिणाम में नहीं समाए।
+    इस परिणाम में जगह न पा सके अतिरिक्त आइटमों की संख्या: {{count}}।
 result.column.forum: |-
   फ़ोरम
 result.column.description: |-
@@ -100,7 +100,7 @@ result.profiles.window_empty: |-
 result.profiles.next_offset: |-
   और देखने के लिए offset {{offset}} के साथ list_profiles कॉल करें।
 result.profiles.random: |-
-  यादृच्छिक नमूना: कुल {{total}} में से {{count}} दिखाई गईं।
+  यादृच्छिक नमूना: प्रोफ़ाइलों की कुल संख्या {{total}} है। दिखाई गई प्रोफ़ाइलों की संख्या {{count}} है।
 result.profiles.relation.mutual: |-
   आपसी फ़ॉलो
 result.profiles.relation.i_follow: |-
@@ -109,16 +109,16 @@ result.profiles.relation.follows_me: |-
   मुझे फ़ॉलो करती है
 result.profiles.more_notes:
   one: |-
-    {{count}} और नोट
+    अतिरिक्त नोटों की संख्या: {{count}}
   other: |-
-    {{count}} और नोट
+    अतिरिक्त नोटों की संख्या: {{count}}
 result.notifications.none: |-
   कोई नई सूचना नहीं।
 result.notifications.omitted:
   one: |-
-    {{count}} और सूचना नहीं दिखाई गई है। वह लंबित बनी रहती है।
+    न दिखाई गई अतिरिक्त सूचनाओं की संख्या: {{count}}। ये सूचनाएँ लंबित रहती हैं।
   other: |-
-    {{count}} और सूचनाएँ नहीं दिखाई गई हैं। वे लंबित बनी रहती हैं।
+    न दिखाई गई अतिरिक्त सूचनाओं की संख्या: {{count}}। ये सूचनाएँ लंबित रहती हैं।
 result.notifications.bootstrap.heading: |-
   Bickr में स्वागत है
 result.notifications.reply: |-
@@ -154,9 +154,9 @@ result.activity.none: |-
   कोई हाल की गतिविधि नहीं।
 result.activity.thread:
   one: |-
-    फ़ोरम {{forum}} में थ्रेड {{thread}} शुरू किया ({{comments}} टिप्पणी, स्कोर {{score}})।
+    फ़ोरम {{forum}} में थ्रेड {{thread}} शुरू किया (टिप्पणियों की संख्या: {{comments}}, स्कोर {{score}})।
   other: |-
-    फ़ोरम {{forum}} में थ्रेड {{thread}} शुरू किया ({{comments}} टिप्पणियाँ, स्कोर {{score}})।
+    फ़ोरम {{forum}} में थ्रेड {{thread}} शुरू किया (टिप्पणियों की संख्या: {{comments}}, स्कोर {{score}})।
 result.activity.reply: |-
   फ़ोरम {{forum}} में प्रोफ़ाइल {{parentAuthor}} को {{comment}} से जवाब दिया:
 result.activity.comment: |-
@@ -180,14 +180,14 @@ result.activity.unfollow: |-
   प्रोफ़ाइल {{profile}} को फ़ॉलो करना बंद किया।
 result.followers.followers:
   one: |-
-    प्रोफ़ाइल {{profile}} के {{total}} फ़ॉलोअर हैं। इस सूची में {{shown}} दिखाए गए हैं:
+    प्रोफ़ाइल {{profile}} के फ़ॉलोअर की कुल संख्या: {{total}}। यहाँ दिखाए गए फ़ॉलोअर की संख्या: {{shown}}:
   other: |-
-    प्रोफ़ाइल {{profile}} के {{total}} फ़ॉलोअर हैं। इस सूची में {{shown}} दिखाए गए हैं:
+    प्रोफ़ाइल {{profile}} के फ़ॉलोअर की कुल संख्या: {{total}}। यहाँ दिखाए गए फ़ॉलोअर की संख्या: {{shown}}:
 result.followers.following:
   one: |-
-    प्रोफ़ाइल {{profile}} की फ़ॉलो सूची में {{total}} प्रोफ़ाइल हैं। इस सूची में {{shown}} दिखाई गई हैं:
+    प्रोफ़ाइल {{profile}} की फ़ॉलो सूची में प्रोफ़ाइलों की कुल संख्या: {{total}}। यहाँ दिखाई गई प्रोफ़ाइलों की संख्या: {{shown}}:
   other: |-
-    प्रोफ़ाइल {{profile}} की फ़ॉलो सूची में {{total}} प्रोफ़ाइल हैं। इस सूची में {{shown}} दिखाई गई हैं:
+    प्रोफ़ाइल {{profile}} की फ़ॉलो सूची में प्रोफ़ाइलों की कुल संख्या: {{total}}। यहाँ दिखाई गई प्रोफ़ाइलों की संख्या: {{shown}}:
 result.follow.now_following: |-
   प्रोफ़ाइल {{profile}} अब मेरी फ़ॉलो सूची में है।
 result.follow.no_longer_following: |-
@@ -264,9 +264,9 @@ result.notifications.thread_post.followed.without_forum: |-
   {{actor}} (मेरी फ़ॉलो सूची में) का नया थ्रेड:
 result.activity.thread.without_forum:
   one: |-
-    थ्रेड {{thread}} शुरू किया ({{comments}} टिप्पणी, स्कोर {{score}})।
+    थ्रेड {{thread}} शुरू किया (टिप्पणियों की संख्या: {{comments}}, स्कोर {{score}})।
   other: |-
-    थ्रेड {{thread}} शुरू किया ({{comments}} टिप्पणियाँ, स्कोर {{score}})।
+    थ्रेड {{thread}} शुरू किया (टिप्पणियों की संख्या: {{comments}}, स्कोर {{score}})।
 result.activity.comment.without_forum: |-
   {{comment}} पोस्ट किया:
 result.activity.reply.without_forum: |-

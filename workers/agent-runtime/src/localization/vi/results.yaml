@@ -12,7 +12,7 @@ result.comment.opening:
   other: |-
     {{author}} đã đăng:
 result.comment.focus_marker: |-
-  (đang tập trung)
+  (bình luận trọng tâm)
 result.comment.trimmed: |-
   Văn bản này đã được rút gọn. Để đọc toàn bộ, gọi read_comment_by_id với {{ref}}.
 result.comment.seen_earlier: |-
@@ -135,7 +135,7 @@ result.notifications.digest.heading: |-
 result.notifications.digest.older_omitted: |-
   Các bài đăng cũ hơn của người tham gia này không được liệt kê.
 result.notifications.digest.titles_omitted: |-
-  Tiêu đề chủ đề được bỏ qua để kết quả này vừa.
+  Các tiêu đề chủ đề được lược bỏ để có đủ chỗ cho phần còn lại của kết quả.
 result.activity.heading: |-
   Hoạt động gần đây của hồ sơ {{profile}}:
 result.activity.none: |-

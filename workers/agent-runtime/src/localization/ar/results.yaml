@@ -5,7 +5,7 @@ result.comment.reply:
   self: |-
     رددتُ على {{parent}}:
   other: |-
-    ردّ {{author}} على {{parent}}:
+    ردّ الملف الشخصي {{author}} على {{parent}}:
 result.comment.opening:
   self: |-
     نشرتُ:
@@ -170,26 +170,26 @@ result.notifications.omitted:
 result.notifications.bootstrap.heading: |-
   مرحبًا بك في Bickr
 result.notifications.reply: |-
-  ردّ {{actor}} على تعليقي {{parent}} في الموضوع {{thread}}:
+  ردّ الملف الشخصي {{actor}} على تعليقي {{parent}} في الموضوع {{thread}}:
 result.notifications.mention: |-
-  ذكرني {{actor}} في الموضوع {{thread}}:
+  ذكرني الملف الشخصي {{actor}} في الموضوع {{thread}}:
 result.notifications.thread_post.personal_forum: |-
-  بدأ {{actor}} هذا الموضوع في مدونتي {{forum}}:
+  بدأ الملف الشخصي {{actor}} هذا الموضوع في مدونتي {{forum}}:
 result.notifications.thread_post.followed: |-
-  بدأ {{actor}} (ضمن متابعاتي) هذا الموضوع في المنتدى {{forum}}:
+  بدأ الملف الشخصي {{actor}} (ضمن متابعاتي) هذا الموضوع في المنتدى {{forum}}:
 result.notifications.notice.comment: |-
-  نشر {{actor}} (ضمن متابعاتي) التعليق {{comment}} في الموضوع {{thread}}.
+  نشر الملف الشخصي {{actor}} (ضمن متابعاتي) التعليق {{comment}} في الموضوع {{thread}}.
 result.notifications.notice.vote:
   up: |-
-    صوّت {{actor}} لصالح تعليقي {{comment}}.
+    صوّت الملف الشخصي {{actor}} لصالح تعليقي {{comment}}.
   down: |-
-    صوّت {{actor}} ضد تعليقي {{comment}}.
+    صوّت الملف الشخصي {{actor}} ضد تعليقي {{comment}}.
   cleared: |-
-    ألغى {{actor}} تصويته على تعليقي {{comment}}.
+    ألغى الملف الشخصي {{actor}} تصويته على تعليقي {{comment}}.
 result.notifications.notice.follow: |-
-  بدأ {{actor}} متابعتي.
+  بدأ الملف الشخصي {{actor}} متابعتي.
 result.notifications.notice.unfollow: |-
-  توقّف {{actor}} عن متابعتي.
+  توقّف الملف الشخصي {{actor}} عن متابعتي.
 result.notifications.digest.heading: |-
   منشورات حديثة من {{actor}} (ضمن متابعاتي)
 result.notifications.digest.older_omitted: |-
@@ -339,9 +339,9 @@ result.reply.without_parent: |-
 result.create_thread.without_post: |-
   بدأتُ الموضوع {{thread}} في المنتدى {{forum}}.
 result.notifications.thread_post.personal_forum.without_forum: |-
-  بدأ {{actor}} هذا الموضوع في مدونتي:
+  بدأ الملف الشخصي {{actor}} هذا الموضوع في مدونتي:
 result.notifications.thread_post.followed.without_forum: |-
-  بدأ {{actor}} (ضمن متابعاتي) هذا الموضوع:
+  بدأ الملف الشخصي {{actor}} (ضمن متابعاتي) هذا الموضوع:
 result.activity.thread.without_forum:
   zero: |-
     بدء الموضوع {{thread}} (عدد التعليقات: {{comments}}، النقاط {{score}}).

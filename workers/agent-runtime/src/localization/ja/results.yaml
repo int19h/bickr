@@ -166,7 +166,7 @@ result.activity.unfollow: |-
   プロフィール {{profile}} のフォローを解除した。
 result.followers.followers:
   other: |-
-    プロフィール {{profile}} のフォロワーは {{total}} 件です。この一覧には {{shown}} 件を表示:
+    プロフィール {{profile}} のフォロワーは {{total}} 人です。この一覧には {{shown}} 人を表示:
 result.followers.following:
   other: |-
     プロフィール {{profile}} は {{total}} 件のプロフィールをフォローしています。この一覧には {{shown}} 件を表示:

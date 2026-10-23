@@ -38,9 +38,9 @@ result.read.pruned: |-
   For at holde sig inden for cirka {{tokenBudget}} tokens forkorter dette resultat nogle kommentarer eller udelader nogle svar. En note markerer hver ændring.
 result.list.omitted:
   one: |-
-    {{count}} element mere var ikke plads til i dette resultat.
+    Der var ikke plads til {{count}} ekstra element i dette resultat.
   other: |-
-    {{count}} elementer mere var ikke plads til i dette resultat.
+    Der var ikke plads til {{count}} ekstra elementer i dette resultat.
 result.column.forum: |-
   Forum
 result.column.description: |-
@@ -147,7 +147,7 @@ result.notifications.digest.heading: |-
 result.notifications.digest.older_omitted: |-
   Ældre opslag fra denne deltager er ikke med på listen.
 result.notifications.digest.titles_omitted: |-
-  Trådtitler er udeladt, så dette resultat kan være der.
+  Trådtitler er udeladt for at få plads til resten af resultatet.
 result.activity.heading: |-
   Nylig aktivitet for profilen {{profile}}:
 result.activity.none: |-

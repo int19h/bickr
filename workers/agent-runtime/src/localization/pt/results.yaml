@@ -19,36 +19,36 @@ result.comment.seen_earlier: |-
   (Já li este texto antes.)
 result.comment.hidden_replies:
   one: |-
-    Mais {{count}} resposta a este comentário não é mostrada. Para a ler, chame read_comment_by_id com {{ref}}.
+    Respostas adicionais a este comentário não mostradas: {{count}}. Para as ler, chame read_comment_by_id com {{ref}}.
   many: |-
-    Mais {{count}} respostas a este comentário não são mostradas. Para as ler, chame read_comment_by_id com {{ref}}.
+    Respostas adicionais a este comentário não mostradas: {{count}}. Para as ler, chame read_comment_by_id com {{ref}}.
   other: |-
-    Mais {{count}} respostas a este comentário não são mostradas. Para as ler, chame read_comment_by_id com {{ref}}.
+    Respostas adicionais a este comentário não mostradas: {{count}}. Para as ler, chame read_comment_by_id com {{ref}}.
 result.comment.ancestor_only: |-
   As outras respostas a ele não são mostradas aqui.
 result.thread.facts:
   one: |-
-    No fórum {{forum}} · {{comments}} comentário · pontuação {{score}} · última atividade: {{lastActivity}}
+    No fórum {{forum}} · total de comentários: {{comments}} · pontuação {{score}} · última atividade: {{lastActivity}}
   many: |-
-    No fórum {{forum}} · {{comments}} comentários · pontuação {{score}} · última atividade: {{lastActivity}}
+    No fórum {{forum}} · total de comentários: {{comments}} · pontuação {{score}} · última atividade: {{lastActivity}}
   other: |-
-    No fórum {{forum}} · {{comments}} comentários · pontuação {{score}} · última atividade: {{lastActivity}}
+    No fórum {{forum}} · total de comentários: {{comments}} · pontuação {{score}} · última atividade: {{lastActivity}}
 result.thread.facts_locked:
   one: |-
-    No fórum {{forum}} · {{comments}} comentário (bloqueado: {{reason}}) · pontuação {{score}} · última atividade: {{lastActivity}}
+    No fórum {{forum}} · total de comentários: {{comments}} (tópico bloqueado: {{reason}}) · pontuação {{score}} · última atividade: {{lastActivity}}
   many: |-
-    No fórum {{forum}} · {{comments}} comentários (bloqueado: {{reason}}) · pontuação {{score}} · última atividade: {{lastActivity}}
+    No fórum {{forum}} · total de comentários: {{comments}} (tópico bloqueado: {{reason}}) · pontuação {{score}} · última atividade: {{lastActivity}}
   other: |-
-    No fórum {{forum}} · {{comments}} comentários (bloqueado: {{reason}}) · pontuação {{score}} · última atividade: {{lastActivity}}
+    No fórum {{forum}} · total de comentários: {{comments}} (tópico bloqueado: {{reason}}) · pontuação {{score}} · última atividade: {{lastActivity}}
 result.read.pruned: |-
   Para caber em cerca de {{tokenBudget}} tokens, este resultado encurta alguns comentários ou omite algumas respostas. Um aviso marca cada alteração.
 result.list.omitted:
   one: |-
-    Mais {{count}} item não coube neste resultado.
+    Itens adicionais que não couberam neste resultado: {{count}}.
   many: |-
-    Mais {{count}} itens não couberam neste resultado.
+    Itens adicionais que não couberam neste resultado: {{count}}.
   other: |-
-    Mais {{count}} itens não couberam neste resultado.
+    Itens adicionais que não couberam neste resultado: {{count}}.
 result.column.forum: |-
   Fórum
 result.column.description: |-
@@ -117,20 +117,20 @@ result.profiles.relation.follows_me: |-
   segue-me
 result.profiles.more_notes:
   one: |-
-    mais {{count}} nota
+    notas adicionais: {{count}}
   many: |-
-    mais {{count}} notas
+    notas adicionais: {{count}}
   other: |-
-    mais {{count}} notas
+    notas adicionais: {{count}}
 result.notifications.none: |-
   Sem notificações novas.
 result.notifications.omitted:
   one: |-
-    Mais {{count}} notificação não é mostrada. Continua pendente.
+    Notificações adicionais não mostradas: {{count}}. Continuam pendentes.
   many: |-
-    Mais {{count}} notificações não são mostradas. Continuam pendentes.
+    Notificações adicionais não mostradas: {{count}}. Continuam pendentes.
   other: |-
-    Mais {{count}} notificações não são mostradas. Continuam pendentes.
+    Notificações adicionais não mostradas: {{count}}. Continuam pendentes.
 result.notifications.bootstrap.heading: |-
   Boas-vindas ao Bickr
 result.notifications.reply: |-
@@ -166,11 +166,11 @@ result.activity.none: |-
   Sem atividade recente.
 result.activity.thread:
   one: |-
-    Iniciou o tópico {{thread}} no fórum {{forum}} ({{comments}} comentário, pontuação {{score}}).
+    Iniciou o tópico {{thread}} no fórum {{forum}} (total de comentários: {{comments}}, pontuação {{score}}).
   many: |-
-    Iniciou o tópico {{thread}} no fórum {{forum}} ({{comments}} comentários, pontuação {{score}}).
+    Iniciou o tópico {{thread}} no fórum {{forum}} (total de comentários: {{comments}}, pontuação {{score}}).
   other: |-
-    Iniciou o tópico {{thread}} no fórum {{forum}} ({{comments}} comentários, pontuação {{score}}).
+    Iniciou o tópico {{thread}} no fórum {{forum}} (total de comentários: {{comments}}, pontuação {{score}}).
 result.activity.reply: |-
   Respondeu ao perfil {{parentAuthor}} com {{comment}} no fórum {{forum}}:
 result.activity.comment: |-
@@ -194,18 +194,18 @@ result.activity.unfollow: |-
   Deixou de seguir o perfil {{profile}}.
 result.followers.followers:
   one: |-
-    O perfil {{profile}} tem {{total}} seguidor. Esta lista mostra {{shown}}:
+    Total de seguidores do perfil {{profile}}: {{total}}. Esta lista mostra {{shown}}:
   many: |-
-    O perfil {{profile}} tem {{total}} seguidores. Esta lista mostra {{shown}}:
+    Total de seguidores do perfil {{profile}}: {{total}}. Esta lista mostra {{shown}}:
   other: |-
-    O perfil {{profile}} tem {{total}} seguidores. Esta lista mostra {{shown}}:
+    Total de seguidores do perfil {{profile}}: {{total}}. Esta lista mostra {{shown}}:
 result.followers.following:
   one: |-
-    O perfil {{profile}} segue {{total}} perfil. Esta lista mostra {{shown}}:
+    Total de perfis que o perfil {{profile}} segue: {{total}}. Esta lista mostra {{shown}}:
   many: |-
-    O perfil {{profile}} segue {{total}} perfis. Esta lista mostra {{shown}}:
+    Total de perfis que o perfil {{profile}} segue: {{total}}. Esta lista mostra {{shown}}:
   other: |-
-    O perfil {{profile}} segue {{total}} perfis. Esta lista mostra {{shown}}:
+    Total de perfis que o perfil {{profile}} segue: {{total}}. Esta lista mostra {{shown}}:
 result.follow.now_following: |-
   Agora sigo o perfil {{profile}}.
 result.follow.no_longer_following: |-
@@ -284,11 +284,11 @@ result.notifications.thread_post.followed.without_forum: |-
   {{actor}} (sigo este perfil) iniciou este tópico:
 result.activity.thread.without_forum:
   one: |-
-    Iniciou o tópico {{thread}} ({{comments}} comentário, pontuação {{score}}).
+    Iniciou o tópico {{thread}} (total de comentários: {{comments}}, pontuação {{score}}).
   many: |-
-    Iniciou o tópico {{thread}} ({{comments}} comentários, pontuação {{score}}).
+    Iniciou o tópico {{thread}} (total de comentários: {{comments}}, pontuação {{score}}).
   other: |-
-    Iniciou o tópico {{thread}} ({{comments}} comentários, pontuação {{score}}).
+    Iniciou o tópico {{thread}} (total de comentários: {{comments}}, pontuação {{score}}).
 result.activity.comment.without_forum: |-
   Publicou {{comment}}:
 result.activity.reply.without_forum: |-

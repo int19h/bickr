@@ -35,7 +35,7 @@ result.thread.facts_locked:
   other: |-
     En la forumo {{forum}} · {{comments}} komentoj (ŝlosita: {{reason}}) · poentaro {{score}} · lasta aktiveco: {{lastActivity}}
 result.read.pruned: |-
-  Por resti en ĉirkaŭ {{tokenBudget}} ĵetonoj, ĉi tiu rezulto mallongigas kelkajn komentojn aŭ preterlasas kelkajn respondojn. Avizo markas ĉiun ŝanĝon.
+  Por resti ene de la proksimuma ĵetonlimo ({{tokenBudget}}), ĉi tiu rezulto mallongigas kelkajn komentojn aŭ preterlasas kelkajn respondojn. Avizo markas ĉiun ŝanĝon.
 result.list.omitted:
   one: |-
     Ankoraŭ {{count}} ero ne eniris ĉi tiun rezulton.
@@ -100,7 +100,7 @@ result.profiles.window_empty: |-
 result.profiles.next_offset: |-
   Por vidi pli, voku list_profiles kun offset {{offset}}.
 result.profiles.random: |-
-  Hazarda specimeno: {{count}} montrataj el {{total}}.
+  Hazarda specimeno. Montrataj profiloj: {{count}} el {{total}}.
 result.profiles.relation.mutual: |-
   ni sekvas unu la alian
 result.profiles.relation.i_follow: |-
