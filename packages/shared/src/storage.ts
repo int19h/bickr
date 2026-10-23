@@ -38,6 +38,9 @@ export const kvKeys = {
 	// normalization pass finishes, then deleted before the next pass.
 	kvNormalizationSweepCursor: (objectType: IndexedEntityType) =>
 		`v1:maintenance:kv-normalization-sweep-cursor:${objectType}`,
+	// Keep this cursor only while a participant-time migration pass is incomplete.
+	// Delete it after each full pass. Remove this key with the migration after its census.
+	participantTimeSweepCursor: "v1:maintenance:participant-time-sweep-cursor",
 	// One cursor per deleted forum is retained only while its bounded thread
 	// deletion fan-out is incomplete. The owning forum coordinator removes it
 	// after every indexed thread has passed through its thread coordinator.

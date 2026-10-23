@@ -1,8 +1,8 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "catalogSourceHash": "1ea4d0935facacfea35be251f30fc67822b5de7e36d4075fd21c7595bffff89e",
+  "catalogSourceHash": "569c6dc99760c3c93e1594717e4078e6e25111ee4b5b788935ef32b6d2cb5cab",
   "locale": "ga",
-  "status": "accepted_by_lead",
+  "status": "partially_pending_translation",
   "leadReason": "Accept best-effort Irish after both requested final discussions and both 28-unit follow-ups. Use standard is gá dom action needs, direct audience wording, explicit persona genitives, dictionary-backed disclaimer notices, singular detached member headers, native JSON adjective order and list punctuation. Keep the maximum ceiling and all conditions. Relative-time digit patterns follow resolved Unicode CLDR and protected identifiers remain opaque. The lead chooses the optional direct relative from Opus.",
   "terminologyDecisions": {
     "action": "gníomh for an action. Beart can also mean action and is not invalid.",
@@ -3311,7 +3311,7 @@
     },
     "serialization": {
       "finalHash": "371adc3b6c2d289dfa8391e9925854d0d7886778fb0537f54e79bb460d75ed08",
-      "finalTemplateHash": "3d52acc0d2d30b1f540453f568cd2af96a48059eb748290bb792dc6ef5782882",
+      "finalTemplateHash": "80a8f322630643526a9eefb122151d2f11af8a21f8d5369c117cbbe52cf80361",
       "draftHashes": {
         "codex": "aa3c69efa0fca7f15a723ab0a7bfdb621e2ad7b09d0cd2d4e8d98c734331004c",
         "opus": "bacb49abab329d0c375b3644e7cbee9d9f0c93c2887f6cc931430d3b1f301b55",
@@ -3323,259 +3323,6 @@
         "grok": "d4f4984eef73155c72cd2c6adbe935e47f36f0de11ec690c74f55c61e6bbceff"
       },
       "decisions": {
-        "time.just_now": {
-          "finalValueHash": "d67db42f8ee018d68ffa02a6e828bbbf77019234b37246644a80d1fa5216356f",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All agree on just now.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept díreach anois as the compact fragment for just now. It is not a counted unit.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "time.year.future": {
-          "finalValueHash": "481c5126e1c698dc234373a52f0a5a207ff1e9b18ecef69222089aa9f6dffcc5",
-          "chosenFrom": "synthesis",
-          "leadReason": "Use a complete native relative-time phrase with the exact count and unit. The candidate already preserves elapsed or remaining direction, so I reject a blanket claim that its meaning is lost. A relative phrase fits when and lastActivity more naturally. The resolved Unicode CLDR Irish data gives digit-based forms for all five categories. It also distinguishes the future one-year bliana from the past bhliain, and counted hours uair an chloig from occurrences. Compare this evidence with all four drafts and both reviewers. Retain the documented best-effort scope.",
-          "candidateReason": "All five year future variants compared: Codex uses complete neutral count sentences. Others use fragments and differing numeral noun forms, especially genitives in future units.",
-          "opusDecision": "required_change",
-          "opusReason": "The runtime inserts this text into the JSON \"when\" and \"lastActivity\" field values, but the candidate is a full sentence (\"Is é N an t-am atá fágtha, i mblianta.\"). The opus draft gives the native relative phrase with the standard counting forms: bhliain for 1 and 2, bliana for 3–6, mbliana for 7–10, bliain otherwise.",
-          "grokDecision": "accept",
-          "grokReason": "Accept the neutral label an t-am atá fágtha, i mblianta. It keeps a future point for every category, including 1 and 0, without an uncertain numeral mutation. A split such as i gceann 1 bhliain is recorded as unresolved, not adopted.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "The lead's forms match CLDR 48 exactly; I verified them locally with Intl.RelativeTimeFormat(\"ga\") on ICU 78.3. \"i gceann N …\" is the future (focloir and teanglann) and \"N … ó shin\" the past. The one category takes \"bliana\" in the future (\"i gceann bliana\") and \"bhliain\" in the past. Counted hours use \"uair an chloig\" and many \"n-uair an chloig\". My comparison-stage \"i gceann 1 bhliain\" and \"huaire\" are not the documented forms, so I withdraw them. Every category keeps the visible digit count. Confidence limit: CLDR shows its own choice for written digits in 0 and 11–19 (other uses the bare singular, for example \"11 bliain\"), which follows the Caighdeán simplified system for larger numbers; a native reviewer should still confirm that choice in tool-result fields.",
-              "proposedValueHash": "481c5126e1c698dc234373a52f0a5a207ff1e9b18ecef69222089aa9f6dffcc5"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept the i gceann phrases. English is the future field phrase. i gceann names the point after the interval, which the dictionary separates from ago and from within. Future one uses bliana. two uses bhliain, few uses bliana, many uses mbliana, and other uses bliain. The five strings match the cited CLDR Irish relative-time patterns, with {{count}} in place of {0}. These are explicit catalog patterns. They do not call Intl.RelativeTimeFormat. Irish one is 1, two is 2, few is 3–6, many is 7–10, and other covers 0, 11, 21, 100, 101, and 1000000.",
-              "proposedValueHash": "481c5126e1c698dc234373a52f0a5a207ff1e9b18ecef69222089aa9f6dffcc5"
-            }
-          }
-        },
-        "time.year.past": {
-          "finalValueHash": "14802832f72e241f470277f4d6c8d4658c8558bbb242f2fcf55682c44bec05c1",
-          "chosenFrom": "synthesis",
-          "leadReason": "Use a complete native relative-time phrase with the exact count and unit. The candidate already preserves elapsed or remaining direction, so I reject a blanket claim that its meaning is lost. A relative phrase fits when and lastActivity more naturally. The resolved Unicode CLDR Irish data gives digit-based forms for all five categories. It also distinguishes the future one-year bliana from the past bhliain, and counted hours uair an chloig from occurrences. Compare this evidence with all four drafts and both reviewers. Retain the documented best-effort scope.",
-          "candidateReason": "All five year past variants compared: Codex uses complete neutral count sentences. Others use fragments and differing numeral noun forms, especially genitives in future units.",
-          "opusDecision": "required_change",
-          "opusReason": "Same field-value defect; the opus draft uses \"N bhliain/bliana/mbliana/bliain ó shin\" by category.",
-          "grokDecision": "accept",
-          "grokReason": "Accept an t-am atá caite, i mblianta. It keeps a past point. The same string is safe for one, two, few, many, and other.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "The lead's forms match CLDR 48 exactly; I verified them locally with Intl.RelativeTimeFormat(\"ga\") on ICU 78.3. \"i gceann N …\" is the future (focloir and teanglann) and \"N … ó shin\" the past. The one category takes \"bliana\" in the future (\"i gceann bliana\") and \"bhliain\" in the past. Counted hours use \"uair an chloig\" and many \"n-uair an chloig\". My comparison-stage \"i gceann 1 bhliain\" and \"huaire\" are not the documented forms, so I withdraw them. Every category keeps the visible digit count. Confidence limit: CLDR shows its own choice for written digits in 0 and 11–19 (other uses the bare singular, for example \"11 bliain\"), which follows the Caighdeán simplified system for larger numbers; a native reviewer should still confirm that choice in tool-result fields.",
-              "proposedValueHash": "14802832f72e241f470277f4d6c8d4658c8558bbb242f2fcf55682c44bec05c1"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept the ó shin phrases. English is the ago field phrase. ó shin names the point before now. Past one and two use bhliain. few uses bliana, many uses mbliana, and other uses bliain. This past one form is not the future one form. The five strings match the cited CLDR Irish relative-time patterns, with {{count}} in place of {0}. These are explicit catalog patterns. They do not call Intl.RelativeTimeFormat. Irish one is 1, two is 2, few is 3–6, many is 7–10, and other covers 0, 11, 21, 100, 101, and 1000000.",
-              "proposedValueHash": "14802832f72e241f470277f4d6c8d4658c8558bbb242f2fcf55682c44bec05c1"
-            }
-          }
-        },
-        "time.month.future": {
-          "finalValueHash": "00804de92148575666cea14e9c84a0540204b9f006a5f601c86a8c5d1ae13c06",
-          "chosenFrom": "synthesis",
-          "leadReason": "Use a complete native relative-time phrase with the exact count and unit. The candidate already preserves elapsed or remaining direction, so I reject a blanket claim that its meaning is lost. A relative phrase fits when and lastActivity more naturally. The resolved Unicode CLDR Irish data gives digit-based forms for all five categories. It also distinguishes the future one-year bliana from the past bhliain, and counted hours uair an chloig from occurrences. Compare this evidence with all four drafts and both reviewers. Retain the documented best-effort scope.",
-          "candidateReason": "All five month future variants compared: Codex uses complete neutral count sentences. Others use fragments and differing numeral noun forms, especially genitives in future units.",
-          "opusDecision": "required_change",
-          "opusReason": "Same field-value defect; mhí is lenited after 1–6 and plain after 7–10 and other, as in the opus draft.",
-          "grokDecision": "accept",
-          "grokReason": "Accept the neutral remaining-time label in months. Direction stays future.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "The lead's forms match CLDR 48 exactly; I verified them locally with Intl.RelativeTimeFormat(\"ga\") on ICU 78.3. \"i gceann N …\" is the future (focloir and teanglann) and \"N … ó shin\" the past. The one category takes \"bliana\" in the future (\"i gceann bliana\") and \"bhliain\" in the past. Counted hours use \"uair an chloig\" and many \"n-uair an chloig\". My comparison-stage \"i gceann 1 bhliain\" and \"huaire\" are not the documented forms, so I withdraw them. Every category keeps the visible digit count. Confidence limit: CLDR shows its own choice for written digits in 0 and 11–19 (other uses the bare singular, for example \"11 bliain\"), which follows the Caighdeán simplified system for larger numbers; a native reviewer should still confirm that choice in tool-result fields.",
-              "proposedValueHash": "00804de92148575666cea14e9c84a0540204b9f006a5f601c86a8c5d1ae13c06"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept the i gceann phrases. English is the future field phrase. i gceann names the point after the interval, which the dictionary separates from ago and from within. one, two, and few use lenited mhí. many and other use mí. The five strings match the cited CLDR Irish relative-time patterns, with {{count}} in place of {0}. These are explicit catalog patterns. They do not call Intl.RelativeTimeFormat. Irish one is 1, two is 2, few is 3–6, many is 7–10, and other covers 0, 11, 21, 100, 101, and 1000000.",
-              "proposedValueHash": "00804de92148575666cea14e9c84a0540204b9f006a5f601c86a8c5d1ae13c06"
-            }
-          }
-        },
-        "time.month.past": {
-          "finalValueHash": "974c4e2c20bad71b25d98e7191fee5b2076d998c183e22da888b77031ff62850",
-          "chosenFrom": "synthesis",
-          "leadReason": "Use a complete native relative-time phrase with the exact count and unit. The candidate already preserves elapsed or remaining direction, so I reject a blanket claim that its meaning is lost. A relative phrase fits when and lastActivity more naturally. The resolved Unicode CLDR Irish data gives digit-based forms for all five categories. It also distinguishes the future one-year bliana from the past bhliain, and counted hours uair an chloig from occurrences. Compare this evidence with all four drafts and both reviewers. Retain the documented best-effort scope.",
-          "candidateReason": "All five month past variants compared: Codex uses complete neutral count sentences. Others use fragments and differing numeral noun forms, especially genitives in future units.",
-          "opusDecision": "required_change",
-          "opusReason": "Same field-value defect.",
-          "grokDecision": "accept",
-          "grokReason": "Accept the neutral elapsed-time label in months. Direction stays past.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "The lead's forms match CLDR 48 exactly; I verified them locally with Intl.RelativeTimeFormat(\"ga\") on ICU 78.3. \"i gceann N …\" is the future (focloir and teanglann) and \"N … ó shin\" the past. The one category takes \"bliana\" in the future (\"i gceann bliana\") and \"bhliain\" in the past. Counted hours use \"uair an chloig\" and many \"n-uair an chloig\". My comparison-stage \"i gceann 1 bhliain\" and \"huaire\" are not the documented forms, so I withdraw them. Every category keeps the visible digit count. Confidence limit: CLDR shows its own choice for written digits in 0 and 11–19 (other uses the bare singular, for example \"11 bliain\"), which follows the Caighdeán simplified system for larger numbers; a native reviewer should still confirm that choice in tool-result fields.",
-              "proposedValueHash": "974c4e2c20bad71b25d98e7191fee5b2076d998c183e22da888b77031ff62850"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept the ó shin phrases. English is the ago field phrase. ó shin names the point before now. one, two, and few use lenited mhí. many and other use mí. The five strings match the cited CLDR Irish relative-time patterns, with {{count}} in place of {0}. These are explicit catalog patterns. They do not call Intl.RelativeTimeFormat. Irish one is 1, two is 2, few is 3–6, many is 7–10, and other covers 0, 11, 21, 100, 101, and 1000000.",
-              "proposedValueHash": "974c4e2c20bad71b25d98e7191fee5b2076d998c183e22da888b77031ff62850"
-            }
-          }
-        },
-        "time.day.future": {
-          "finalValueHash": "036da7d2b48563c0335bba79759a8e5eeaa11424c6f49fafd96c8442af6fe971",
-          "chosenFrom": "synthesis",
-          "leadReason": "Use a complete native relative-time phrase with the exact count and unit. The candidate already preserves elapsed or remaining direction, so I reject a blanket claim that its meaning is lost. A relative phrase fits when and lastActivity more naturally. The resolved Unicode CLDR Irish data gives digit-based forms for all five categories. It also distinguishes the future one-year bliana from the past bhliain, and counted hours uair an chloig from occurrences. Compare this evidence with all four drafts and both reviewers. Retain the documented best-effort scope.",
-          "candidateReason": "All five day future variants compared: Codex uses complete neutral count sentences. Others use fragments and differing numeral noun forms, especially genitives in future units.",
-          "opusDecision": "required_change",
-          "opusReason": "Same field-value defect; lá does not mutate after numerals.",
-          "grokDecision": "accept",
-          "grokReason": "Accept the neutral remaining-time label in days.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "The lead's forms match CLDR 48 exactly; I verified them locally with Intl.RelativeTimeFormat(\"ga\") on ICU 78.3. \"i gceann N …\" is the future (focloir and teanglann) and \"N … ó shin\" the past. The one category takes \"bliana\" in the future (\"i gceann bliana\") and \"bhliain\" in the past. Counted hours use \"uair an chloig\" and many \"n-uair an chloig\". My comparison-stage \"i gceann 1 bhliain\" and \"huaire\" are not the documented forms, so I withdraw them. Every category keeps the visible digit count. Confidence limit: CLDR shows its own choice for written digits in 0 and 11–19 (other uses the bare singular, for example \"11 bliain\"), which follows the Caighdeán simplified system for larger numbers; a native reviewer should still confirm that choice in tool-result fields.",
-              "proposedValueHash": "036da7d2b48563c0335bba79759a8e5eeaa11424c6f49fafd96c8442af6fe971"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept the i gceann phrases. English is the future field phrase. i gceann names the point after the interval, which the dictionary separates from ago and from within. lá stays in every category, including other at 0 and at 11. The five strings match the cited CLDR Irish relative-time patterns, with {{count}} in place of {0}. These are explicit catalog patterns. They do not call Intl.RelativeTimeFormat. Irish one is 1, two is 2, few is 3–6, many is 7–10, and other covers 0, 11, 21, 100, 101, and 1000000.",
-              "proposedValueHash": "036da7d2b48563c0335bba79759a8e5eeaa11424c6f49fafd96c8442af6fe971"
-            }
-          }
-        },
-        "time.day.past": {
-          "finalValueHash": "d0fca2ae18d99420924bd9ce9efc9833667103668d37e22e59006b144312acd6",
-          "chosenFrom": "synthesis",
-          "leadReason": "Use a complete native relative-time phrase with the exact count and unit. The candidate already preserves elapsed or remaining direction, so I reject a blanket claim that its meaning is lost. A relative phrase fits when and lastActivity more naturally. The resolved Unicode CLDR Irish data gives digit-based forms for all five categories. It also distinguishes the future one-year bliana from the past bhliain, and counted hours uair an chloig from occurrences. Compare this evidence with all four drafts and both reviewers. Retain the documented best-effort scope.",
-          "candidateReason": "All five day past variants compared: Codex uses complete neutral count sentences. Others use fragments and differing numeral noun forms, especially genitives in future units.",
-          "opusDecision": "required_change",
-          "opusReason": "Same field-value defect.",
-          "grokDecision": "accept",
-          "grokReason": "Accept the neutral elapsed-time label in days.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "The lead's forms match CLDR 48 exactly; I verified them locally with Intl.RelativeTimeFormat(\"ga\") on ICU 78.3. \"i gceann N …\" is the future (focloir and teanglann) and \"N … ó shin\" the past. The one category takes \"bliana\" in the future (\"i gceann bliana\") and \"bhliain\" in the past. Counted hours use \"uair an chloig\" and many \"n-uair an chloig\". My comparison-stage \"i gceann 1 bhliain\" and \"huaire\" are not the documented forms, so I withdraw them. Every category keeps the visible digit count. Confidence limit: CLDR shows its own choice for written digits in 0 and 11–19 (other uses the bare singular, for example \"11 bliain\"), which follows the Caighdeán simplified system for larger numbers; a native reviewer should still confirm that choice in tool-result fields.",
-              "proposedValueHash": "d0fca2ae18d99420924bd9ce9efc9833667103668d37e22e59006b144312acd6"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept the ó shin phrases. English is the ago field phrase. ó shin names the point before now. lá stays in every category, including other at 0 and at 11. The five strings match the cited CLDR Irish relative-time patterns, with {{count}} in place of {0}. These are explicit catalog patterns. They do not call Intl.RelativeTimeFormat. Irish one is 1, two is 2, few is 3–6, many is 7–10, and other covers 0, 11, 21, 100, 101, and 1000000.",
-              "proposedValueHash": "d0fca2ae18d99420924bd9ce9efc9833667103668d37e22e59006b144312acd6"
-            }
-          }
-        },
-        "time.hour.future": {
-          "finalValueHash": "f074e115ef40e03f358a2a14988ed995709326f7b53aa3f25efae9ba95cf1474",
-          "chosenFrom": "synthesis",
-          "leadReason": "Use a complete native relative-time phrase with the exact count and unit. The candidate already preserves elapsed or remaining direction, so I reject a blanket claim that its meaning is lost. A relative phrase fits when and lastActivity more naturally. The resolved Unicode CLDR Irish data gives digit-based forms for all five categories. It also distinguishes the future one-year bliana from the past bhliain, and counted hours uair an chloig from occurrences. Compare this evidence with all four drafts and both reviewers. Retain the documented best-effort scope.",
-          "candidateReason": "All five hour future variants compared: Codex uses complete neutral count sentences. Others use fragments and differing numeral noun forms, especially genitives in future units.",
-          "opusDecision": "required_change",
-          "opusReason": "Same field-value defect; uair an chloig, huaire for 3–6, n-uaire for 7–10.",
-          "grokDecision": "accept",
-          "grokReason": "Accept the neutral remaining-time label in hours.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "The lead's forms match CLDR 48 exactly; I verified them locally with Intl.RelativeTimeFormat(\"ga\") on ICU 78.3. \"i gceann N …\" is the future (focloir and teanglann) and \"N … ó shin\" the past. The one category takes \"bliana\" in the future (\"i gceann bliana\") and \"bhliain\" in the past. Counted hours use \"uair an chloig\" and many \"n-uair an chloig\". My comparison-stage \"i gceann 1 bhliain\" and \"huaire\" are not the documented forms, so I withdraw them. Every category keeps the visible digit count. Confidence limit: CLDR shows its own choice for written digits in 0 and 11–19 (other uses the bare singular, for example \"11 bliain\"), which follows the Caighdeán simplified system for larger numbers; a native reviewer should still confirm that choice in tool-result fields.",
-              "proposedValueHash": "f074e115ef40e03f358a2a14988ed995709326f7b53aa3f25efae9ba95cf1474"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept the i gceann phrases. English is the future field phrase. i gceann names the point after the interval, which the dictionary separates from ago and from within. The counted hour is uair an chloig. many uses eclipsis, n-uair an chloig. The other categories use uair an chloig. The five strings match the cited CLDR Irish relative-time patterns, with {{count}} in place of {0}. These are explicit catalog patterns. They do not call Intl.RelativeTimeFormat. Irish one is 1, two is 2, few is 3–6, many is 7–10, and other covers 0, 11, 21, 100, 101, and 1000000.",
-              "proposedValueHash": "f074e115ef40e03f358a2a14988ed995709326f7b53aa3f25efae9ba95cf1474"
-            }
-          }
-        },
-        "time.hour.past": {
-          "finalValueHash": "35b39240793d856386833ed8d0dfe8d1b1f6c6b748578f3dd5ee1ff04c780668",
-          "chosenFrom": "synthesis",
-          "leadReason": "Use a complete native relative-time phrase with the exact count and unit. The candidate already preserves elapsed or remaining direction, so I reject a blanket claim that its meaning is lost. A relative phrase fits when and lastActivity more naturally. The resolved Unicode CLDR Irish data gives digit-based forms for all five categories. It also distinguishes the future one-year bliana from the past bhliain, and counted hours uair an chloig from occurrences. Compare this evidence with all four drafts and both reviewers. Retain the documented best-effort scope.",
-          "candidateReason": "All five hour past variants compared: Codex uses complete neutral count sentences. Others use fragments and differing numeral noun forms, especially genitives in future units.",
-          "opusDecision": "required_change",
-          "opusReason": "Same field-value defect.",
-          "grokDecision": "accept",
-          "grokReason": "Accept the neutral elapsed-time label in hours.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "The lead's forms match CLDR 48 exactly; I verified them locally with Intl.RelativeTimeFormat(\"ga\") on ICU 78.3. \"i gceann N …\" is the future (focloir and teanglann) and \"N … ó shin\" the past. The one category takes \"bliana\" in the future (\"i gceann bliana\") and \"bhliain\" in the past. Counted hours use \"uair an chloig\" and many \"n-uair an chloig\". My comparison-stage \"i gceann 1 bhliain\" and \"huaire\" are not the documented forms, so I withdraw them. Every category keeps the visible digit count. Confidence limit: CLDR shows its own choice for written digits in 0 and 11–19 (other uses the bare singular, for example \"11 bliain\"), which follows the Caighdeán simplified system for larger numbers; a native reviewer should still confirm that choice in tool-result fields.",
-              "proposedValueHash": "35b39240793d856386833ed8d0dfe8d1b1f6c6b748578f3dd5ee1ff04c780668"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept the ó shin phrases. English is the ago field phrase. ó shin names the point before now. The counted hour is uair an chloig. many uses eclipsis, n-uair an chloig. The other categories use uair an chloig. The five strings match the cited CLDR Irish relative-time patterns, with {{count}} in place of {0}. These are explicit catalog patterns. They do not call Intl.RelativeTimeFormat. Irish one is 1, two is 2, few is 3–6, many is 7–10, and other covers 0, 11, 21, 100, 101, and 1000000.",
-              "proposedValueHash": "35b39240793d856386833ed8d0dfe8d1b1f6c6b748578f3dd5ee1ff04c780668"
-            }
-          }
-        },
-        "time.minute.future": {
-          "finalValueHash": "4afce1dc3de8a75cdb688b399ce5af6f29610fc5a37499e991a31b943a4dae43",
-          "chosenFrom": "synthesis",
-          "leadReason": "Use a complete native relative-time phrase with the exact count and unit. The candidate already preserves elapsed or remaining direction, so I reject a blanket claim that its meaning is lost. A relative phrase fits when and lastActivity more naturally. The resolved Unicode CLDR Irish data gives digit-based forms for all five categories. It also distinguishes the future one-year bliana from the past bhliain, and counted hours uair an chloig from occurrences. Compare this evidence with all four drafts and both reviewers. Retain the documented best-effort scope.",
-          "candidateReason": "All five minute future variants compared: Codex uses complete neutral count sentences. Others use fragments and differing numeral noun forms, especially genitives in future units.",
-          "opusDecision": "required_change",
-          "opusReason": "Same field-value defect; nóiméad shows no visible mutation.",
-          "grokDecision": "accept",
-          "grokReason": "Accept the neutral remaining-time label in minutes.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "The lead's forms match CLDR 48 exactly; I verified them locally with Intl.RelativeTimeFormat(\"ga\") on ICU 78.3. \"i gceann N …\" is the future (focloir and teanglann) and \"N … ó shin\" the past. The one category takes \"bliana\" in the future (\"i gceann bliana\") and \"bhliain\" in the past. Counted hours use \"uair an chloig\" and many \"n-uair an chloig\". My comparison-stage \"i gceann 1 bhliain\" and \"huaire\" are not the documented forms, so I withdraw them. Every category keeps the visible digit count. Confidence limit: CLDR shows its own choice for written digits in 0 and 11–19 (other uses the bare singular, for example \"11 bliain\"), which follows the Caighdeán simplified system for larger numbers; a native reviewer should still confirm that choice in tool-result fields.",
-              "proposedValueHash": "4afce1dc3de8a75cdb688b399ce5af6f29610fc5a37499e991a31b943a4dae43"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept the i gceann phrases. English is the future field phrase. i gceann names the point after the interval, which the dictionary separates from ago and from within. nóiméad stays in every category. The five strings match the cited CLDR Irish relative-time patterns, with {{count}} in place of {0}. These are explicit catalog patterns. They do not call Intl.RelativeTimeFormat. Irish one is 1, two is 2, few is 3–6, many is 7–10, and other covers 0, 11, 21, 100, 101, and 1000000.",
-              "proposedValueHash": "4afce1dc3de8a75cdb688b399ce5af6f29610fc5a37499e991a31b943a4dae43"
-            }
-          }
-        },
-        "time.minute.past": {
-          "finalValueHash": "4b5fe97a9bfc0d4d92e3f88ef4ed6e539cc67c51ea0067f7f471234409a18f46",
-          "chosenFrom": "synthesis",
-          "leadReason": "Use a complete native relative-time phrase with the exact count and unit. The candidate already preserves elapsed or remaining direction, so I reject a blanket claim that its meaning is lost. A relative phrase fits when and lastActivity more naturally. The resolved Unicode CLDR Irish data gives digit-based forms for all five categories. It also distinguishes the future one-year bliana from the past bhliain, and counted hours uair an chloig from occurrences. Compare this evidence with all four drafts and both reviewers. Retain the documented best-effort scope.",
-          "candidateReason": "All five minute past variants compared: Codex uses complete neutral count sentences. Others use fragments and differing numeral noun forms, especially genitives in future units.",
-          "opusDecision": "required_change",
-          "opusReason": "Same field-value defect.",
-          "grokDecision": "accept",
-          "grokReason": "Accept the neutral elapsed-time label in minutes.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "The lead's forms match CLDR 48 exactly; I verified them locally with Intl.RelativeTimeFormat(\"ga\") on ICU 78.3. \"i gceann N …\" is the future (focloir and teanglann) and \"N … ó shin\" the past. The one category takes \"bliana\" in the future (\"i gceann bliana\") and \"bhliain\" in the past. Counted hours use \"uair an chloig\" and many \"n-uair an chloig\". My comparison-stage \"i gceann 1 bhliain\" and \"huaire\" are not the documented forms, so I withdraw them. Every category keeps the visible digit count. Confidence limit: CLDR shows its own choice for written digits in 0 and 11–19 (other uses the bare singular, for example \"11 bliain\"), which follows the Caighdeán simplified system for larger numbers; a native reviewer should still confirm that choice in tool-result fields.",
-              "proposedValueHash": "4b5fe97a9bfc0d4d92e3f88ef4ed6e539cc67c51ea0067f7f471234409a18f46"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept the ó shin phrases. English is the ago field phrase. ó shin names the point before now. nóiméad stays in every category. The five strings match the cited CLDR Irish relative-time patterns, with {{count}} in place of {0}. These are explicit catalog patterns. They do not call Intl.RelativeTimeFormat. Irish one is 1, two is 2, few is 3–6, many is 7–10, and other covers 0, 11, 21, 100, 101, and 1000000.",
-              "proposedValueHash": "4b5fe97a9bfc0d4d92e3f88ef4ed6e539cc67c51ea0067f7f471234409a18f46"
-            }
-          }
-        },
         "read.context.basic": {
           "finalValueHash": "73d995e9f1408325d949d69f231d7bb4b8db9ec307fe92a981f63796b48a84f9",
           "chosenFrom": "opus",
@@ -4645,7 +4392,7 @@
     },
     "reports": {
       "finalHash": "2011a793bc466ed79e1e11e503bc1f7a80b0e1a166e41d46c76fa8abdbd486cc",
-      "finalTemplateHash": "7958b67a2f4cd0ddf36606be3ca89cd8b701943c1a77d3c88e280d3b93662370",
+      "finalTemplateHash": "c235daf236aaefbf2f2ac729e55f54493b3f02fb8e450438dcaf29fe31d1e9c8",
       "draftHashes": {
         "codex": "c9be595197338930a0f89580f201bf6fbbb400ec5fd66d247959d132e336343b",
         "opus": "d681acb044cedb87826aa3b8b13c2d348f0d8309f47fb22c8fb2e64e5a917e53",
@@ -4656,73 +4403,12 @@
         "opus": "def842ce8e5c65e37b989aca5e852c76dbbc4dcdcd79280503c9baf892e71aac",
         "grok": "a0f85ccb624ff6e271e83f92ddba3dbd3f11d32bb7b55562cd0a4f486a56e207"
       },
-      "decisions": {
-        "report.elapsed.moment": {
-          "finalValueHash": "509aea847070d255fd418ec2f133c89f2bf8b6cb51d9baed3351a4712c2b1836",
-          "chosenFrom": "grok",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Moment is meandar; other drafts narrow it to a minute. Retains your previous visit.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and grok. actor, tense, limits, and parameters match the English. English: A moment passed since your previous visit.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "report.elapsed.second": {
-          "finalValueHash": "0f3e1a250c375a651aa27f865c2f1f3eeffc41c35e99a5febeccbebd8367ddba",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Complete neutral second count avoids category-specific mutation errors in other drafts.",
-          "opusDecision": "accept",
-          "opusReason": "A neutral sentence (\"Is é N an t-am atá caite ..., i soicindí\") is grammatical for every category and allowed by the reference. Opus's native forms (shoicind for 2–6) would read more naturally, but this is preference.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex. one is 1, two is 2, few is 3–6, many is 7–10, and other includes 0 and 11 or more; the shared líon or invariant wording is grammatical for each. English: {{count}} second passed since your previous visit. {{count}} seconds passed since your previous visit.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "report.elapsed.minute": {
-          "finalValueHash": "ae6a86adb03b66505782de4f9a2cfb951d044e866b8147b2059cf63c22e3578c",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All five native variants use unchanged nóiméad and a complete elapsed-time sentence; Codex heavier neutral label also valid.",
-          "opusDecision": "accept",
-          "opusReason": "nóiméad needs no visible mutation.",
-          "grokDecision": "accept",
-          "grokReason": "Accept {{count}} nóiméad caite. nóiméad is treated as invariant. Whether 3–6 and 7–10 need nóiméid is unresolved, so the shared form is kept.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "report.elapsed.hour": {
-          "finalValueHash": "cc69831d8d963f45c609b4cad29c8e4969b734fd349c603742e6ddc832ecca63",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Complete neutral hour counts avoid conflicting hour noun forms across the other drafts.",
-          "opusDecision": "accept",
-          "opusReason": "Neutral sentence acceptable for all categories, same as the seconds unit.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex. one is 1, two is 2, few is 3–6, many is 7–10, and other includes 0 and 11 or more; the shared líon or invariant wording is grammatical for each. English: {{count}} hour passed since your previous visit. {{count}} hours passed since your previous visit.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "report.elapsed.day": {
-          "finalValueHash": "fa48624a7466b8b439b8f743d6beaa2a37a4b979b9ec252b05e10a768d4710bd",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All five native variants agree on unchanged lá and a complete elapsed-time sentence; Gemini simple past also valid.",
-          "opusDecision": "accept",
-          "opusReason": "lá needs no visible mutation.",
-          "grokDecision": "accept",
-          "grokReason": "Accept {{count}} lá caite. lá is treated as invariant. Whether few and many need laethanta is unresolved, so the shared form is kept.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        }
-      }
+      "decisions": {},
+      "status": "pending_translation",
+      "pendingTranslationKeys": [
+        "report.timestamp.relative",
+        "report.timestamp.absolute"
+      ]
     },
     "recovery": {
       "finalHash": "398b8dd647f9dcb52c42f7cfaad9f3cbdd335aa11bd14c20b9b02a3b47ea9aaa",

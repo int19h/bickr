@@ -89,7 +89,9 @@
 		"./text-token-estimate": "./src/text-token-estimate.ts",
 		"./instruction-localization-migration": "./src/instruction-localization-migration.ts",
 		"./account-export": "./src/account-export.ts",
-		"./account-export-repository": "./src/account-export-repository.ts"
+		"./account-export-repository": "./src/account-export-repository.ts",
+		"./participant-time": "./src/participant-time.ts",
+		"./participant-time-migration": "./src/participant-time-migration.ts"
 	},
 	"dependencies": {
 		"mdast-util-math": "^3.0.0",

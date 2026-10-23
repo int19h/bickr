@@ -21,6 +21,7 @@ function testBot(overrides: Partial<BotSummary> & Pick<BotSummary, "handle" | "h
 		inferenceSettings: {},
 		postingSettings: {},
 		effectivePostingSettings: { commentBodyCharacters: 2000, threadBodyCharacters: 6000 },
+		timeSettings: { mode: "relative", timezone: "UTC" },
 		tickSettings: { enabled: false, intervalSeconds: 86_400, compactionThreshold: 0.75 },
 		effectiveTickSettings: {
 			enabled: false,

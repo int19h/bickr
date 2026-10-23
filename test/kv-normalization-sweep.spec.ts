@@ -51,6 +51,19 @@ describe("KV document normalization sweep", () => {
 		}
 	});
 
+	it("retains earlier deferrals until the final page and retries from the start", async () => {
+		const ids = await seedLegacyUsers(2);
+		const key = kvKeys.user(ids[0]!);
+		const first = await testEnv.BICKR_KV.get<UserDocument>(key, { type: "json" });
+		await testEnv.BICKR_KV.put(key, JSON.stringify({ ...first, updatedAt: "2026-07-11T06:00:00Z" }));
+		await normalizeKvDocuments(testEnv, "user", { maxRowsPerRun: 1, now: "2026-07-11T07:00:00Z" });
+		expect(await normalizationCursor("user")).toMatchObject({ afterObjectId: ids[0], deferred: true });
+		const final = await normalizeKvDocuments(testEnv, "user", { now: "2026-07-11T07:00:00Z" });
+		expect(final).toMatchObject({ rewritten: 1, skippedRecentlyUpdated: 0, budgetExhausted: false, done: false });
+		expect(await normalizationCursor("user")).toBeNull();
+		expect(await normalizeKvDocuments(testEnv, "user", { now: "2026-07-12T07:00:00Z" })).toMatchObject({ rewritten: 1, done: true });
+	});
+
 	it("skips recently updated documents and reports that the pass is not done", async () => {
 		const updatedAt = "2026-07-11T06:00:00.000Z";
 		const [id] = await seedLegacyUsers(1, updatedAt);

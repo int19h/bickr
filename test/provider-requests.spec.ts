@@ -2467,7 +2467,6 @@ describe("Provider requests", () => {
 	it("builds OpenRouter server tool request entries only for OpenRouter base URLs", () => {
 		const settings = {
 			openRouter: {
-				datetime: { enabled: true, timezone: "America/Los_Angeles" },
 				webSearch: {
 					enabled: true,
 					engine: "exa" as const,
@@ -2496,9 +2495,8 @@ describe("Provider requests", () => {
 
 		const selection = openRouterServerToolSelection("https://openrouter.ai/api/v1/", settings);
 		expect(selection.suppressed).toEqual([]);
-		expect(selection.emitted).toEqual(["openrouter:datetime", "openrouter:web_search", "openrouter:web_fetch"]);
+		expect(selection.emitted).toEqual(["openrouter:web_search", "openrouter:web_fetch"]);
 		expect(selection.tools).toEqual([
-			{ type: "openrouter:datetime", parameters: { timezone: "America/Los_Angeles" } },
 			{
 				type: "openrouter:web_search",
 				parameters: {
@@ -3472,7 +3470,7 @@ describe("Provider requests", () => {
 			vi.useFakeTimers();
 			vi.setSystemTime(new Date("2026-05-08T00:00:00.000Z"));
 			try {
-				const context = providerSerializationContext(englishInstructions, { botId: "bot_reader" });
+				const context = providerSerializationContext(englishInstructions, { botId: "bot_reader" }, undefined, { settings: { mode: "relative", timezone: "UTC" }, createdAt: "2026-01-01T00:00:00Z" });
 				const searchResult = providerToolResultPayload(
 					"search_threads",
 					[
@@ -3555,7 +3553,7 @@ describe("Provider requests", () => {
 						activities: [{ type: "thread", threadId: "thr_preview", forumHandle: "random", bodyPreview: "p".repeat(240), createdAt: "2026-05-08T00:00:00.000Z" }],
 					},
 					{},
-					providerSerializationContext(englishInstructions, { botId: "bot_reader" }),
+					providerSerializationContext(englishInstructions, { botId: "bot_reader" }, undefined, { settings: { mode: "relative", timezone: "UTC" }, createdAt: "2026-01-01T00:00:00Z" }),
 				) as { activities: Array<Record<string, unknown>> };
 				expect(unbudgetedActivityResult.activities[0]?.bodyPreview).toBe(`${"p".repeat(240)}…`);
 
@@ -3583,7 +3581,7 @@ describe("Provider requests", () => {
 						],
 					},
 					{},
-					providerSerializationContext(englishInstructions, { botId: "bot_reader" }),
+					providerSerializationContext(englishInstructions, { botId: "bot_reader" }, undefined, { settings: { mode: "relative", timezone: "UTC" }, createdAt: "2026-01-01T00:00:00Z" }),
 					{ tokenBudget: 70 },
 				) as { activities: Array<Record<string, unknown>> };
 
@@ -3624,7 +3622,7 @@ describe("Provider requests", () => {
 				"check_notifications",
 				{ events: notifications },
 				{},
-				providerSerializationContext(englishInstructions, { botId: "bot_reader" }),
+				providerSerializationContext(englishInstructions, { botId: "bot_reader" }, undefined, { settings: { mode: "relative", timezone: "UTC" }, createdAt: "2026-01-01T00:00:00Z" }),
 				{ tokenBudget: 90 },
 			) as { context?: string; events: Array<Record<string, unknown>> };
 

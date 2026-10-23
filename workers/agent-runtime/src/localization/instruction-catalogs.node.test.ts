@@ -19,6 +19,7 @@ type InventoryUnit = {
 };
 const inventory = JSON.parse(readFileSync(`${root}/docs/prompt-localization/inventory/index.json`, 'utf8')) as {
 	sourceUnitCount: number;
+	pendingTranslationKeys: string[];
 	sourceHash: string;
 	catalogSourceHash: string;
 	groups: readonly { group: string; file: string; units: number }[];
@@ -62,6 +63,9 @@ function catalogSourceFingerprint(): string {
 }
 
 describe('reviewed instruction catalogs', () => {
+	it('limits pending translation placeholders to the participant time reports', () => {
+		expect(inventory.pendingTranslationKeys).toEqual(['report.timestamp.relative', 'report.timestamp.absolute']);
+	});
 	it.each(instructionLocales)('keeps deliberate prompt separators in %s', (locale) => {
 		const group = catalogPart(`workers/agent-runtime/src/localization/${locale}/system.yaml`);
 		expect(group['system.plan']).toMatch(/[^\n]\n\n$/);
@@ -80,11 +84,11 @@ describe('reviewed instruction catalogs', () => {
 			sourceHash: string; catalogSourceHash: string; locale: string; status: string;
 			reviewers: { opus: unknown; grok: unknown };
 			groups: Record<string, {
-				finalTemplateHash: string; draftHashes: Record<string, string>;
+				status?: string; pendingTranslationKeys?: string[]; finalTemplateHash: string; draftHashes: Record<string, string>;
 				decisions: Record<string, { finalValueHash: string; leadReason: string; candidateReason: string; opusReason: string; grokReason: string }>;
 			}>;
 		};
-		expect(approval).toMatchObject({ sourceHash: inventory.sourceHash, catalogSourceHash: sourceHash, locale, status: 'accepted_by_lead' });
+		expect(approval).toMatchObject({ sourceHash: inventory.sourceHash, catalogSourceHash: sourceHash, locale, status: 'partially_pending_translation' });
 		expect(approval.reviewers.opus).toBeTruthy();
 		expect(approval.reviewers.grok).toBeTruthy();
 		expect(Object.keys(approval.groups).sort()).toEqual(inventory.groups.map((group) => group.group).sort());
@@ -95,8 +99,15 @@ describe('reviewed instruction catalogs', () => {
 			expect(Object.keys(approval.groups[group.group]!.draftHashes).sort()).toEqual(['codex', 'gemini', 'grok', 'opus']);
 			for (const value of Object.values(approval.groups[group.group]!.draftHashes)) expect(value).toMatch(/^[a-f0-9]{64}$/);
 			const decisions = approval.groups[group.group]!.decisions;
-			expect(Object.keys(decisions).sort()).toEqual(Object.keys(target).sort());
+			const pending = group.group === 'reports' ? inventory.pendingTranslationKeys : [];
+			if (pending.length) expect(approval.groups[group.group]).toMatchObject({ status: 'pending_translation', pendingTranslationKeys: pending });
+			expect(Object.keys(decisions).sort()).toEqual(Object.keys(target).filter(key => !pending.includes(key)).sort());
 			for (const [id, value] of Object.entries(target)) {
+				if (pending.includes(id)) {
+					expect(value, id).toEqual(catalogPart(first.definition.file)[id]);
+					expect(decisions[id], id).toBeUndefined();
+					continue;
+				}
 				const decision = decisions[id]!;
 				expect(decision.finalValueHash, id).toBe(createHash('sha256').update(JSON.stringify(value)).digest('hex'));
 				for (const reason of [decision.leadReason, decision.candidateReason, decision.opusReason, decision.grokReason]) {

@@ -1,8 +1,8 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "catalogSourceHash": "1ea4d0935facacfea35be251f30fc67822b5de7e36d4075fd21c7595bffff89e",
+  "catalogSourceHash": "569c6dc99760c3c93e1594717e4078e6e25111ee4b5b788935ef32b6d2cb5cab",
   "locale": "pt",
-  "status": "accepted_by_lead",
+  "status": "partially_pending_translation",
   "leadReason": "The lead accepts the exact Portuguese proposal. Both reviewers accept every disputed unit and report no additional finding. The catalog uses broad standard Portuguese, as the guideline and the requested baseline-language scope allow. The remaining regional vocabulary and grammatical-gender observations do not change meaning or assign a gender to the participant. The reviewed native time phrases and count forms preserve every bound and direction.",
   "terminologyDecisions": {
     "numericMany": "The formatter inserts ordinary digits, not milhão or milhões. Keep the many category but do not add de solely from its category label. Native Intl.RelativeTimeFormat numeric labels use the direct plural.",
@@ -3138,7 +3138,7 @@
     },
     "serialization": {
       "finalHash": "cb71cb1a0ff2e300e4702572c97a00bdc3c25c368c512af2983c2fe7e3272dd7",
-      "finalTemplateHash": "884986480e742db2f499fe9c2ecb028a8b7ef6f572cdee1bac72ca0a6cbfd012",
+      "finalTemplateHash": "34dd831a8db275ee0439c36b7b7d7475b68eeb0f11cacb2174a4240447814795",
       "draftHashes": {
         "codex": "9e0481006e00053feb72287312e020b1117eae3bd262305f50e5dbde1df389db",
         "opus": "5aab8718b41aee8dd9456fb0212b973097733f5b3c5937b493704f22325abed2",
@@ -3150,259 +3150,6 @@
         "grok": "48d87b7ace6cf3da54e49946967f846003a8f3626ddeae529699558a6e4a4cba"
       },
       "decisions": {
-        "time.just_now": {
-          "finalValueHash": "e9ae0f81d8f3e9dc9a7710a33f84165b4d56e382653aeb25d67dcd2807ce2eb4",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All four agree on the immediate-time phrase.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept agora mesmo. It is a compact fragment for just now.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "time.year.future": {
-          "finalValueHash": "e05da86db67798d030d1cf45db059cf6234e052e243e14e6aec975889c890deb",
-          "chosenFrom": "synthesis",
-          "leadReason": "Use an ordinary relative-time fragment: daqui a for future and há for past. Preserve the unit, direction, and count. The formatter inserts digits, so the many category does not write the missing noun milhão. Use the direct plural without an automatic de, consistently with native Intl.RelativeTimeFormat numeric labels.",
-          "candidateReason": "All future-anos variants compared. Opus and Gemini misuse singular at zero and de after numeric millions; Grok is cumbersome. Use a complete neutral future interval label.",
-          "opusDecision": "required_change",
-          "opusReason": "Format defect: this string is inserted as the value of the \"when\" or \"lastActivity\" field in tool results (providerRelativeTime). The candidate renders it as a full sentence with a period (\"O intervalo ... desde esse momento, em X, é N.\"), where \"esse momento\" has no antecedent in a field value. Native relative-time phrases fit the slot and are what the other locales use. The opus draft gives them, with the de construction in many as the pt reference requires.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and no single draft; the wording is a synthesis. one includes 0 and 1, many is the large round count, and other is the remaining plural; the shared número or intervalo wording fits all three. English: in {{count}} year in {{count}} years",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change. The candidate was a full sentence with \"esse momento\" and no antecedent, inserted as a JSON \"when\" value. The relative fragment \"daqui a N …\" for the future and \"há N …\" for the past fits that slot and matches the platform formatter. one (0, 1) uses the singular noun, and many and other use the direct plural. The original opus record had also proposed \"de\" in many, and I withdraw that. The count is rendered with String(value) as digits, not \"milhão\", and the cited style guide shows \"de\" only after the written noun \"milhões\". Every variant keeps the visible count, the unit and the direction.",
-              "proposedValueHash": "e05da86db67798d030d1cf45db059cf6234e052e243e14e6aec975889c890deb"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept the ordinary relative-time fragment. daqui a is future and há is past. one is singular and also covers 0. many and other are plural. {{count}} is digits, not milhão, so many does not add de before the unit noun.",
-              "proposedValueHash": "e05da86db67798d030d1cf45db059cf6234e052e243e14e6aec975889c890deb"
-            }
-          }
-        },
-        "time.year.past": {
-          "finalValueHash": "bfb1052ad57866bf7a1f5a5bacfc6500c48a31de30093cdbca28e560a2cb4563",
-          "chosenFrom": "synthesis",
-          "leadReason": "Use an ordinary relative-time fragment: daqui a for future and há for past. Preserve the unit, direction, and count. The formatter inserts digits, so the many category does not write the missing noun milhão. Use the direct plural without an automatic de, consistently with native Intl.RelativeTimeFormat numeric labels.",
-          "candidateReason": "All past-anos variants compared. Retain past direction without zero singular agreement or the unnecessary de in peers; use a complete count label.",
-          "opusDecision": "required_change",
-          "opusReason": "Format defect: this string is inserted as the value of the \"when\" or \"lastActivity\" field in tool results (providerRelativeTime). The candidate renders it as a full sentence with a period (\"O intervalo ... desde esse momento, em X, é N.\"), where \"esse momento\" has no antecedent in a field value. Native relative-time phrases fit the slot and are what the other locales use. The opus draft gives them, with the de construction in many as the pt reference requires.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and no single draft; the wording is a synthesis. one includes 0 and 1, many is the large round count, and other is the remaining plural; the shared número or intervalo wording fits all three. English: {{count}} year ago {{count}} years ago",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change. The candidate was a full sentence with \"esse momento\" and no antecedent, inserted as a JSON \"when\" value. The relative fragment \"daqui a N …\" for the future and \"há N …\" for the past fits that slot and matches the platform formatter. one (0, 1) uses the singular noun, and many and other use the direct plural. The original opus record had also proposed \"de\" in many, and I withdraw that. The count is rendered with String(value) as digits, not \"milhão\", and the cited style guide shows \"de\" only after the written noun \"milhões\". Every variant keeps the visible count, the unit and the direction.",
-              "proposedValueHash": "bfb1052ad57866bf7a1f5a5bacfc6500c48a31de30093cdbca28e560a2cb4563"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept the ordinary relative-time fragment. daqui a is future and há is past. one is singular and also covers 0. many and other are plural. {{count}} is digits, not milhão, so many does not add de before the unit noun.",
-              "proposedValueHash": "bfb1052ad57866bf7a1f5a5bacfc6500c48a31de30093cdbca28e560a2cb4563"
-            }
-          }
-        },
-        "time.month.future": {
-          "finalValueHash": "0ab447896b7cccb0137504a8531142fc6c644e064232779dd984969b94dfb278",
-          "chosenFrom": "synthesis",
-          "leadReason": "Use an ordinary relative-time fragment: daqui a for future and há for past. Preserve the unit, direction, and count. The formatter inserts digits, so the many category does not write the missing noun milhão. Use the direct plural without an automatic de, consistently with native Intl.RelativeTimeFormat numeric labels.",
-          "candidateReason": "All future-meses variants compared. Opus and Gemini misuse singular at zero and de after numeric millions; Grok is cumbersome. Use a complete neutral future interval label.",
-          "opusDecision": "required_change",
-          "opusReason": "Format defect: this string is inserted as the value of the \"when\" or \"lastActivity\" field in tool results (providerRelativeTime). The candidate renders it as a full sentence with a period (\"O intervalo ... desde esse momento, em X, é N.\"), where \"esse momento\" has no antecedent in a field value. Native relative-time phrases fit the slot and are what the other locales use. The opus draft gives them, with the de construction in many as the pt reference requires.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and no single draft; the wording is a synthesis. one includes 0 and 1, many is the large round count, and other is the remaining plural; the shared número or intervalo wording fits all three. English: in {{count}} month in {{count}} months",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change. The candidate was a full sentence with \"esse momento\" and no antecedent, inserted as a JSON \"when\" value. The relative fragment \"daqui a N …\" for the future and \"há N …\" for the past fits that slot and matches the platform formatter. one (0, 1) uses the singular noun, and many and other use the direct plural. The original opus record had also proposed \"de\" in many, and I withdraw that. The count is rendered with String(value) as digits, not \"milhão\", and the cited style guide shows \"de\" only after the written noun \"milhões\". Every variant keeps the visible count, the unit and the direction.",
-              "proposedValueHash": "0ab447896b7cccb0137504a8531142fc6c644e064232779dd984969b94dfb278"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept the ordinary relative-time fragment. daqui a is future and há is past. one is singular and also covers 0. many and other are plural. {{count}} is digits, not milhão, so many does not add de before the unit noun.",
-              "proposedValueHash": "0ab447896b7cccb0137504a8531142fc6c644e064232779dd984969b94dfb278"
-            }
-          }
-        },
-        "time.month.past": {
-          "finalValueHash": "82724d4c1a45e7f2b69674f6a1bca832cab2e511f2a7276bb40d74fcebe688e0",
-          "chosenFrom": "synthesis",
-          "leadReason": "Use an ordinary relative-time fragment: daqui a for future and há for past. Preserve the unit, direction, and count. The formatter inserts digits, so the many category does not write the missing noun milhão. Use the direct plural without an automatic de, consistently with native Intl.RelativeTimeFormat numeric labels.",
-          "candidateReason": "All past-meses variants compared. Retain past direction without zero singular agreement or the unnecessary de in peers; use a complete count label.",
-          "opusDecision": "required_change",
-          "opusReason": "Format defect: this string is inserted as the value of the \"when\" or \"lastActivity\" field in tool results (providerRelativeTime). The candidate renders it as a full sentence with a period (\"O intervalo ... desde esse momento, em X, é N.\"), where \"esse momento\" has no antecedent in a field value. Native relative-time phrases fit the slot and are what the other locales use. The opus draft gives them, with the de construction in many as the pt reference requires.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and no single draft; the wording is a synthesis. one includes 0 and 1, many is the large round count, and other is the remaining plural; the shared número or intervalo wording fits all three. English: {{count}} month ago {{count}} months ago",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change. The candidate was a full sentence with \"esse momento\" and no antecedent, inserted as a JSON \"when\" value. The relative fragment \"daqui a N …\" for the future and \"há N …\" for the past fits that slot and matches the platform formatter. one (0, 1) uses the singular noun, and many and other use the direct plural. The original opus record had also proposed \"de\" in many, and I withdraw that. The count is rendered with String(value) as digits, not \"milhão\", and the cited style guide shows \"de\" only after the written noun \"milhões\". Every variant keeps the visible count, the unit and the direction.",
-              "proposedValueHash": "82724d4c1a45e7f2b69674f6a1bca832cab2e511f2a7276bb40d74fcebe688e0"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept the ordinary relative-time fragment. daqui a is future and há is past. one is singular and also covers 0. many and other are plural. {{count}} is digits, not milhão, so many does not add de before the unit noun.",
-              "proposedValueHash": "82724d4c1a45e7f2b69674f6a1bca832cab2e511f2a7276bb40d74fcebe688e0"
-            }
-          }
-        },
-        "time.day.future": {
-          "finalValueHash": "e5b3f038a635ceab0c22ae633805c4edb53ce50f60547bcd13a9b74e64874cab",
-          "chosenFrom": "synthesis",
-          "leadReason": "Use an ordinary relative-time fragment: daqui a for future and há for past. Preserve the unit, direction, and count. The formatter inserts digits, so the many category does not write the missing noun milhão. Use the direct plural without an automatic de, consistently with native Intl.RelativeTimeFormat numeric labels.",
-          "candidateReason": "All future-dias variants compared. Opus and Gemini misuse singular at zero and de after numeric millions; Grok is cumbersome. Use a complete neutral future interval label.",
-          "opusDecision": "required_change",
-          "opusReason": "Format defect: this string is inserted as the value of the \"when\" or \"lastActivity\" field in tool results (providerRelativeTime). The candidate renders it as a full sentence with a period (\"O intervalo ... desde esse momento, em X, é N.\"), where \"esse momento\" has no antecedent in a field value. Native relative-time phrases fit the slot and are what the other locales use. The opus draft gives them, with the de construction in many as the pt reference requires.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and no single draft; the wording is a synthesis. one includes 0 and 1, many is the large round count, and other is the remaining plural; the shared número or intervalo wording fits all three. English: in {{count}} day in {{count}} days",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change. The candidate was a full sentence with \"esse momento\" and no antecedent, inserted as a JSON \"when\" value. The relative fragment \"daqui a N …\" for the future and \"há N …\" for the past fits that slot and matches the platform formatter. one (0, 1) uses the singular noun, and many and other use the direct plural. The original opus record had also proposed \"de\" in many, and I withdraw that. The count is rendered with String(value) as digits, not \"milhão\", and the cited style guide shows \"de\" only after the written noun \"milhões\". Every variant keeps the visible count, the unit and the direction.",
-              "proposedValueHash": "e5b3f038a635ceab0c22ae633805c4edb53ce50f60547bcd13a9b74e64874cab"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept the ordinary relative-time fragment. daqui a is future and há is past. one is singular and also covers 0. many and other are plural. {{count}} is digits, not milhão, so many does not add de before the unit noun.",
-              "proposedValueHash": "e5b3f038a635ceab0c22ae633805c4edb53ce50f60547bcd13a9b74e64874cab"
-            }
-          }
-        },
-        "time.day.past": {
-          "finalValueHash": "fdedb12d5e0507555589f60845710bc07ba4861448b48ffb59801627aa95e246",
-          "chosenFrom": "synthesis",
-          "leadReason": "Use an ordinary relative-time fragment: daqui a for future and há for past. Preserve the unit, direction, and count. The formatter inserts digits, so the many category does not write the missing noun milhão. Use the direct plural without an automatic de, consistently with native Intl.RelativeTimeFormat numeric labels.",
-          "candidateReason": "All past-dias variants compared. Retain past direction without zero singular agreement or the unnecessary de in peers; use a complete count label.",
-          "opusDecision": "required_change",
-          "opusReason": "Format defect: this string is inserted as the value of the \"when\" or \"lastActivity\" field in tool results (providerRelativeTime). The candidate renders it as a full sentence with a period (\"O intervalo ... desde esse momento, em X, é N.\"), where \"esse momento\" has no antecedent in a field value. Native relative-time phrases fit the slot and are what the other locales use. The opus draft gives them, with the de construction in many as the pt reference requires.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and no single draft; the wording is a synthesis. one includes 0 and 1, many is the large round count, and other is the remaining plural; the shared número or intervalo wording fits all three. English: {{count}} day ago {{count}} days ago",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change. The candidate was a full sentence with \"esse momento\" and no antecedent, inserted as a JSON \"when\" value. The relative fragment \"daqui a N …\" for the future and \"há N …\" for the past fits that slot and matches the platform formatter. one (0, 1) uses the singular noun, and many and other use the direct plural. The original opus record had also proposed \"de\" in many, and I withdraw that. The count is rendered with String(value) as digits, not \"milhão\", and the cited style guide shows \"de\" only after the written noun \"milhões\". Every variant keeps the visible count, the unit and the direction.",
-              "proposedValueHash": "fdedb12d5e0507555589f60845710bc07ba4861448b48ffb59801627aa95e246"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept the ordinary relative-time fragment. daqui a is future and há is past. one is singular and also covers 0. many and other are plural. {{count}} is digits, not milhão, so many does not add de before the unit noun.",
-              "proposedValueHash": "fdedb12d5e0507555589f60845710bc07ba4861448b48ffb59801627aa95e246"
-            }
-          }
-        },
-        "time.hour.future": {
-          "finalValueHash": "f8aa5a2c894ae1f32558ab4420e1c300ebd43968f019026266ae3a7acf2f3d5b",
-          "chosenFrom": "synthesis",
-          "leadReason": "Use an ordinary relative-time fragment: daqui a for future and há for past. Preserve the unit, direction, and count. The formatter inserts digits, so the many category does not write the missing noun milhão. Use the direct plural without an automatic de, consistently with native Intl.RelativeTimeFormat numeric labels.",
-          "candidateReason": "All future-horas variants compared. Opus and Gemini misuse singular at zero and de after numeric millions; Grok is cumbersome. Use a complete neutral future interval label.",
-          "opusDecision": "required_change",
-          "opusReason": "Format defect: this string is inserted as the value of the \"when\" or \"lastActivity\" field in tool results (providerRelativeTime). The candidate renders it as a full sentence with a period (\"O intervalo ... desde esse momento, em X, é N.\"), where \"esse momento\" has no antecedent in a field value. Native relative-time phrases fit the slot and are what the other locales use. The opus draft gives them, with the de construction in many as the pt reference requires.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and no single draft; the wording is a synthesis. one includes 0 and 1, many is the large round count, and other is the remaining plural; the shared número or intervalo wording fits all three. English: in {{count}} hour in {{count}} hours",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change. The candidate was a full sentence with \"esse momento\" and no antecedent, inserted as a JSON \"when\" value. The relative fragment \"daqui a N …\" for the future and \"há N …\" for the past fits that slot and matches the platform formatter. one (0, 1) uses the singular noun, and many and other use the direct plural. The original opus record had also proposed \"de\" in many, and I withdraw that. The count is rendered with String(value) as digits, not \"milhão\", and the cited style guide shows \"de\" only after the written noun \"milhões\". Every variant keeps the visible count, the unit and the direction.",
-              "proposedValueHash": "f8aa5a2c894ae1f32558ab4420e1c300ebd43968f019026266ae3a7acf2f3d5b"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept the ordinary relative-time fragment. daqui a is future and há is past. one is singular and also covers 0. many and other are plural. {{count}} is digits, not milhão, so many does not add de before the unit noun.",
-              "proposedValueHash": "f8aa5a2c894ae1f32558ab4420e1c300ebd43968f019026266ae3a7acf2f3d5b"
-            }
-          }
-        },
-        "time.hour.past": {
-          "finalValueHash": "bbd00a57937e97b4873c182f54e67c5343095ec70f006a17d18de4abff8c505d",
-          "chosenFrom": "synthesis",
-          "leadReason": "Use an ordinary relative-time fragment: daqui a for future and há for past. Preserve the unit, direction, and count. The formatter inserts digits, so the many category does not write the missing noun milhão. Use the direct plural without an automatic de, consistently with native Intl.RelativeTimeFormat numeric labels.",
-          "candidateReason": "All past-horas variants compared. Retain past direction without zero singular agreement or the unnecessary de in peers; use a complete count label.",
-          "opusDecision": "required_change",
-          "opusReason": "Format defect: this string is inserted as the value of the \"when\" or \"lastActivity\" field in tool results (providerRelativeTime). The candidate renders it as a full sentence with a period (\"O intervalo ... desde esse momento, em X, é N.\"), where \"esse momento\" has no antecedent in a field value. Native relative-time phrases fit the slot and are what the other locales use. The opus draft gives them, with the de construction in many as the pt reference requires.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and no single draft; the wording is a synthesis. one includes 0 and 1, many is the large round count, and other is the remaining plural; the shared número or intervalo wording fits all three. English: {{count}} hour ago {{count}} hours ago",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change. The candidate was a full sentence with \"esse momento\" and no antecedent, inserted as a JSON \"when\" value. The relative fragment \"daqui a N …\" for the future and \"há N …\" for the past fits that slot and matches the platform formatter. one (0, 1) uses the singular noun, and many and other use the direct plural. The original opus record had also proposed \"de\" in many, and I withdraw that. The count is rendered with String(value) as digits, not \"milhão\", and the cited style guide shows \"de\" only after the written noun \"milhões\". Every variant keeps the visible count, the unit and the direction.",
-              "proposedValueHash": "bbd00a57937e97b4873c182f54e67c5343095ec70f006a17d18de4abff8c505d"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept the ordinary relative-time fragment. daqui a is future and há is past. one is singular and also covers 0. many and other are plural. {{count}} is digits, not milhão, so many does not add de before the unit noun.",
-              "proposedValueHash": "bbd00a57937e97b4873c182f54e67c5343095ec70f006a17d18de4abff8c505d"
-            }
-          }
-        },
-        "time.minute.future": {
-          "finalValueHash": "daee852c1ec7e232eac8080d2ce3c74237556049a0f93e1dae404d328f0da212",
-          "chosenFrom": "synthesis",
-          "leadReason": "Use an ordinary relative-time fragment: daqui a for future and há for past. Preserve the unit, direction, and count. The formatter inserts digits, so the many category does not write the missing noun milhão. Use the direct plural without an automatic de, consistently with native Intl.RelativeTimeFormat numeric labels.",
-          "candidateReason": "All future-minutos variants compared. Opus and Gemini misuse singular at zero and de after numeric millions; Grok is cumbersome. Use a complete neutral future interval label.",
-          "opusDecision": "required_change",
-          "opusReason": "Format defect: this string is inserted as the value of the \"when\" or \"lastActivity\" field in tool results (providerRelativeTime). The candidate renders it as a full sentence with a period (\"O intervalo ... desde esse momento, em X, é N.\"), where \"esse momento\" has no antecedent in a field value. Native relative-time phrases fit the slot and are what the other locales use. The opus draft gives them, with the de construction in many as the pt reference requires.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and no single draft; the wording is a synthesis. one includes 0 and 1, many is the large round count, and other is the remaining plural; the shared número or intervalo wording fits all three. English: in {{count}} minute in {{count}} minutes",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change. The candidate was a full sentence with \"esse momento\" and no antecedent, inserted as a JSON \"when\" value. The relative fragment \"daqui a N …\" for the future and \"há N …\" for the past fits that slot and matches the platform formatter. one (0, 1) uses the singular noun, and many and other use the direct plural. The original opus record had also proposed \"de\" in many, and I withdraw that. The count is rendered with String(value) as digits, not \"milhão\", and the cited style guide shows \"de\" only after the written noun \"milhões\". Every variant keeps the visible count, the unit and the direction.",
-              "proposedValueHash": "daee852c1ec7e232eac8080d2ce3c74237556049a0f93e1dae404d328f0da212"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept the ordinary relative-time fragment. daqui a is future and há is past. one is singular and also covers 0. many and other are plural. {{count}} is digits, not milhão, so many does not add de before the unit noun.",
-              "proposedValueHash": "daee852c1ec7e232eac8080d2ce3c74237556049a0f93e1dae404d328f0da212"
-            }
-          }
-        },
-        "time.minute.past": {
-          "finalValueHash": "2538ce5ca9b8b4de136bae4630b4d5617265ae15d1d2c52e6b69e481265203d7",
-          "chosenFrom": "synthesis",
-          "leadReason": "Use an ordinary relative-time fragment: daqui a for future and há for past. Preserve the unit, direction, and count. The formatter inserts digits, so the many category does not write the missing noun milhão. Use the direct plural without an automatic de, consistently with native Intl.RelativeTimeFormat numeric labels.",
-          "candidateReason": "All past-minutos variants compared. Retain past direction without zero singular agreement or the unnecessary de in peers; use a complete count label.",
-          "opusDecision": "required_change",
-          "opusReason": "Format defect: this string is inserted as the value of the \"when\" or \"lastActivity\" field in tool results (providerRelativeTime). The candidate renders it as a full sentence with a period (\"O intervalo ... desde esse momento, em X, é N.\"), where \"esse momento\" has no antecedent in a field value. Native relative-time phrases fit the slot and are what the other locales use. The opus draft gives them, with the de construction in many as the pt reference requires.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and no single draft; the wording is a synthesis. one includes 0 and 1, many is the large round count, and other is the remaining plural; the shared número or intervalo wording fits all three. English: {{count}} minute ago {{count}} minutes ago",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change. The candidate was a full sentence with \"esse momento\" and no antecedent, inserted as a JSON \"when\" value. The relative fragment \"daqui a N …\" for the future and \"há N …\" for the past fits that slot and matches the platform formatter. one (0, 1) uses the singular noun, and many and other use the direct plural. The original opus record had also proposed \"de\" in many, and I withdraw that. The count is rendered with String(value) as digits, not \"milhão\", and the cited style guide shows \"de\" only after the written noun \"milhões\". Every variant keeps the visible count, the unit and the direction.",
-              "proposedValueHash": "2538ce5ca9b8b4de136bae4630b4d5617265ae15d1d2c52e6b69e481265203d7"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept the ordinary relative-time fragment. daqui a is future and há is past. one is singular and also covers 0. many and other are plural. {{count}} is digits, not milhão, so many does not add de before the unit noun.",
-              "proposedValueHash": "2538ce5ca9b8b4de136bae4630b4d5617265ae15d1d2c52e6b69e481265203d7"
-            }
-          }
-        },
         "read.context.basic": {
           "finalValueHash": "4b030778e174e40a6e2fa8d102dd4d15001772b4ba596edd4a0a62b3b7939ee1",
           "chosenFrom": "codex",
@@ -4050,7 +3797,7 @@
     },
     "reports": {
       "finalHash": "1097da60300929b16e86264544cb0674bc14ddda954b86f658f2ae2ce4c1ab1e",
-      "finalTemplateHash": "3dae514cee4a88c5504f9af1d54b26c2c7afb4a511d6297441b8ef67287ca89e",
+      "finalTemplateHash": "c235daf236aaefbf2f2ac729e55f54493b3f02fb8e450438dcaf29fe31d1e9c8",
       "draftHashes": {
         "codex": "1097da60300929b16e86264544cb0674bc14ddda954b86f658f2ae2ce4c1ab1e",
         "opus": "dea9c6eb68a138a5761ece53a8d68cfd9786d7771cda8461aecdee6c1d89ceb0",
@@ -4061,73 +3808,12 @@
         "opus": "ff505cdddf73eecd3c7dab7e02eb184161b0f1ce8f559790151a876b7e7c2cd9",
         "grok": "5fc317707d973031c11905df7b7ae33a93d4e92777bfd0810dafb0c885c912e2"
       },
-      "decisions": {
-        "report.elapsed.moment": {
-          "finalValueHash": "3f301a51fd6840bde683db5ef4f67fdda8bdfa7c4ec828d7dffe9d1d45a9b058",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Codex and Grok naturally state elapsed moment since YOUR previous visit; Gemini omits the possessive article.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex, grok. actor, tense, limits, and parameters match the English. English: A moment passed since your previous visit.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "report.elapsed.second": {
-          "finalValueHash": "444600a79e30088eea8dd954d606b6436c8f576002299b22e7d815140ff87719",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All plural variants compared for elapsed seconds. The complete count label preserves since your previous visit and covers zero/one without peers singular zero or numeric de.",
-          "opusDecision": "accept",
-          "opusReason": "Neutral \"O número de ... decorridos ... é N\" form has no agreement conflict in any category; app report register is fine.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex. one includes 0 and 1, many is the large round count, and other is the remaining plural; the shared número or intervalo wording fits all three. English: {{count}} second passed since your previous visit. {{count}} seconds passed since your previous visit.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "report.elapsed.minute": {
-          "finalValueHash": "1ad76895526b73c896de90dbf88e052a30313403606c04072ed5948ca289c178",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All plural variants compared for elapsed minutes. The complete count label preserves since your previous visit and covers zero/one without peers singular zero or numeric de.",
-          "opusDecision": "accept",
-          "opusReason": "Neutral \"O número de ... decorridos ... é N\" form has no agreement conflict in any category; app report register is fine.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex. one includes 0 and 1, many is the large round count, and other is the remaining plural; the shared número or intervalo wording fits all three. English: {{count}} minute passed since your previous visit. {{count}} minutes passed since your previous visit.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "report.elapsed.hour": {
-          "finalValueHash": "eb07f761ec0fc8f77a767e46e6266cb6fe230f0340f8f319e64692231d3f14e1",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All plural variants compared for elapsed hours. The complete count label preserves since your previous visit and covers zero/one without peers singular zero or numeric de.",
-          "opusDecision": "accept",
-          "opusReason": "Neutral \"O número de ... decorridos ... é N\" form has no agreement conflict in any category; app report register is fine.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex. one includes 0 and 1, many is the large round count, and other is the remaining plural; the shared número or intervalo wording fits all three. English: {{count}} hour passed since your previous visit. {{count}} hours passed since your previous visit.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "report.elapsed.day": {
-          "finalValueHash": "59b20b35afc77bf56c5c9798b63366bdcc188b8033a24a4279679551ab72fbcc",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All plural variants compared for elapsed days. The complete count label preserves since your previous visit and covers zero/one without peers singular zero or numeric de.",
-          "opusDecision": "accept",
-          "opusReason": "Neutral \"O número de ... decorridos ... é N\" form has no agreement conflict in any category; app report register is fine.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex. one includes 0 and 1, many is the large round count, and other is the remaining plural; the shared número or intervalo wording fits all three. English: {{count}} day passed since your previous visit. {{count}} days passed since your previous visit.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        }
-      }
+      "decisions": {},
+      "status": "pending_translation",
+      "pendingTranslationKeys": [
+        "report.timestamp.relative",
+        "report.timestamp.absolute"
+      ]
     },
     "recovery": {
       "finalHash": "48214848c41c7370509afb2296c82420caeb35a45da06296a0e31a7c738140f7",

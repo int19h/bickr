@@ -1,3 +1,5 @@
+import { formatParticipantTime } from "@bickr/shared/participant-time";
+import type { ParticipantTimeSettings } from "@bickr/shared/model";
 import { approximateTextTokens } from '@bickr/shared/text-token-estimate';
 import type { BotText } from '../localization';
 import { formatCommentRef, formatThreadRef, parseCommentRef, parseThreadRef } from '@bickr/shared/ids';
@@ -93,7 +95,7 @@ export function providerToolResultPayload(
 		return providerFollowerQueryResult(runtimeRecord(result));
 	}
 	if (canonical === 'view_activity') {
-		return providerActivityFeedResult(text, runtimeRecord(result), options.tokenBudget);
+		return providerActivityFeedResult(context, runtimeRecord(result), options.tokenBudget);
 	}
 	if (canonical === 'follow_profile' || canonical === 'unfollow_profile') {
 		if (semanticResult.kind === 'profile_followed' || semanticResult.kind === 'profile_unfollowed') {
@@ -297,14 +299,17 @@ export type ProviderSerializationContext = {
 	readonly text: BotText;
 	readonly self: ProviderSelfParticipant;
 	readonly content: ProviderContextContentScope;
+	// Only the pre-localization history adapter and body-only budget estimates lack account time.
+	readonly time: { settings: ParticipantTimeSettings; createdAt: string } | null;
 };
 
 export function providerSerializationContext(
 	text: BotText,
 	self: ProviderSelfParticipant,
 	content: ProviderContextContentScope = emptyProviderContextContentScope(),
+	time: { settings: ParticipantTimeSettings; createdAt: string } | null,
 ): ProviderSerializationContext {
-	return { text, self, content };
+	return { text, self, content, time };
 }
 
 export function emptyProviderContextContentScope(): ProviderContextContentScope {
@@ -335,13 +340,13 @@ export function providerCheckNotificationsResultWithInclusions(
 	tokenBudget?: number,
 ): ProviderNotificationPayloadResult {
 	const text = initialContext.text;
-	const context = providerSerializationContext(text, initialContext.self, cloneProviderContextContentScope(initialContext.content));
+	const context = providerSerializationContext(text, initialContext.self, cloneProviderContextContentScope(initialContext.content), initialContext.time);
 	const storedEvents = events
 		.map(storedNotificationEvent)
 		.filter((event): event is StoredNotificationEvent => Boolean(event));
 	const providerEvents: ProviderBudgetEvent[] = coalescedCommentNoticeGroups(mergedProviderNotificationEventGroups(storedEvents)).map(group =>
 		group.event.kind === 'follower_activity_digest'
-			? { kind: 'follower_digest', notificationIds: group.notificationIds, payload: providerFollowerDigest(text, group.event, group.deliveryReasons) }
+			? { kind: 'follower_digest', notificationIds: group.notificationIds, payload: providerFollowerDigest(context, group.event, group.deliveryReasons) }
 			: { kind: 'ordinary', notificationIds: group.notificationIds,
 				payload: providerNotificationEvent(group.event, group.deliveryReasons, context) },
 	);
@@ -601,7 +606,7 @@ function providerNotificationEvent(
 		deliveryReasons: orderedProviderDeliveryReasons(deliveryReasons),
 	};
 	switch (event.kind) {
-		case 'follower_activity_digest': return providerFollowerDigest(context.text, event, deliveryReasons);
+		case 'follower_activity_digest': return providerFollowerDigest(context, event, deliveryReasons);
 		case 'bootstrap':
 			if (event.bootstrapVersion === 1) return { ...header, message: event.composedMessage.text };
 			// The bootstrap message is Bickr's own words to the participant, not
@@ -675,7 +680,7 @@ function providerNotificationEvent(
 }
 
 function providerFollowerDigest(
-	text: BotText, event: Extract<NotificationEvent, { kind: 'follower_activity_digest' }>, deliveryReasons: string[],
+	context: ProviderSerializationContext, event: Extract<NotificationEvent, { kind: 'follower_activity_digest' }>, deliveryReasons: string[],
 ): ProviderFollowerDigestPayload {
 	return {
 		type: event.type,
@@ -683,7 +688,7 @@ function providerFollowerDigest(
 		actor: providerNotificationProfileRef(event.actor),
 		olderActivityOmitted: event.olderActivityOmitted,
 		activities: event.activities.map(item => ({
-			kind: item.kind, when: providerRelativeTime(text, item.createdAt), threadRef: providerThreadRef(item.thread.id), title: stringValue(item.thread.title),
+			kind: item.kind, when: providerTimestamp(context, item.createdAt), threadRef: providerThreadRef(item.thread.id), title: stringValue(item.thread.title),
 			...(item.kind === 'comment' ? { commentRef: providerCommentRef(item.comment.id) } : {}),
 		})),
 	};
@@ -1079,25 +1084,10 @@ function removeUndefinedProperties(record: Record<string, unknown>): Record<stri
 	return output;
 }
 
-const providerRelativeTimeUnits = [
-	{ name: 'year', ms: 365 * 24 * 60 * 60 * 1000 },
-	{ name: 'month', ms: 30 * 24 * 60 * 60 * 1000 },
-	{ name: 'day', ms: 24 * 60 * 60 * 1000 },
-	{ name: 'hour', ms: 60 * 60 * 1000 },
-	{ name: 'minute', ms: 60 * 1000 },
-] as const;
-
-function providerRelativeTime(text: BotText, value: unknown, nowMs = Date.now()): string | undefined {
+function providerTimestamp(context: ProviderSerializationContext, value: unknown): string | undefined {
 	const timestamp = stringValue(value);
-	if (!timestamp) return undefined;
-	const timeMs = Date.parse(timestamp);
-	if (!Number.isFinite(timeMs)) return timestamp;
-	const diffMs = nowMs - timeMs;
-	const absMs = Math.abs(diffMs);
-	if (absMs < 60 * 1000) return text.format('time.just_now');
-	const unit = providerRelativeTimeUnits.find((candidate) => absMs >= candidate.ms) ?? providerRelativeTimeUnits.at(-1)!;
-	const count = Math.max(1, Math.floor(absMs / unit.ms));
-	return text.format(`time.${unit.name}.${diffMs < 0 ? 'future' : 'past'}`, { count });
+	if (!context.time || !timestamp || !Number.isFinite(Date.parse(timestamp))) return undefined;
+	return formatParticipantTime(timestamp, context.time.settings, context.time.createdAt);
 }
 
 function providerUsername(value: unknown): string | undefined {
@@ -1211,7 +1201,6 @@ function providerThreadSummary(
 	context: ProviderSerializationContext,
 	options: { includeForum?: boolean } = {},
 ): Record<string, unknown> {
-	const text = context.text;
 	const lock = runtimeRecord(record.lock);
 	return removeUndefinedProperties({
 		threadRef: providerThreadRef(stringValue(record.threadRef) ?? stringValue(record.threadId) ?? stringValue(record.id)),
@@ -1223,12 +1212,11 @@ function providerThreadSummary(
 		locked: lock.kind === 'comment_limit' ? true : undefined,
 		commentLimit: lock.kind === 'comment_limit' ? numberValue(lock.limit) : undefined,
 		voteScore: numberValue(record.voteScore),
-		lastActivity: providerRelativeTime(text, record.lastActivityAt),
+		lastActivity: providerTimestamp(context, record.lastActivityAt),
 	});
 }
 
 function providerSearchPost(record: Record<string, unknown>, context: ProviderSerializationContext): Record<string, unknown> {
-	const text = context.text;
 	const commentId = stringValue(record.commentId) ?? stringValue(record.rootCommentId);
 	const threadId = stringValue(record.threadId);
 	const snippet = stringValue(record.snippet);
@@ -1242,7 +1230,7 @@ function providerSearchPost(record: Record<string, unknown>, context: ProviderSe
 		title: stringValue(record.title),
 		...(snippet && !snippetAlreadyInContext ? { snippet } : {}),
 		author: providerAuthorRef(record, context.self),
-		when: providerRelativeTime(text, record.createdAt),
+		when: providerTimestamp(context, record.createdAt),
 	});
 }
 
@@ -1486,9 +1474,9 @@ function providerVoteTargetReference(thread: ThreadDocument, vote: ToolResultVot
 			});
 }
 
-function providerActivityFeedResult(text: BotText, record: Record<string, unknown>, tokenBudget?: number): Record<string, unknown> {
+function providerActivityFeedResult(context: ProviderSerializationContext, record: Record<string, unknown>, tokenBudget?: number): Record<string, unknown> {
 	const profile = providerProfileUsername(runtimeRecord(record.bot));
-	const activities = Array.isArray(record.activities) ? record.activities.map((item) => providerActivity(text, runtimeRecord(item))) : [];
+	const activities = Array.isArray(record.activities) ? record.activities.map((item) => providerActivity(context, runtimeRecord(item))) : [];
 	const payloadForActivities = (items: Record<string, unknown>[]) =>
 		removeUndefinedProperties({
 			profile,
@@ -1502,7 +1490,7 @@ function providerActivityFeedResult(text: BotText, record: Record<string, unknow
 	return payloadForActivities(pruned.items);
 }
 
-function providerActivity(text: BotText, record: Record<string, unknown>): Record<string, unknown> {
+function providerActivity(context: ProviderSerializationContext, record: Record<string, unknown>): Record<string, unknown> {
 	const type = stringValue(record.type);
 	if (type === 'thread') {
 		return removeUndefinedProperties({
@@ -1513,7 +1501,7 @@ function providerActivity(text: BotText, record: Record<string, unknown>): Recor
 			bodyPreview: providerBodyPreview(record.bodyPreview),
 			voteScore: numberValue(record.voteScore),
 			commentCount: numberValue(record.commentCount),
-			when: providerRelativeTime(text, record.createdAt),
+			when: providerTimestamp(context, record.createdAt),
 		});
 	}
 	if (type === 'comment') {
@@ -1523,7 +1511,7 @@ function providerActivity(text: BotText, record: Record<string, unknown>): Recor
 			forum: providerForumNameFromRecord(record),
 			bodyPreview: providerBodyPreview(record.bodyPreview),
 			replyTo: providerActivityCommentContext(runtimeRecord(record.parentComment), { includeCommentId: false }),
-			when: providerRelativeTime(text, record.createdAt),
+			when: providerTimestamp(context, record.createdAt),
 		});
 	}
 	if (type === 'vote') {
@@ -1537,7 +1525,7 @@ function providerActivity(text: BotText, record: Record<string, unknown>): Recor
 			title: localizedArgumentText(record.title),
 			...(reason ? { reason } : {}),
 			targetComment: providerActivityCommentContext(runtimeRecord(record.targetComment)),
-			when: providerRelativeTime(text, record.updatedAt ?? record.createdAt),
+			when: providerTimestamp(context, record.updatedAt ?? record.createdAt),
 		});
 	}
 	if (type === 'follow' || type === 'unfollow') {
@@ -1546,12 +1534,12 @@ function providerActivity(text: BotText, record: Record<string, unknown>): Recor
 			type,
 			profile: providerProfileUsername(runtimeRecord(record.bot)),
 			...(reason ? { reason } : {}),
-			when: providerRelativeTime(text, record.createdAt),
+			when: providerTimestamp(context, record.createdAt),
 		});
 	}
 	return removeUndefinedProperties({
 		type,
-		when: providerRelativeTime(text, record.createdAt ?? record.updatedAt),
+		when: providerTimestamp(context, record.createdAt ?? record.updatedAt),
 	});
 }
 
@@ -1911,7 +1899,7 @@ function collapsedReadReplyCount(content: ReadContentItem[]): number {
 function providerReadContentTreeTokenEstimate(text: BotText, content: ReadContentItem[], self: ProviderSelfParticipant): number {
 	const providerContent = providerReadContentTree(
 		content.map((item) => item as unknown as Record<string, unknown>),
-		providerSerializationContext(text, self),
+		providerSerializationContext(text, self, undefined, null),
 	);
 	return estimateTextTokens(JSON.stringify(providerContent));
 }

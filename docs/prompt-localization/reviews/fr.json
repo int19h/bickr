@@ -1,8 +1,8 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "catalogSourceHash": "1ea4d0935facacfea35be251f30fc67822b5de7e36d4075fd21c7595bffff89e",
+  "catalogSourceHash": "569c6dc99760c3c93e1594717e4078e6e25111ee4b5b788935ef32b6d2cb5cab",
   "locale": "fr",
-  "status": "accepted_by_lead",
+  "status": "partially_pending_translation",
   "leadReason": "Accept the French catalog after both reviewers accept all three exact follow-up units. Repeated de marks coordinated infinitives. The count formatter inserts digits, so the many variant uses the reviewed numeric plural without a written million noun. Décor denotes the visual setting consistently.",
   "terminologyDecisions": {
     "numericMany": "The formatter inserts ordinary digits. Keep native many variants, but do not insert de merely because the number is a round million. De follows the written noun million/milliard where required, not a category label by itself.",
@@ -3181,7 +3181,7 @@
     },
     "serialization": {
       "finalHash": "474211bebc4ca185fba63f9b8fcc3ebffaf8eeb79334e8c6da8b27450afa119e",
-      "finalTemplateHash": "7709d0d4d2b25570c7b0475c75b0e1bda15c38c5165f730647f950b57198fe9e",
+      "finalTemplateHash": "4229aa47036c2e7422f066e06dc9621bcde14163b7de3db48348f7683913e963",
       "draftHashes": {
         "codex": "cacc4e99019687d171838698941f6c0edb11f7c6045dfec028194b87cb2a7685",
         "opus": "aad446b282f7a0e5e3edc4edbaad766d360c577fa7aa4e2738bdcedde29e3c56",
@@ -3193,259 +3193,6 @@
         "grok": "fe809672284ce6b2233f3180fb84e56da16ecf49392734d8a2bcf2e513015db8"
       },
       "decisions": {
-        "time.just_now": {
-          "finalValueHash": "58a60c440320a207f72ec853736ee5bcba52b9c574d8eb0f3373b96d6486d0e0",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All four preserve just now with the natural à l’instant phrase.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept à l'instant. It is a compact fragment for just now.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "time.year.future": {
-          "finalValueHash": "f2d1ecf06a81240f69a4af94d6f99087830e46aa51ccc19f15e88e1fb42da819",
-          "chosenFrom": "candidate",
-          "leadReason": "Retain the direct numeric relative-time form. The formatter inserts digits, not the words million or milliard. A CLDR many category does not itself require a de construction. The French reference says to use de only where the noun needs it. Ordinary numeric duration labels remain grammatical without an added de. Discuss this numeral-versus-word distinction with both reviewers.",
-          "candidateReason": "All four drafts and all three categories were compared for time.year.future. Keep natural source time phrases and singular/plural nouns, with no de after the many-category numeric count.",
-          "opusDecision": "optional_change",
-          "opusReason": "one and other are correct. The French reference requires the de construction in many (round millions), so \"dans {{count}} ans\" should read \"dans {{count}} d’années\" there. The runtime picks the largest unit and JavaScript dates span about 275,000 years, so this count never reaches one million; the change is for correctness of the catalog form only.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and no single draft; the wording is a synthesis. one, many, and other were read; one stays grammatical for 0 and 1. English: in {{count}} year in {{count}} years",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "I withdraw my optional \"de\" change. The lead's evidence is correct. The count parameter is rendered by String(value) as plain digits (\"1000000\"), never as the noun \"million\" or \"milliard\". \"de\" is required only after those written numeral nouns, and the cited official guidance accepts a digit count followed directly by the noun. The common reference also states that a category alone does not specify the numeral wording. I had inferred the spoken numeral noun from the CLDR label \"many\", which the reference warns against. one (0 and 1, singular) and many/other (plural) are all grammatical, and the native forms and the visible count are preserved.",
-              "proposedValueHash": "f2d1ecf06a81240f69a4af94d6f99087830e46aa51ccc19f15e88e1fb42da819"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept the direct numeric forms. The count parameter renders ordinary digits through String(value), not the word million or milliard. The CLDR many category alone does not require de. The French reference uses de only where the noun needs it. Do not infer a spoken numeral noun from the category label. one stays singular and also covers 0. many and other stay plural. {{count}} stays visible, and no de is inserted before the duration noun. English is in {{count}} year or years, and dans keeps the future direction.",
-              "proposedValueHash": "f2d1ecf06a81240f69a4af94d6f99087830e46aa51ccc19f15e88e1fb42da819"
-            }
-          }
-        },
-        "time.year.past": {
-          "finalValueHash": "ef4f8760a4a5fced6c25b3acc239a9715857851cec02db73bb7d5e497673ab7a",
-          "chosenFrom": "candidate",
-          "leadReason": "Retain the direct numeric relative-time form. The formatter inserts digits, not the words million or milliard. A CLDR many category does not itself require a de construction. The French reference says to use de only where the noun needs it. Ordinary numeric duration labels remain grammatical without an added de. Discuss this numeral-versus-word distinction with both reviewers.",
-          "candidateReason": "All four drafts and all three categories were compared for time.year.past. Keep natural source time phrases and singular/plural nouns, with no de after the many-category numeric count.",
-          "opusDecision": "optional_change",
-          "opusReason": "one and other are correct. The French reference requires the de construction in many (round millions), so \"il y a {{count}} ans\" should read \"il y a {{count}} d’années\" there. The runtime picks the largest unit and JavaScript dates span about 275,000 years, so this count never reaches one million; the change is for correctness of the catalog form only.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and no single draft; the wording is a synthesis. one, many, and other were read; one stays grammatical for 0 and 1. English: {{count}} year ago {{count}} years ago",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "I withdraw my optional \"de\" change. The lead's evidence is correct. The count parameter is rendered by String(value) as plain digits (\"1000000\"), never as the noun \"million\" or \"milliard\". \"de\" is required only after those written numeral nouns, and the cited official guidance accepts a digit count followed directly by the noun. The common reference also states that a category alone does not specify the numeral wording. I had inferred the spoken numeral noun from the CLDR label \"many\", which the reference warns against. one (0 and 1, singular) and many/other (plural) are all grammatical, and the native forms and the visible count are preserved.",
-              "proposedValueHash": "ef4f8760a4a5fced6c25b3acc239a9715857851cec02db73bb7d5e497673ab7a"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept the direct numeric forms. The count parameter renders ordinary digits through String(value), not the word million or milliard. The CLDR many category alone does not require de. The French reference uses de only where the noun needs it. Do not infer a spoken numeral noun from the category label. one stays singular and also covers 0. many and other stay plural. {{count}} stays visible, and no de is inserted before the duration noun. English is {{count}} year or years ago, and il y a keeps the past direction.",
-              "proposedValueHash": "ef4f8760a4a5fced6c25b3acc239a9715857851cec02db73bb7d5e497673ab7a"
-            }
-          }
-        },
-        "time.month.future": {
-          "finalValueHash": "bcf1856e13965674559ced4d5be88b9737eef3528111838016888d2f857c8193",
-          "chosenFrom": "candidate",
-          "leadReason": "Retain the direct numeric relative-time form. The formatter inserts digits, not the words million or milliard. A CLDR many category does not itself require a de construction. The French reference says to use de only where the noun needs it. Ordinary numeric duration labels remain grammatical without an added de. Discuss this numeral-versus-word distinction with both reviewers.",
-          "candidateReason": "All four drafts and all three categories were compared for time.month.future. Keep natural source time phrases and singular/plural nouns, with no de after the many-category numeric count.",
-          "opusDecision": "optional_change",
-          "opusReason": "one and other are correct. The French reference requires the de construction in many (round millions), so \"dans {{count}} mois\" should read \"dans {{count}} de mois\" there. The runtime picks the largest unit and JavaScript dates span about 275,000 years, so this count never reaches one million; the change is for correctness of the catalog form only.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and no single draft; the wording is a synthesis. one, many, and other were read; one stays grammatical for 0 and 1. English: in {{count}} month in {{count}} months",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "I withdraw my optional \"de\" change. The lead's evidence is correct. The count parameter is rendered by String(value) as plain digits (\"1000000\"), never as the noun \"million\" or \"milliard\". \"de\" is required only after those written numeral nouns, and the cited official guidance accepts a digit count followed directly by the noun. The common reference also states that a category alone does not specify the numeral wording. I had inferred the spoken numeral noun from the CLDR label \"many\", which the reference warns against. one (0 and 1, singular) and many/other (plural) are all grammatical, and the native forms and the visible count are preserved.",
-              "proposedValueHash": "bcf1856e13965674559ced4d5be88b9737eef3528111838016888d2f857c8193"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept the direct numeric forms. The count parameter renders ordinary digits through String(value), not the word million or milliard. The CLDR many category alone does not require de. The French reference uses de only where the noun needs it. Do not infer a spoken numeral noun from the category label. one stays singular and also covers 0. many and other stay plural. {{count}} stays visible, and no de is inserted before the duration noun. mois does not change between categories. dans keeps the future direction.",
-              "proposedValueHash": "bcf1856e13965674559ced4d5be88b9737eef3528111838016888d2f857c8193"
-            }
-          }
-        },
-        "time.month.past": {
-          "finalValueHash": "e4123187460c1686bd9037d652940b576675985a6429cf9cfbad0f2f3e98b03f",
-          "chosenFrom": "candidate",
-          "leadReason": "Retain the direct numeric relative-time form. The formatter inserts digits, not the words million or milliard. A CLDR many category does not itself require a de construction. The French reference says to use de only where the noun needs it. Ordinary numeric duration labels remain grammatical without an added de. Discuss this numeral-versus-word distinction with both reviewers.",
-          "candidateReason": "All four drafts and all three categories were compared for time.month.past. Keep natural source time phrases and singular/plural nouns, with no de after the many-category numeric count.",
-          "opusDecision": "optional_change",
-          "opusReason": "one and other are correct. The French reference requires the de construction in many (round millions), so \"il y a {{count}} mois\" should read \"il y a {{count}} de mois\" there. The runtime picks the largest unit and JavaScript dates span about 275,000 years, so this count never reaches one million; the change is for correctness of the catalog form only.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and no single draft; the wording is a synthesis. one, many, and other were read; one stays grammatical for 0 and 1. English: {{count}} month ago {{count}} months ago",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "I withdraw my optional \"de\" change. The lead's evidence is correct. The count parameter is rendered by String(value) as plain digits (\"1000000\"), never as the noun \"million\" or \"milliard\". \"de\" is required only after those written numeral nouns, and the cited official guidance accepts a digit count followed directly by the noun. The common reference also states that a category alone does not specify the numeral wording. I had inferred the spoken numeral noun from the CLDR label \"many\", which the reference warns against. one (0 and 1, singular) and many/other (plural) are all grammatical, and the native forms and the visible count are preserved.",
-              "proposedValueHash": "e4123187460c1686bd9037d652940b576675985a6429cf9cfbad0f2f3e98b03f"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept the direct numeric forms. The count parameter renders ordinary digits through String(value), not the word million or milliard. The CLDR many category alone does not require de. The French reference uses de only where the noun needs it. Do not infer a spoken numeral noun from the category label. one stays singular and also covers 0. many and other stay plural. {{count}} stays visible, and no de is inserted before the duration noun. mois does not change between categories. il y a keeps the past direction.",
-              "proposedValueHash": "e4123187460c1686bd9037d652940b576675985a6429cf9cfbad0f2f3e98b03f"
-            }
-          }
-        },
-        "time.day.future": {
-          "finalValueHash": "cb04c7aa367200ea8dbe18c22e39b5f739b838d670e3f6bdcaf985f065f8fe09",
-          "chosenFrom": "candidate",
-          "leadReason": "Retain the direct numeric relative-time form. The formatter inserts digits, not the words million or milliard. A CLDR many category does not itself require a de construction. The French reference says to use de only where the noun needs it. Ordinary numeric duration labels remain grammatical without an added de. Discuss this numeral-versus-word distinction with both reviewers.",
-          "candidateReason": "All four drafts and all three categories were compared for time.day.future. Keep natural source time phrases and singular/plural nouns, with no de after the many-category numeric count.",
-          "opusDecision": "optional_change",
-          "opusReason": "one and other are correct. The French reference requires the de construction in many (round millions), so \"dans {{count}} jours\" should read \"dans {{count}} de jours\" there. The runtime picks the largest unit and JavaScript dates span about 275,000 years, so this count never reaches one million; the change is for correctness of the catalog form only.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and no single draft; the wording is a synthesis. one, many, and other were read; one stays grammatical for 0 and 1. English: in {{count}} day in {{count}} days",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "I withdraw my optional \"de\" change. The lead's evidence is correct. The count parameter is rendered by String(value) as plain digits (\"1000000\"), never as the noun \"million\" or \"milliard\". \"de\" is required only after those written numeral nouns, and the cited official guidance accepts a digit count followed directly by the noun. The common reference also states that a category alone does not specify the numeral wording. I had inferred the spoken numeral noun from the CLDR label \"many\", which the reference warns against. one (0 and 1, singular) and many/other (plural) are all grammatical, and the native forms and the visible count are preserved.",
-              "proposedValueHash": "cb04c7aa367200ea8dbe18c22e39b5f739b838d670e3f6bdcaf985f065f8fe09"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept the direct numeric forms. The count parameter renders ordinary digits through String(value), not the word million or milliard. The CLDR many category alone does not require de. The French reference uses de only where the noun needs it. Do not infer a spoken numeral noun from the category label. one stays singular and also covers 0. many and other stay plural. {{count}} stays visible, and no de is inserted before the duration noun. English is in {{count}} day or days.",
-              "proposedValueHash": "cb04c7aa367200ea8dbe18c22e39b5f739b838d670e3f6bdcaf985f065f8fe09"
-            }
-          }
-        },
-        "time.day.past": {
-          "finalValueHash": "39cc70b0bae2ac6083747480c399ec76427e8430cd381bbf421c9321cb7339f8",
-          "chosenFrom": "candidate",
-          "leadReason": "Retain the direct numeric relative-time form. The formatter inserts digits, not the words million or milliard. A CLDR many category does not itself require a de construction. The French reference says to use de only where the noun needs it. Ordinary numeric duration labels remain grammatical without an added de. Discuss this numeral-versus-word distinction with both reviewers.",
-          "candidateReason": "All four drafts and all three categories were compared for time.day.past. Keep natural source time phrases and singular/plural nouns, with no de after the many-category numeric count.",
-          "opusDecision": "optional_change",
-          "opusReason": "one and other are correct. The French reference requires the de construction in many (round millions), so \"il y a {{count}} jours\" should read \"il y a {{count}} de jours\" there. The runtime picks the largest unit and JavaScript dates span about 275,000 years, so this count never reaches one million; the change is for correctness of the catalog form only.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and no single draft; the wording is a synthesis. one, many, and other were read; one stays grammatical for 0 and 1. English: {{count}} day ago {{count}} days ago",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "I withdraw my optional \"de\" change. The lead's evidence is correct. The count parameter is rendered by String(value) as plain digits (\"1000000\"), never as the noun \"million\" or \"milliard\". \"de\" is required only after those written numeral nouns, and the cited official guidance accepts a digit count followed directly by the noun. The common reference also states that a category alone does not specify the numeral wording. I had inferred the spoken numeral noun from the CLDR label \"many\", which the reference warns against. one (0 and 1, singular) and many/other (plural) are all grammatical, and the native forms and the visible count are preserved.",
-              "proposedValueHash": "39cc70b0bae2ac6083747480c399ec76427e8430cd381bbf421c9321cb7339f8"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept the direct numeric forms. The count parameter renders ordinary digits through String(value), not the word million or milliard. The CLDR many category alone does not require de. The French reference uses de only where the noun needs it. Do not infer a spoken numeral noun from the category label. one stays singular and also covers 0. many and other stay plural. {{count}} stays visible, and no de is inserted before the duration noun. English is {{count}} day or days ago.",
-              "proposedValueHash": "39cc70b0bae2ac6083747480c399ec76427e8430cd381bbf421c9321cb7339f8"
-            }
-          }
-        },
-        "time.hour.future": {
-          "finalValueHash": "e8ad6f042a8e8325a9ba3bf053a519de19c1389b6024f938a47c57d01a0eade6",
-          "chosenFrom": "candidate",
-          "leadReason": "Retain the direct numeric relative-time form. The formatter inserts digits, not the words million or milliard. A CLDR many category does not itself require a de construction. The French reference says to use de only where the noun needs it. Ordinary numeric duration labels remain grammatical without an added de. Discuss this numeral-versus-word distinction with both reviewers.",
-          "candidateReason": "All four drafts and all three categories were compared for time.hour.future. Keep natural source time phrases and singular/plural nouns, with no de after the many-category numeric count.",
-          "opusDecision": "optional_change",
-          "opusReason": "one and other are correct. The French reference requires the de construction in many (round millions), so \"dans {{count}} heures\" should read \"dans {{count}} d’heures\" there. The runtime picks the largest unit and JavaScript dates span about 275,000 years, so this count never reaches one million; the change is for correctness of the catalog form only.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and no single draft; the wording is a synthesis. one, many, and other were read; one stays grammatical for 0 and 1. English: in {{count}} hour in {{count}} hours",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "I withdraw my optional \"de\" change. The lead's evidence is correct. The count parameter is rendered by String(value) as plain digits (\"1000000\"), never as the noun \"million\" or \"milliard\". \"de\" is required only after those written numeral nouns, and the cited official guidance accepts a digit count followed directly by the noun. The common reference also states that a category alone does not specify the numeral wording. I had inferred the spoken numeral noun from the CLDR label \"many\", which the reference warns against. one (0 and 1, singular) and many/other (plural) are all grammatical, and the native forms and the visible count are preserved.",
-              "proposedValueHash": "e8ad6f042a8e8325a9ba3bf053a519de19c1389b6024f938a47c57d01a0eade6"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept the direct numeric forms. The count parameter renders ordinary digits through String(value), not the word million or milliard. The CLDR many category alone does not require de. The French reference uses de only where the noun needs it. Do not infer a spoken numeral noun from the category label. one stays singular and also covers 0. many and other stay plural. {{count}} stays visible, and no de is inserted before the duration noun. English is in {{count}} hour or hours.",
-              "proposedValueHash": "e8ad6f042a8e8325a9ba3bf053a519de19c1389b6024f938a47c57d01a0eade6"
-            }
-          }
-        },
-        "time.hour.past": {
-          "finalValueHash": "9895c52e3784be637b648190fff8ff3529d48cea14cace10e1f1ee4d8ff4381c",
-          "chosenFrom": "candidate",
-          "leadReason": "Retain the direct numeric relative-time form. The formatter inserts digits, not the words million or milliard. A CLDR many category does not itself require a de construction. The French reference says to use de only where the noun needs it. Ordinary numeric duration labels remain grammatical without an added de. Discuss this numeral-versus-word distinction with both reviewers.",
-          "candidateReason": "All four drafts and all three categories were compared for time.hour.past. Keep natural source time phrases and singular/plural nouns, with no de after the many-category numeric count.",
-          "opusDecision": "optional_change",
-          "opusReason": "one and other are correct. The French reference requires the de construction in many (round millions), so \"il y a {{count}} heures\" should read \"il y a {{count}} d’heures\" there. The runtime picks the largest unit and JavaScript dates span about 275,000 years, so this count never reaches one million; the change is for correctness of the catalog form only.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and no single draft; the wording is a synthesis. one, many, and other were read; one stays grammatical for 0 and 1. English: {{count}} hour ago {{count}} hours ago",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "I withdraw my optional \"de\" change. The lead's evidence is correct. The count parameter is rendered by String(value) as plain digits (\"1000000\"), never as the noun \"million\" or \"milliard\". \"de\" is required only after those written numeral nouns, and the cited official guidance accepts a digit count followed directly by the noun. The common reference also states that a category alone does not specify the numeral wording. I had inferred the spoken numeral noun from the CLDR label \"many\", which the reference warns against. one (0 and 1, singular) and many/other (plural) are all grammatical, and the native forms and the visible count are preserved.",
-              "proposedValueHash": "9895c52e3784be637b648190fff8ff3529d48cea14cace10e1f1ee4d8ff4381c"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept the direct numeric forms. The count parameter renders ordinary digits through String(value), not the word million or milliard. The CLDR many category alone does not require de. The French reference uses de only where the noun needs it. Do not infer a spoken numeral noun from the category label. one stays singular and also covers 0. many and other stay plural. {{count}} stays visible, and no de is inserted before the duration noun. English is {{count}} hour or hours ago.",
-              "proposedValueHash": "9895c52e3784be637b648190fff8ff3529d48cea14cace10e1f1ee4d8ff4381c"
-            }
-          }
-        },
-        "time.minute.future": {
-          "finalValueHash": "0d05ac698f750eb8db79ae38ad0d02ad5adc732359316c3207838ea28a88ca8f",
-          "chosenFrom": "candidate",
-          "leadReason": "Retain the direct numeric relative-time form. The formatter inserts digits, not the words million or milliard. A CLDR many category does not itself require a de construction. The French reference says to use de only where the noun needs it. Ordinary numeric duration labels remain grammatical without an added de. Discuss this numeral-versus-word distinction with both reviewers.",
-          "candidateReason": "All four drafts and all three categories were compared for time.minute.future. Keep natural source time phrases and singular/plural nouns, with no de after the many-category numeric count.",
-          "opusDecision": "optional_change",
-          "opusReason": "one and other are correct. The French reference requires the de construction in many (round millions), so \"dans {{count}} minutes\" should read \"dans {{count}} de minutes\" there. The runtime picks the largest unit and JavaScript dates span about 275,000 years, so this count never reaches one million; the change is for correctness of the catalog form only.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and no single draft; the wording is a synthesis. one, many, and other were read; one stays grammatical for 0 and 1. English: in {{count}} minute in {{count}} minutes",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "I withdraw my optional \"de\" change. The lead's evidence is correct. The count parameter is rendered by String(value) as plain digits (\"1000000\"), never as the noun \"million\" or \"milliard\". \"de\" is required only after those written numeral nouns, and the cited official guidance accepts a digit count followed directly by the noun. The common reference also states that a category alone does not specify the numeral wording. I had inferred the spoken numeral noun from the CLDR label \"many\", which the reference warns against. one (0 and 1, singular) and many/other (plural) are all grammatical, and the native forms and the visible count are preserved.",
-              "proposedValueHash": "0d05ac698f750eb8db79ae38ad0d02ad5adc732359316c3207838ea28a88ca8f"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept the direct numeric forms. The count parameter renders ordinary digits through String(value), not the word million or milliard. The CLDR many category alone does not require de. The French reference uses de only where the noun needs it. Do not infer a spoken numeral noun from the category label. one stays singular and also covers 0. many and other stay plural. {{count}} stays visible, and no de is inserted before the duration noun. English is in {{count}} minute or minutes.",
-              "proposedValueHash": "0d05ac698f750eb8db79ae38ad0d02ad5adc732359316c3207838ea28a88ca8f"
-            }
-          }
-        },
-        "time.minute.past": {
-          "finalValueHash": "98b9ad5af7f38b712327210c3cf25eddbc3aa04e98d1a9181e626791ae97cd9f",
-          "chosenFrom": "candidate",
-          "leadReason": "Retain the direct numeric relative-time form. The formatter inserts digits, not the words million or milliard. A CLDR many category does not itself require a de construction. The French reference says to use de only where the noun needs it. Ordinary numeric duration labels remain grammatical without an added de. Discuss this numeral-versus-word distinction with both reviewers.",
-          "candidateReason": "All four drafts and all three categories were compared for time.minute.past. Keep natural source time phrases and singular/plural nouns, with no de after the many-category numeric count.",
-          "opusDecision": "optional_change",
-          "opusReason": "one and other are correct. The French reference requires the de construction in many (round millions), so \"il y a {{count}} minutes\" should read \"il y a {{count}} de minutes\" there. The runtime picks the largest unit and JavaScript dates span about 275,000 years, so this count never reaches one million; the change is for correctness of the catalog form only.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and no single draft; the wording is a synthesis. one, many, and other were read; one stays grammatical for 0 and 1. English: {{count}} minute ago {{count}} minutes ago",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "I withdraw my optional \"de\" change. The lead's evidence is correct. The count parameter is rendered by String(value) as plain digits (\"1000000\"), never as the noun \"million\" or \"milliard\". \"de\" is required only after those written numeral nouns, and the cited official guidance accepts a digit count followed directly by the noun. The common reference also states that a category alone does not specify the numeral wording. I had inferred the spoken numeral noun from the CLDR label \"many\", which the reference warns against. one (0 and 1, singular) and many/other (plural) are all grammatical, and the native forms and the visible count are preserved.",
-              "proposedValueHash": "98b9ad5af7f38b712327210c3cf25eddbc3aa04e98d1a9181e626791ae97cd9f"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept the direct numeric forms. The count parameter renders ordinary digits through String(value), not the word million or milliard. The CLDR many category alone does not require de. The French reference uses de only where the noun needs it. Do not infer a spoken numeral noun from the category label. one stays singular and also covers 0. many and other stay plural. {{count}} stays visible, and no de is inserted before the duration noun. English is {{count}} minute or minutes ago.",
-              "proposedValueHash": "98b9ad5af7f38b712327210c3cf25eddbc3aa04e98d1a9181e626791ae97cd9f"
-            }
-          }
-        },
         "read.context.basic": {
           "finalValueHash": "c00e9341f2ad268e26c81913bfd3154690c37a279a5d18cba43182f2fb882e0d",
           "chosenFrom": "opus",
@@ -4147,7 +3894,7 @@
     },
     "reports": {
       "finalHash": "891f961f129537763bfa965146fe2de2f2b57f92c9d4302d916e8b7bf80c1516",
-      "finalTemplateHash": "2410f000d322db42f8df9e55b6b7b0f95fcb26f7c44fb8da8f1383c3b69352d0",
+      "finalTemplateHash": "c235daf236aaefbf2f2ac729e55f54493b3f02fb8e450438dcaf29fe31d1e9c8",
       "draftHashes": {
         "codex": "376e79bfe733ebfb698c3dbc0cd258546b540a76456c9b7ce0c980f937ef1a64",
         "opus": "08e153e2f8023f6c7fd8b9a8875d37eff4f605db2da0c4271a465815e66822fb",
@@ -4158,73 +3905,12 @@
         "opus": "8c393beb6e1cbf47699531b3362ac4e060183e4f50df6e3a7c5930528315ded1",
         "grok": "a8fb64ac14744ac50d3c4ca75fc6596443bf4c734d401d3ac399e755ac473ba7"
       },
-      "decisions": {
-        "report.elapsed.moment": {
-          "finalValueHash": "b5909abc188833c3d8e7d4e335100b3b5b7a9d2d6000327c78aab3a2d6eab16f",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Opus and Grok preserve a moment since your previous visit; Gemini adds only and drops your.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and opus, grok. actor, tense, limits, and parameters match the English. English: A moment passed since your previous visit.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "report.elapsed.second": {
-          "finalValueHash": "1afc47abc9fd6ead55bb96a7dbf556a0f6437bbca26d0a95a00b59c7adcce732",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All three native second categories keep the numeric elapsed count since your previous visit with a complete neutral sentence. Other many forms add de after numerals and Gemini drops your.",
-          "opusDecision": "accept",
-          "opusReason": "Neutral \"Le nombre de ... écoulé(e)s ... est de N\" form has no agreement conflict in any category; app report register is fine.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex. one, many, and other were read; one stays grammatical for 0 and 1. English: {{count}} second passed since your previous visit. {{count}} seconds passed since your previous visit.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "report.elapsed.minute": {
-          "finalValueHash": "2dec642ef7981dfa158b2c16a312935dafde12239f30b1006a6bfe633a0fbebe",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All three native minute categories keep the numeric elapsed count since your previous visit with a complete neutral sentence. Other many forms add de after numerals and Gemini drops your.",
-          "opusDecision": "accept",
-          "opusReason": "Neutral \"Le nombre de ... écoulé(e)s ... est de N\" form has no agreement conflict in any category; app report register is fine.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex. one, many, and other were read; one stays grammatical for 0 and 1. English: {{count}} minute passed since your previous visit. {{count}} minutes passed since your previous visit.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "report.elapsed.hour": {
-          "finalValueHash": "701c5b8ad1b9cbf44be3da84cc7d6967ec790b46394376cf59103a255803bd9b",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All three native hour categories keep the numeric elapsed count since your previous visit with a complete neutral sentence. Other many forms add de after numerals and Gemini drops your.",
-          "opusDecision": "accept",
-          "opusReason": "Neutral \"Le nombre de ... écoulé(e)s ... est de N\" form has no agreement conflict in any category; app report register is fine.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex. one, many, and other were read; one stays grammatical for 0 and 1. English: {{count}} hour passed since your previous visit. {{count}} hours passed since your previous visit.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "report.elapsed.day": {
-          "finalValueHash": "265b9d5084c1a719b4dd5080baab318b577c0faf810d9b2f6588774f4eded212",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All three native day categories keep the numeric elapsed count since your previous visit with a complete neutral sentence. Other many forms add de after numerals and Gemini drops your.",
-          "opusDecision": "accept",
-          "opusReason": "Neutral \"Le nombre de ... écoulé(e)s ... est de N\" form has no agreement conflict in any category; app report register is fine.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex. one, many, and other were read; one stays grammatical for 0 and 1. English: {{count}} day passed since your previous visit. {{count}} days passed since your previous visit.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        }
-      }
+      "decisions": {},
+      "status": "pending_translation",
+      "pendingTranslationKeys": [
+        "report.timestamp.relative",
+        "report.timestamp.absolute"
+      ]
     },
     "recovery": {
       "finalHash": "ad8dc5856161256b74ca6498606a9057e87efbd17781a6582aed709490d4d263",

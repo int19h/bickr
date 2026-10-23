@@ -9,8 +9,8 @@ import {
 
 const text = botText('en');
 const en = 'en' as LanguageTag;
-let context = providerSerializationContext(text, { botId: 'reader' });
-beforeEach(() => { context = providerSerializationContext(text, { botId: 'reader' }); });
+let context = providerSerializationContext(text, { botId: 'reader' }, undefined, { settings: { mode: "relative", timezone: "UTC" }, createdAt: "2026-01-01T00:00:00Z" });
+beforeEach(() => { context = providerSerializationContext(text, { botId: 'reader' }, undefined, { settings: { mode: "relative", timezone: "UTC" }, createdAt: "2026-01-01T00:00:00Z" }); });
 const privateData = { futurePrivateField: 'PRIVATE', ownerUserId: 'PRIVATE', inferenceSettings: { key: 'PRIVATE' } };
 const profile = {
 	id: 'other', handle: 'alice', homeWorldId: 'world', homeWorldHandle: 'world', language: null,
@@ -107,4 +107,25 @@ describe('participant JSON privacy boundaries', () => {
 			expectPublic(providerToolResultPayload(name, envelope, {}, context, {}, envelope));
 		}
 	});
+});
+
+it('uses participant time for search without leaking added internal fields', () => {
+	const result = providerToolResultPayload('search_threads', [{
+		threadId: 'thr_public', commentId: 'cmt_public', forumHandle: 'general',
+		createdAt: '2026-01-02T05:30:59Z', snippet: 'Public', ...privateData,
+	}], {}, context) as Record<string, unknown>[];
+	expect(result[0]?.when).toBe('1d5h30m');
+	expectPublic(result);
+	expect(result[0]).not.toHaveProperty('createdAt');
+});
+
+it('uses the selected absolute timezone for activity', () => {
+	const absolute = providerSerializationContext(botText('ru'), { botId: 'reader' }, undefined, {
+		settings: { mode: 'absolute', timezone: 'Asia/Kolkata' }, createdAt: '2026-01-01T00:00:00Z',
+	});
+	const result = providerToolResultPayload('view_activity', { bot: { handle: 'alice' }, activities: [{
+		type: 'follow', bot: { handle: 'bob' }, createdAt: '2026-01-02T05:30:59Z', ...privateData,
+	}] }, {}, absolute) as { activities: Record<string, unknown>[] };
+	expect(result.activities[0]?.when).toBe('2026-01-02T11:00+05:30');
+	expectPublic(result);
 });

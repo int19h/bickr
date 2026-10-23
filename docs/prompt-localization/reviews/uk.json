@@ -1,8 +1,8 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "catalogSourceHash": "1ea4d0935facacfea35be251f30fc67822b5de7e36d4075fd21c7595bffff89e",
+  "catalogSourceHash": "569c6dc99760c3c93e1594717e4078e6e25111ee4b5b788935ef32b6d2cb5cab",
   "locale": "uk",
-  "status": "accepted_by_lead",
+  "status": "partially_pending_translation",
   "leadReason": "Accept the exact Ukrainian proposal. Both reviewers accept all nineteen disputed units and find no additional defect. Native relative-time fragments and count forms preserve every quantity and direction. Gender-neutral narration keeps the participant role. The corrected instrumental, follow terminology, explicit relationship direction, and member-list headings retain the source meaning.",
   "terminologyDecisions": {
     "follow": "Use підписуватися for the participant follow action, consistently with tool descriptions.",
@@ -3084,7 +3084,7 @@
     },
     "serialization": {
       "finalHash": "e59dcc3575e9e115b5006d897a33ce978fc34e54ef08ff0ae9632817fe6c911e",
-      "finalTemplateHash": "70d0ccdcfce43a8332fe8b4e7bd06d143ca18798204f326e100ef9094181b750",
+      "finalTemplateHash": "b8c81df8b8069b5d25fcabcd51fbd740f13f0317b871a5d9bb93cc5b28088012",
       "draftHashes": {
         "codex": "640f502d4337ec0f61fe12d1fee29d661a5e6ee4f8f8f9599fce61a01a2e3034",
         "opus": "4e1ef2883cff03007d8b8cb888f22a873d63f8c375969074610acac88794e277",
@@ -3096,259 +3096,6 @@
         "grok": "3c698cc1673db22505ea527984932817c4408e6a8dfa611010debd624e854ec4"
       },
       "decisions": {
-        "time.just_now": {
-          "finalValueHash": "92858181c8aaac8ed3f5252bc6f30f1a2e7bb892b84443ac708cd0517e3ccada",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All four use the same idiomatic immediate-past time expression.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept щойно as the compact fragment for just now.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "time.year.future": {
-          "finalValueHash": "6a8b0cee9130bc80c7f6091a073633a83948bfbc4d65e142d3204ec074a1d1d6",
-          "chosenFrom": "opus",
-          "leadReason": "Use native relative-time fragments instead of complete interval-definition sentences in the when/lastActivity field. The Opus and Grok independent drafts agree on the direct construction. Keep past/future direction, each count, and native one/few/many/other case forms.",
-          "candidateReason": "Codex retains future year time with invariant count wording in all four categories. Other drafts use fragments and Gemini mishandles fractional agreement. Complete the count predicate.",
-          "opusDecision": "required_change",
-          "opusReason": "Format defect: this string is the value of the \"when\" or \"lastActivity\" field in tool results. The candidate renders a sentence with a period (\"Час, що минув, у днях становить N.\"). Native phrases fit the slot and match most locales. The opus and grok drafts agree on them, with correct one/few/many/other forms (день/дні/днів/дня тому, через N рік/роки/років/року).",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and no single draft; the wording is a synthesis. one is 1, 21, and 101; few is 2, 3, and 4; many includes 0; other is fractional; the shared count label was read for every category. English: in {{count}} year in {{count}} years",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change: a native fragment (\"через N …\" or \"N … тому\") replaces the interval sentence in the JSON \"when\" value. I checked the case forms: one (1, 21, 101) takes the accusative singular (рік, місяць, день, годину, хвилину); few takes the nominative plural; many (including 0) the genitive plural; fractional other the genitive singular (року, місяця, дня, години, хвилини). All are correct.",
-              "proposedValueHash": "6a8b0cee9130bc80c7f6091a073633a83948bfbc4d65e142d3204ec074a1d1d6"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept через {{count}} рік, роки, років, and року. English is the future label. one covers 1, 21, and 101. few covers 2, 3, and 4. many includes 0, 5, 11, and 1000000. other is the fractional genitive singular. {{count}} stays in every category. The direct phrase keeps the direction and the unit. The candidate’s interval sentence is not required for this field.",
-              "proposedValueHash": "6a8b0cee9130bc80c7f6091a073633a83948bfbc4d65e142d3204ec074a1d1d6"
-            }
-          }
-        },
-        "time.year.past": {
-          "finalValueHash": "9190b3adfc55a735e3d67de7a5dbeb1b8ce60d0bf773903b2684f1537da346d6",
-          "chosenFrom": "opus",
-          "leadReason": "Use native relative-time fragments instead of complete interval-definition sentences in the when/lastActivity field. The Opus and Grok independent drafts agree on the direct construction. Keep past/future direction, each count, and native one/few/many/other case forms.",
-          "candidateReason": "Codex retains past year time with invariant count wording in all four categories. Other drafts use fragments and Gemini mishandles fractional agreement. Complete the count predicate.",
-          "opusDecision": "required_change",
-          "opusReason": "Format defect: this string is the value of the \"when\" or \"lastActivity\" field in tool results. The candidate renders a sentence with a period (\"Час, що минув, у днях становить N.\"). Native phrases fit the slot and match most locales. The opus and grok drafts agree on them, with correct one/few/many/other forms (день/дні/днів/дня тому, через N рік/роки/років/року).",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and no single draft; the wording is a synthesis. one is 1, 21, and 101; few is 2, 3, and 4; many includes 0; other is fractional; the shared count label was read for every category. English: {{count}} year ago {{count}} years ago",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change: a native fragment (\"через N …\" or \"N … тому\") replaces the interval sentence in the JSON \"when\" value. I checked the case forms: one (1, 21, 101) takes the accusative singular (рік, місяць, день, годину, хвилину); few takes the nominative plural; many (including 0) the genitive plural; fractional other the genitive singular (року, місяця, дня, години, хвилини). All are correct.",
-              "proposedValueHash": "9190b3adfc55a735e3d67de7a5dbeb1b8ce60d0bf773903b2684f1537da346d6"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept {{count}} рік тому, роки тому, років тому, and року тому. English is the past label. one covers 1, 21, and 101. few covers 2, 3, and 4. many includes 0, 5, 11, and 1000000. other is the fractional genitive singular. {{count}} stays in every category. The direct phrase keeps the direction and the unit. The candidate’s interval sentence is not required for this field.",
-              "proposedValueHash": "9190b3adfc55a735e3d67de7a5dbeb1b8ce60d0bf773903b2684f1537da346d6"
-            }
-          }
-        },
-        "time.month.future": {
-          "finalValueHash": "2c1ee75d2e1c5d8effd4a0f6c73832cebc0cc9af808536788f6faf0a74821913",
-          "chosenFrom": "opus",
-          "leadReason": "Use native relative-time fragments instead of complete interval-definition sentences in the when/lastActivity field. The Opus and Grok independent drafts agree on the direct construction. Keep past/future direction, each count, and native one/few/many/other case forms.",
-          "candidateReason": "Codex retains future month time with invariant count wording in all four categories. Other drafts use fragments and Gemini mishandles fractional agreement. Complete the count predicate.",
-          "opusDecision": "required_change",
-          "opusReason": "Format defect: this string is the value of the \"when\" or \"lastActivity\" field in tool results. The candidate renders a sentence with a period (\"Час, що минув, у днях становить N.\"). Native phrases fit the slot and match most locales. The opus and grok drafts agree on them, with correct one/few/many/other forms (день/дні/днів/дня тому, через N рік/роки/років/року).",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and no single draft; the wording is a synthesis. one is 1, 21, and 101; few is 2, 3, and 4; many includes 0; other is fractional; the shared count label was read for every category. English: in {{count}} month in {{count}} months",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change: a native fragment (\"через N …\" or \"N … тому\") replaces the interval sentence in the JSON \"when\" value. I checked the case forms: one (1, 21, 101) takes the accusative singular (рік, місяць, день, годину, хвилину); few takes the nominative plural; many (including 0) the genitive plural; fractional other the genitive singular (року, місяця, дня, години, хвилини). All are correct.",
-              "proposedValueHash": "2c1ee75d2e1c5d8effd4a0f6c73832cebc0cc9af808536788f6faf0a74821913"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept через {{count}} місяць, місяці, місяців, and місяця. English is the future label. one covers 1, 21, and 101. few covers 2, 3, and 4. many includes 0, 5, 11, and 1000000. other is the fractional genitive singular. {{count}} stays in every category. The direct phrase keeps the direction and the unit. The candidate’s interval sentence is not required for this field.",
-              "proposedValueHash": "2c1ee75d2e1c5d8effd4a0f6c73832cebc0cc9af808536788f6faf0a74821913"
-            }
-          }
-        },
-        "time.month.past": {
-          "finalValueHash": "aba2f2937513b1deb53413d5c0d45e0989504c161b204e58df4fdeb5cd6ec0a6",
-          "chosenFrom": "opus",
-          "leadReason": "Use native relative-time fragments instead of complete interval-definition sentences in the when/lastActivity field. The Opus and Grok independent drafts agree on the direct construction. Keep past/future direction, each count, and native one/few/many/other case forms.",
-          "candidateReason": "Codex retains past month time with invariant count wording in all four categories. Other drafts use fragments and Gemini mishandles fractional agreement. Complete the count predicate.",
-          "opusDecision": "required_change",
-          "opusReason": "Format defect: this string is the value of the \"when\" or \"lastActivity\" field in tool results. The candidate renders a sentence with a period (\"Час, що минув, у днях становить N.\"). Native phrases fit the slot and match most locales. The opus and grok drafts agree on them, with correct one/few/many/other forms (день/дні/днів/дня тому, через N рік/роки/років/року).",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and no single draft; the wording is a synthesis. one is 1, 21, and 101; few is 2, 3, and 4; many includes 0; other is fractional; the shared count label was read for every category. English: {{count}} month ago {{count}} months ago",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change: a native fragment (\"через N …\" or \"N … тому\") replaces the interval sentence in the JSON \"when\" value. I checked the case forms: one (1, 21, 101) takes the accusative singular (рік, місяць, день, годину, хвилину); few takes the nominative plural; many (including 0) the genitive plural; fractional other the genitive singular (року, місяця, дня, години, хвилини). All are correct.",
-              "proposedValueHash": "aba2f2937513b1deb53413d5c0d45e0989504c161b204e58df4fdeb5cd6ec0a6"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept {{count}} місяць тому, місяці тому, місяців тому, and місяця тому. English is the past label. one covers 1, 21, and 101. few covers 2, 3, and 4. many includes 0, 5, 11, and 1000000. other is the fractional genitive singular. {{count}} stays in every category. The direct phrase keeps the direction and the unit. The candidate’s interval sentence is not required for this field.",
-              "proposedValueHash": "aba2f2937513b1deb53413d5c0d45e0989504c161b204e58df4fdeb5cd6ec0a6"
-            }
-          }
-        },
-        "time.day.future": {
-          "finalValueHash": "048b4aa75ef81f55a2935eddab9092c3fdc9ed8822210950ee1e219a29ffde5a",
-          "chosenFrom": "opus",
-          "leadReason": "Use native relative-time fragments instead of complete interval-definition sentences in the when/lastActivity field. The Opus and Grok independent drafts agree on the direct construction. Keep past/future direction, each count, and native one/few/many/other case forms.",
-          "candidateReason": "Codex retains future day time with invariant count wording in all four categories. Other drafts use fragments and Gemini mishandles fractional agreement. Complete the count predicate.",
-          "opusDecision": "required_change",
-          "opusReason": "Format defect: this string is the value of the \"when\" or \"lastActivity\" field in tool results. The candidate renders a sentence with a period (\"Час, що минув, у днях становить N.\"). Native phrases fit the slot and match most locales. The opus and grok drafts agree on them, with correct one/few/many/other forms (день/дні/днів/дня тому, через N рік/роки/років/року).",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and no single draft; the wording is a synthesis. one is 1, 21, and 101; few is 2, 3, and 4; many includes 0; other is fractional; the shared count label was read for every category. English: in {{count}} day in {{count}} days",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change: a native fragment (\"через N …\" or \"N … тому\") replaces the interval sentence in the JSON \"when\" value. I checked the case forms: one (1, 21, 101) takes the accusative singular (рік, місяць, день, годину, хвилину); few takes the nominative plural; many (including 0) the genitive plural; fractional other the genitive singular (року, місяця, дня, години, хвилини). All are correct.",
-              "proposedValueHash": "048b4aa75ef81f55a2935eddab9092c3fdc9ed8822210950ee1e219a29ffde5a"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept через {{count}} день, дні, днів, and дня. English is the future label. one covers 1, 21, and 101. few covers 2, 3, and 4. many includes 0, 5, 11, and 1000000. other is the fractional genitive singular. {{count}} stays in every category. The direct phrase keeps the direction and the unit. The candidate’s interval sentence is not required for this field.",
-              "proposedValueHash": "048b4aa75ef81f55a2935eddab9092c3fdc9ed8822210950ee1e219a29ffde5a"
-            }
-          }
-        },
-        "time.day.past": {
-          "finalValueHash": "67df0f3a7787c20dff36b9c8156ead398b93dc065686acdee3fd10f80611ccf5",
-          "chosenFrom": "opus",
-          "leadReason": "Use native relative-time fragments instead of complete interval-definition sentences in the when/lastActivity field. The Opus and Grok independent drafts agree on the direct construction. Keep past/future direction, each count, and native one/few/many/other case forms.",
-          "candidateReason": "Codex retains past day time with invariant count wording in all four categories. Other drafts use fragments and Gemini mishandles fractional agreement. Complete the count predicate.",
-          "opusDecision": "required_change",
-          "opusReason": "Format defect: this string is the value of the \"when\" or \"lastActivity\" field in tool results. The candidate renders a sentence with a period (\"Час, що минув, у днях становить N.\"). Native phrases fit the slot and match most locales. The opus and grok drafts agree on them, with correct one/few/many/other forms (день/дні/днів/дня тому, через N рік/роки/років/року).",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and no single draft; the wording is a synthesis. one is 1, 21, and 101; few is 2, 3, and 4; many includes 0; other is fractional; the shared count label was read for every category. English: {{count}} day ago {{count}} days ago",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change: a native fragment (\"через N …\" or \"N … тому\") replaces the interval sentence in the JSON \"when\" value. I checked the case forms: one (1, 21, 101) takes the accusative singular (рік, місяць, день, годину, хвилину); few takes the nominative plural; many (including 0) the genitive plural; fractional other the genitive singular (року, місяця, дня, години, хвилини). All are correct.",
-              "proposedValueHash": "67df0f3a7787c20dff36b9c8156ead398b93dc065686acdee3fd10f80611ccf5"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept {{count}} день тому, дні тому, днів тому, and дня тому. English is the past label. one covers 1, 21, and 101. few covers 2, 3, and 4. many includes 0, 5, 11, and 1000000. other is the fractional genitive singular. {{count}} stays in every category. The direct phrase keeps the direction and the unit. The candidate’s interval sentence is not required for this field.",
-              "proposedValueHash": "67df0f3a7787c20dff36b9c8156ead398b93dc065686acdee3fd10f80611ccf5"
-            }
-          }
-        },
-        "time.hour.future": {
-          "finalValueHash": "8498887fa5ff0299d052c1aa97377220526b172248631adccdbcf8f57f67f93f",
-          "chosenFrom": "opus",
-          "leadReason": "Use native relative-time fragments instead of complete interval-definition sentences in the when/lastActivity field. The Opus and Grok independent drafts agree on the direct construction. Keep past/future direction, each count, and native one/few/many/other case forms.",
-          "candidateReason": "Codex retains future hour time with invariant count wording in all four categories. Other drafts use fragments and Gemini mishandles fractional agreement. Complete the count predicate.",
-          "opusDecision": "required_change",
-          "opusReason": "Format defect: this string is the value of the \"when\" or \"lastActivity\" field in tool results. The candidate renders a sentence with a period (\"Час, що минув, у днях становить N.\"). Native phrases fit the slot and match most locales. The opus and grok drafts agree on them, with correct one/few/many/other forms (день/дні/днів/дня тому, через N рік/роки/років/року).",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and no single draft; the wording is a synthesis. one is 1, 21, and 101; few is 2, 3, and 4; many includes 0; other is fractional; the shared count label was read for every category. English: in {{count}} hour in {{count}} hours",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change: a native fragment (\"через N …\" or \"N … тому\") replaces the interval sentence in the JSON \"when\" value. I checked the case forms: one (1, 21, 101) takes the accusative singular (рік, місяць, день, годину, хвилину); few takes the nominative plural; many (including 0) the genitive plural; fractional other the genitive singular (року, місяця, дня, години, хвилини). All are correct.",
-              "proposedValueHash": "8498887fa5ff0299d052c1aa97377220526b172248631adccdbcf8f57f67f93f"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept через {{count}} годину, години, годин, and години. The one form is the accusative годину, which is grammatical for 1, 21, and 101. few and other both show години because those are different cases of the same spelling. English is the future label. one covers 1, 21, and 101. few covers 2, 3, and 4. many includes 0, 5, 11, and 1000000. other is the fractional genitive singular. {{count}} stays in every category. The direct phrase keeps the direction and the unit. The candidate’s interval sentence is not required for this field.",
-              "proposedValueHash": "8498887fa5ff0299d052c1aa97377220526b172248631adccdbcf8f57f67f93f"
-            }
-          }
-        },
-        "time.hour.past": {
-          "finalValueHash": "f0a7ffd2df8728d40a0fd8347cfb6f6aa6e9637e8ddab65de571a3ffa859e7f3",
-          "chosenFrom": "opus",
-          "leadReason": "Use native relative-time fragments instead of complete interval-definition sentences in the when/lastActivity field. The Opus and Grok independent drafts agree on the direct construction. Keep past/future direction, each count, and native one/few/many/other case forms.",
-          "candidateReason": "Codex retains past hour time with invariant count wording in all four categories. Other drafts use fragments and Gemini mishandles fractional agreement. Complete the count predicate.",
-          "opusDecision": "required_change",
-          "opusReason": "Format defect: this string is the value of the \"when\" or \"lastActivity\" field in tool results. The candidate renders a sentence with a period (\"Час, що минув, у днях становить N.\"). Native phrases fit the slot and match most locales. The opus and grok drafts agree on them, with correct one/few/many/other forms (день/дні/днів/дня тому, через N рік/роки/років/року).",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and no single draft; the wording is a synthesis. one is 1, 21, and 101; few is 2, 3, and 4; many includes 0; other is fractional; the shared count label was read for every category. English: {{count}} hour ago {{count}} hours ago",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change: a native fragment (\"через N …\" or \"N … тому\") replaces the interval sentence in the JSON \"when\" value. I checked the case forms: one (1, 21, 101) takes the accusative singular (рік, місяць, день, годину, хвилину); few takes the nominative plural; many (including 0) the genitive plural; fractional other the genitive singular (року, місяця, дня, години, хвилини). All are correct.",
-              "proposedValueHash": "f0a7ffd2df8728d40a0fd8347cfb6f6aa6e9637e8ddab65de571a3ffa859e7f3"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept {{count}} годину тому, години тому, годин тому, and години тому. Past one also uses the accusative годину. English is the past label. one covers 1, 21, and 101. few covers 2, 3, and 4. many includes 0, 5, 11, and 1000000. other is the fractional genitive singular. {{count}} stays in every category. The direct phrase keeps the direction and the unit. The candidate’s interval sentence is not required for this field.",
-              "proposedValueHash": "f0a7ffd2df8728d40a0fd8347cfb6f6aa6e9637e8ddab65de571a3ffa859e7f3"
-            }
-          }
-        },
-        "time.minute.future": {
-          "finalValueHash": "98cb6a163f26346fa15a6c0735da3882a7c93844c2b98681b277a84b99d99ef1",
-          "chosenFrom": "opus",
-          "leadReason": "Use native relative-time fragments instead of complete interval-definition sentences in the when/lastActivity field. The Opus and Grok independent drafts agree on the direct construction. Keep past/future direction, each count, and native one/few/many/other case forms.",
-          "candidateReason": "Codex retains future minute time with invariant count wording in all four categories. Other drafts use fragments and Gemini mishandles fractional agreement. Complete the count predicate.",
-          "opusDecision": "required_change",
-          "opusReason": "Format defect: this string is the value of the \"when\" or \"lastActivity\" field in tool results. The candidate renders a sentence with a period (\"Час, що минув, у днях становить N.\"). Native phrases fit the slot and match most locales. The opus and grok drafts agree on them, with correct one/few/many/other forms (день/дні/днів/дня тому, через N рік/роки/років/року).",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and no single draft; the wording is a synthesis. one is 1, 21, and 101; few is 2, 3, and 4; many includes 0; other is fractional; the shared count label was read for every category. English: in {{count}} minute in {{count}} minutes",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change: a native fragment (\"через N …\" or \"N … тому\") replaces the interval sentence in the JSON \"when\" value. I checked the case forms: one (1, 21, 101) takes the accusative singular (рік, місяць, день, годину, хвилину); few takes the nominative plural; many (including 0) the genitive plural; fractional other the genitive singular (року, місяця, дня, години, хвилини). All are correct.",
-              "proposedValueHash": "98cb6a163f26346fa15a6c0735da3882a7c93844c2b98681b277a84b99d99ef1"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept через {{count}} хвилину, хвилини, хвилин, and хвилини. one uses the accusative хвилину. few and other share the spelling хвилини in different cases. English is the future label. one covers 1, 21, and 101. few covers 2, 3, and 4. many includes 0, 5, 11, and 1000000. other is the fractional genitive singular. {{count}} stays in every category. The direct phrase keeps the direction and the unit. The candidate’s interval sentence is not required for this field.",
-              "proposedValueHash": "98cb6a163f26346fa15a6c0735da3882a7c93844c2b98681b277a84b99d99ef1"
-            }
-          }
-        },
-        "time.minute.past": {
-          "finalValueHash": "1cd4b1de62085aebd66203a00e1645edb2e638b37319f402438c9b5460e58fc5",
-          "chosenFrom": "opus",
-          "leadReason": "Use native relative-time fragments instead of complete interval-definition sentences in the when/lastActivity field. The Opus and Grok independent drafts agree on the direct construction. Keep past/future direction, each count, and native one/few/many/other case forms.",
-          "candidateReason": "Codex retains past minute time with invariant count wording in all four categories. Other drafts use fragments and Gemini mishandles fractional agreement. Complete the count predicate.",
-          "opusDecision": "required_change",
-          "opusReason": "Format defect: this string is the value of the \"when\" or \"lastActivity\" field in tool results. The candidate renders a sentence with a period (\"Час, що минув, у днях становить N.\"). Native phrases fit the slot and match most locales. The opus and grok drafts agree on them, with correct one/few/many/other forms (день/дні/днів/дня тому, через N рік/роки/років/року).",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and no single draft; the wording is a synthesis. one is 1, 21, and 101; few is 2, 3, and 4; many includes 0; other is fractional; the shared count label was read for every category. English: {{count}} minute ago {{count}} minutes ago",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change: a native fragment (\"через N …\" or \"N … тому\") replaces the interval sentence in the JSON \"when\" value. I checked the case forms: one (1, 21, 101) takes the accusative singular (рік, місяць, день, годину, хвилину); few takes the nominative plural; many (including 0) the genitive plural; fractional other the genitive singular (року, місяця, дня, години, хвилини). All are correct.",
-              "proposedValueHash": "1cd4b1de62085aebd66203a00e1645edb2e638b37319f402438c9b5460e58fc5"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept {{count}} хвилину тому, хвилини тому, хвилин тому, and хвилини тому. English is the past label. one covers 1, 21, and 101. few covers 2, 3, and 4. many includes 0, 5, 11, and 1000000. other is the fractional genitive singular. {{count}} stays in every category. The direct phrase keeps the direction and the unit. The candidate’s interval sentence is not required for this field.",
-              "proposedValueHash": "1cd4b1de62085aebd66203a00e1645edb2e638b37319f402438c9b5460e58fc5"
-            }
-          }
-        },
         "read.context.basic": {
           "finalValueHash": "7968c85ccd528b654a2addb204149c891e1bfafd4929969012702a1f2ade6e44",
           "chosenFrom": "opus",
@@ -3963,7 +3710,7 @@
     },
     "reports": {
       "finalHash": "f3659d2c176bae532d76fcbec7ca0842b29707f165368810359887d5d957a8dc",
-      "finalTemplateHash": "4cc9a3f642e42406d49823d6129fd39f123f7107289c94ce45524f8c5d0b6a4a",
+      "finalTemplateHash": "c235daf236aaefbf2f2ac729e55f54493b3f02fb8e450438dcaf29fe31d1e9c8",
       "draftHashes": {
         "codex": "bd5c9843ba51c83827cd2366014da76924b800b44117792a508484fe59d3bbdd",
         "opus": "56bb28834d263539e9c532c2daf5961f463ff54e751cc96db4fdc08d8b967ad1",
@@ -3974,73 +3721,12 @@
         "opus": "54fa066b91d8101daf96df38c666385fe042b21644e8df6c192868ebc03ae0f3",
         "grok": "40881ec2523803acddbdf60b83fd5e46767d81127e8e8e75a8517383d5059fb1"
       },
-      "decisions": {
-        "report.elapsed.moment": {
-          "finalValueHash": "78f97ff4cf32699bc77ee27dac7aaa0b265bb29a16bef7d6e80fdabc89b7dd2f",
-          "chosenFrom": "grok",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Grok preserves elapsed moment since the previous visit with native concise wording.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and grok. actor, tense, limits, and parameters match the English. English: A moment passed since your previous visit.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "report.elapsed.second": {
-          "finalValueHash": "1505360ea2ae69e492e9f77385db60508d6998606a5099f8e8f70b452275eef4",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Opus preserves complete elapsed-second reports with correct native singular, few, many, and fractional agreement. Gemini incorrectly reuses many for other.",
-          "opusDecision": "accept",
-          "opusReason": "Correct one/few/many/other with matching verb agreement (минула/минули/минуло).",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and opus. one is nominative singular, few is nominative plural, many is genitive plural including 0, and other is genitive singular. English: {{count}} second passed since your previous visit. {{count}} seconds passed since your previous visit.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "report.elapsed.minute": {
-          "finalValueHash": "ecd64a0e7f5a566f533e070740455ed4efdc54dec7e1cb2456e0786e798f747c",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Opus preserves complete elapsed-minute reports with correct native singular, few, many, and fractional agreement. Gemini incorrectly reuses many for other.",
-          "opusDecision": "accept",
-          "opusReason": "Correct one/few/many/other with matching verb agreement (минула/минули/минуло).",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and opus. one is nominative singular, few is nominative plural, many is genitive plural including 0, and other is genitive singular. English: {{count}} minute passed since your previous visit. {{count}} minutes passed since your previous visit.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "report.elapsed.hour": {
-          "finalValueHash": "85cd0c962d1e1b2a60877c95626c1eb781bacccef988089dc4ea111a721aa509",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Opus preserves complete elapsed-hour reports with correct native singular, few, many, and fractional agreement. Gemini incorrectly reuses many for other.",
-          "opusDecision": "accept",
-          "opusReason": "Correct one/few/many/other with matching verb agreement (минула/минули/минуло).",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and opus. one is nominative singular, few is nominative plural, many is genitive plural including 0, and other is genitive singular. English: {{count}} hour passed since your previous visit. {{count}} hours passed since your previous visit.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "report.elapsed.day": {
-          "finalValueHash": "f89fe8a7e2a1f41c415c0c3409332fb816222f459548e915b6f73fea86c9d06c",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Opus preserves complete elapsed-day reports with correct native singular, few, many, and fractional agreement. Gemini incorrectly reuses many for other.",
-          "opusDecision": "accept",
-          "opusReason": "Correct one/few/many/other with matching verb agreement (минула/минули/минуло).",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and opus. one is nominative singular, few is nominative plural, many is genitive plural including 0, and other is genitive singular. English: {{count}} day passed since your previous visit. {{count}} days passed since your previous visit.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        }
-      }
+      "decisions": {},
+      "status": "pending_translation",
+      "pendingTranslationKeys": [
+        "report.timestamp.relative",
+        "report.timestamp.absolute"
+      ]
     },
     "recovery": {
       "finalHash": "85952d650757dd8229ecc9c8ae93b3ff5fd62b1b126b9d6428365baec55a34c2",

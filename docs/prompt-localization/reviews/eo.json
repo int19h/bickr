@@ -1,8 +1,8 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "catalogSourceHash": "1ea4d0935facacfea35be251f30fc67822b5de7e36d4075fd21c7595bffff89e",
+  "catalogSourceHash": "569c6dc99760c3c93e1594717e4078e6e25111ee4b5b788935ef32b6d2cb5cab",
   "locale": "eo",
-  "status": "accepted_by_lead",
+  "status": "partially_pending_translation",
   "leadReason": "Accept the Esperanto catalog after both reviewers accept all five exact follow-up units. JSON-objekto and resumo de memoroj stay consistent. The explicit quotation-mark phrase states the repair precisely. Native list and time patterns do not depend on the platform’s unsupported list or relative-time formatters.",
   "terminologyDecisions": {
     "quoted": "Use enfermitaj en citiloj in malformed-call recovery to mean enclosed in quotation marks.",
@@ -3253,7 +3253,7 @@
     },
     "serialization": {
       "finalHash": "0afc5346c0b484ae262947a35f7bc82db2b8b0c1a1b4cb0c75c1a178f66d15aa",
-      "finalTemplateHash": "20f94afb6fa06d2ef02081f71883b19c987af17c73625fbc1842bbc2b6f12b63",
+      "finalTemplateHash": "c272e6c7ad7b9028e34a80daa796f43c4efb1f8b8fec6bba0ad64be3f6e16fdf",
       "draftHashes": {
         "codex": "9caba917afa7d469c7f8c95c5c93b2f4038f171b687de9de19d698475a837f90",
         "opus": "756e4968bba8d0fbc8f012702ed0b217efb006c8db21838ece4ed429cf981312",
@@ -3265,149 +3265,6 @@
         "grok": "6ea45818f3e82f6b1cc200cff695092cbf27c1fab992960614204908d016298f"
       },
       "decisions": {
-        "time.just_now": {
-          "finalValueHash": "0249c67d764d74ab0329f3b2c53eb7f9d00f38d80cffcd2f752349bdb097c750",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Opus and Grok use the ordinary just-now adverb ĵus; the other two add a redundant now.",
-          "opusDecision": "accept",
-          "opusReason": "\"ĵus\" is the natural form; \"ĵus nun\" is redundant.",
-          "grokDecision": "accept",
-          "grokReason": "Accept ĵus. It is a compact Esperanto fragment for just now, not the English words.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "time.year.future": {
-          "finalValueHash": "3430ee0d9bcbecfb85b572872d65f48d35492df76c873159d9a5146e3aa1e333",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All four agree on both native year variants, preserving the numeric count and future direction with post or antaŭ.",
-          "opusDecision": "accept",
-          "opusReason": "Explicit pattern as required for eo; one/other correct.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex, opus, grok, gemini. one is singular and other is plural; the count stays visible; zero uses other. English: in {{count}} year in {{count}} years",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "time.year.past": {
-          "finalValueHash": "0e2670f37853729133586b7e7a12fa19fe4287bccf01674ad0be1e445d65c264",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All four agree on both native year variants, preserving the numeric count and past direction with post or antaŭ.",
-          "opusDecision": "accept",
-          "opusReason": "Correct.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex, opus, grok, gemini. one is singular and other is plural; the count stays visible; zero uses other. English: {{count}} year ago {{count}} years ago",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "time.month.future": {
-          "finalValueHash": "e6b4e68a8f432bf2c6161f9f1bf82dd9e16e15530c9a520e8f7d746e0d28e7a9",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All four agree on both native month variants, preserving the numeric count and future direction with post or antaŭ.",
-          "opusDecision": "accept",
-          "opusReason": "Correct.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex, opus, grok, gemini. one is singular and other is plural; the count stays visible; zero uses other. English: in {{count}} month in {{count}} months",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "time.month.past": {
-          "finalValueHash": "a94609879230a477757884f46dfb226e0a1777ce3c8518374ccef0da5972f18e",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All four agree on both native month variants, preserving the numeric count and past direction with post or antaŭ.",
-          "opusDecision": "accept",
-          "opusReason": "Correct.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex, opus, grok, gemini. one is singular and other is plural; the count stays visible; zero uses other. English: {{count}} month ago {{count}} months ago",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "time.day.future": {
-          "finalValueHash": "0e27b32cdf490501069287f66ce28352cba6148b677b9616e3968da140de8fbd",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All four agree on both native day variants, preserving the numeric count and future direction with post or antaŭ.",
-          "opusDecision": "accept",
-          "opusReason": "Correct.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex, opus, grok, gemini. one is singular and other is plural; the count stays visible; zero uses other. English: in {{count}} day in {{count}} days",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "time.day.past": {
-          "finalValueHash": "97eb32ea3eeeb2ec70151106a67ee537fe946aa28211f49717c8b358d0232192",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All four agree on both native day variants, preserving the numeric count and past direction with post or antaŭ.",
-          "opusDecision": "accept",
-          "opusReason": "Correct.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex, opus, grok, gemini. one is singular and other is plural; the count stays visible; zero uses other. English: {{count}} day ago {{count}} days ago",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "time.hour.future": {
-          "finalValueHash": "5668e6aad180f4ef61e5f8e792cd6c2bf3617e89f814fd0d6f130b8a987bf94e",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All four agree on both native hour variants, preserving the numeric count and future direction with post or antaŭ.",
-          "opusDecision": "accept",
-          "opusReason": "Correct.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex, opus, grok, gemini. one is singular and other is plural; the count stays visible; zero uses other. English: in {{count}} hour in {{count}} hours",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "time.hour.past": {
-          "finalValueHash": "b21f6b9dea9a33ff240e34d51cbc86e44614a942141f3504402dfc002dcec403",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All four agree on both native hour variants, preserving the numeric count and past direction with post or antaŭ.",
-          "opusDecision": "accept",
-          "opusReason": "Correct.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex, opus, grok, gemini. one is singular and other is plural; the count stays visible; zero uses other. English: {{count}} hour ago {{count}} hours ago",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "time.minute.future": {
-          "finalValueHash": "5032deacb153905b07bee70c5c02b20d39b5706ae9d793277597f7cc556b59ad",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All four agree on both native minute variants, preserving the numeric count and future direction with post or antaŭ.",
-          "opusDecision": "accept",
-          "opusReason": "Correct.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex, opus, grok, gemini. one is singular and other is plural; the count stays visible; zero uses other. English: in {{count}} minute in {{count}} minutes",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "time.minute.past": {
-          "finalValueHash": "5323c282f6fe7dad1b6b0c8952656ce80c33106a43bac098c7e0ba1763a05210",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All four agree on both native minute variants, preserving the numeric count and past direction with post or antaŭ.",
-          "opusDecision": "accept",
-          "opusReason": "Correct.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex, opus, grok, gemini. one is singular and other is plural; the count stays visible; zero uses other. English: {{count}} minute ago {{count}} minutes ago",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
         "read.context.basic": {
           "finalValueHash": "66989090d7f117db567d91f4e5520a05415d7f0caae9afc8f0b1ae32d11ee4e6",
           "chosenFrom": "opus",
@@ -4130,7 +3987,7 @@
     },
     "reports": {
       "finalHash": "f8c2d59714ba31cab87bb2348e5e4e3222b89e52015ebca61437a36052209e90",
-      "finalTemplateHash": "1f8bbacd9e5b080fb26d7f4b5407b27c86815a5afe3e5139addde5ff40c9ae77",
+      "finalTemplateHash": "c235daf236aaefbf2f2ac729e55f54493b3f02fb8e450438dcaf29fe31d1e9c8",
       "draftHashes": {
         "codex": "4bc909219c9289a8a72c6d3960f4d6d1acdfcc79dc18c80473cd27cfdeeaca25",
         "opus": "f8c2d59714ba31cab87bb2348e5e4e3222b89e52015ebca61437a36052209e90",
@@ -4141,73 +3998,12 @@
         "opus": "e4253e8b928bb87136e87aa0f0646e2530a63ec8f5c2d811a1b87b807be67a79",
         "grok": "0561ba043a1ddb5b15f7aa41008d9240545e2e083344a0b50ad21f6e8a798886"
       },
-      "decisions": {
-        "report.elapsed.moment": {
-          "finalValueHash": "2b84cb5f802e49b8813ae1022af55d851f96ed9491dda4eeb528956776850156",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Opus keeps since your previous visit with ekde; Codex says after and Gemini adds only and drops your.",
-          "opusDecision": "accept",
-          "opusReason": "\"ekde\" correctly means \"since\".",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and opus. actor, tense, limits, and parameters match the English. English: A moment passed since your previous visit.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "report.elapsed.second": {
-          "finalValueHash": "08b051b91d28e406d5024ddefa9ab1d95e39e55e80def54d11aa2ac498773498",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Both native second variants keep since your previous visit and singular/plural agreement; Gemini drops your and Codex changes since to after.",
-          "opusDecision": "accept",
-          "opusReason": "Correct singular and plural; codex's \"post\" would mean \"after\".",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and opus. one is singular and other is plural; the count stays visible; zero uses other. English: {{count}} second passed since your previous visit. {{count}} seconds passed since your previous visit.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "report.elapsed.minute": {
-          "finalValueHash": "6edf020a6b4284a43ffc1e11d308bad5790223fa54a3be23ddb2edc863ca0cba",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Both native minute variants keep since your previous visit and singular/plural agreement; Gemini drops your and Codex changes since to after.",
-          "opusDecision": "accept",
-          "opusReason": "Correct.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and opus. one is singular and other is plural; the count stays visible; zero uses other. English: {{count}} minute passed since your previous visit. {{count}} minutes passed since your previous visit.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "report.elapsed.hour": {
-          "finalValueHash": "ade179e15756766ac5c40a6e6fe622d6134a80ec82fe3f8b28bf5216f4272833",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Both native hour variants keep since your previous visit and singular/plural agreement; Gemini drops your and Codex changes since to after.",
-          "opusDecision": "accept",
-          "opusReason": "Correct.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and opus. one is singular and other is plural; the count stays visible; zero uses other. English: {{count}} hour passed since your previous visit. {{count}} hours passed since your previous visit.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "report.elapsed.day": {
-          "finalValueHash": "827c796a3e45dbd78e595efb1caa70fcc7ff28316881c52ba1eeb79428eabb6d",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Both native day variants keep since your previous visit and singular/plural agreement; Gemini drops your and Codex changes since to after.",
-          "opusDecision": "accept",
-          "opusReason": "Correct.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and opus. one is singular and other is plural; the count stays visible; zero uses other. English: {{count}} day passed since your previous visit. {{count}} days passed since your previous visit.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        }
-      }
+      "decisions": {},
+      "status": "pending_translation",
+      "pendingTranslationKeys": [
+        "report.timestamp.relative",
+        "report.timestamp.absolute"
+      ]
     },
     "recovery": {
       "finalHash": "ed87cd266bf3433d8a0a6416f014cf28ba93fbcc569c72e5f5bd150e8dae20be",

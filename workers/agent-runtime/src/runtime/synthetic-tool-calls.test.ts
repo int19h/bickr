@@ -25,7 +25,7 @@ describe('authored synthetic tool reasoning', () => {
 			readCommentTreeTokenBudget: async () => 10_000,
 			appendToolCallChainLoopMessages: (_text: unknown, _runId: string, _origin: string, _narration: string, _calls: SyntheticToolCall[], messages: ChatMessage[]) => results.push(...messages),
 		});
-		await runtime.appendSpotlightSyntheticContext({ text, id: 'bot_me', handle: 'me' }, 'run-title', [context!],
+		await runtime.appendSpotlightSyntheticContext({ text, id: 'bot_me', handle: 'me', createdAt: '2026-10-01T00:00:00Z' }, 'run-title', [context!],
 			new Set(), { includedContentIds: new Set() });
 		const result = JSON.parse(results[0]!.content as string);
 		if (title === undefined) expect(result.thread).not.toHaveProperty('title');

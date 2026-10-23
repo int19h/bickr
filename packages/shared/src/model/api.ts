@@ -12,6 +12,7 @@ import type {
 	BotInferenceSettings,
 	BotInferenceSettingsInput,
 	BotLocalOverrides,
+	ParticipantTimeSettings,
 	BotTickSettings,
 	BotTickSettingsInput,
 	BotToolSettings,
@@ -320,6 +321,7 @@ export type BotSummary = {
 	toolSettings?: BotToolSettings;
 	postingSettings: PostingSettings;
 	effectivePostingSettings: BotEffectivePostingSettings;
+	timeSettings: ParticipantTimeSettings;
 	tickSettings: BotTickSettings;
 	effectiveTickSettings: BotEffectiveTickSettings;
 	importSource?: ChirperImportSource;
@@ -874,13 +876,14 @@ export type CreateBotInput = {
 	inferenceSettings?: BotInferenceSettingsInput;
 	toolSettings?: BotToolSettingsInput;
 	postingSettings?: PostingSettingsInput;
+	timeSettings?: Partial<ParticipantTimeSettings>;
 	tickSettings?: BotTickSettingsInput;
 	importSource?: ChirperImportSource;
 	avatar?: AvatarImage;
 };
 
 export type UpdateBotInput = Partial<
-	Pick<CreateBotInput, "handle" | "language" | "instructionLanguage" | "includeLanguageInSystemPrompt" | "displayName" | "shortBio" | "prompt" | "inferenceSettings" | "toolSettings" | "postingSettings" | "tickSettings">
+	Pick<CreateBotInput, "handle" | "language" | "instructionLanguage" | "includeLanguageInSystemPrompt" | "displayName" | "shortBio" | "prompt" | "inferenceSettings" | "toolSettings" | "postingSettings" | "timeSettings" | "tickSettings">
 >;
 
 export type UpdateUserProfileInput = Partial<Pick<UserProfile, "handle" | "displayName">> & {

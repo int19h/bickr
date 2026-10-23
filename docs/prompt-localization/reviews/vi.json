@@ -1,8 +1,8 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "catalogSourceHash": "1ea4d0935facacfea35be251f30fc67822b5de7e36d4075fd21c7595bffff89e",
+  "catalogSourceHash": "569c6dc99760c3c93e1594717e4078e6e25111ee4b5b788935ef32b6d2cb5cab",
   "locale": "vi",
-  "status": "accepted_by_lead",
+  "status": "partially_pending_translation",
   "leadReason": "Accept the Vietnamese catalog after both reviewers accept all five exact follow-ups. Explicit actors preserve the audience instruction. Refreshed/public modifiers attach to the avatar. Native time, universal item removal, and notification clauses cover every count. Visit and vote terminology is consistent. Retained facts use dữ kiện, while events keep sự kiện. The earlier topic sentence uses đề tài without changing its avoidance rule.",
   "terminologyDecisions": {
     "visit": "lần truy cập",
@@ -3306,7 +3306,7 @@
     },
     "serialization": {
       "finalHash": "362cecb93419c1e31424b1fa612f9f4eefffda2c8fa02953a3ccfb56dcf633bc",
-      "finalTemplateHash": "8b41c3103f04eb40cfb87419c6797246b645d046cb12cf6dcfd9b86d7ddcaa93",
+      "finalTemplateHash": "0b2220263c1864bd0bb94764d6fbae3444d429ec0214c60ee07da2a6d2d9dc5f",
       "draftHashes": {
         "codex": "172de0f7a19336386d57cbc0a31f1f827f35830e64632aa994c277e32dd22f81",
         "opus": "9f4f9b624f8085c55efe18a797fc2ca3e83ddb816d4e05c351c8f9e8bc2f4c4f",
@@ -3318,259 +3318,6 @@
         "grok": "0a37bd0927c7fb3efb55814e2d54998a81f43f737621f8a1d5629604614ebe76"
       },
       "decisions": {
-        "time.just_now": {
-          "finalValueHash": "7fd2269e41120bcece1f272ee649296f3ddc27f6544cbd43f1de0b9886ae6fa7",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All agree on just now.",
-          "opusDecision": "accept",
-          "opusReason": "Natural \"vừa xong\".",
-          "grokDecision": "accept",
-          "grokReason": "Accept vừa xong as the compact fragment for just now.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "time.year.future": {
-          "finalValueHash": "a0eb54a962a516fb34802e0cece552a74ecc424cde02e397ce57f57e629b1096",
-          "chosenFrom": "opus",
-          "leadReason": "Use count plus native unit and nữa for a future point or trước for elapsed time. The candidate already preserves future/past direction, as Grok states. A compact relative phrase fits the when and lastActivity values and avoids wording about remaining time. Vietnamese has one category and no added plural marking.",
-          "candidateReason": "Compare all four năm forms: Opus and Grok retain direction but remain fragments. Use a complete natural count sentence rather than Codex unit-before-count label.",
-          "opusDecision": "required_change",
-          "opusReason": "The runtime puts this text into the JSON \"when\" and \"lastActivity\" field values, but the candidate is a full sentence (\"Thời gian còn lại là N năm.\") that also reads as remaining time, not a point in time. Use the native relative phrase, as in the other locales.",
-          "grokDecision": "optional_change",
-          "grokReason": "The when-field value is a compact fragment, in {{count}} units. Thời gian còn lại and Thời gian đã trôi qua already keep future versus past, so this is not a durative meaning error. {{count}} năm nữa is the natural fragment. The noun stays unmarked after the numeral. No period is added.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change: \"N … nữa\" is the native relative point in a JSON \"when\" value, replacing the remaining or elapsed time sentence. The unit is unmarked after the numeral, and the single other category covers every count.",
-              "proposedValueHash": "a0eb54a962a516fb34802e0cece552a74ecc424cde02e397ce57f57e629b1096"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept {{count}} năm nữa. English is the future field phrase in {{count}} năm. nữa names the point after the interval. The candidate’s remaining-time sentence is a duration still left, not that field phrase. Vietnamese has only other. That category covers 0, 1, and every larger count. The noun stays unmarked after {{count}}.",
-              "proposedValueHash": "a0eb54a962a516fb34802e0cece552a74ecc424cde02e397ce57f57e629b1096"
-            }
-          }
-        },
-        "time.year.past": {
-          "finalValueHash": "5efb366ac4eeeea4c4bca60acaf6d6f2a63e24dcbf44f360c444338342266e10",
-          "chosenFrom": "opus",
-          "leadReason": "Use count plus native unit and nữa for a future point or trước for elapsed time. The candidate already preserves future/past direction, as Grok states. A compact relative phrase fits the when and lastActivity values and avoids wording about remaining time. Vietnamese has one category and no added plural marking.",
-          "candidateReason": "Compare all four năm forms: Opus and Grok retain direction but remain fragments. Use a complete natural count sentence rather than Codex unit-before-count label.",
-          "opusDecision": "required_change",
-          "opusReason": "Same field-value defect: a sentence \"Thời gian đã trôi qua là N năm.\" instead of the native \"N năm trước\".",
-          "grokDecision": "optional_change",
-          "grokReason": "The when-field value is a compact fragment, {{count}} units ago. Thời gian còn lại and Thời gian đã trôi qua already keep future versus past, so this is not a durative meaning error. {{count}} năm trước is the natural fragment. The noun stays unmarked after the numeral. No period is added.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change: \"N … trước\" is the native relative point in a JSON \"when\" value, replacing the remaining or elapsed time sentence. The unit is unmarked after the numeral, and the single other category covers every count.",
-              "proposedValueHash": "5efb366ac4eeeea4c4bca60acaf6d6f2a63e24dcbf44f360c444338342266e10"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept {{count}} năm trước. English is {{count}} năm ago. trước names the point before now. The candidate’s elapsed-time sentence is not the field phrase. Vietnamese has only other. That category covers 0, 1, and every larger count. The noun stays unmarked after {{count}}.",
-              "proposedValueHash": "5efb366ac4eeeea4c4bca60acaf6d6f2a63e24dcbf44f360c444338342266e10"
-            }
-          }
-        },
-        "time.month.future": {
-          "finalValueHash": "96d1c1727894b7bd8379dd0c8ae01a77a49d0cc394a13c1ed13d4c497467200e",
-          "chosenFrom": "opus",
-          "leadReason": "Use count plus native unit and nữa for a future point or trước for elapsed time. The candidate already preserves future/past direction, as Grok states. A compact relative phrase fits the when and lastActivity values and avoids wording about remaining time. Vietnamese has one category and no added plural marking.",
-          "candidateReason": "Compare all four tháng forms: Opus and Grok retain direction but remain fragments. Use a complete natural count sentence rather than Codex unit-before-count label.",
-          "opusDecision": "required_change",
-          "opusReason": "Same field-value defect; \"N tháng nữa\" is the native future phrase.",
-          "grokDecision": "optional_change",
-          "grokReason": "The when-field value is a compact fragment, in {{count}} units. Thời gian còn lại and Thời gian đã trôi qua already keep future versus past, so this is not a durative meaning error. {{count}} tháng nữa is the natural fragment. The noun stays unmarked after the numeral. No period is added.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change: \"N … nữa\" is the native relative point in a JSON \"when\" value, replacing the remaining or elapsed time sentence. The unit is unmarked after the numeral, and the single other category covers every count.",
-              "proposedValueHash": "96d1c1727894b7bd8379dd0c8ae01a77a49d0cc394a13c1ed13d4c497467200e"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept {{count}} tháng nữa. English is the future field phrase in {{count}} tháng. nữa names the point after the interval. The candidate’s remaining-time sentence is a duration still left, not that field phrase. Vietnamese has only other. That category covers 0, 1, and every larger count. The noun stays unmarked after {{count}}.",
-              "proposedValueHash": "96d1c1727894b7bd8379dd0c8ae01a77a49d0cc394a13c1ed13d4c497467200e"
-            }
-          }
-        },
-        "time.month.past": {
-          "finalValueHash": "0652d7ab4ae2dd94bbe5edf714f86b63947e99836673e9b4d5a8337258776b4b",
-          "chosenFrom": "opus",
-          "leadReason": "Use count plus native unit and nữa for a future point or trước for elapsed time. The candidate already preserves future/past direction, as Grok states. A compact relative phrase fits the when and lastActivity values and avoids wording about remaining time. Vietnamese has one category and no added plural marking.",
-          "candidateReason": "Compare all four tháng forms: Opus and Grok retain direction but remain fragments. Use a complete natural count sentence rather than Codex unit-before-count label.",
-          "opusDecision": "required_change",
-          "opusReason": "Same field-value defect.",
-          "grokDecision": "optional_change",
-          "grokReason": "The when-field value is a compact fragment, {{count}} units ago. Thời gian còn lại and Thời gian đã trôi qua already keep future versus past, so this is not a durative meaning error. {{count}} tháng trước is the natural fragment. The noun stays unmarked after the numeral. No period is added.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change: \"N … trước\" is the native relative point in a JSON \"when\" value, replacing the remaining or elapsed time sentence. The unit is unmarked after the numeral, and the single other category covers every count.",
-              "proposedValueHash": "0652d7ab4ae2dd94bbe5edf714f86b63947e99836673e9b4d5a8337258776b4b"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept {{count}} tháng trước. English is {{count}} tháng ago. trước names the point before now. The candidate’s elapsed-time sentence is not the field phrase. Vietnamese has only other. That category covers 0, 1, and every larger count. The noun stays unmarked after {{count}}.",
-              "proposedValueHash": "0652d7ab4ae2dd94bbe5edf714f86b63947e99836673e9b4d5a8337258776b4b"
-            }
-          }
-        },
-        "time.day.future": {
-          "finalValueHash": "32cdd4e5cdefd1694beb673f239772fb2e465a340672a39001ce19371ca0169b",
-          "chosenFrom": "opus",
-          "leadReason": "Use count plus native unit and nữa for a future point or trước for elapsed time. The candidate already preserves future/past direction, as Grok states. A compact relative phrase fits the when and lastActivity values and avoids wording about remaining time. Vietnamese has one category and no added plural marking.",
-          "candidateReason": "Compare all four ngày forms: Opus and Grok retain direction but remain fragments. Use a complete natural count sentence rather than Codex unit-before-count label.",
-          "opusDecision": "required_change",
-          "opusReason": "Same field-value defect.",
-          "grokDecision": "optional_change",
-          "grokReason": "The when-field value is a compact fragment, in {{count}} units. Thời gian còn lại and Thời gian đã trôi qua already keep future versus past, so this is not a durative meaning error. {{count}} ngày nữa is the natural fragment. The noun stays unmarked after the numeral. No period is added.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change: \"N … nữa\" is the native relative point in a JSON \"when\" value, replacing the remaining or elapsed time sentence. The unit is unmarked after the numeral, and the single other category covers every count.",
-              "proposedValueHash": "32cdd4e5cdefd1694beb673f239772fb2e465a340672a39001ce19371ca0169b"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept {{count}} ngày nữa. English is the future field phrase in {{count}} ngày. nữa names the point after the interval. The candidate’s remaining-time sentence is a duration still left, not that field phrase. Vietnamese has only other. That category covers 0, 1, and every larger count. The noun stays unmarked after {{count}}.",
-              "proposedValueHash": "32cdd4e5cdefd1694beb673f239772fb2e465a340672a39001ce19371ca0169b"
-            }
-          }
-        },
-        "time.day.past": {
-          "finalValueHash": "258adb71c5e774e6122b695bc18fe163b7500c53ca97d3896a0bb96696d5457e",
-          "chosenFrom": "opus",
-          "leadReason": "Use count plus native unit and nữa for a future point or trước for elapsed time. The candidate already preserves future/past direction, as Grok states. A compact relative phrase fits the when and lastActivity values and avoids wording about remaining time. Vietnamese has one category and no added plural marking.",
-          "candidateReason": "Compare all four ngày forms: Opus and Grok retain direction but remain fragments. Use a complete natural count sentence rather than Codex unit-before-count label.",
-          "opusDecision": "required_change",
-          "opusReason": "Same field-value defect.",
-          "grokDecision": "optional_change",
-          "grokReason": "The when-field value is a compact fragment, {{count}} units ago. Thời gian còn lại and Thời gian đã trôi qua already keep future versus past, so this is not a durative meaning error. {{count}} ngày trước is the natural fragment. The noun stays unmarked after the numeral. No period is added.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change: \"N … trước\" is the native relative point in a JSON \"when\" value, replacing the remaining or elapsed time sentence. The unit is unmarked after the numeral, and the single other category covers every count.",
-              "proposedValueHash": "258adb71c5e774e6122b695bc18fe163b7500c53ca97d3896a0bb96696d5457e"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept {{count}} ngày trước. English is {{count}} ngày ago. trước names the point before now. The candidate’s elapsed-time sentence is not the field phrase. Vietnamese has only other. That category covers 0, 1, and every larger count. The noun stays unmarked after {{count}}.",
-              "proposedValueHash": "258adb71c5e774e6122b695bc18fe163b7500c53ca97d3896a0bb96696d5457e"
-            }
-          }
-        },
-        "time.hour.future": {
-          "finalValueHash": "2aa0e0cc5538b2cdd00017c366f04016b7306f48d96f0bba1ebc3a43ddf02721",
-          "chosenFrom": "opus",
-          "leadReason": "Use count plus native unit and nữa for a future point or trước for elapsed time. The candidate already preserves future/past direction, as Grok states. A compact relative phrase fits the when and lastActivity values and avoids wording about remaining time. Vietnamese has one category and no added plural marking.",
-          "candidateReason": "Compare all four giờ forms: Opus and Grok retain direction but remain fragments. Use a complete natural count sentence rather than Codex unit-before-count label.",
-          "opusDecision": "required_change",
-          "opusReason": "Same field-value defect.",
-          "grokDecision": "optional_change",
-          "grokReason": "The when-field value is a compact fragment, in {{count}} units. Thời gian còn lại and Thời gian đã trôi qua already keep future versus past, so this is not a durative meaning error. {{count}} giờ nữa is the natural fragment. The noun stays unmarked after the numeral. No period is added.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change: \"N … nữa\" is the native relative point in a JSON \"when\" value, replacing the remaining or elapsed time sentence. The unit is unmarked after the numeral, and the single other category covers every count.",
-              "proposedValueHash": "2aa0e0cc5538b2cdd00017c366f04016b7306f48d96f0bba1ebc3a43ddf02721"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept {{count}} giờ nữa. English is the future field phrase in {{count}} giờ. nữa names the point after the interval. The candidate’s remaining-time sentence is a duration still left, not that field phrase. Vietnamese has only other. That category covers 0, 1, and every larger count. The noun stays unmarked after {{count}}.",
-              "proposedValueHash": "2aa0e0cc5538b2cdd00017c366f04016b7306f48d96f0bba1ebc3a43ddf02721"
-            }
-          }
-        },
-        "time.hour.past": {
-          "finalValueHash": "3e384bdcb1fa6e2bcf023a3abd0f4d93da510b6b6225d85beca9bd65928921bb",
-          "chosenFrom": "opus",
-          "leadReason": "Use count plus native unit and nữa for a future point or trước for elapsed time. The candidate already preserves future/past direction, as Grok states. A compact relative phrase fits the when and lastActivity values and avoids wording about remaining time. Vietnamese has one category and no added plural marking.",
-          "candidateReason": "Compare all four giờ forms: Opus and Grok retain direction but remain fragments. Use a complete natural count sentence rather than Codex unit-before-count label.",
-          "opusDecision": "required_change",
-          "opusReason": "Same field-value defect.",
-          "grokDecision": "optional_change",
-          "grokReason": "The when-field value is a compact fragment, {{count}} units ago. Thời gian còn lại and Thời gian đã trôi qua already keep future versus past, so this is not a durative meaning error. {{count}} giờ trước is the natural fragment. The noun stays unmarked after the numeral. No period is added.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change: \"N … trước\" is the native relative point in a JSON \"when\" value, replacing the remaining or elapsed time sentence. The unit is unmarked after the numeral, and the single other category covers every count.",
-              "proposedValueHash": "3e384bdcb1fa6e2bcf023a3abd0f4d93da510b6b6225d85beca9bd65928921bb"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept {{count}} giờ trước. English is {{count}} giờ ago. trước names the point before now. The candidate’s elapsed-time sentence is not the field phrase. Vietnamese has only other. That category covers 0, 1, and every larger count. The noun stays unmarked after {{count}}.",
-              "proposedValueHash": "3e384bdcb1fa6e2bcf023a3abd0f4d93da510b6b6225d85beca9bd65928921bb"
-            }
-          }
-        },
-        "time.minute.future": {
-          "finalValueHash": "036a01a2b876a4b7f3f32bdd0cfe698e8375ad6ea9d00d11090d9a268ebaa3b2",
-          "chosenFrom": "opus",
-          "leadReason": "Use count plus native unit and nữa for a future point or trước for elapsed time. The candidate already preserves future/past direction, as Grok states. A compact relative phrase fits the when and lastActivity values and avoids wording about remaining time. Vietnamese has one category and no added plural marking.",
-          "candidateReason": "Compare all four phút forms: Opus and Grok retain direction but remain fragments. Use a complete natural count sentence rather than Codex unit-before-count label.",
-          "opusDecision": "required_change",
-          "opusReason": "Same field-value defect.",
-          "grokDecision": "optional_change",
-          "grokReason": "The when-field value is a compact fragment, in {{count}} units. Thời gian còn lại and Thời gian đã trôi qua already keep future versus past, so this is not a durative meaning error. {{count}} phút nữa is the natural fragment. The noun stays unmarked after the numeral. No period is added.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change: \"N … nữa\" is the native relative point in a JSON \"when\" value, replacing the remaining or elapsed time sentence. The unit is unmarked after the numeral, and the single other category covers every count.",
-              "proposedValueHash": "036a01a2b876a4b7f3f32bdd0cfe698e8375ad6ea9d00d11090d9a268ebaa3b2"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept {{count}} phút nữa. English is the future field phrase in {{count}} phút. nữa names the point after the interval. The candidate’s remaining-time sentence is a duration still left, not that field phrase. Vietnamese has only other. That category covers 0, 1, and every larger count. The noun stays unmarked after {{count}}.",
-              "proposedValueHash": "036a01a2b876a4b7f3f32bdd0cfe698e8375ad6ea9d00d11090d9a268ebaa3b2"
-            }
-          }
-        },
-        "time.minute.past": {
-          "finalValueHash": "69c34289cfdf494d3910479dcd33af61f0f13c4689931ad9edab43539bbcf39a",
-          "chosenFrom": "opus",
-          "leadReason": "Use count plus native unit and nữa for a future point or trước for elapsed time. The candidate already preserves future/past direction, as Grok states. A compact relative phrase fits the when and lastActivity values and avoids wording about remaining time. Vietnamese has one category and no added plural marking.",
-          "candidateReason": "Compare all four phút forms: Opus and Grok retain direction but remain fragments. Use a complete natural count sentence rather than Codex unit-before-count label.",
-          "opusDecision": "required_change",
-          "opusReason": "Same field-value defect.",
-          "grokDecision": "optional_change",
-          "grokReason": "The when-field value is a compact fragment, {{count}} units ago. Thời gian còn lại and Thời gian đã trôi qua already keep future versus past, so this is not a durative meaning error. {{count}} phút trước is the natural fragment. The noun stays unmarked after the numeral. No period is added.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change: \"N … trước\" is the native relative point in a JSON \"when\" value, replacing the remaining or elapsed time sentence. The unit is unmarked after the numeral, and the single other category covers every count.",
-              "proposedValueHash": "69c34289cfdf494d3910479dcd33af61f0f13c4689931ad9edab43539bbcf39a"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept {{count}} phút trước. English is {{count}} phút ago. trước names the point before now. The candidate’s elapsed-time sentence is not the field phrase. Vietnamese has only other. That category covers 0, 1, and every larger count. The noun stays unmarked after {{count}}.",
-              "proposedValueHash": "69c34289cfdf494d3910479dcd33af61f0f13c4689931ad9edab43539bbcf39a"
-            }
-          }
-        },
         "read.context.basic": {
           "finalValueHash": "6f192460cf4c27485a182c5eafb82e6e6c39bf6cf009e7065904d5f0c46ac2b5",
           "chosenFrom": "opus",
@@ -4251,7 +3998,7 @@
     },
     "reports": {
       "finalHash": "80bc37e3643e66639b9121211d4f19107eb946bbbf97270a723de77fac600b98",
-      "finalTemplateHash": "da478d0e18b6207d1f00e43e22a9aecbc2835b725e16421e152b8ca3998fa167",
+      "finalTemplateHash": "c235daf236aaefbf2f2ac729e55f54493b3f02fb8e450438dcaf29fe31d1e9c8",
       "draftHashes": {
         "codex": "dfa2e0205f0aa0373e824e9b50a7402fc80c4def40590cc707d78beb2f5a2fdb",
         "opus": "543321ff8de61c2c35ffc0234817cede07a6a4bf1f182cf2e55859cf09648d23",
@@ -4262,84 +4009,12 @@
         "opus": "c6d1d65dd2879bb8f7212c2b14f5fa97aa2f17452fb2bcc5798b1e5676dca3be",
         "grok": "501ea34d36531431d1eb3638627e3219cb6920b9eb2a1a48d5cfa49520976308"
       },
-      "decisions": {
-        "report.elapsed.moment": {
-          "finalValueHash": "cdd46eb5101c6ac9faa724fa2e293d2b99059207e8eeb32d9536865c0f09c07a",
-          "chosenFrom": "opus",
-          "leadReason": "Use lần truy cập consistently for a Bickr visit. Keep the first-person participant or app-report actor, need/will distinction, current versus completed-action status, uncertainty, and no-repeat rule. Do not translate authored PLAN.",
-          "candidateReason": "Natural elapsed moment with kể từ; Codex shorter form also accurate.",
-          "opusDecision": "optional_change",
-          "opusReason": "Meaning is preserved, but this unit says \"lượt ghé thăm\" while its four siblings say \"lần truy cập\".",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and opus. actor, tense, limits, and parameters match the English. English: A moment passed since your previous visit.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "\"lần truy cập\" now names the Bickr visit everywhere; the remaining \"ghé thăm\" in system.main is the ordinary verb for people visiting a blog, which is correct. Actor, tense and the no-repeat rules are unchanged.",
-              "proposedValueHash": "cdd46eb5101c6ac9faa724fa2e293d2b99059207e8eeb32d9536865c0f09c07a"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept lần truy cập trước. English says a moment passed since your previous visit. The moment and the previous-visit relation stay. lần truy cập is the catalog term for a Bickr visit. The rest of the sentence stays.",
-              "proposedValueHash": "cdd46eb5101c6ac9faa724fa2e293d2b99059207e8eeb32d9536865c0f09c07a"
-            }
-          }
-        },
-        "report.elapsed.second": {
-          "finalValueHash": "a468462e4e9ce619774396aab29a1ba15744204c55d14eb699ed49d1f17776d6",
-          "chosenFrom": "gemini",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Complete second count retains elapsed time since previous visit; Gemini uses consistent lần truy cập and natural kể từ.",
-          "opusDecision": "accept",
-          "opusReason": "Elapsed count since previous visit; one form fits every count.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. {{count}} giây has no plural suffix and keeps since the previous visit.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "report.elapsed.minute": {
-          "finalValueHash": "f7ec3058620b74daf9e8b225b2249af2106cafce4d010495ada800025a268f53",
-          "chosenFrom": "gemini",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Complete minute count retains elapsed time since previous visit; Gemini uses consistent lần truy cập and natural kể từ.",
-          "opusDecision": "accept",
-          "opusReason": "Same.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. {{count}} phút has no plural suffix and keeps since the previous visit.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "report.elapsed.hour": {
-          "finalValueHash": "f9d3938e2d33817dabbe02b86b3781d813054a1406f3560e142b1b25007f99b0",
-          "chosenFrom": "gemini",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Complete hour count retains elapsed time since previous visit; Gemini uses consistent lần truy cập and natural kể từ.",
-          "opusDecision": "accept",
-          "opusReason": "Same.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. {{count}} giờ has no plural suffix and keeps since the previous visit.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "report.elapsed.day": {
-          "finalValueHash": "912beabbb577c13045600aa3684be19631f7d92808d7fbb49530e0a39ce9b6c9",
-          "chosenFrom": "gemini",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Complete day count retains elapsed time since previous visit; Gemini uses consistent lần truy cập and natural kể từ.",
-          "opusDecision": "accept",
-          "opusReason": "Same.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. {{count}} ngày has no plural suffix and keeps since the previous visit.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        }
-      }
+      "decisions": {},
+      "status": "pending_translation",
+      "pendingTranslationKeys": [
+        "report.timestamp.relative",
+        "report.timestamp.absolute"
+      ]
     },
     "recovery": {
       "finalHash": "7f359463058ba5e314dc51a7ae07aca6a3c83fe742f0463c715ea00f14ae6ff9",

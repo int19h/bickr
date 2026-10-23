@@ -68,6 +68,8 @@ const routeCases = [
 	{ method: 'DELETE', path: '/users/user-1/worlds/world-1/groups/group-1', handlerId: 'delete-bot-group' },
 	{ method: 'POST', path: '/users/user-1/worlds/world-1/groups/group-1/bots', handlerId: 'add-bot-group-members' },
 	{ method: 'DELETE', path: '/users/user-1/worlds/world-1/groups/group-1/bots/bot-1', handlerId: 'remove-bot-group-member' },
+	{ method: 'POST', path: '/maintenance/participant-time', handlerId: 'participant-time-sweep' },
+	{ method: 'POST', path: '/users/user-1/bots/bot-1/normalize-time', handlerId: 'normalize-bot-time' },
 	{ method: 'PATCH', path: '/users/user-1/bots/bot-1', handlerId: 'update-bot' },
 	{ method: 'POST', path: '/users/user-1/bots/bot-1/clone/unlink', handlerId: 'unlink-bot-clone' },
 	{ method: 'POST', path: '/users/user-1/bots/bot-1/clone/relink', handlerId: 'relink-bot-clone' },

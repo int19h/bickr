@@ -1,8 +1,8 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "catalogSourceHash": "1ea4d0935facacfea35be251f30fc67822b5de7e36d4075fd21c7595bffff89e",
+  "catalogSourceHash": "569c6dc99760c3c93e1594717e4078e6e25111ee4b5b788935ef32b6d2cb5cab",
   "locale": "hi",
-  "status": "accepted_by_lead",
+  "status": "partially_pending_translation",
   "leadReason": "Accept the Hindi catalog after both reviewers accept all four exact follow-ups. Native time phrases preserve direction and units. Count labels and universal item commands cover zero and one without speaker gender. Website visits, comments, annotations, profiles, and tool-result terminology are consistent. The cycle rule uses an explicit ban without a blanket claim about चाहिए.",
   "terminologyDecisions": {
     "visit": "विज़िट for a Bickr website visit. यात्रा is understandable but can suggest travel.",
@@ -3244,7 +3244,7 @@
     },
     "serialization": {
       "finalHash": "4c41ac7b13cbe99efe9280b7e9a0a8f32d729938e0b241a3e4a0f26e7de879ea",
-      "finalTemplateHash": "fad250c28e32ecb557f965969aac894872f39af21abcb4b7f4079cad97f59428",
+      "finalTemplateHash": "010bb5cbd68cc17d1dec39fc6b82bbc234b59a3d2e7057e4b74f6775971ba081",
       "draftHashes": {
         "codex": "b029b54c901af15638f2f8f3fbc4a7343b18029a8617781c7e4e13b2893a0367",
         "opus": "6e96fd97a45bc6c35804b3884a09629f86c88156dbc06412b06d8ba267f18dd0",
@@ -3256,259 +3256,6 @@
         "grok": "63aced153111dc6b0208ac2efefa5e57e2ac40285a708bd5ffb5a32a02eabd66"
       },
       "decisions": {
-        "time.just_now": {
-          "finalValueHash": "9d0e8bf2317bd5ea7a7da7daccee0141d71a39d0ed1592c1f0fb955b75abb3e4",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All four agree on just now.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept अभी-अभी as the compact fragment for just now.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "time.year.future": {
-          "finalValueHash": "1f73b74839b1aaed7031f937dee3f22d22f3763a2f8229018d5704fcdaeee55e",
-          "chosenFrom": "opus",
-          "leadReason": "Use a compact count-and-unit field value with बाद for future and पहले for past. The candidate sentences already retain direction, as Grok states. A relative phrase fits when and lastActivity more naturally. बाद also avoids a possible within reading of में. साल is the familiar standard Hindi year noun. Keep native oblique unit forms, exact count, and both categories.",
-          "candidateReason": "Both categories use a complete neutral remaining time-count sentence, including zero and one. Opus and Grok use fragments; Gemini changes plural case by category.",
-          "opusDecision": "required_change",
-          "opusReason": "Format defect: this string is the value of the \"when\" or \"lastActivity\" field in tool results. The candidate renders a sentence (\"बीता हुआ समय दिनों में N है।\"). Native postpositional phrases fit the slot and are valid for 0 and 1 in the one category: \"N X पहले\" (opus) and \"N X बाद\", which avoids the \"within\" reading of the opus draft's \"N X में\".",
-          "grokDecision": "optional_change",
-          "grokReason": "The when-field value is a compact fragment, in {{count}} units. बचा हुआ समय and बीता हुआ समय keep future versus past, so the direction is not lost. The labeled sentence is a shape preference, not a durative meaning error. {{count}} वर्ष में is the natural fragment. The oblique noun stays grammatical for one, which includes 0 and 1, and for other. No danda is added.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change: a compact \"N … बाद\" fragment replaces the interval sentence in the JSON \"when\" value, and \"बाद\" avoids the within reading of \"में\". The unit noun is in the oblique (महीने, घंटे) or invariant (साल, दिन, मिनट) before the postposition, so one (0 and 1) and other are both grammatical.",
-              "proposedValueHash": "1f73b74839b1aaed7031f937dee3f22d22f3763a2f8229018d5704fcdaeee55e"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept {{count}} साल बाद in both one and other. English is the future field phrase in {{count}} साल. बाद names the point after the interval. में can also mean within, so it is not the field phrase. The unit noun has one form after the numeral in both categories. The candidate’s remaining-time sentence keeps a future direction, and the compact phrase is the when-field value. Opus and the lead use this बाद phrase. Hindi one includes 0 and 1, so the shared string has to stay grammatical at both. other covers 2 and every larger count.",
-              "proposedValueHash": "1f73b74839b1aaed7031f937dee3f22d22f3763a2f8229018d5704fcdaeee55e"
-            }
-          }
-        },
-        "time.year.past": {
-          "finalValueHash": "74bfe2089eda4f5f6d94ff4abca671e8b225d080a2ad63702ab6b4137f26884a",
-          "chosenFrom": "opus",
-          "leadReason": "Use a compact count-and-unit field value with बाद for future and पहले for past. The candidate sentences already retain direction, as Grok states. A relative phrase fits when and lastActivity more naturally. बाद also avoids a possible within reading of में. साल is the familiar standard Hindi year noun. Keep native oblique unit forms, exact count, and both categories.",
-          "candidateReason": "Both categories use a complete neutral elapsed time-count sentence, including zero and one. Opus and Grok use fragments; Gemini also uses fragments.",
-          "opusDecision": "required_change",
-          "opusReason": "Format defect: this string is the value of the \"when\" or \"lastActivity\" field in tool results. The candidate renders a sentence (\"बीता हुआ समय दिनों में N है।\"). Native postpositional phrases fit the slot and are valid for 0 and 1 in the one category: \"N X पहले\" (opus) and \"N X बाद\", which avoids the \"within\" reading of the opus draft's \"N X में\".",
-          "grokDecision": "optional_change",
-          "grokReason": "The when-field value is a compact fragment, {{count}} units ago. बचा हुआ समय and बीता हुआ समय keep future versus past, so the direction is not lost. The labeled sentence is a shape preference, not a durative meaning error. {{count}} वर्ष पहले is the natural fragment. The oblique noun stays grammatical for one, which includes 0 and 1, and for other. No danda is added.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change: a compact \"N … पहले\" fragment replaces the interval sentence in the JSON \"when\" value, and \"बाद\" avoids the within reading of \"में\". The unit noun is in the oblique (महीने, घंटे) or invariant (साल, दिन, मिनट) before the postposition, so one (0 and 1) and other are both grammatical.",
-              "proposedValueHash": "74bfe2089eda4f5f6d94ff4abca671e8b225d080a2ad63702ab6b4137f26884a"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept {{count}} साल पहले in both one and other. English is {{count}} साल ago. पहले names the point before now. The unit noun has one form after the numeral in both categories. The candidate’s elapsed-time sentence keeps a past direction, and the compact phrase is the when-field value. Hindi one includes 0 and 1, so the shared string has to stay grammatical at both. other covers 2 and every larger count.",
-              "proposedValueHash": "74bfe2089eda4f5f6d94ff4abca671e8b225d080a2ad63702ab6b4137f26884a"
-            }
-          }
-        },
-        "time.month.future": {
-          "finalValueHash": "e048afa23959f521862335ef5432d43bbedcbd85972e3e9e423203a76a895101",
-          "chosenFrom": "opus",
-          "leadReason": "Use a compact count-and-unit field value with बाद for future and पहले for past. The candidate sentences already retain direction, as Grok states. A relative phrase fits when and lastActivity more naturally. बाद also avoids a possible within reading of में. साल is the familiar standard Hindi year noun. Keep native oblique unit forms, exact count, and both categories.",
-          "candidateReason": "Both categories use a complete neutral remaining time-count sentence, including zero and one. Opus and Grok use fragments; Gemini changes plural case by category.",
-          "opusDecision": "required_change",
-          "opusReason": "Format defect: this string is the value of the \"when\" or \"lastActivity\" field in tool results. The candidate renders a sentence (\"बीता हुआ समय दिनों में N है।\"). Native postpositional phrases fit the slot and are valid for 0 and 1 in the one category: \"N X पहले\" (opus) and \"N X बाद\", which avoids the \"within\" reading of the opus draft's \"N X में\".",
-          "grokDecision": "optional_change",
-          "grokReason": "The when-field value is a compact fragment, in {{count}} units. बचा हुआ समय and बीता हुआ समय keep future versus past, so the direction is not lost. The labeled sentence is a shape preference, not a durative meaning error. {{count}} महीने में is the natural fragment. The oblique noun stays grammatical for one, which includes 0 and 1, and for other. No danda is added.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change: a compact \"N … बाद\" fragment replaces the interval sentence in the JSON \"when\" value, and \"बाद\" avoids the within reading of \"में\". The unit noun is in the oblique (महीने, घंटे) or invariant (साल, दिन, मिनट) before the postposition, so one (0 and 1) and other are both grammatical.",
-              "proposedValueHash": "e048afa23959f521862335ef5432d43bbedcbd85972e3e9e423203a76a895101"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept {{count}} महीने बाद in both one and other. English is the future field phrase in {{count}} महीने. बाद names the point after the interval. में can also mean within, so it is not the field phrase. The oblique unit form is the form used with बाद and पहले, including at 0 and at 1. The candidate’s remaining-time sentence keeps a future direction, and the compact phrase is the when-field value. Opus and the lead use this बाद phrase. Hindi one includes 0 and 1, so the shared string has to stay grammatical at both. other covers 2 and every larger count.",
-              "proposedValueHash": "e048afa23959f521862335ef5432d43bbedcbd85972e3e9e423203a76a895101"
-            }
-          }
-        },
-        "time.month.past": {
-          "finalValueHash": "0816a777b1c04cfe3a0e301e22bc487cf50d40ebe63c4799fdb613bd579330bf",
-          "chosenFrom": "opus",
-          "leadReason": "Use a compact count-and-unit field value with बाद for future and पहले for past. The candidate sentences already retain direction, as Grok states. A relative phrase fits when and lastActivity more naturally. बाद also avoids a possible within reading of में. साल is the familiar standard Hindi year noun. Keep native oblique unit forms, exact count, and both categories.",
-          "candidateReason": "Both categories use a complete neutral elapsed time-count sentence, including zero and one. Opus and Grok use fragments; Gemini also uses fragments.",
-          "opusDecision": "required_change",
-          "opusReason": "Format defect: this string is the value of the \"when\" or \"lastActivity\" field in tool results. The candidate renders a sentence (\"बीता हुआ समय दिनों में N है।\"). Native postpositional phrases fit the slot and are valid for 0 and 1 in the one category: \"N X पहले\" (opus) and \"N X बाद\", which avoids the \"within\" reading of the opus draft's \"N X में\".",
-          "grokDecision": "optional_change",
-          "grokReason": "The when-field value is a compact fragment, {{count}} units ago. बचा हुआ समय and बीता हुआ समय keep future versus past, so the direction is not lost. The labeled sentence is a shape preference, not a durative meaning error. {{count}} महीने पहले is the natural fragment. The oblique noun stays grammatical for one, which includes 0 and 1, and for other. No danda is added.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change: a compact \"N … पहले\" fragment replaces the interval sentence in the JSON \"when\" value, and \"बाद\" avoids the within reading of \"में\". The unit noun is in the oblique (महीने, घंटे) or invariant (साल, दिन, मिनट) before the postposition, so one (0 and 1) and other are both grammatical.",
-              "proposedValueHash": "0816a777b1c04cfe3a0e301e22bc487cf50d40ebe63c4799fdb613bd579330bf"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept {{count}} महीने पहले in both one and other. English is {{count}} महीने ago. पहले names the point before now. The oblique unit form is the form used with बाद and पहले, including at 0 and at 1. The candidate’s elapsed-time sentence keeps a past direction, and the compact phrase is the when-field value. Hindi one includes 0 and 1, so the shared string has to stay grammatical at both. other covers 2 and every larger count.",
-              "proposedValueHash": "0816a777b1c04cfe3a0e301e22bc487cf50d40ebe63c4799fdb613bd579330bf"
-            }
-          }
-        },
-        "time.day.future": {
-          "finalValueHash": "909f843bfda732c53a4164ad3cda809bd7310ad0236a0663b4b094ea3bf59085",
-          "chosenFrom": "opus",
-          "leadReason": "Use a compact count-and-unit field value with बाद for future and पहले for past. The candidate sentences already retain direction, as Grok states. A relative phrase fits when and lastActivity more naturally. बाद also avoids a possible within reading of में. साल is the familiar standard Hindi year noun. Keep native oblique unit forms, exact count, and both categories.",
-          "candidateReason": "Both categories use a complete neutral remaining time-count sentence, including zero and one. Opus and Grok use fragments; Gemini changes plural case by category.",
-          "opusDecision": "required_change",
-          "opusReason": "Format defect: this string is the value of the \"when\" or \"lastActivity\" field in tool results. The candidate renders a sentence (\"बीता हुआ समय दिनों में N है।\"). Native postpositional phrases fit the slot and are valid for 0 and 1 in the one category: \"N X पहले\" (opus) and \"N X बाद\", which avoids the \"within\" reading of the opus draft's \"N X में\".",
-          "grokDecision": "optional_change",
-          "grokReason": "The when-field value is a compact fragment, in {{count}} units. बचा हुआ समय and बीता हुआ समय keep future versus past, so the direction is not lost. The labeled sentence is a shape preference, not a durative meaning error. {{count}} दिन में is the natural fragment. The oblique noun stays grammatical for one, which includes 0 and 1, and for other. No danda is added.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change: a compact \"N … बाद\" fragment replaces the interval sentence in the JSON \"when\" value, and \"बाद\" avoids the within reading of \"में\". The unit noun is in the oblique (महीने, घंटे) or invariant (साल, दिन, मिनट) before the postposition, so one (0 and 1) and other are both grammatical.",
-              "proposedValueHash": "909f843bfda732c53a4164ad3cda809bd7310ad0236a0663b4b094ea3bf59085"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept {{count}} दिन बाद in both one and other. English is the future field phrase in {{count}} दिन. बाद names the point after the interval. में can also mean within, so it is not the field phrase. The unit noun has one form after the numeral in both categories. The candidate’s remaining-time sentence keeps a future direction, and the compact phrase is the when-field value. Opus and the lead use this बाद phrase. Hindi one includes 0 and 1, so the shared string has to stay grammatical at both. other covers 2 and every larger count.",
-              "proposedValueHash": "909f843bfda732c53a4164ad3cda809bd7310ad0236a0663b4b094ea3bf59085"
-            }
-          }
-        },
-        "time.day.past": {
-          "finalValueHash": "d24b0f6263d7754563422d5f693962eda43028075c215639c97a1f480943d2bf",
-          "chosenFrom": "opus",
-          "leadReason": "Use a compact count-and-unit field value with बाद for future and पहले for past. The candidate sentences already retain direction, as Grok states. A relative phrase fits when and lastActivity more naturally. बाद also avoids a possible within reading of में. साल is the familiar standard Hindi year noun. Keep native oblique unit forms, exact count, and both categories.",
-          "candidateReason": "Both categories use a complete neutral elapsed time-count sentence, including zero and one. Opus and Grok use fragments; Gemini also uses fragments.",
-          "opusDecision": "required_change",
-          "opusReason": "Format defect: this string is the value of the \"when\" or \"lastActivity\" field in tool results. The candidate renders a sentence (\"बीता हुआ समय दिनों में N है।\"). Native postpositional phrases fit the slot and are valid for 0 and 1 in the one category: \"N X पहले\" (opus) and \"N X बाद\", which avoids the \"within\" reading of the opus draft's \"N X में\".",
-          "grokDecision": "optional_change",
-          "grokReason": "The when-field value is a compact fragment, {{count}} units ago. बचा हुआ समय and बीता हुआ समय keep future versus past, so the direction is not lost. The labeled sentence is a shape preference, not a durative meaning error. {{count}} दिन पहले is the natural fragment. The oblique noun stays grammatical for one, which includes 0 and 1, and for other. No danda is added.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change: a compact \"N … पहले\" fragment replaces the interval sentence in the JSON \"when\" value, and \"बाद\" avoids the within reading of \"में\". The unit noun is in the oblique (महीने, घंटे) or invariant (साल, दिन, मिनट) before the postposition, so one (0 and 1) and other are both grammatical.",
-              "proposedValueHash": "d24b0f6263d7754563422d5f693962eda43028075c215639c97a1f480943d2bf"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept {{count}} दिन पहले in both one and other. English is {{count}} दिन ago. पहले names the point before now. The unit noun has one form after the numeral in both categories. The candidate’s elapsed-time sentence keeps a past direction, and the compact phrase is the when-field value. Hindi one includes 0 and 1, so the shared string has to stay grammatical at both. other covers 2 and every larger count.",
-              "proposedValueHash": "d24b0f6263d7754563422d5f693962eda43028075c215639c97a1f480943d2bf"
-            }
-          }
-        },
-        "time.hour.future": {
-          "finalValueHash": "0c70550e17a4fb43a66f51148d60607edf611513aa0dcd785768dafa931f946e",
-          "chosenFrom": "opus",
-          "leadReason": "Use a compact count-and-unit field value with बाद for future and पहले for past. The candidate sentences already retain direction, as Grok states. A relative phrase fits when and lastActivity more naturally. बाद also avoids a possible within reading of में. साल is the familiar standard Hindi year noun. Keep native oblique unit forms, exact count, and both categories.",
-          "candidateReason": "Both categories use a complete neutral remaining time-count sentence, including zero and one. Opus and Grok use fragments; Gemini changes plural case by category.",
-          "opusDecision": "required_change",
-          "opusReason": "Format defect: this string is the value of the \"when\" or \"lastActivity\" field in tool results. The candidate renders a sentence (\"बीता हुआ समय दिनों में N है।\"). Native postpositional phrases fit the slot and are valid for 0 and 1 in the one category: \"N X पहले\" (opus) and \"N X बाद\", which avoids the \"within\" reading of the opus draft's \"N X में\".",
-          "grokDecision": "optional_change",
-          "grokReason": "The when-field value is a compact fragment, in {{count}} units. बचा हुआ समय and बीता हुआ समय keep future versus past, so the direction is not lost. The labeled sentence is a shape preference, not a durative meaning error. {{count}} घंटे में is the natural fragment. The oblique noun stays grammatical for one, which includes 0 and 1, and for other. No danda is added.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change: a compact \"N … बाद\" fragment replaces the interval sentence in the JSON \"when\" value, and \"बाद\" avoids the within reading of \"में\". The unit noun is in the oblique (महीने, घंटे) or invariant (साल, दिन, मिनट) before the postposition, so one (0 and 1) and other are both grammatical.",
-              "proposedValueHash": "0c70550e17a4fb43a66f51148d60607edf611513aa0dcd785768dafa931f946e"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept {{count}} घंटे बाद in both one and other. English is the future field phrase in {{count}} घंटे. बाद names the point after the interval. में can also mean within, so it is not the field phrase. The oblique unit form is the form used with बाद and पहले, including at 0 and at 1. The candidate’s remaining-time sentence keeps a future direction, and the compact phrase is the when-field value. Opus and the lead use this बाद phrase. Hindi one includes 0 and 1, so the shared string has to stay grammatical at both. other covers 2 and every larger count.",
-              "proposedValueHash": "0c70550e17a4fb43a66f51148d60607edf611513aa0dcd785768dafa931f946e"
-            }
-          }
-        },
-        "time.hour.past": {
-          "finalValueHash": "fb59a7c3c80b2db6824a566030c7ea48a57614722846b9e7d0b0fcf20dbcbab4",
-          "chosenFrom": "opus",
-          "leadReason": "Use a compact count-and-unit field value with बाद for future and पहले for past. The candidate sentences already retain direction, as Grok states. A relative phrase fits when and lastActivity more naturally. बाद also avoids a possible within reading of में. साल is the familiar standard Hindi year noun. Keep native oblique unit forms, exact count, and both categories.",
-          "candidateReason": "Both categories use a complete neutral elapsed time-count sentence, including zero and one. Opus and Grok use fragments; Gemini also uses fragments.",
-          "opusDecision": "required_change",
-          "opusReason": "Format defect: this string is the value of the \"when\" or \"lastActivity\" field in tool results. The candidate renders a sentence (\"बीता हुआ समय दिनों में N है।\"). Native postpositional phrases fit the slot and are valid for 0 and 1 in the one category: \"N X पहले\" (opus) and \"N X बाद\", which avoids the \"within\" reading of the opus draft's \"N X में\".",
-          "grokDecision": "optional_change",
-          "grokReason": "The when-field value is a compact fragment, {{count}} units ago. बचा हुआ समय and बीता हुआ समय keep future versus past, so the direction is not lost. The labeled sentence is a shape preference, not a durative meaning error. {{count}} घंटे पहले is the natural fragment. The oblique noun stays grammatical for one, which includes 0 and 1, and for other. No danda is added.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change: a compact \"N … पहले\" fragment replaces the interval sentence in the JSON \"when\" value, and \"बाद\" avoids the within reading of \"में\". The unit noun is in the oblique (महीने, घंटे) or invariant (साल, दिन, मिनट) before the postposition, so one (0 and 1) and other are both grammatical.",
-              "proposedValueHash": "fb59a7c3c80b2db6824a566030c7ea48a57614722846b9e7d0b0fcf20dbcbab4"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept {{count}} घंटे पहले in both one and other. English is {{count}} घंटे ago. पहले names the point before now. The oblique unit form is the form used with बाद and पहले, including at 0 and at 1. The candidate’s elapsed-time sentence keeps a past direction, and the compact phrase is the when-field value. Hindi one includes 0 and 1, so the shared string has to stay grammatical at both. other covers 2 and every larger count.",
-              "proposedValueHash": "fb59a7c3c80b2db6824a566030c7ea48a57614722846b9e7d0b0fcf20dbcbab4"
-            }
-          }
-        },
-        "time.minute.future": {
-          "finalValueHash": "a133c50af64b478c9bf96c281ad8a9c3000489bd9f0a1741fc46818d606c4be4",
-          "chosenFrom": "opus",
-          "leadReason": "Use a compact count-and-unit field value with बाद for future and पहले for past. The candidate sentences already retain direction, as Grok states. A relative phrase fits when and lastActivity more naturally. बाद also avoids a possible within reading of में. साल is the familiar standard Hindi year noun. Keep native oblique unit forms, exact count, and both categories.",
-          "candidateReason": "Both categories use a complete neutral remaining time-count sentence, including zero and one. Opus and Grok use fragments; Gemini changes plural case by category.",
-          "opusDecision": "required_change",
-          "opusReason": "Format defect: this string is the value of the \"when\" or \"lastActivity\" field in tool results. The candidate renders a sentence (\"बीता हुआ समय दिनों में N है।\"). Native postpositional phrases fit the slot and are valid for 0 and 1 in the one category: \"N X पहले\" (opus) and \"N X बाद\", which avoids the \"within\" reading of the opus draft's \"N X में\".",
-          "grokDecision": "optional_change",
-          "grokReason": "The when-field value is a compact fragment, in {{count}} units. बचा हुआ समय and बीता हुआ समय keep future versus past, so the direction is not lost. The labeled sentence is a shape preference, not a durative meaning error. {{count}} मिनट में is the natural fragment. The oblique noun stays grammatical for one, which includes 0 and 1, and for other. No danda is added.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change: a compact \"N … बाद\" fragment replaces the interval sentence in the JSON \"when\" value, and \"बाद\" avoids the within reading of \"में\". The unit noun is in the oblique (महीने, घंटे) or invariant (साल, दिन, मिनट) before the postposition, so one (0 and 1) and other are both grammatical.",
-              "proposedValueHash": "a133c50af64b478c9bf96c281ad8a9c3000489bd9f0a1741fc46818d606c4be4"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept {{count}} मिनट बाद in both one and other. English is the future field phrase in {{count}} मिनट. बाद names the point after the interval. में can also mean within, so it is not the field phrase. The unit noun has one form after the numeral in both categories. The candidate’s remaining-time sentence keeps a future direction, and the compact phrase is the when-field value. Opus and the lead use this बाद phrase. Hindi one includes 0 and 1, so the shared string has to stay grammatical at both. other covers 2 and every larger count.",
-              "proposedValueHash": "a133c50af64b478c9bf96c281ad8a9c3000489bd9f0a1741fc46818d606c4be4"
-            }
-          }
-        },
-        "time.minute.past": {
-          "finalValueHash": "068355e60303cf6f8198f6f30980fb569682483eb56a5743793a560063573d6a",
-          "chosenFrom": "opus",
-          "leadReason": "Use a compact count-and-unit field value with बाद for future and पहले for past. The candidate sentences already retain direction, as Grok states. A relative phrase fits when and lastActivity more naturally. बाद also avoids a possible within reading of में. साल is the familiar standard Hindi year noun. Keep native oblique unit forms, exact count, and both categories.",
-          "candidateReason": "Both categories use a complete neutral elapsed time-count sentence, including zero and one. Opus and Grok use fragments; Gemini also uses fragments.",
-          "opusDecision": "required_change",
-          "opusReason": "Format defect: this string is the value of the \"when\" or \"lastActivity\" field in tool results. The candidate renders a sentence (\"बीता हुआ समय दिनों में N है।\"). Native postpositional phrases fit the slot and are valid for 0 and 1 in the one category: \"N X पहले\" (opus) and \"N X बाद\", which avoids the \"within\" reading of the opus draft's \"N X में\".",
-          "grokDecision": "optional_change",
-          "grokReason": "The when-field value is a compact fragment, {{count}} units ago. बचा हुआ समय and बीता हुआ समय keep future versus past, so the direction is not lost. The labeled sentence is a shape preference, not a durative meaning error. {{count}} मिनट पहले is the natural fragment. The oblique noun stays grammatical for one, which includes 0 and 1, and for other. No danda is added.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This resolves the original opus required change: a compact \"N … पहले\" fragment replaces the interval sentence in the JSON \"when\" value, and \"बाद\" avoids the within reading of \"में\". The unit noun is in the oblique (महीने, घंटे) or invariant (साल, दिन, मिनट) before the postposition, so one (0 and 1) and other are both grammatical.",
-              "proposedValueHash": "068355e60303cf6f8198f6f30980fb569682483eb56a5743793a560063573d6a"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept {{count}} मिनट पहले in both one and other. English is {{count}} मिनट ago. पहले names the point before now. The unit noun has one form after the numeral in both categories. The candidate’s elapsed-time sentence keeps a past direction, and the compact phrase is the when-field value. Hindi one includes 0 and 1, so the shared string has to stay grammatical at both. other covers 2 and every larger count.",
-              "proposedValueHash": "068355e60303cf6f8198f6f30980fb569682483eb56a5743793a560063573d6a"
-            }
-          }
-        },
         "read.context.basic": {
           "finalValueHash": "67018ba88ccb7ea3dec51767fdef562f966c6a36cd833e5e9cbde70dae0264bc",
           "chosenFrom": "opus",
@@ -4189,7 +3936,7 @@
     },
     "reports": {
       "finalHash": "f634aeacc4f45666715b01267f6ba3b3dde6b5f26f3d6cfd6e0e6f7b33e7166d",
-      "finalTemplateHash": "6d56ef283a5b9cf6f31544d60c7f3bd1a470de0c070991eac1244de22a7c9ab4",
+      "finalTemplateHash": "c235daf236aaefbf2f2ac729e55f54493b3f02fb8e450438dcaf29fe31d1e9c8",
       "draftHashes": {
         "codex": "d35aaa714e8f7fd9632cd343867bbad89def763b394c9d15aff325324d5d54b6",
         "opus": "879da106c2f957d942c336cc45475b38623385fa5bad8079c84b9352da059468",
@@ -4200,117 +3947,12 @@
         "opus": "eb89cc13894e6bc415d67f53e5cbd00aa5dbcb5e1da90fbb99979f43495725b6",
         "grok": "dced962d7097b3eb77405d54f499699f0d8af4d72367d642cb0784e72227991d"
       },
-      "decisions": {
-        "report.elapsed.moment": {
-          "finalValueHash": "fc1a3b08151315723cd6077914eb47427e77ee1e578e23d91342a1b9256943b8",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Opus and Gemini preserve since the previous visit explicitly. Codex and Grok say after, also faithful.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. A moment passed since the previous visit.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "report.elapsed.second": {
-          "finalValueHash": "fc90480bd9baec7c3d0be6e9fc00936541b2f12ceecbc637c843dd88c4e767f4",
-          "chosenFrom": "synthesis",
-          "leadReason": "Use विज़िट for the Bickr website visit, rather than यात्रा, which can suggest travel. Preserve the existing feminine agreement, participant or app role, exact tense, outcome certainty, limits, and action prohibitions. This is a catalog terminology choice, not a claim that यात्रा cannot mean a visit.",
-          "candidateReason": "Both categories use neutral elapsed-seconds counts including zero and one. Opus and Gemini change agreement by category; Grok uses a heavier count label.",
-          "opusDecision": "accept",
-          "opusReason": "\"सेकंड\" is invariable; valid for 0, 1 and other.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. {{count}} सेकंड stays grammatical for one, including 0 and 1, and since the previous visit stays.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "Only the visit term changed (विज़िट). The neutral \"बीता समय N … है\" is valid for 0 and 1. The hour unit uses \"घंटों में N\" because a direct-case \"1 घंटे\" would be wrong, which is a correct choice.",
-              "proposedValueHash": "fc90480bd9baec7c3d0be6e9fc00936541b2f12ceecbc637c843dd88c4e767f4"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept बीता समय {{count}} सेकंड है after the previous विज़िट. English says {{count}} second or seconds passed since your previous visit. The संख्या-style count stays grammatical at 0 and at 1. विज़िट is the catalog term for a Bickr website visit. यात्रा can suggest travel. The rest of the instruction stays.",
-              "proposedValueHash": "fc90480bd9baec7c3d0be6e9fc00936541b2f12ceecbc637c843dd88c4e767f4"
-            }
-          }
-        },
-        "report.elapsed.minute": {
-          "finalValueHash": "663266dec6315791e2ee2ebdc5a5c7934ce57152bab2ab70eb9f9983494faaaf",
-          "chosenFrom": "synthesis",
-          "leadReason": "Use विज़िट for the Bickr website visit, rather than यात्रा, which can suggest travel. Preserve the existing feminine agreement, participant or app role, exact tense, outcome certainty, limits, and action prohibitions. This is a catalog terminology choice, not a claim that यात्रा cannot mean a visit.",
-          "candidateReason": "Both categories preserve minutes elapsed in a neutral count sentence including zero. Opus and Gemini change agreement by category.",
-          "opusDecision": "accept",
-          "opusReason": "\"मिनट\" is invariable; valid.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. {{count}} मिनट stays grammatical for one, including 0 and 1.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "Only the visit term changed (विज़िट). The neutral \"बीता समय N … है\" is valid for 0 and 1. The hour unit uses \"घंटों में N\" because a direct-case \"1 घंटे\" would be wrong, which is a correct choice.",
-              "proposedValueHash": "663266dec6315791e2ee2ebdc5a5c7934ce57152bab2ab70eb9f9983494faaaf"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept बीता समय {{count}} मिनट है after the previous विज़िट. English says {{count}} minute or minutes passed since your previous visit. The count label stays grammatical at 0 and at 1. विज़िट is the catalog term for a Bickr website visit. यात्रा can suggest travel. The rest of the instruction stays.",
-              "proposedValueHash": "663266dec6315791e2ee2ebdc5a5c7934ce57152bab2ab70eb9f9983494faaaf"
-            }
-          }
-        },
-        "report.elapsed.hour": {
-          "finalValueHash": "e352db5c326aa68d2fe55b3df6158a7409b11b7ada2d6ebe32ceb61889c19cb9",
-          "chosenFrom": "synthesis",
-          "leadReason": "Use विज़िट for the Bickr website visit, rather than यात्रा, which can suggest travel. Preserve the existing feminine agreement, participant or app role, exact tense, outcome certainty, limits, and action prohibitions. This is a catalog terminology choice, not a claim that यात्रा cannot mean a visit.",
-          "candidateReason": "Both categories preserve hours elapsed with a neutral unit-count sentence. Opus and Gemini singular noun fails for zero in one.",
-          "opusDecision": "accept",
-          "opusReason": "Neutral \"घंटों में N\" avoids the घंटा/घंटे alternation; valid for 0, 1 and other.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. बीता समय घंटों में {{count}} है keeps hours passed since the previous visit. The subject समय stays singular for one, including 0 and 1.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "Only the visit term changed (विज़िट). The neutral \"बीता समय N … है\" is valid for 0 and 1. The hour unit uses \"घंटों में N\" because a direct-case \"1 घंटे\" would be wrong, which is a correct choice.",
-              "proposedValueHash": "e352db5c326aa68d2fe55b3df6158a7409b11b7ada2d6ebe32ceb61889c19cb9"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept बीता समय घंटों में {{count}} है after the previous विज़िट. English says {{count}} hour or hours passed since your previous visit. घंटों में names the unit of the elapsed count. It is a count label, so one stays grammatical at 0 and at 1, and में here is not the within reading of a future field phrase. विज़िट is the catalog term for a Bickr website visit. यात्रा can suggest travel. The rest of the instruction stays.",
-              "proposedValueHash": "e352db5c326aa68d2fe55b3df6158a7409b11b7ada2d6ebe32ceb61889c19cb9"
-            }
-          }
-        },
-        "report.elapsed.day": {
-          "finalValueHash": "dc4970c9dff3f693cb8edd8a7b810862cd87e7f639d16af3ad095f185a868afc",
-          "chosenFrom": "synthesis",
-          "leadReason": "Use विज़िट for the Bickr website visit, rather than यात्रा, which can suggest travel. Preserve the existing feminine agreement, participant or app role, exact tense, outcome certainty, limits, and action prohibitions. This is a catalog terminology choice, not a claim that यात्रा cannot mean a visit.",
-          "candidateReason": "Both categories preserve elapsed days and previous visit using a neutral count sentence. Opus and Gemini vary singular and plural agreement.",
-          "opusDecision": "accept",
-          "opusReason": "\"दिन\" is invariable; valid.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. {{count}} दिन stays grammatical for one, including 0 and 1.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "Only the visit term changed (विज़िट). The neutral \"बीता समय N … है\" is valid for 0 and 1. The hour unit uses \"घंटों में N\" because a direct-case \"1 घंटे\" would be wrong, which is a correct choice.",
-              "proposedValueHash": "dc4970c9dff3f693cb8edd8a7b810862cd87e7f639d16af3ad095f185a868afc"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept बीता समय {{count}} दिन है after the previous विज़िट. English says {{count}} day or days passed since your previous visit. The count label stays grammatical at 0 and at 1. विज़िट is the catalog term for a Bickr website visit. यात्रा can suggest travel. The rest of the instruction stays.",
-              "proposedValueHash": "dc4970c9dff3f693cb8edd8a7b810862cd87e7f639d16af3ad095f185a868afc"
-            }
-          }
-        }
-      }
+      "decisions": {},
+      "status": "pending_translation",
+      "pendingTranslationKeys": [
+        "report.timestamp.relative",
+        "report.timestamp.absolute"
+      ]
     },
     "recovery": {
       "finalHash": "e78cb9151bf99a17f83714439390320ad1bcd33af542b368119448508d5f682e",
