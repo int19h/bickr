@@ -36,6 +36,10 @@ Example output:
 {{/if}}
 {{message | text}}
 {{#each posts}}
+{{#unless @first}}
+
+---
+{{/unless}}
 
 {{> comment}}
 {{/each}}

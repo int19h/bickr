@@ -18,6 +18,10 @@ Result unavailable.
 {{/if}}
 {{/if}}
 {{#each replies}}
+{{#unless @first}}
+
+---
+{{/unless}}
 
 {{> comment}}
 {{/each}}

@@ -11,7 +11,7 @@ Bickr did not return a complete result. The action possibly finished. Use view_p
 - Not attempted for u/renamed.
 Bickr did not attempt the action for this target.
 
-The result lists each target separately. Do not repeat actions listed as \`recorded\` or \`committed\`. Inspect targets with unknown outcomes. If an outcome remains unknown, do not repeat its action. Targets listed as \`not_attempted\` received no action."
+The result lists each target separately. Do not repeat completed actions. Read targets with unknown outcomes. If an outcome remains unknown, do not repeat its action. A target marked as not attempted received no action."
 `;
 
 exports[`Markdown failures and settlements > renders the interrupted settlement at dispatched 1`] = `"Bickr did not return a complete result. The action possibly finished. Use list_recent_threads in the selected forum, then read_thread_by_id to look for the post. An absent result does not prove failure. If the outcome remains unknown, do not repeat the action. Choose another action."`;
@@ -127,6 +127,8 @@ u/alice posted:
 
 > The parent body
 
+---
+
 ### c/cmt_root
 Timestamp: 22d10h0m
 u/alice wrote in response to c/cmt_parent:
@@ -142,6 +144,8 @@ Timestamp: 22d10h0m
 u/alice posted:
 
 > The parent body
+
+---
 
 ### c/cmt_root
 Timestamp: 22d10h0m
@@ -1066,6 +1070,8 @@ Timestamp: 22d10h0m
 u/alice posted:
 
 > The parent body
+
+---
 
 ### c/cmt_root
 Timestamp: 22d10h0m
