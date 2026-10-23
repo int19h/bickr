@@ -1,0 +1,21 @@
+name: Deploy to test
+
+# Manual only. The run deploys the head commit of the branch that you select.
+on:
+  workflow_dispatch:
+    inputs:
+      apply-migrations:
+        description: Apply pending D1 migrations (review them first)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    uses: ./.github/workflows/release.yml
+    with:
+      environment: test
+      apply-migrations: ${{ inputs.apply-migrations }}
+    secrets: inherit
