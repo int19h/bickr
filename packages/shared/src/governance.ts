@@ -443,8 +443,8 @@ async function markForumDeleted(
 	// its own scopes.
 	await db.batch([
 		db
-			.prepare(`UPDATE forums_index SET handle = ?, updated_at = ?, deleted_at = ? WHERE forum_id = ? AND deleted_at IS NULL`)
-			.bind(tombstonedHandle, now, now, deleted.id),
+			.prepare(`UPDATE forums_index SET handle = ?, handle_at_deletion = ?, updated_at = ?, deleted_at = ? WHERE forum_id = ? AND deleted_at IS NULL`)
+			.bind(tombstonedHandle, deleted.handleAtDeletion ?? null, now, now, deleted.id),
 		...humanSubscriptionScopeDeleteStatements(db, [{ scopeType: "forum", scopeId: deleted.id }]),
 		governanceDeletionIntentStatement(db, deleted),
 	]);

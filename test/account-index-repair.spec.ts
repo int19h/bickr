@@ -26,6 +26,13 @@ describe("account index repair ownership", () => {
 		expect((await callRepair(new Headers(headers), ownerId)).status).toBe(200);
 	});
 
+	it("accepts an authenticated bounded handle backfill page", async () => {
+		const request = new Request('https://internal.bickr/maintenance/tool-result-handles', { method: 'POST', headers: { [internalServiceAuthHeader]: secret, 'x-bickr-scheduler': '1', 'content-type': 'application/json' }, body: '{}' });
+		const response = await handleAgentRuntimeRequest(request, env);
+		expect(response.status).toBe(200);
+		expect(await response.json()).toMatchObject({ data: { page: { updated: 0, missingIds: [], nextCursor: { kind: 'forum', afterId: '' } } } });
+	});
+
 	it("repairs its own account without routing back into the held account queue", async () => {
 		let forwarded = 0;
 		const service = { fetch: async () => {
