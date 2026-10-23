@@ -11,16 +11,16 @@ issue.note.id.characters: |-
   id må kun indeholde bogstaver, kombinationstegn, tal, tegnsætning, symboler og mellemrum. Angiv id som notens titel. Til en eksisterende note skal du kopiere et ID fra list_notes.
 
 issue.note.cursor.type: |-
-  cursor skal være tekst. Kopiér nextCursor fra det forrige resultat af list_notes. Udelad cursor for at starte en ny liste.
+  cursor must be text. Copy the cursor shown for the next page from the previous list_notes result. To start a new list, omit cursor.
 
 issue.note.cursor.length:
-  one: |-
-    cursor skal indeholde {{minimum}}-{{maximum}} tegn efter normalisering. Kopiér nextCursor fra det forrige resultat af list_notes. Udelad cursor for at starte en ny liste.
-  other: |-
-    cursor skal indeholde {{minimum}}-{{maximum}} tegn efter normalisering. Kopiér nextCursor fra det forrige resultat af list_notes. Udelad cursor for at starte en ny liste.
+  "one": |-
+    cursor must contain {{minimum}}-{{maximum}} character after normalization. Copy the cursor shown for the next page from the previous list_notes result. To start a new list, omit cursor.
+  "other": |-
+    cursor must contain {{minimum}}-{{maximum}} characters after normalization. Copy the cursor shown for the next page from the previous list_notes result. To start a new list, omit cursor.
 
 issue.note.cursor.characters: |-
-  cursor må kun indeholde bogstaver, kombinationstegn, tal, tegnsætning, symboler og mellemrum. Kopier nextCursor fra det forrige resultat af list_notes. Udelad cursor for at starte en ny liste.
+  cursor can contain letters, marks, numbers, punctuation, symbols, and spaces only. Copy the cursor shown for the next page from the previous list_notes result. To start a new list, omit cursor.
 
 issue.note.content:
   one: |-

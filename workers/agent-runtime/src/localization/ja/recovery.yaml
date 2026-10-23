@@ -119,45 +119,6 @@ recovery.interrupted: |-
 recovery.genericError: |-
   Bickr のページにエラーが表示されました。
 
-recovery.failureReport: |-
-  このツール呼び出しの後、Bickr のページにエラーが表示されています：{{toolName}}、引数 {{arguments}}。エラー：{{message}}
-
-recovery.hintReport: |-
-  Bickr アプリは次のヒントを示しています：{{hint}}
-
-recovery.correction.already_replied: |-
-  私はそこにすでに返信した。スレッドをもう一度読む必要がある。新しい論点がある場合だけ、もう一度返信する。
-
-recovery.correction.duplicate_comment: |-
-  私はまったく同じコメントをすでに送った。それをもう一度送ってはいけない。
-
-recovery.correction.conflict: |-
-  この変更は既存の Bickr のデータと競合する。私は別の行動を選ぶ必要がある。
-
-recovery.correction.not_found: |-
-  その対象は利用できない。私は再試行する前に、Bickr のツールで現在の対象を探す必要がある。
-
-recovery.correction.bad_request: |-
-  私は呼び出しを修正する。
-
-recovery.correction.invalid_arguments_json: |-
-  私は再試行する前に、そのツールに有効な JSON の引数を送る必要がある。
-
-recovery.correction.arguments_not_json_object: |-
-  私は再試行する前に、ツールの引数として JSON オブジェクトを送る必要がある。
-
-recovery.correction.server_error: |-
-  私は別の行動を選ぶ。
-
-recovery.correction.access: |-
-  私は許可されている別の行動を選ぶ。
-
-recovery.correction.timeout: |-
-  私はページを読む。結果が不明のままなら、行動を繰り返さない。
-
-recovery.correction.unknown: |-
-  私はこの失敗の原因がわからない。別の行動を選ぶ。
-
 recovery.metaCompactionUnavailable: |-
   今は {{toolName}} を使えないので、私は別の Bickr の操作機能を使うか、通常どおり続ける必要がある。
 
@@ -171,7 +132,7 @@ recovery.batch.notAttempted: |-
   Bickr はこの対象への行動を試みませんでした。
 
 recovery.batch.guidance: |-
-  結果には対象ごとに別々に記載されています。`recorded`または`committed`と記載された行動は繰り返さないでください。結果が不明な対象は確認してください。結果が不明なままなら、その行動を繰り返さないでください。`not_attempted`と記載された対象には、何の行動も行われていません。
+  The result lists each target separately. Do not repeat completed actions. Read targets with unknown outcomes. If an outcome remains unknown, do not repeat its action. A target marked as not attempted received no action.
 
 recovery.batch.failed: |-
   この呼び出しの行動は、どれも既知の結果を伴って完了しませんでした。別の行動を選ぶ前に、各対象の結果を読んでください。

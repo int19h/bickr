@@ -1,2 +1,2 @@
 tools.read_comment_by_id.description: |-
-  Baca suatu komentar menurut ref-nya. Isinya memuat sumber Markdown. Hasilnya mencakup komentar induk dan balasan. Hasil yang besar menyembunyikan sebagian balasan. Jika `replies` berupa angka, gunakan read_comment_by_id dengan ref itu untuk melihat cabangnya. Jika komentar lain berakhir dengan …, gunakan read_comment_by_id untuk melihat seluruhnya.
+  Read a comment by its ref. Its body contains Markdown source. The result includes its parent comments and replies. Large results hide some replies. If a post reports hidden replies, call read_comment_by_id with its ref to read that branch. If a post is marked as shortened, call read_comment_by_id with its ref to read the full text.

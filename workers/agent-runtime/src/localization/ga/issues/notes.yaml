@@ -17,22 +17,22 @@ issue.note.id.characters: |-
   Ní féidir ach litreacha, marcanna, uimhreacha, poncaíocht, siombailí agus spásanna a bheith sa réimse id. Tabhair teideal an nóta mar id. I gcás nóta atá ann cheana, cóipeáil ID ó list_notes.
 
 issue.note.cursor.type: |-
-  Ní mór gur téacs é cursor. Cóipeáil nextCursor ón toradh list_notes roimhe seo. Chun liosta nua a thosú, fág cursor ar lár.
+  cursor must be text. Copy the cursor shown for the next page from the previous list_notes result. To start a new list, omit cursor.
 
 issue.note.cursor.length:
-  one: |-
-    Tar éis normalaithe, ní mór go mbeadh líon na gcarachtar sa réimse cursor idir {{minimum}} agus {{maximum}}. Cóipeáil nextCursor ón toradh list_notes roimhe seo. Chun liosta nua a thosú, fág cursor ar lár.
-  two: |-
-    Tar éis normalaithe, ní mór go mbeadh líon na gcarachtar sa réimse cursor idir {{minimum}} agus {{maximum}}. Cóipeáil nextCursor ón toradh list_notes roimhe seo. Chun liosta nua a thosú, fág cursor ar lár.
-  few: |-
-    Tar éis normalaithe, ní mór go mbeadh líon na gcarachtar sa réimse cursor idir {{minimum}} agus {{maximum}}. Cóipeáil nextCursor ón toradh list_notes roimhe seo. Chun liosta nua a thosú, fág cursor ar lár.
-  many: |-
-    Tar éis normalaithe, ní mór go mbeadh líon na gcarachtar sa réimse cursor idir {{minimum}} agus {{maximum}}. Cóipeáil nextCursor ón toradh list_notes roimhe seo. Chun liosta nua a thosú, fág cursor ar lár.
-  other: |-
-    Tar éis normalaithe, ní mór go mbeadh líon na gcarachtar sa réimse cursor idir {{minimum}} agus {{maximum}}. Cóipeáil nextCursor ón toradh list_notes roimhe seo. Chun liosta nua a thosú, fág cursor ar lár.
+  "one": |-
+    cursor must contain {{minimum}}-{{maximum}} character after normalization. Copy the cursor shown for the next page from the previous list_notes result. To start a new list, omit cursor.
+  "two": |-
+    cursor must contain {{minimum}}-{{maximum}} characters after normalization. Copy the cursor shown for the next page from the previous list_notes result. To start a new list, omit cursor.
+  "few": |-
+    cursor must contain {{minimum}}-{{maximum}} characters after normalization. Copy the cursor shown for the next page from the previous list_notes result. To start a new list, omit cursor.
+  "many": |-
+    cursor must contain {{minimum}}-{{maximum}} characters after normalization. Copy the cursor shown for the next page from the previous list_notes result. To start a new list, omit cursor.
+  "other": |-
+    cursor must contain {{minimum}}-{{maximum}} characters after normalization. Copy the cursor shown for the next page from the previous list_notes result. To start a new list, omit cursor.
 
 issue.note.cursor.characters: |-
-  Ní féidir ach litreacha, marcanna, uimhreacha, poncaíocht, siombailí agus spásanna a bheith sa réimse cursor. Cóipeáil nextCursor ón toradh list_notes roimhe seo. Chun liosta nua a thosú, fág cursor ar lár.
+  cursor can contain letters, marks, numbers, punctuation, symbols, and spaces only. Copy the cursor shown for the next page from the previous list_notes result. To start a new list, omit cursor.
 
 issue.note.content:
   one: |-

@@ -11,16 +11,16 @@ issue.note.id.characters: |-
   id povas enhavi nur literojn, markojn, nombrajn signojn, interpunkcion, simbolojn kaj spacetojn. Donu id kiel la titolon de la noto. Por ekzistanta noto, kopiu ID el list_notes.
 
 issue.note.cursor.type: |-
-  cursor devas esti teksto. Kopiu nextCursor el la antaŭa rezulto de list_notes. Por komenci novan liston, preterlasu cursor.
+  cursor must be text. Copy the cursor shown for the next page from the previous list_notes result. To start a new list, omit cursor.
 
 issue.note.cursor.length:
-  one: |-
-    cursor devas enhavi {{minimum}}-{{maximum}} signon post normaligo. Kopiu nextCursor el la antaŭa rezulto de list_notes. Por komenci novan liston, preterlasu cursor.
-  other: |-
-    cursor devas enhavi {{minimum}}-{{maximum}} signojn post normaligo. Kopiu nextCursor el la antaŭa rezulto de list_notes. Por komenci novan liston, preterlasu cursor.
+  "one": |-
+    cursor must contain {{minimum}}-{{maximum}} character after normalization. Copy the cursor shown for the next page from the previous list_notes result. To start a new list, omit cursor.
+  "other": |-
+    cursor must contain {{minimum}}-{{maximum}} characters after normalization. Copy the cursor shown for the next page from the previous list_notes result. To start a new list, omit cursor.
 
 issue.note.cursor.characters: |-
-  cursor povas enhavi nur literojn, markojn, nombrajn signojn, interpunkcion, simbolojn kaj spacetojn. Kopiu nextCursor el la antaŭa rezulto de list_notes. Por komenci novan liston, preterlasu cursor.
+  cursor can contain letters, marks, numbers, punctuation, symbols, and spaces only. Copy the cursor shown for the next page from the previous list_notes result. To start a new list, omit cursor.
 
 issue.note.content:
   one: |-

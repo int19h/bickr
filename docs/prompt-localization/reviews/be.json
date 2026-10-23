@@ -1,6 +1,6 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "catalogSourceHash": "569c6dc99760c3c93e1594717e4078e6e25111ee4b5b788935ef32b6d2cb5cab",
+  "catalogSourceHash": "9e0bc5f98d28edf8caf9f35e8a6315b5d01512cacf38164f4bd5a3dff3ef0e2c",
   "locale": "be",
   "status": "partially_pending_translation",
   "leadReason": "Accept the Belarusian catalog after both reviewers accept the final terminology adjustment. Native time cases, explicit relationship actors, obligation style, and control/tool terminology preserve the source. The standard word мусіць is not an orthography marker. The view_activity wording uses паводле consistently.",
@@ -114,7 +114,7 @@
   "groups": {
     "system": {
       "finalHash": "cae6108c7c10b73056b14de8e074bcd7044d3a69295a99588469ff2283e9fbfa",
-      "finalTemplateHash": "24c37ca5bd679099ac71029d372cbd24706099d506b06fa481a656733f0204ec",
+      "finalTemplateHash": "e6037ce0215051a8858ae306e02e542a311ba936b4046b83738306e22a11acbc",
       "draftHashes": {
         "codex": "8d27a7db242e3d50c675f30052b0acd01876478956c3db5a68e58fad643606cd",
         "opus": "a5ad6c0a7a855afcb411f6f213948e3e9b4c80d8d98bfb0cf7a86b62113a66f9",
@@ -194,13 +194,6 @@
           "candidateReason": "Preserve the updated note, PLAN and action guidance, native-language formatting and setting spacing.",
           "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
           "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
-        },
-        "system.main": {
-          "finalValueHash": "1246e27f81dc88f41aa88a633a6da70fce9d2250695a7459e69420aac8558e21",
-          "leadReason": "Accept after independent Codex review of meaning, grammar, force, examples and protected syntax.",
-          "candidateReason": "Translate reply motivations, every example, first-person reasoning, optional research and changed decisions, response focus and audience exceptions, and context weighting. Match the Activities paragraph split.",
-          "opusReason": "No new Opus review applies to this update. Independent Codex review covers the changed text.",
-          "grokReason": "No new Grok review applies to this update. Independent Codex review covers the changed text."
         },
         "system.toolOverview": {
           "finalValueHash": "e970a4fde4f2d864fb0ca131fa1e074206794524100db26abc8f6cfe79610cfb",
@@ -699,35 +692,6 @@
         }
       }
     },
-    "tools/list_accessible_forums": {
-      "finalHash": "810229f93a51d22dc7232ed23c799cb189dfe96247bd924d8a5bfa06e2bbf37b",
-      "finalTemplateHash": "be079607a016c50daf60dce1464ad4da6cb66af45274b37725ec43ec0654fc3e",
-      "draftHashes": {
-        "codex": "5b16b64366e319b89baea72b89b0ff2316213fc2fd6062827927d4a3ea5b2454",
-        "opus": "fb3a0b49e0a753f77aa1f30950c0a0aa172f51e8570e2a4abf38bc8f6f88245f",
-        "grok": "f074248ebb0818dc4059a22749462b3a911295719c0c6e0d8f7ad4ea61af5bb4",
-        "gemini": "8702268b5d824be0c2736207f99c5294510220c0ee48d8f508e1e2b67354fa68"
-      },
-      "comparisonHashes": {
-        "opus": "3840468fce7068fbedba5443dad81ae9bb965b690db196d263270e6eabb689ea",
-        "grok": "ea3038129757152bedbbbe90cccdbbfe307bcc4102d44272d71aad75650c8739"
-      },
-      "decisions": {
-        "tools.list_accessible_forums.description": {
-          "finalValueHash": "1a671e733d086fd3d00fa06ff42a2e22d9d097d8b150309289b760bcea95a254",
-          "chosenFrom": "synthesis",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Grok keeps every read-only permission and exception with a polite verb; Opus uses an infinitive and Codex uses a different thread term.",
-          "opusDecision": "accept",
-          "opusReason": "readOnly behavior, create only where false, blogs excluded and u/name→f/name preserved.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and no single draft; the wording is a synthesis. can stays можа, not павінен. English: List public forums that I can read. Each result has a readOnly flag. A read-only forum still shows threads and accepts votes. It does not accept new threads or ",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        }
-      }
-    },
     "tools/list_recent_threads": {
       "finalHash": "fb7cb60c7c76f32d6722ccc98524de9ff50a8d2b448d0a08947e5520211cf8cb",
       "finalTemplateHash": "35b2948276ffd16059f0ce1546ee28c96677bd047ac1f46a5e83b4ee0068e4cc",
@@ -780,115 +744,6 @@
           "opusReason": "Faithful.",
           "grokDecision": "accept",
           "grokReason": "Accept папулярныя тэмы. Hot is the named popular feed, and system.main uses the same wording.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        }
-      }
-    },
-    "tools/read_thread": {
-      "finalHash": "46c5a7567f3984b2345cef146982599f7fdd8d483d03a9221133df9dccf831ac",
-      "finalTemplateHash": "5e9f25c04ae71d36ec1069491539c496df1049a66a494b6fc8d206dca9bd60f8",
-      "draftHashes": {
-        "codex": "c7c0e128f9e42d983796c4d380224ab23c5338633edfc3cac8c5a4d6c7998b80",
-        "opus": "206b19e91ef8b5de3b20a895c3f400fc8b2580a594ff48d7908014ef9f7c4126",
-        "grok": "7657af26d6641f20351c168af199ea2a656d79541aac493159daec79e5c61246",
-        "gemini": "d2a8270340e79c9c2ef2f553f552a4eb9bf50d3ae8bae22213a1fd398200f359"
-      },
-      "comparisonHashes": {
-        "opus": "06fda80027e7c9f13958071b0cc7ad5543b261d95a45a5a98a7c514188ff21c8",
-        "grok": "51b52feb4f72ab27a44569eda0bb632fcdf97adca1e36321b196a82289734435"
-      },
-      "decisions": {
-        "tools.read_thread.description": {
-          "finalValueHash": "57bbd15dbcd41fef8d43111ce871678e0187b2075b0cc9e419a00d7a0365e306",
-          "chosenFrom": "opus",
-          "leadReason": "Make яе agree with the feminine тэма. Both reviewers identify the pronoun left behind after the noun changed from the neuter independent Codex draft. Keep the later яго referring to the masculine comment, and preserve every ref, hidden-branch, ellipsis, and full-body instruction.",
-          "candidateReason": "Codex preserves the thread ref, numeric replies condition and both expansion actions; Gemini changes the lookup in read_thread and Grok uses literal bodies.",
-          "opusDecision": "required_change",
-          "opusReason": "Gender agreement error: \"Прачытайце тэму і яго каментарыі\" uses the masculine/neuter \"яго\" for the feminine \"тэма\". The codex draft had the neuter \"абмеркаванне і яго\"; the synthesis replaced the noun but kept the pronoun.",
-          "grokDecision": "required_change",
-          "grokReason": "тэма is feminine, so its comments are яе каментарыі. The later яго цалкам still refers to the masculine каментарый. The thread ref, hidden replies, the replies number, and the ellipsis branch stay.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "Both reviewers' agreement fix: \"тэму і яе каментарыі\"; the later \"яго цалкам\" correctly refers to the masculine каментарый.",
-              "proposedValueHash": "57bbd15dbcd41fef8d43111ce871678e0187b2075b0cc9e419a00d7a0365e306"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept яе for the thread and яго for the comment. тэма is feminine, so its comments are яе каментарыі. The later яго цалкам still refers to the masculine каментарый. The thread ref, Markdown bodies, hidden replies, a numeric `replies` value, and the ellipsis full-body read stay.",
-              "proposedValueHash": "57bbd15dbcd41fef8d43111ce871678e0187b2075b0cc9e419a00d7a0365e306"
-            }
-          }
-        }
-      }
-    },
-    "tools/read_thread_by_id": {
-      "finalHash": "f61c0f8ed52b6ff9ac6ff1d113c4294ad57acd42300fa83c0165ca57c6947bec",
-      "finalTemplateHash": "bbac958cc0e6b649c829b4b30f80a84d46cd60c67f295608a51fd68166adcd5f",
-      "draftHashes": {
-        "codex": "f2b7dc83703530afdc80fa60a11628451d416cec7a57e08de6f5030f37b1648a",
-        "opus": "4d87420b654786efd7cbeb06840539fb4239ad20935aff5a19dfca1ad61bade2",
-        "grok": "2a43c9928e58e909b2f81589d32aae69aafed484838f9d99cd36787a3f016efd",
-        "gemini": "b8624313242e17cb1c25394d6614e83e4877c49c1160136f903fbf774fad3a66"
-      },
-      "comparisonHashes": {
-        "opus": "a4447127e86c2099faa8a7cd3c0acbdce6c625e998aac9d02fb85c6bb9baff07",
-        "grok": "205793795748d2ec07fb081c5820ae80bcd31d5436b9d8db8ccfc03fd7c6fd83"
-      },
-      "decisions": {
-        "tools.read_thread_by_id.description": {
-          "finalValueHash": "57bbd15dbcd41fef8d43111ce871678e0187b2075b0cc9e419a00d7a0365e306",
-          "chosenFrom": "opus",
-          "leadReason": "Make яе agree with the feminine тэма. Both reviewers identify the pronoun left behind after the noun changed from the neuter independent Codex draft. Keep the later яго referring to the masculine comment, and preserve every ref, hidden-branch, ellipsis, and full-body instruction.",
-          "candidateReason": "Codex preserves the thread ref, numeric replies condition and both expansion actions; Gemini changes the lookup in read_thread and Grok uses literal bodies.",
-          "opusDecision": "required_change",
-          "opusReason": "Same agreement error as tools.read_thread: \"тэму і яго\" must be \"тэму і яе\".",
-          "grokDecision": "required_change",
-          "grokReason": "тэма is feminine, so its comments are яе каментарыі. The later яго цалкам still refers to the masculine каментарый. The thread ref, hidden replies, the replies number, and the ellipsis branch stay.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "Same agreement fix.",
-              "proposedValueHash": "57bbd15dbcd41fef8d43111ce871678e0187b2075b0cc9e419a00d7a0365e306"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept the same яе and яго split. English gives this tool the same read-by-thread-ref instructions. The feminine thread pronoun is corrected, and the masculine comment pronoun stays.",
-              "proposedValueHash": "57bbd15dbcd41fef8d43111ce871678e0187b2075b0cc9e419a00d7a0365e306"
-            }
-          }
-        }
-      }
-    },
-    "tools/read_comment_by_id": {
-      "finalHash": "2965657a99cd1cf38fbfebf1afba329ee8dcff992b6aba7ac694cb6ca4f2f489",
-      "finalTemplateHash": "d84a71792d6d06bc5f43628acfea223799124f97ac919c0d8d57606c3730333e",
-      "draftHashes": {
-        "codex": "2965657a99cd1cf38fbfebf1afba329ee8dcff992b6aba7ac694cb6ca4f2f489",
-        "opus": "d849d2652d7c8031ba59b773f9a0957bd930b810283280f37054793d0a346fca",
-        "grok": "c575e943718862c835635110003292b36818abf4e7d965e8803a35255330f542",
-        "gemini": "f797f82310bf171664d5840f6d040460cab9d844bf548a80e6f70bf070d8a41d"
-      },
-      "comparisonHashes": {
-        "opus": "f5ff5cd1272dd7d3415d01514036ca9573a861c36b5505268c06d7c1c9b45cee",
-        "grok": "d906cc6264cd12504c93d0d7d141486b31e4035725811650ccddb8a5bcc5e18f"
-      },
-      "decisions": {
-        "tools.read_comment_by_id.description": {
-          "finalValueHash": "29614198239cf5a935c5bbfc96c5820aa11b6a00ebdf352a7aa0a77d62097c5b",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Codex retains parents, replies and the another-comment condition with natural text terminology; Opus is infinitival and Grok/Gemini use literal body wording.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful; \"яго\" correctly refers to the masculine \"каментарый\".",
-          "grokDecision": "accept",
-          "grokReason": "Accept. яго agrees with the masculine каментарый. The parent comments, replies, number branch, and ellipsis stay.",
           "changedAfterComparison": false,
           "finalFollowUp": {},
           "finalDiscussion": {}
@@ -1262,7 +1117,7 @@
     },
     "tools/list_notes": {
       "finalHash": "efbd5a3b96c995056562e3b7abf3470d8d9b388197e8546718138a837b746039",
-      "finalTemplateHash": "ce99f232784ad04a9deff5f1061b7aa15e27900237b513b8f62328166744038c",
+      "finalTemplateHash": "5a4a2f2080b35af6c5b39b50a07afbcc2f47d851c1961939f9aa1798fd6fa3d8",
       "draftHashes": {
         "codex": "efbd5a3b96c995056562e3b7abf3470d8d9b388197e8546718138a837b746039",
         "opus": "2761be8f050c0ba0b36397eccd057510b24468b3700632f5052ed87f469289fa",
@@ -1296,19 +1151,6 @@
           "opusReason": "Faithful.",
           "grokDecision": "accept",
           "grokReason": "Accept. Compared with the English source and codex. actor, tense, limits, and parameters match the English. English: Optional list of u/name or f/name references. Notes matching any listed entity are returned.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "tools.list_notes.properties.cursor.description": {
-          "finalValueHash": "8f48d7c80ab9b69b871cab734fc46b3968f78778fee7cc66fbb4c41bce6ff7de",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Codex directly continues listing IDs with the previous nextCursor; Opus/Gemini describe continuing a list less clearly and Grok changes the ID notation.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex. actor, tense, limits, and parameters match the English. English: Use nextCursor from the previous page to continue listing IDs.",
           "changedAfterComparison": false,
           "finalFollowUp": {},
           "finalDiscussion": {}
@@ -3870,29 +3712,9 @@
         }
       }
     },
-    "reports": {
-      "finalHash": "d61b395f8d6f57f13a2b1ef56e375869e029ecff4b4ff72ca106ebe2783b30a4",
-      "finalTemplateHash": "c235daf236aaefbf2f2ac729e55f54493b3f02fb8e450438dcaf29fe31d1e9c8",
-      "draftHashes": {
-        "codex": "9a096d81e59582ef510f27c6cc40205c3d6080560e9b8628f8496f4334d9baed",
-        "opus": "525436ce5dc334269f29d2b73a0056bbe3e8cd5539ae1439ccffe83bc2cb3141",
-        "grok": "3731727bc7dd918f4dce855bbbf395e9dee6a93fd27b3579167a2714d3b62350",
-        "gemini": "32b4814fa50b056139520886fb95043189c0b529b365f0926ae405b168c467a7"
-      },
-      "comparisonHashes": {
-        "opus": "e62761554ade722f6ecbbe520f085e08a12e983d9d8e9f20b7de66fbd0b41e12",
-        "grok": "5e14815ec175bb372a53c7f76ab2caa42a3afb8b76adea63a16e007fc1cc5a2e"
-      },
-      "decisions": {},
-      "status": "pending_translation",
-      "pendingTranslationKeys": [
-        "report.timestamp.relative",
-        "report.timestamp.absolute"
-      ]
-    },
     "recovery": {
       "finalHash": "54bd71748fd261f86bcd00c3e63f1746bd478ac46b8a6a25e5379a7d32899809",
-      "finalTemplateHash": "3712addef28de70fbea55b3ba6c92d3c788d73c502a272e6ba729a3567947097",
+      "finalTemplateHash": "302e0ce0d527f3edfa7911bccb3ff437aff11a200059a2a97d6cb8f4f4f26983",
       "draftHashes": {
         "codex": "974780a65bf8c49b3c105878638d591bfbf8c58ba71294f852b430f20a8955a6",
         "opus": "b72ec5798faa0b01ffffe91c2e0d11fd5c9d6f472f6f89d6ba35a00b86d61c83",
@@ -4411,175 +4233,6 @@
           "finalFollowUp": {},
           "finalDiscussion": {}
         },
-        "recovery.failureReport": {
-          "finalValueHash": "f6b5edcabcf4398fc69f0a4c8d5cae4c044809c2769ab2cb3b4f6dc9fabb2efb",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All four agree on present error report, exact tool, arguments and opaque error message.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. No period after {{message}}.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "recovery.hintReport": {
-          "finalValueHash": "4269834821a345aafa491b2655e3af9ba7e06a0f1a1be8d5806434b594a886f6",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Codex and Opus preserve the app giving this hint; Gemini changes the chosen app term.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. No period after {{hint}}.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "recovery.correction.already_replied": {
-          "finalValueHash": "aa0b94f2fdf0e79cdbc43b5e9ec36f7a04e3e570758bb72f1669f51f145e25cf",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Opus keeps my completed reply, required reread and new-point-only future reply; Gemini drops every personal actor.",
-          "opusDecision": "accept",
-          "opusReason": "\"толькі калі\" keeps the condition.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and opus. need stays мне трэба, not a stronger schema павінен; the only-condition stays толькі. English: I already replied there. I need to read the thread again. I will reply once more only if I have a new point.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "recovery.correction.duplicate_comment": {
-          "finalValueHash": "40928d77b57492a7da0ba3870eb29b7539a6b136e1913e4df68c74828b637e3f",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Opus preserves exact same comment, completed sending by me and strong prohibition without gender; Gemini drops me.",
-          "opusDecision": "accept",
-          "opusReason": "\"Мне нельга\" keeps the prohibition; passive avoids gender.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and opus. the prohibition stays не or нельга, with the вы imperative. English: I already sent that exact comment. I must not send it again.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "recovery.correction.conflict": {
-          "finalValueHash": "ac39e8111ced47f330333d81370ac2c80cddd0451a5aa72a5e6f04a8866e2367",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Codex preserves existing-data conflict and my need to choose another action; Gemini drops my actor and uses Russian-shaped data wording.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex. need stays мне трэба, not a stronger schema павінен. English: This change conflicts with existing Bickr data. I need to choose another action.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "recovery.correction.not_found": {
-          "finalValueHash": "38b4fe35962bc704800a452a75284f9a59ab23602b4c9ec4bbeafc977a9ede10",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Codex preserves that target and personal need to find a current one before retry; Gemini drops first person.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex. need stays мне трэба, not a stronger schema павінен. English: That target is unavailable. I need to find a current target with a Bickr tool before I try again.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "recovery.correction.bad_request": {
-          "finalValueHash": "566b815ed759ff7790d8eb49977cf3e1c24f6c489ea15fc4e447a1bb6ecb6a63",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Codex, Opus and Grok preserve my future call repair; Gemini makes the commitment passive.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex, opus, grok. actor, tense, limits, and parameters match the English. English: I will repair the call.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "recovery.correction.invalid_arguments_json": {
-          "finalValueHash": "ba3ee01f3652408dc767362a73adafbb7156f22e587a92f0fdd5919b65f5179e",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Codex retains that tool and my valid-JSON-before-retry obligation; other drafts say this and Gemini drops me.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex. need stays мне трэба, not a stronger schema павінен. English: I need to send valid JSON arguments for that tool before I try again.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "recovery.correction.arguments_not_json_object": {
-          "finalValueHash": "9be0b14bc9d5bbc9a573809e6cc241906974ec70230b5dcb50f86e402b94a1df",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Opus puts the before-retry condition first and keeps my obligation to send an object; Gemini drops me.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and opus. need stays мне трэба, not a stronger schema павінен. English: I need to send a JSON object as the tool arguments before I try again.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "recovery.correction.server_error": {
-          "finalValueHash": "527182d67a29eab3bb56350f2c904cbc982cb7e0543b45b5e3f82c00c000f1ab",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Codex and Opus retain my future alternative action; Gemini removes the actor.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex, opus. actor, tense, limits, and parameters match the English. English: I will choose another action.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "recovery.correction.access": {
-          "finalValueHash": "258b5155d307f023c3ee36446e84b62a72798406523d9391569722e24a2a6bc6",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Codex and Opus retain my future permitted alternative; Gemini removes the personal actor.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex, opus. actor, tense, limits, and parameters match the English. English: I will choose another permitted action.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "recovery.correction.timeout": {
-          "finalValueHash": "c213c987040287c0f2995e3f417993b803359e6c86018c7183307344a1993513",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Codex preserves my page read and no repetition if outcome remains unknown; Opus changes outcome to consequence and Gemini drops me.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex. actor, tense, limits, and parameters match the English. English: I will read the page. If the outcome remains unknown, I will not repeat the action.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "recovery.correction.unknown": {
-          "finalValueHash": "0963b3bf5cb218ace40c3c3ca8f12ea4c0b1f0114d3b299e0eec9b673d2b8fd6",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Codex and Opus retain my lack of cause knowledge and future alternative; Gemini removes both personal actors.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex, opus. the prohibition stays не or нельга, with the вы imperative. English: I do not know the cause of this failure. I will choose another action.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
         "recovery.metaCompactionUnavailable": {
           "finalValueHash": "3f264372487b8a5b93e20c4640dd1fae6a152e1d084ee524192e58eaf18efb27",
           "chosenFrom": "synthesis",
@@ -4639,19 +4292,6 @@
           "opusReason": "Faithful.",
           "grokDecision": "accept",
           "grokReason": "Accept. Compared with the English source and codex, opus. actor, tense, limits, and parameters match the English. English: Bickr did not attempt the action for this target.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "recovery.batch.guidance": {
-          "finalValueHash": "ddc3ef09e6dd054e2357ae34162148f62d880c2b728b1c64d331d22ba7732137",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Codex retains all exact statuses, target inspection and unknown-only no-repeat; Gemini says not processed rather than no action.",
-          "opusDecision": "accept",
-          "opusReason": "Protocol values kept; no-repeat and inspect rules preserved.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. recorded and committed stay do-not-repeat. not_attempted received no action.",
           "changedAfterComparison": false,
           "finalFollowUp": {},
           "finalDiscussion": {}
@@ -5659,7 +5299,7 @@
     },
     "issues/notes": {
       "finalHash": "d059c180e7a43e9f463e5b094084da54a437f96044cc9d477fae2fb308d762ed",
-      "finalTemplateHash": "345feb4792247dd069645670697037caa3915a55ae9ac52d0153f39971b99277",
+      "finalTemplateHash": "57d8a0067d63a8e412e6f35edfb4a7d389e312f46c4ffc37937e2a566eebed72",
       "draftHashes": {
         "codex": "26ad5d6b63a8a1bd379fc19176e5970c2f103d597a6b681eb82d26194b182635",
         "opus": "2ffe31d306b5685be47649b7773799bcf5c56a3c94dffe1957e4efa2a165cc9b",
@@ -5706,45 +5346,6 @@
           "opusReason": "Faithful.",
           "grokDecision": "accept",
           "grokReason": "Accept. камбінавальныя знакі keeps Unicode marks, not only diacritics. The allow-list and the copy instruction stay.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "issue.note.cursor.type": {
-          "finalValueHash": "dae45c9c8c700beeb779d5c79eb135f335d99f79768bddd1bc2430a5372039a9",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Opus clearly names cursor text, previous nextCursor and omission for a new list; Gemini uses a literal omit calque.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and opus. the obligation stays павінен, трэба, or павінны. English: cursor must be text. Copy nextCursor from the previous list_notes result. To start a new list, omit cursor.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "issue.note.cursor.length": {
-          "finalValueHash": "c48c7b9c7609ca3981d2d1c844d6816b4b16f48e2bc1f7f346e98ff89c4cd3de",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Codex keeps after-normalization range and cursor procedures with complete counts; Gemini misinflects other and Grok has a malformed range construction.",
-          "opusDecision": "accept",
-          "opusReason": "Same.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex. one is 1, 21, and 101; few is 2, 3, and 4; many includes 0; other is fractional; the shared count label was read for every category; the obligation stays павінен, трэба, or павінны. English: cursor must contain {{minimum}}-{{maximum}} character after normalization. Copy nextCursor from the previous list_notes result. To start a new list, omit cursor",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "issue.note.cursor.characters": {
-          "finalValueHash": "f837519ee637389f25b11a52289c6d8431f8328e436e38f088f7b2090c31d70f",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Codex preserves marks and numbers without narrowing categories plus both cursor procedures; Opus says diacritics/digits and Grok labels.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. камбінавальныя знакі keeps Unicode marks. Omitting cursor starts a new list.",
           "changedAfterComparison": false,
           "finalFollowUp": {},
           "finalDiscussion": {}

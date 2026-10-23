@@ -1,2 +1,2 @@
 tools.read_comment_by_id.description: |-
-  Прочитать комментарий по его ref. Его текст содержит исходный код Markdown. Результат включает его родительские комментарии и ответы. В больших результатах часть ответов скрыта. Если `replies` — число, используйте read_comment_by_id с этим ref, чтобы увидеть ветку. Если другой комментарий заканчивается на …, используйте read_comment_by_id, чтобы увидеть его полностью.
+  Read a comment by its ref. Its body contains Markdown source. The result includes its parent comments and replies. Large results hide some replies. If a post reports hidden replies, call read_comment_by_id with its ref to read that branch. If a post is marked as shortened, call read_comment_by_id with its ref to read the full text.

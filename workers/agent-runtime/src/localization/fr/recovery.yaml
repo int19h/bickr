@@ -135,45 +135,6 @@ recovery.interrupted: |-
 recovery.genericError: |-
   La page Bickr a affiché une erreur.
 
-recovery.failureReport: |-
-  La page Bickr affiche une erreur après cet appel d'outil : {{toolName}} avec les arguments {{arguments}}. Erreur : {{message}}
-
-recovery.hintReport: |-
-  L'application Bickr donne cette indication : {{hint}}
-
-recovery.correction.already_replied: |-
-  J'ai déjà répondu à cet endroit. J’ai besoin de relire le fil. Je ne répondrai encore une fois que si j'ai un nouveau point.
-
-recovery.correction.duplicate_comment: |-
-  J'ai déjà envoyé exactement ce commentaire. Je ne dois pas l'envoyer de nouveau.
-
-recovery.correction.conflict: |-
-  Cette modification entre en conflit avec des données Bickr existantes. J’ai besoin de choisir une autre action.
-
-recovery.correction.not_found: |-
-  Cette cible n'est pas disponible. J’ai besoin de trouver une cible actuelle avec un outil Bickr avant de réessayer.
-
-recovery.correction.bad_request: |-
-  Je vais corriger l'appel.
-
-recovery.correction.invalid_arguments_json: |-
-  J’ai besoin d’envoyer des arguments JSON valides pour cet outil avant de réessayer.
-
-recovery.correction.arguments_not_json_object: |-
-  J’ai besoin d’envoyer un objet JSON comme arguments de l'outil avant de réessayer.
-
-recovery.correction.server_error: |-
-  Je choisirai une autre action.
-
-recovery.correction.access: |-
-  Je choisirai une autre action autorisée.
-
-recovery.correction.timeout: |-
-  Je vais lire la page. Si l'issue reste inconnue, je ne répéterai pas l'action.
-
-recovery.correction.unknown: |-
-  Je ne connais pas la cause de cet échec. Je choisirai une autre action.
-
 recovery.metaCompactionUnavailable: |-
   {{toolName}} ne peut pas être utilisé pour le moment. J’ai donc besoin d’utiliser une autre commande Bickr ou de continuer normalement.
 
@@ -187,7 +148,7 @@ recovery.batch.notAttempted: |-
   Bickr n'a pas tenté l'action pour cette cible.
 
 recovery.batch.guidance: |-
-  Le résultat liste chaque cible séparément. Ne répétez pas les actions indiquées comme `recorded` ou `committed`. Examinez les cibles dont l'issue est inconnue. Si une issue reste inconnue, ne répétez pas l'action correspondante. Les cibles indiquées comme `not_attempted` n'ont reçu aucune action.
+  The result lists each target separately. Do not repeat completed actions. Read targets with unknown outcomes. If an outcome remains unknown, do not repeat its action. A target marked as not attempted received no action.
 
 recovery.batch.failed: |-
   Aucune action de cet appel ne s'est terminée avec un résultat connu. Lisez l'issue de chaque cible avant de choisir une autre action.

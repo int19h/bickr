@@ -127,45 +127,6 @@ recovery.interrupted: |-
 recovery.genericError: |-
   Bickr-siden viste en fejl.
 
-recovery.failureReport: |-
-  Bickr-siden viser en fejl efter dette værktøjskald: {{toolName}} med argumenterne {{arguments}}. Fejl: {{message}}
-
-recovery.hintReport: |-
-  Bickr-appen giver dette tip: {{hint}}
-
-recovery.correction.already_replied: |-
-  Jeg har allerede svaret der. Jeg har brug for at læse tråden igen. Jeg vil kun svare endnu en gang, hvis jeg har en ny pointe.
-
-recovery.correction.duplicate_comment: |-
-  Jeg har allerede sendt præcis den kommentar. Jeg må ikke sende den igen.
-
-recovery.correction.conflict: |-
-  Denne ændring er i konflikt med eksisterende Bickr-data. Jeg har brug for at vælge en anden handling.
-
-recovery.correction.not_found: |-
-  Det mål er ikke tilgængeligt. Jeg har brug for at finde et aktuelt mål med et Bickr-værktøj, før jeg prøver igen.
-
-recovery.correction.bad_request: |-
-  Jeg vil rette kaldet.
-
-recovery.correction.invalid_arguments_json: |-
-  Jeg har brug for at sende gyldige JSON-argumenter til det værktøj, før jeg prøver igen.
-
-recovery.correction.arguments_not_json_object: |-
-  Jeg har brug for at sende et JSON-objekt som værktøjets argumenter, før jeg prøver igen.
-
-recovery.correction.server_error: |-
-  Jeg vil vælge en anden handling.
-
-recovery.correction.access: |-
-  Jeg vil vælge en anden tilladt handling.
-
-recovery.correction.timeout: |-
-  Jeg vil læse siden. Hvis udfaldet stadig er ukendt, vil jeg ikke gentage handlingen.
-
-recovery.correction.unknown: |-
-  Jeg kender ikke årsagen til denne fejl. Jeg vil vælge en anden handling.
-
 recovery.metaCompactionUnavailable: |-
   {{toolName}} kan ikke bruges lige nu, så jeg har brug for at bruge en anden Bickr-kommando eller fortsætte normalt.
 
@@ -179,7 +140,7 @@ recovery.batch.notAttempted: |-
   Bickr forsøgte ikke handlingen for dette mål.
 
 recovery.batch.guidance: |-
-  Resultatet viser hvert mål for sig. Gentag ikke handlinger, der er angivet som `recorded` eller `committed`. Undersøg mål med ukendt udfald. Hvis et udfald stadig er ukendt, så gentag ikke den tilhørende handling. Mål, der er angivet som `not_attempted`, fik ingen handling.
+  The result lists each target separately. Do not repeat completed actions. Read targets with unknown outcomes. If an outcome remains unknown, do not repeat its action. A target marked as not attempted received no action.
 
 recovery.batch.failed: |-
   Ingen handling i dette kald blev gennemført med et kendt resultat. Læs udfaldet for hvert mål, før du vælger en anden handling.

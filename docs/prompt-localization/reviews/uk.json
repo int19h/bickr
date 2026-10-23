@@ -1,6 +1,6 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "catalogSourceHash": "569c6dc99760c3c93e1594717e4078e6e25111ee4b5b788935ef32b6d2cb5cab",
+  "catalogSourceHash": "9e0bc5f98d28edf8caf9f35e8a6315b5d01512cacf38164f4bd5a3dff3ef0e2c",
   "locale": "uk",
   "status": "partially_pending_translation",
   "leadReason": "Accept the exact Ukrainian proposal. Both reviewers accept all nineteen disputed units and find no additional defect. Native relative-time fragments and count forms preserve every quantity and direction. Gender-neutral narration keeps the participant role. The corrected instrumental, follow terminology, explicit relationship direction, and member-list headings retain the source meaning.",
@@ -63,7 +63,7 @@
   "groups": {
     "system": {
       "finalHash": "a2029e0fbd8861c20317a0c1d958e3d95371926ef09cbc55daf997f61c272af8",
-      "finalTemplateHash": "283e8bbbcc3e1de14b2cb87f468aeb880b0f5c244b62b82b66561485eef48bf9",
+      "finalTemplateHash": "af7b97af0cf9e8589923ec1f6be815a6da848c6568b2af903b0044f3150ed0f7",
       "draftHashes": {
         "codex": "28bb1fa4f2ceb3bea7acc8bb864634793804013ef9f880d62abe80a4fcab3120",
         "opus": "7b0a610b022a46a00c135edad8e3b8fc1d9e3bfa7543ed73ef59dce95735b18b",
@@ -143,13 +143,6 @@
           "candidateReason": "Preserve the updated note, PLAN and action guidance, native-language formatting and setting spacing.",
           "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
           "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
-        },
-        "system.main": {
-          "finalValueHash": "81cae661f34794a1eb5e581183096cc79713249038c86325382a78957955b61d",
-          "leadReason": "Accept after independent Codex review of meaning, grammar, force, examples and protected syntax.",
-          "candidateReason": "Translate reply motivations, every example, first-person reasoning, optional research and changed decisions, response focus and audience exceptions, and context weighting. Match the Activities paragraph split.",
-          "opusReason": "No new Opus review applies to this update. Independent Codex review covers the changed text.",
-          "grokReason": "No new Grok review applies to this update. Independent Codex review covers the changed text."
         },
         "system.toolOverview": {
           "finalValueHash": "2c28ac06da0166f5a55e6c09735f2cb495d7965bd3ed8f4d701b5ce95f5b4f1f",
@@ -637,35 +630,6 @@
         }
       }
     },
-    "tools/list_accessible_forums": {
-      "finalHash": "dcc7d3a6490bf9d9a47d479648e2529e4810896f43b71261e856cc57365af6c4",
-      "finalTemplateHash": "321e414352dba98000c1f9ad1afd85b073d676f760abdaf6320cac034a3a2c9a",
-      "draftHashes": {
-        "codex": "85c2532ad7b041b1aadd5e9fecb75d0eaf5568de2dd94514ea64078e35776606",
-        "opus": "cb2dfc5d8d51d8ed0d2d19b93bde08514985dfc916245e8054f237badd9f8afe",
-        "grok": "dcc7d3a6490bf9d9a47d479648e2529e4810896f43b71261e856cc57365af6c4",
-        "gemini": "c40646098b37f11a7a5d5cad52e6343496b254650727e74ca52687d14e63d7ff"
-      },
-      "comparisonHashes": {
-        "opus": "0623759d445e111b93e52777fd9727e4784ed1fbe582728dea68e99d5379f37e",
-        "grok": "791dfa5195b02a275d331ac660061e09f9ec4c07323aa770cb84c6ded92dacc4"
-      },
-      "decisions": {
-        "tools.list_accessible_forums.description": {
-          "finalValueHash": "250d8e1d62aeb6028011386a85eb7f975dee245bef06c7e409f4b381c7320f7f",
-          "chosenFrom": "grok",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Grok gives a direct imperative and retains all read-only permissions, creation restriction, blog exclusion, and exact handles.",
-          "opusDecision": "accept",
-          "opusReason": "readOnly behavior, create only where false, blogs excluded and u/name→f/name preserved.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and grok. can stays може, not має. English: List public forums that I can read. Each result has a readOnly flag. A read-only forum still shows threads and accepts votes. It does not accept new threads or ",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        }
-      }
-    },
     "tools/list_recent_threads": {
       "finalHash": "093c2277ddff0f9dcf22e8122619806a05c7bbcb892899d1d29683262c7f75d7",
       "finalTemplateHash": "74c140f8b37442c8a687a033d13e4503a558d9aed96ac2f6742064a69de4d4d7",
@@ -718,93 +682,6 @@
           "opusReason": "Faithful.",
           "grokDecision": "accept",
           "grokReason": "Accept популярні теми. Hot is the named popular feed, and system.main uses the same wording.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        }
-      }
-    },
-    "tools/read_thread": {
-      "finalHash": "3822b49e04f0ebcc8c40a686947c09573fe1789756716fd4e537d41201a7432e",
-      "finalTemplateHash": "a11f83ef46adda5d3aa9dde0bca6da625d14a6aa74738a99cf3cfdb6b55d98da",
-      "draftHashes": {
-        "codex": "1f75103193d7e16cc7d76d6710a63f0e37d3713842e17a76e6ed9f430c799924",
-        "opus": "0ae13bc6a1ab3c464159e5a5478e4aad95cbbaaf9c924efd7f2a3dcc2fb0c0f7",
-        "grok": "6f17ef3b64cde1eb154b4b577a6f02a3d332bada8f41524fd81ada24c6cd4738",
-        "gemini": "e1c700fd01c5e4563f16975c0e9287bee4f77f4aeec4e368db9a50f6dd400767"
-      },
-      "comparisonHashes": {
-        "opus": "e11822a1baa02033974b362b9487d5805c9eda4bbfbc3ccc5171954a921a9bea",
-        "grok": "c97e8209f1a22ec675d95925ea0204355077d39e6eef48a0dbc60bc35479c579"
-      },
-      "decisions": {
-        "tools.read_thread.description": {
-          "finalValueHash": "fd70db15bec7ecde5395901264917ed4ca8ef7bdbea95177d37f503147abf478",
-          "chosenFrom": "synthesis",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Opus retains reference lookup and all recovery conditions. Gemini wrongly switches lookup to forum handle and title. Use a direct imperative.",
-          "opusDecision": "accept",
-          "opusReason": "Ref lookup, Markdown source, hidden replies, branch and truncation rules preserved.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and no single draft; the wording is a synthesis. actor, tense, limits, and parameters match the English. English: Read a thread and its comments by thread ref. Comment bodies contain Markdown source. Large results hide some replies. If `replies` is a number, use read_commen",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        }
-      }
-    },
-    "tools/read_thread_by_id": {
-      "finalHash": "69f329338a18cbb447ea2c7e47b214f831f9451a9c9ea67e2d4980c76f08d929",
-      "finalTemplateHash": "7258e825b1ff95d53ac5dc310ba8cf7ffe9b90e6b50413bb0cf5e2b97f11f48c",
-      "draftHashes": {
-        "codex": "43211af0277b128ae344624f3280f44e682cc1be0f07404cac29c6f985f88217",
-        "opus": "72dc8c96a85d230b1f1260657a4895c2e077839c3ddfc0dc4335d7ff746cee31",
-        "grok": "a2e15e2048ceee19c0dd94d6a31b6de8b8a2c4aef10ea8d0a5b6797e29a730f2",
-        "gemini": "30ed96000a6665d94d576e04f20368a630563293a697c63f2ae43058a05441d5"
-      },
-      "comparisonHashes": {
-        "opus": "6b3217652c57d34cd9d8cbabea82011b493e33d1e9e1e197c43a473414967bc7",
-        "grok": "707f2b33931a4d903e7e81bb591497c489b1dd5515cc08b72aec1dc118a20bce"
-      },
-      "decisions": {
-        "tools.read_thread_by_id.description": {
-          "finalValueHash": "fd70db15bec7ecde5395901264917ed4ca8ef7bdbea95177d37f503147abf478",
-          "chosenFrom": "synthesis",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Opus retains thread ref, Markdown source, hidden replies, and both recovery conditions with natural text wording. Use a direct imperative.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and no single draft; the wording is a synthesis. actor, tense, limits, and parameters match the English. English: Read a thread and its comments by thread ref. Comment bodies contain Markdown source. Large results hide some replies. If `replies` is a number, use read_commen",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        }
-      }
-    },
-    "tools/read_comment_by_id": {
-      "finalHash": "b0c6c8148e9030a8f7a528125975a7097cf099bea4c5f84dba5aedbd1a9749bb",
-      "finalTemplateHash": "c44a909d2ca85161f7ce268e5f3d9d075dd838984a377b39e597697dd143c5e2",
-      "draftHashes": {
-        "codex": "b0c6c8148e9030a8f7a528125975a7097cf099bea4c5f84dba5aedbd1a9749bb",
-        "opus": "b7fc0fb8b8371a05f79ecedb0426f18796fc6b5c59f6b66454c1140be2edd37a",
-        "grok": "e44166eece42904a33bf996323e29db46dfa969e5f02a34a1c0afa47e6016fe5",
-        "gemini": "9e93846a9e9e41281ad8608d309ee95584ca2b48975ff04f504ec7237f13c960"
-      },
-      "comparisonHashes": {
-        "opus": "9fdb0e8b59cc0e67212ddec85b5703a6bd6e60a9eb55f50885a520f522c34d02",
-        "grok": "a5de63252d7c541290796e522a569aaf3ba0facb055eca064937bf2b8836d4c4"
-      },
-      "decisions": {
-        "tools.read_comment_by_id.description": {
-          "finalValueHash": "4c954e5f9c23fd1dd9019642a1e1a3647ee26fc8330181f43c055d40776857b8",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Codex retains ref, Markdown body, parent comments, replies, and both recovery conditions with a direct imperative and natural text noun.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex. actor, tense, limits, and parameters match the English. English: Read a comment by its ref. Its body contains Markdown source. The result includes its parent comments and replies. Large results hide some replies. If `replies`",
           "changedAfterComparison": false,
           "finalFollowUp": {},
           "finalDiscussion": {}
@@ -1178,7 +1055,7 @@
     },
     "tools/list_notes": {
       "finalHash": "9edf60eba88da6c77f38c48c915fea31cde4689161fe57519eddf03542b6a06d",
-      "finalTemplateHash": "ed509e9831ecd75c39b6f2034bfe97d835f6686385768623c14c36403eeee2da",
+      "finalTemplateHash": "79a0ee6d347a97ca3b60eec2a08a584fe8fab25a72bc0dcbd050c2a507b7ec77",
       "draftHashes": {
         "codex": "2ffac791c124559767f138999a24e2fcf796884f65dc20a20c784f8f3d1f0835",
         "opus": "a786d84cf1106ce94877337706f405d8104ae9e3a9d30d47b10179e23c64dfd5",
@@ -1212,19 +1089,6 @@
           "opusReason": "Faithful.",
           "grokDecision": "accept",
           "grokReason": "Accept. Compared with the English source and opus. actor, tense, limits, and parameters match the English. English: Optional list of u/name or f/name references. Notes matching any listed entity are returned.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "tools.list_notes.properties.cursor.description": {
-          "finalValueHash": "976ec752f41165220463650ac467a6ae97d290287601343ca9a3be020f389ed1",
-          "chosenFrom": "gemini",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Gemini retains the prior-page cursor and continued ID list with natural order; Grok expands ID unnecessarily.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and gemini. actor, tense, limits, and parameters match the English. English: Use nextCursor from the previous page to continue listing IDs.",
           "changedAfterComparison": false,
           "finalFollowUp": {},
           "finalDiscussion": {}
@@ -3708,29 +3572,9 @@
         }
       }
     },
-    "reports": {
-      "finalHash": "f3659d2c176bae532d76fcbec7ca0842b29707f165368810359887d5d957a8dc",
-      "finalTemplateHash": "c235daf236aaefbf2f2ac729e55f54493b3f02fb8e450438dcaf29fe31d1e9c8",
-      "draftHashes": {
-        "codex": "bd5c9843ba51c83827cd2366014da76924b800b44117792a508484fe59d3bbdd",
-        "opus": "56bb28834d263539e9c532c2daf5961f463ff54e751cc96db4fdc08d8b967ad1",
-        "grok": "8f8980e6178a78e22f1f3229212abdf3aba51a8af12a93d4976eecd794daee19",
-        "gemini": "08bcf5a054b1d25afcc677e21c0a21611c1592807090788f3fd8fd25ab3a5438"
-      },
-      "comparisonHashes": {
-        "opus": "54fa066b91d8101daf96df38c666385fe042b21644e8df6c192868ebc03ae0f3",
-        "grok": "40881ec2523803acddbdf60b83fd5e46767d81127e8e8e75a8517383d5059fb1"
-      },
-      "decisions": {},
-      "status": "pending_translation",
-      "pendingTranslationKeys": [
-        "report.timestamp.relative",
-        "report.timestamp.absolute"
-      ]
-    },
     "recovery": {
       "finalHash": "85952d650757dd8229ecc9c8ae93b3ff5fd62b1b126b9d6428365baec55a34c2",
-      "finalTemplateHash": "543a223b06038ea6f48b7d9cc5a04a2989d0001e28f37d42525b64d536d1c3ba",
+      "finalTemplateHash": "e66b60749bedfd26e7d7d72816239f14de394684380430243f72fa085b93ce3e",
       "draftHashes": {
         "codex": "60664f746a79e0947b8e57b7d80142bf203c48f8855937051ece60239b05087c",
         "opus": "85a921a8afc6c23edd940e256a16e000ae6ab8b49cce550a30263a5ea02f7d0b",
@@ -4249,175 +4093,6 @@
           "finalFollowUp": {},
           "finalDiscussion": {}
         },
-        "recovery.failureReport": {
-          "finalValueHash": "57019b3360936e1c58dccc11416be36722826669ce6ae1651a50a12993a52923",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All four preserve present page error, tool and arguments, and opaque error message.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. No period after {{message}}.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "recovery.hintReport": {
-          "finalValueHash": "6662724f3c520cda6225a8c7eab65a65ef51e01c4c6959eb9afe2c1c8ced0e1d",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Opus and Grok use natural give wording for the app hint; Gemini uses a less standard app noun.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. No period after {{hint}}.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "recovery.correction.already_replied": {
-          "finalValueHash": "73e96b4d0bb38245f5f7253a582b6bee0f1a062d4e7b2a9014bd16567654223f",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Opus preserves neutral completed reply, rereading need, and one more future reply only with a new point. Grok narrows point to argument.",
-          "opusDecision": "accept",
-          "opusReason": "\"лише якщо\" keeps the condition.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and opus. need stays мені потрібно, not a stronger schema має; the only-condition stays лише or тільки. English: I already replied there. I need to read the thread again. I will reply once more only if I have a new point.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "recovery.correction.duplicate_comment": {
-          "finalValueHash": "2d1bcb0bb2155eb4e47c7a748347c4e22396249704be3cedb98b2fb15307046e",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Codex preserves my exact completed send and strict resend ban without gender. Gemini assigns masculine gender.",
-          "opusDecision": "accept",
-          "opusReason": "\"Мені заборонено\" keeps the prohibition; passive avoids gender.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex. the prohibition stays не, не можна, or заборонено, with the ви imperative. English: I already sent that exact comment. I must not send it again.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "recovery.correction.conflict": {
-          "finalValueHash": "fae7f91f433c80b77ddafe04ae0eaf9f6bdc1eb2e463476158f767d857f3cb09",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Codex uses native conflict wording and first-person need rather than the conflict loan in Opus and Gemini.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex. need stays мені потрібно, not a stronger schema має. English: This change conflicts with existing Bickr data. I need to choose another action.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "recovery.correction.not_found": {
-          "finalValueHash": "ac49cc29386ccd24d609b30db89c5f28f899d414a0f372a7961c005fcbf40f50",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Opus naturally puts finding a current target before retrying, retaining need and the Bickr tool.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and opus. need stays мені потрібно, not a stronger schema має. English: That target is unavailable. I need to find a current target with a Bickr tool before I try again.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "recovery.correction.bad_request": {
-          "finalValueHash": "890f5dbfe64d63a94c4277bed168598b4c3ef4b4e281e04dc1b63f802eb821fa",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All four preserve future first-person call repair.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex, opus, grok, gemini. actor, tense, limits, and parameters match the English. English: I will repair the call.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "recovery.correction.invalid_arguments_json": {
-          "finalValueHash": "0c13a868a4e36c872658c346d4a4006fe683824df986f4312607dcf52a68a5d3",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Codex preserves valid JSON arguments before retrying and that tool. Gemini uses the validity loan.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex. need stays мені потрібно, not a stronger schema має. English: I need to send valid JSON arguments for that tool before I try again.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "recovery.correction.arguments_not_json_object": {
-          "finalValueHash": "df2a2b405bb35d09ab5228b135520467691c226c8e2220f0d84c37be83f4eb7a",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Codex retains a JSON object as tool arguments and the before-retry condition with explicit first-person need.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex. need stays мені потрібно, not a stronger schema має. English: I need to send a JSON object as the tool arguments before I try again.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "recovery.correction.server_error": {
-          "finalValueHash": "41692e1c799cb04a920370994cd359e933bffb28d9d2db4c1b5313ce60475565",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Codex, Opus, and Gemini preserve future choose. Grok uses оберну, meaning turn.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex, opus, gemini. actor, tense, limits, and parameters match the English. English: I will choose another action.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "recovery.correction.access": {
-          "finalValueHash": "e6977a9ae2a6bbee7cf0388cb1830aca70693d104500063fb921f9c6e0e5a426",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Codex, Opus, and Gemini preserve future permitted choice. Grok uses the wrong choose verb.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex, opus, gemini. actor, tense, limits, and parameters match the English. English: I will choose another permitted action.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "recovery.correction.timeout": {
-          "finalValueHash": "d02395069f892e308a38b4a3a2599d819368699b482ac809edf644f0d1d45a11",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Codex retains future page reading and outcome-conditioned future nonrepetition. Opus and Grok use consequence rather than outcome.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex. actor, tense, limits, and parameters match the English. English: I will read the page. If the outcome remains unknown, I will not repeat the action.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "recovery.correction.unknown": {
-          "finalValueHash": "fbebf6cdad001ee3bc32cb3125a7e8da6e0e42b2311c1d1415fec694777be602",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Codex and Opus preserve unknown fault cause and future alternate choice. Grok again uses the wrong choose verb.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex, opus. the prohibition stays не, не можна, or заборонено, with the ви imperative. English: I do not know the cause of this failure. I will choose another action.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
         "recovery.metaCompactionUnavailable": {
           "finalValueHash": "a97a0a10558b7ac8892640b639d673cab132d7d6cefee6948b13bc9260e5b4df",
           "chosenFrom": "synthesis",
@@ -4466,19 +4141,6 @@
           "opusReason": "Faithful.",
           "grokDecision": "accept",
           "grokReason": "Accept. Compared with the English source and codex, opus, grok. actor, tense, limits, and parameters match the English. English: Bickr did not attempt the action for this target.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "recovery.batch.guidance": {
-          "finalValueHash": "cbbb559584eea69cc51c74e6c0534705407b660ed1f80ff7ba0aeacfd06cfe84",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Codex preserves all exact statuses, separate targets, unknown outcomes, conditional resend ban, and no action. Gemini changes no action to not processed.",
-          "opusDecision": "accept",
-          "opusReason": "Protocol values kept; no-repeat and inspect rules preserved.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. recorded and committed stay do-not-repeat. not_attempted received no action.",
           "changedAfterComparison": false,
           "finalFollowUp": {},
           "finalDiscussion": {}
@@ -5486,7 +5148,7 @@
     },
     "issues/notes": {
       "finalHash": "636a8f5d5bf7491e3380a17aeb387193850dec3c6f7e158bacb67d4fc7dba53c",
-      "finalTemplateHash": "a4c244a3eefa7b501f2158e4a3699ead94cf5f2fdc950c62aea7a4611c1d171f",
+      "finalTemplateHash": "d8b855441b8e512aabfd6a1a3686f6c4d8b3392d8a2e8747d18ca01c673430d4",
       "draftHashes": {
         "codex": "102de938e629342257712869ac8d2e07853d5f2e815be8a6a596954a460a17ca",
         "opus": "490a4cd9b60394ac418eb57f26422ae8d5af8b33cf6f57bdcc5de73d356ef837",
@@ -5533,45 +5195,6 @@
           "opusReason": "Faithful.",
           "grokDecision": "accept",
           "grokReason": "Accept. The allow-list keeps letters, marks, numbers, punctuation, symbols, and spaces. The copy instruction stays.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "issue.note.cursor.type": {
-          "finalValueHash": "5f7598cd7a89123a6675c1e0bd0517c6c4e5f48c0c6bbf972c8c295de01872c9",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Opus preserves prior nextCursor and omission for a new list with natural не вказуйте wording.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and opus. the obligation stays має, потрібно, or повинні. English: cursor must be text. Copy nextCursor from the previous list_notes result. To start a new list, omit cursor.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "issue.note.cursor.length": {
-          "finalValueHash": "a3760f12ee4387207d0fbd352d47ed0bf47970db9870f89035120be4532e8bfb",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Codex neutral forms preserve normalized cursor range, prior-result copying, and restart omission in every category. Grok adds inclusivity and Gemini has fractional errors.",
-          "opusDecision": "accept",
-          "opusReason": "Same.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex. one is 1, 21, and 101; few is 2, 3, and 4; many includes 0; other is fractional; the shared count label was read for every category; the obligation stays має, потрібно, or повинні. English: cursor must contain {{minimum}}-{{maximum}} character after normalization. Copy nextCursor from the previous list_notes result. To start a new list, omit cursor",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
-        },
-        "issue.note.cursor.characters": {
-          "finalValueHash": "d8d63a7ddcd0d6062112d672ba2cde702b86c31339485072727d94540d2dad84",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Codex preserves every Unicode category including combining marks and numbers, plus both cursor instructions. Other drafts narrow marks or numbers.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. The allow-list keeps letters, marks, numbers, punctuation, symbols, and spaces. Omitting cursor starts a new list.",
           "changedAfterComparison": false,
           "finalFollowUp": {},
           "finalDiscussion": {}

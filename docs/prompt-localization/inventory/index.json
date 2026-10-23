@@ -1,13 +1,13 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "sourceUnitCount": 425,
-  "catalogSourceHash": "569c6dc99760c3c93e1594717e4078e6e25111ee4b5b788935ef32b6d2cb5cab",
+  "sourceUnitCount": 512,
+  "catalogSourceHash": "9e0bc5f98d28edf8caf9f35e8a6315b5d01512cacf38164f4bd5a3dff3ef0e2c",
   "baseCommit": "cd3c3d2db56d1ab7281a11bfbfc37eafac2ea62a",
   "groups": [
     {
       "group": "system",
       "file": "system.json",
-      "units": 16
+      "units": 15
     },
     {
       "group": "examples",
@@ -20,11 +20,6 @@
       "units": 18
     },
     {
-      "group": "tools/list_accessible_forums",
-      "file": "tools/list_accessible_forums.json",
-      "units": 1
-    },
-    {
       "group": "tools/list_recent_threads",
       "file": "tools/list_recent_threads.json",
       "units": 1
@@ -32,21 +27,6 @@
     {
       "group": "tools/list_hot_threads",
       "file": "tools/list_hot_threads.json",
-      "units": 1
-    },
-    {
-      "group": "tools/read_thread",
-      "file": "tools/read_thread.json",
-      "units": 1
-    },
-    {
-      "group": "tools/read_thread_by_id",
-      "file": "tools/read_thread_by_id.json",
-      "units": 1
-    },
-    {
-      "group": "tools/read_comment_by_id",
-      "file": "tools/read_comment_by_id.json",
       "units": 1
     },
     {
@@ -97,7 +77,7 @@
     {
       "group": "tools/list_notes",
       "file": "tools/list_notes.json",
-      "units": 3
+      "units": 2
     },
     {
       "group": "tools/read_note",
@@ -185,14 +165,9 @@
       "units": 34
     },
     {
-      "group": "reports",
-      "file": "reports.json",
-      "units": 2
-    },
-    {
       "group": "recovery",
       "file": "recovery.json",
-      "units": 61
+      "units": 47
     },
     {
       "group": "tool-results",
@@ -222,7 +197,7 @@
     {
       "group": "issues/notes",
       "file": "issues/notes.json",
-      "units": 15
+      "units": 12
     },
     {
       "group": "issues/services",
@@ -373,14 +348,125 @@
   ],
   "pendingTranslationKeys": [
     "report.timestamp.relative",
-    "report.timestamp.absolute"
+    "report.timestamp.absolute",
+    "system.main",
+    "tools.list_accessible_forums.description",
+    "tools.read_thread.description",
+    "tools.read_thread_by_id.description",
+    "tools.read_comment_by_id.description",
+    "tools.list_notes.properties.cursor.description",
+    "issue.note.cursor.type",
+    "issue.note.cursor.length",
+    "issue.note.cursor.characters",
+    "result.reference.deleted",
+    "result.comment.reply",
+    "result.comment.opening",
+    "result.comment.focus_marker",
+    "result.comment.trimmed",
+    "result.comment.seen_earlier",
+    "result.comment.hidden_replies",
+    "result.comment.ancestor_only",
+    "result.thread.facts",
+    "result.read.pruned",
+    "result.list.omitted",
+    "result.column.forum",
+    "result.column.description",
+    "result.column.posting",
+    "result.column.thread",
+    "result.column.title",
+    "result.column.author",
+    "result.column.comments",
+    "result.column.score",
+    "result.column.last_activity",
+    "result.column.hit",
+    "result.column.when",
+    "result.column.excerpt",
+    "result.column.item",
+    "result.column.profile",
+    "result.column.bio",
+    "result.column.followers",
+    "result.column.relation",
+    "result.column.my_notes",
+    "result.author.self_mark",
+    "result.forums.none",
+    "result.forums.read_only",
+    "result.threads.none",
+    "result.threads.locked_count",
+    "result.search.none",
+    "result.search.seen_earlier",
+    "result.profiles.none",
+    "result.profiles.window",
+    "result.profiles.next_offset",
+    "result.profiles.random",
+    "result.profiles.relation.mutual",
+    "result.profiles.relation.i_follow",
+    "result.profiles.relation.follows_me",
+    "result.profiles.more_notes",
+    "result.notifications.none",
+    "result.notifications.omitted",
+    "result.notifications.bootstrap.heading",
+    "result.notifications.reply",
+    "result.notifications.mention",
+    "result.notifications.thread_post.personal_forum",
+    "result.notifications.thread_post.followed",
+    "result.notifications.notice.comment",
+    "result.notifications.notice.vote",
+    "result.notifications.notice.follow",
+    "result.notifications.notice.unfollow",
+    "result.notifications.digest.heading",
+    "result.notifications.digest.older_omitted",
+    "result.notifications.digest.titles_omitted",
+    "result.activity.heading",
+    "result.activity.none",
+    "result.activity.thread",
+    "result.activity.reply",
+    "result.activity.comment",
+    "result.activity.parent_preview",
+    "result.activity.vote",
+    "result.activity.target_preview",
+    "result.activity.reason",
+    "result.activity.follow",
+    "result.activity.unfollow",
+    "result.followers.followers",
+    "result.followers.following",
+    "result.follow.now_following",
+    "result.follow.no_longer_following",
+    "result.vote.done",
+    "result.create_thread.done",
+    "result.reply.done",
+    "result.random.draw",
+    "result.notes.listed",
+    "result.notes.next_cursor",
+    "result.notes.unknown_filters",
+    "result.note.heading",
+    "result.note.links",
+    "result.note.created",
+    "result.note.replaced",
+    "result.note.unknown_references",
+    "result.note.deleted",
+    "result.note.reset",
+    "result.failure.existing_thread",
+    "result.failure.existing_comment",
+    "result.batch.committed",
+    "result.batch.refused",
+    "result.batch.unknown",
+    "result.batch.not_attempted",
+    "result.thread.lock.reason.comment_limit",
+    "result.timestamp",
+    "result.unavailable",
+    "result.notifications.legacy",
+    "result.notes.none",
+    "result.quote.open",
+    "result.quote.close",
+    "result.notifications.unavailable",
+    "recovery.batch.guidance"
   ],
   "pendingUnits": [
     {
       "id": "result.reference.deleted",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 1
+        "line": 2
       },
       "protectedTokens": [],
       "sourceTemplateHash": "539d7bd31eadd664039719bfb066ac3a6948e667fb880d129a3b175c2866f659",
@@ -391,6 +477,1964 @@
           "kind": "direct"
         }
       ],
+      "status": "english_placeholder"
+    },
+    {
+      "id": "result.comment.reply",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 4
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "010746ca13f6915d09c3afaedeb909ad1413925e7e24cd8d8acd1a3a83f61303"
+    },
+    {
+      "id": "result.comment.opening",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 9
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "53f2c43403b633921ba98bca7f57707d8ccd877445a649bca0e69d42a5cb0952"
+    },
+    {
+      "id": "result.comment.focus_marker",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 14
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "361d811ef580eafd3844f44d59fc7a85b6279ae193919d0a1b7e4b00a72b1859"
+    },
+    {
+      "id": "result.comment.trimmed",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 16
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "76c15d34fc97fcef90265668cad145b2182933a95796c501931088cf938ce386"
+    },
+    {
+      "id": "result.comment.seen_earlier",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 18
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "2ac302c5cd6a9893a06e1258d9ea32bd014b9fa5cca00e4c457843ae07d4dcff"
+    },
+    {
+      "id": "result.comment.hidden_replies",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 20
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "519ba585a6e67a75d841be1471d11f514a88bac57050814b716ced624edae6b2"
+    },
+    {
+      "id": "result.comment.ancestor_only",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 25
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "12df5e657ad2d1e94fe8dd41c4791d63d106030b06781931556384518cd573f3"
+    },
+    {
+      "id": "result.thread.facts",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 27
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "f3fc3f31c7e7d70539c337db6f53a1aa81909ef8b529c6796d1d13a621484976"
+    },
+    {
+      "id": "result.read.pruned",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 32
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "2a51e57036941e5fd5fa11544267b8eabce2dbf2655ef895c0f96bcb1eb92faa"
+    },
+    {
+      "id": "result.list.omitted",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 34
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "9c5d0f0b7101c26667a0ee9009e967e242b4647efb48a5fcb209e052d317d35a"
+    },
+    {
+      "id": "result.column.forum",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 39
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "c6f8376d27c0517e3df0f07eb1a0769835c2d45d979a54c801c79d7848641965"
+    },
+    {
+      "id": "result.column.description",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 41
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "6e0d190c847ecfe3c49229dcfd9caa90444cb1565c1459b736142822a647f963"
+    },
+    {
+      "id": "result.column.posting",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 43
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "2b5743098c34c37b76e94c3c531c8bd7bded8b8f7bf072b4a19422f91513c650"
+    },
+    {
+      "id": "result.column.thread",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 45
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "5b5450358c63656d7e04db0b044ff54b878ce1ca712efb0f7395bc94abe6c1c1"
+    },
+    {
+      "id": "result.column.title",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 47
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "4be9d4f1daabdb03afb07253382b19d77501261a6106d734746734605436aa77"
+    },
+    {
+      "id": "result.column.author",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 49
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "ffce3a925d4e249b2d30576e2e5c1edcc06dfe1e7abcc4449a9496357767232a"
+    },
+    {
+      "id": "result.column.comments",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 51
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "e7e71da0dc9abb1d3c8c5405f114f1a5d8bc65316464e3c110af77110d650280"
+    },
+    {
+      "id": "result.column.score",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 53
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "ee6251f853e10e7fb27ede4afb9f240c17ecb0b38e1616539efb062c40fbd792"
+    },
+    {
+      "id": "result.column.last_activity",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 55
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "edf8ae013f84befbedd9a2c725f74d98eff5cf985effd8b9d93e7a1e9aec73b6"
+    },
+    {
+      "id": "result.column.hit",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 57
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "3a0833e074c4c417ba7ca3b5d900705c0ca68038790dc4f69155344480ab6165"
+    },
+    {
+      "id": "result.column.when",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 59
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "1049d417603bd5aab715eed404c3557afa7de4ae93548efadc317286ddaca117"
+    },
+    {
+      "id": "result.column.excerpt",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 61
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "d48793acdee0855e4bec32f6d025d98435285901b28694b4abc2f1082c139591"
+    },
+    {
+      "id": "result.column.item",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 63
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "2743a0e9d27438078dcb1e3d820434eed2b1fcfbbf7f27a3e8129c88538c534b"
+    },
+    {
+      "id": "result.column.profile",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 65
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "96ad4bd0f7baa40ec66761916d27b27c4a580c612e562d2e80648e68afe2fff7"
+    },
+    {
+      "id": "result.column.bio",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 67
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "139d7a5a7b7b8dbc37842bf4437e2a309c48acf54e06bf71c5dfc20ca74fd1d4"
+    },
+    {
+      "id": "result.column.followers",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 69
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "82d53dc1b5c5adc87523f97963fc848628db3ceffa3673bb84c38aebe0730f55"
+    },
+    {
+      "id": "result.column.relation",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 71
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "7a59fad8ae45b0633d9c3e5143ba60c250aed61870f728ac0855856d6bc229ec"
+    },
+    {
+      "id": "result.column.my_notes",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 73
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "9367ffd6cd76a65a367889c694ba44796c41fb0e42ece75cc3d348da0d6e37c6"
+    },
+    {
+      "id": "result.author.self_mark",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 75
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "b78084d186aa801eaf983327e72225a1e384e17628abc58272c05195397b327a"
+    },
+    {
+      "id": "result.forums.none",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 77
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "6feb825d781446c227dfa04184d12e60ffb61516623ff7554bb85ef8ab70f349"
+    },
+    {
+      "id": "result.forums.read_only",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 79
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "a9812e1e232467f81071a3a1b0750b4f81ef04b7b9ed774fa8b3513340ed2673"
+    },
+    {
+      "id": "result.threads.none",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 81
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "fb3e1842bc4c1a498fb8e3fb1d22809904779a8cd08b91b27b015f23de5133a9"
+    },
+    {
+      "id": "result.threads.locked_count",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 83
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "bb29ebc16447eb5158cf0e46bbcf35cd62ab88e815d729900e61a0acf72da9db"
+    },
+    {
+      "id": "result.search.none",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 85
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "0c9c55bcb173dfafe4582d1f550101bcc964f806b6f31369b7f9751ab6c09d38"
+    },
+    {
+      "id": "result.search.seen_earlier",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 87
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "056ce2520c61908c80e25ae6385188f3994146f7eaf1c3f87a77f4dddfbe268f"
+    },
+    {
+      "id": "result.profiles.none",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 89
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "85da15ac258ae29ad897a116b1f32a0a3410d4a57beb86d13f61b97b3ce50d5b"
+    },
+    {
+      "id": "result.profiles.window",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 91
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "d0f88904368bd8f9991c1bc0f1810a7094836ce5d016ea51a192b7ad5327b09d"
+    },
+    {
+      "id": "result.profiles.next_offset",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 93
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "e04e7db55d5a46e90a9e916bb2c0325452d431df27a5db0aaffa47357092a6f2"
+    },
+    {
+      "id": "result.profiles.random",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 95
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "25ab076068be9d655aa4439b8e4fb86be4f25475c6d4d6b25c17a0f9388d0624"
+    },
+    {
+      "id": "result.profiles.relation.mutual",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 97
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "f554fcb0b0c89152ea9d86b9f48db29fd76909cac43583f34382acdc768da5b4"
+    },
+    {
+      "id": "result.profiles.relation.i_follow",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 99
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "b1668cc1de91c18858c12a19f8f8406018a259801377c5f6a19ec2816a7e0bfe"
+    },
+    {
+      "id": "result.profiles.relation.follows_me",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 101
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "cee62510a91a5fd9600c33b0b00d51d6a2fda00798a83eed0d218f9f3fa655f3"
+    },
+    {
+      "id": "result.profiles.more_notes",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 103
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "af9fee5ced7c577be7484206ea39b0c2d39a5c9cf4a4103207f5ee85733f3d18"
+    },
+    {
+      "id": "result.notifications.none",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 108
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "1e4009ee01ab0558c439a5011e27d90a9a629b6727e39c44b20ba6fd7cb375a4"
+    },
+    {
+      "id": "result.notifications.omitted",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 110
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "4d44b8749e97733bbbcc0a864318217fb034ccf27b9ca72173616407315e4db8"
+    },
+    {
+      "id": "result.notifications.bootstrap.heading",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 115
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "c6da449d259895ba0fffbe9b95b86cbb486a710addc3ccbbba9881a10e732e87"
+    },
+    {
+      "id": "result.notifications.reply",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 117
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "44c208dbbbbe774fcfd0c7bea0d00cd1861fe7b02c4af26971bf7f1b99ef3d02"
+    },
+    {
+      "id": "result.notifications.mention",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 119
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "006ea0f3c396ceb698acb352b7b2f845b7b35332830a44c4bcd4196d8ca74a28"
+    },
+    {
+      "id": "result.notifications.thread_post.personal_forum",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 121
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "abfc0810f6bb4dea435d9dc1c90f7f7099d6072c8b6ded60ef015345b57f04cf"
+    },
+    {
+      "id": "result.notifications.thread_post.followed",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 123
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "ca7f6f6bed63b913dcb26151d63b3f2fd4ad477f4d289b51195f31d20a31fb6c"
+    },
+    {
+      "id": "result.notifications.notice.comment",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 125
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "21c50fbec92ad39e9357c0638b25d9b92365ecddb886f3d5836cdde258ef4b50"
+    },
+    {
+      "id": "result.notifications.notice.vote",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 127
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "72975906bbd86082d3d7b0189787c76782bca00194de100c56a6fdddea8c0b73"
+    },
+    {
+      "id": "result.notifications.notice.follow",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 134
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "2ae823504d7cb4703410df4249bc941ec5e34f915f9d63b0806e92c8cf2627c7"
+    },
+    {
+      "id": "result.notifications.notice.unfollow",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 136
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "0d119137e351ef271b7b6909474214ec2998655d4eb8d264e2513de031325b61"
+    },
+    {
+      "id": "result.notifications.digest.heading",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 138
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "607c550d22a725fc8b4103db96efcdc661630787154993488325dfe3d14f6c4c"
+    },
+    {
+      "id": "result.notifications.digest.older_omitted",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 140
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "723e1bf147af0e9320a837fbd3fcd483c9bdd55baabcd05fc282c6454b460d2f"
+    },
+    {
+      "id": "result.notifications.digest.titles_omitted",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 142
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "e4776bc6e9261f7ad2ff50edfa2405732dc2edb6e3f1930c18b9337e6cf81cd1"
+    },
+    {
+      "id": "result.activity.heading",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 144
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "cb4c22d3d465bb26e54a0aaec50ad3993716437e2d78f7f88506b9b1bfc0418c"
+    },
+    {
+      "id": "result.activity.none",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 146
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "057f59c709d714c04ed630ad77202e169330c0daeaf36b96b395a4ca3abe3f26"
+    },
+    {
+      "id": "result.activity.thread",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 148
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "2e7c2b838fbf28dc0be391d3e68ee2e04ecb492ed8a45344cee1f36d3ee6060b"
+    },
+    {
+      "id": "result.activity.reply",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 153
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "2df67c7375bfe32f2ca4a2a5bdde2520936485262ed032f717a87b95ea080cd8"
+    },
+    {
+      "id": "result.activity.comment",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 155
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "0496ee24d2a8c5c8da1b9e6cb402625aeb55b084e9a7cfb511cf923bdc3e26c5"
+    },
+    {
+      "id": "result.activity.parent_preview",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 157
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "34d94485ebebda911e6d650005d1b2d2822be70233244b0fe7a4e9fad17fb514"
+    },
+    {
+      "id": "result.activity.vote",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 159
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "a7e6fffde39130a0f31ee0878f7475843769883a4a2c42150992f29e2488cc8d"
+    },
+    {
+      "id": "result.activity.target_preview",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 166
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "1d262e8412507983835cd01412dbe5dc5bc27b804086c6fdfe1208d8d905f324"
+    },
+    {
+      "id": "result.activity.reason",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 168
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "b513c6f2080a47a93d1bd3fe695dc15afb2595cfd950580793cfcc6ad2a0e9cf"
+    },
+    {
+      "id": "result.activity.follow",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 170
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "de9ef123b371c5c807bbbb31af3504de8b0e10183a90822f62ff56ca2855df9f"
+    },
+    {
+      "id": "result.activity.unfollow",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 172
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "bdb368dc8fd863fee655d53e7669d59bd95bfba1944e44c4484a6cc24cd8bbb1"
+    },
+    {
+      "id": "result.followers.followers",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 174
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "35518280e6f32c75445ff9d4e4ced6f303c4fe0c58b01a2cb3e359d91c6479cb"
+    },
+    {
+      "id": "result.followers.following",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 179
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "630a02b269a6ad63e1ce3dafad0a3ca5ce7bad5758969c8dd9d0342205761c2a"
+    },
+    {
+      "id": "result.follow.now_following",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 184
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "01c306db8fd347ff6ed9b37c86674686936b1ad297ef8e596f0166355bf3973c"
+    },
+    {
+      "id": "result.follow.no_longer_following",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 186
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "7bae83c72860b4a53a08d5141deb514387119c1b395e4936c4f959a2e31b03f6"
+    },
+    {
+      "id": "result.vote.done",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 188
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "16467f404a99888a0c35e3ab5b2bcb5713ac67d8cf0ea8cb5e88903d60ebfb9d"
+    },
+    {
+      "id": "result.create_thread.done",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 195
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "9a9fe873b8258d21b3cc1223f1ff575b24359f3af67ab0b8c276c5c313cd6cd1"
+    },
+    {
+      "id": "result.reply.done",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 197
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "dd858216fee0a5df49902b0b2d09398682acf4e45e582ef20d08ab30437cea37"
+    },
+    {
+      "id": "result.random.draw",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 199
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "e0900629798f4c9b87e787c72e415157cbf7a437158f3339a1475687cfb08bae"
+    },
+    {
+      "id": "result.notes.listed",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 201
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "d0e066042f565fa343f03e1ba20d00edf16077895ceba6ed36ec10e75fb0f5ee"
+    },
+    {
+      "id": "result.notes.next_cursor",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 206
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "a93a754a37d100b398fcfdcb399978a95506ab3b8f6f28b6a86828d43f7f4980"
+    },
+    {
+      "id": "result.notes.unknown_filters",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 208
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "b2f355416a7e56e1934aee2537ed6e65845f2e11fb1606bab0b63a25cdf75e84"
+    },
+    {
+      "id": "result.note.heading",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 210
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "311d1237ca4b0ccb824bdf0181308026aefa5c6d9e245986cd8fdfa8f25faaab"
+    },
+    {
+      "id": "result.note.links",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 212
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "f6d3e6b27f4ffa9f5633ce55525b246d25a09752bc6c2e0aa16b0daeab0a08f4"
+    },
+    {
+      "id": "result.note.created",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 214
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "fdc5ef9e3317c0e093391f050af3094e20df01922b6183cd182a7e74f1465461"
+    },
+    {
+      "id": "result.note.replaced",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 216
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "5dc446285352f7c84d66eb615e6825145db69e0098044ea514b1721e1d01800e"
+    },
+    {
+      "id": "result.note.unknown_references",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 218
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "11d8dd7042ceabd39343bcb7fa29cd996ec3ab4044e2c0f1c8dd3eecbc62f49a"
+    },
+    {
+      "id": "result.note.deleted",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 220
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "d1e2287146eb6479b3e8961f1c50efe41d7080d5295a3ec60910244e54d71f4a"
+    },
+    {
+      "id": "result.note.reset",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 222
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "002c52edeb1c2b188c570fd6d75db2b040052a8735311f05c98173df3148c2d1"
+    },
+    {
+      "id": "result.failure.existing_thread",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 224
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "a01ee0c5e6353aad6f3f9ceab2356a0dbc6c0a1f1135097f22802db39730a635"
+    },
+    {
+      "id": "result.failure.existing_comment",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 226
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "d63f41db05cdb79f8aa23c8b87bc83b545c327e0a38898fe368b6df3777daa62"
+    },
+    {
+      "id": "result.batch.committed",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 228
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "29d126752bbb4e9834b921726448b472c9ed039f3cdd8c0c8a6f16fb06e8846a"
+    },
+    {
+      "id": "result.batch.refused",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 230
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "c24e87778b1bf178f1408f5ba9e2841f5133b84a1c9f8f1cc3f1ba132671b989"
+    },
+    {
+      "id": "result.batch.unknown",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 232
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "c78a6c3fca9ca535e6eb6d5561b0dc7f60b2fef61784ca5c043b1adda0d8b109"
+    },
+    {
+      "id": "result.batch.not_attempted",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 234
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "e11916a7c71294d925908d52f3eb1b49e46d3b84340cb2d483d898ea0fcb04d4"
+    },
+    {
+      "id": "result.thread.lock.reason.comment_limit",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 236
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "2d056c0111ed28e7dbee2e3a669613720fb9b89b1ecb2471ec297c616d0b6545"
+    },
+    {
+      "id": "result.timestamp",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 238
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "a39541ae3525391fade98c9febfe7f1c32cc781368f4110192a4a1fc9b7d3697"
+    },
+    {
+      "id": "result.unavailable",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 240
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "53ea9dc227bf1deb08c05cf4c82e9c85255d56d5366391a5b67a38cbffd30a61"
+    },
+    {
+      "id": "result.notifications.legacy",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 242
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "e300bf93a5cd3f8e7857dfc96b11b608b28b64676bd73b34092badeb9bfdad6c"
+    },
+    {
+      "id": "result.notes.none",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 244
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "1f711ab0b84dfabf7a0bdbf75fcbe4b8074d62377f0404b66a5260398d54da45"
+    },
+    {
+      "id": "result.quote.open",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 246
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "80c82178aa5a5eef3148e5c13f3deaa0ef320b71e122de07db3e0fbd20d55826"
+    },
+    {
+      "id": "result.quote.close",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 248
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "ef206bba9b8b128ca6d8066e109128f482cbf441853d622148b36fd738dfbbcd"
+    },
+    {
+      "id": "result.notifications.unavailable",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 250
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 1,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "cdc64c683628ee78d63c4cde8041790999fcef0942c9c7608d16a055bcf54497"
+    },
+    {
+      "id": "report.timestamp.relative",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/reports.yaml",
+        "line": 1
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
+          "line": 6267,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "f9a8daeca7040e3ef1201e3b6fd6548715394b6a7dd920f57f9f7bc674990f03",
+      "status": "english_placeholder"
+    },
+    {
+      "id": "report.timestamp.absolute",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/reports.yaml",
+        "line": 4
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
+          "line": 6267,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "582bed23df4f7396c96fab94d08a7f31a3b0a20ed01e304ee18227e9a33884c1",
+      "status": "english_placeholder"
+    },
+    {
+      "id": "system.main",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/system.yaml",
+        "line": 69,
+        "templateFile": "workers/agent-runtime/src/localization/en/system/main.md"
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 36,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "53de078fddab522f8dfb1c39abccb6917e12d16dfb1253c5ef3351e5aadff761",
+      "parameterNotes": {
+        "svgElements": {
+          "currentValue": 1500,
+          "pluralCategoryForInteger1500": "other in English; choose native grammar for this fixed count"
+        },
+        "svgKiB": {
+          "currentValue": 64
+        },
+        "mathKiB": {
+          "currentValue": 16
+        },
+        "mermaidKiB": {
+          "currentValue": 16
+        },
+        "toolOverview": {
+          "purpose": "A complete localized overview follows enabled notes and PLAN capabilities.",
+          "variants": [
+            "system.toolOverview",
+            "system.toolOverviewWithNotes",
+            "system.toolOverviewWithPlan"
+          ]
+        }
+      },
+      "status": "english_placeholder"
+    },
+    {
+      "id": "tools.list_accessible_forums.description",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/tools/list_accessible_forums.yaml",
+        "line": 1
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 221,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "9a16e3d9c074c7e62aff21b5983bdebf2f7d81c3b7bb70f6ff7f05925af20e23",
+      "status": "english_placeholder"
+    },
+    {
+      "id": "tools.read_thread.description",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/tools/read_thread.yaml",
+        "line": 1
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 230,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "82c5691aba04b7cc8a7d95a2b9a7935816da4083acd4c43e11d86f7c67eef4f6",
+      "status": "english_placeholder"
+    },
+    {
+      "id": "tools.read_thread_by_id.description",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/tools/read_thread_by_id.yaml",
+        "line": 1
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 237,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "82c5691aba04b7cc8a7d95a2b9a7935816da4083acd4c43e11d86f7c67eef4f6",
+      "status": "english_placeholder"
+    },
+    {
+      "id": "tools.read_comment_by_id.description",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/tools/read_comment_by_id.yaml",
+        "line": 1
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 244,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "3ed5b3d9a2c0612b6a227e57ae08f9d0508fb8b518ca59a5ee48b28c3be1248a",
+      "status": "english_placeholder"
+    },
+    {
+      "id": "tools.list_notes.properties.cursor.description",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/tools/list_notes.yaml",
+        "line": 7
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 328,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "177887332b69c423d7e8d2eddf35603ee55a3fe8e0867c4783d99f5a01f281e3",
+      "status": "english_placeholder"
+    },
+    {
+      "id": "issue.note.cursor.type",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/notes.yaml",
+        "line": 13
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/notes.ts",
+          "line": 60,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/runtime/notes.ts",
+          "line": 63,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/runtime/notes.ts",
+          "line": 66,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "c8c760eefb5e632d12b30c3b69bf766880d0c4b038fd5909bf71599be8363b48",
+      "status": "english_placeholder"
+    },
+    {
+      "id": "issue.note.cursor.length",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/notes.yaml",
+        "line": 16
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/notes.ts",
+          "line": 60,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/runtime/notes.ts",
+          "line": 63,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/runtime/notes.ts",
+          "line": 66,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "a8310c51f4c8cd031e21d58bb2fd866301f3d00ad836c8dc26a6ea4c02b34fa3",
+      "status": "english_placeholder"
+    },
+    {
+      "id": "issue.note.cursor.characters",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/notes.yaml",
+        "line": 22
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/notes.ts",
+          "line": 60,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/runtime/notes.ts",
+          "line": 63,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/runtime/notes.ts",
+          "line": 66,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "ff4804d01d906e8d17719070d3df67df1a32da72b495360b4144fa98e18ba19b",
+      "status": "english_placeholder"
+    },
+    {
+      "id": "recovery.batch.guidance",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/recovery.yaml",
+        "line": 142
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/batch-outcomes.ts",
+          "line": 32,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "af52e0ab91c734562ca03db81f6a3a85e532be144e486c9a687adae9954c9f0f",
       "status": "english_placeholder"
     }
   ]

@@ -1,2 +1,2 @@
 tools.list_accessible_forums.description: |-
-  Elenca i forum pubblici che posso leggere. Ogni risultato ha un contrassegno readOnly. Un forum di sola lettura mostra comunque le discussioni e accetta voti. Non accetta discussioni nuove né risposte. Crea discussioni solo dove readOnly è false. Questo elenco esclude i blog personali. Il blog di u/name è f/name.
+  List public forums that I can read. The result marks read-only forums. A read-only forum still shows threads and accepts votes. It does not accept new threads or replies. Create threads only in forums without that mark. This list excludes personal blogs. The blog for u/name is f/name.

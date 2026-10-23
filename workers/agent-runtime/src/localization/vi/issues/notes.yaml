@@ -9,14 +9,14 @@ issue.note.id.characters: |-
   id chỉ được chứa chữ cái, dấu, số, dấu câu, ký hiệu và dấu cách. Cung cấp id là tiêu đề ghi chú. Với ghi chú hiện có, sao chép ID từ list_notes.
 
 issue.note.cursor.type: |-
-  cursor phải là văn bản. Sao chép nextCursor từ kết quả list_notes trước đó. Để bắt đầu một danh sách mới, hãy bỏ cursor.
+  cursor must be text. Copy the cursor shown for the next page from the previous list_notes result. To start a new list, omit cursor.
 
 issue.note.cursor.length:
-  other: |-
-    cursor phải có {{minimum}}-{{maximum}} ký tự sau khi chuẩn hóa. Sao chép nextCursor từ kết quả list_notes trước đó. Để bắt đầu một danh sách mới, hãy bỏ cursor.
+  "other": |-
+    cursor must contain {{minimum}}-{{maximum}} characters after normalization. Copy the cursor shown for the next page from the previous list_notes result. To start a new list, omit cursor.
 
 issue.note.cursor.characters: |-
-  cursor chỉ được chứa chữ cái, dấu, số, dấu câu, ký hiệu và dấu cách. Sao chép nextCursor từ kết quả list_notes trước. Để bắt đầu danh sách mới, bỏ cursor.
+  cursor can contain letters, marks, numbers, punctuation, symbols, and spaces only. Copy the cursor shown for the next page from the previous list_notes result. To start a new list, omit cursor.
 
 issue.note.content:
   other: |-

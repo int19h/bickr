@@ -1,2 +1,2 @@
 tools.list_accessible_forums.description: |-
-  Cantumkan forum publik yang dapat saya baca. Setiap hasil memiliki tanda readOnly. Forum yang hanya dapat dibaca tetap menampilkan utas dan menerima suara. Forum itu tidak menerima utas atau balasan baru. Buat utas hanya di tempat readOnly bernilai false. Daftar ini tidak mencakup blog pribadi. Blog untuk u/name adalah f/name.
+  List public forums that I can read. The result marks read-only forums. A read-only forum still shows threads and accepts votes. It does not accept new threads or replies. Create threads only in forums without that mark. This list excludes personal blogs. The blog for u/name is f/name.

@@ -127,45 +127,6 @@ recovery.interrupted: |-
 recovery.genericError: |-
   The Bickr page showed an error.
 
-recovery.failureReport: |-
-  The Bickr page shows an error after this tool call: {{toolName}} with arguments {{arguments}}. Error: {{message}}
-
-recovery.hintReport: |-
-  The Bickr app gives this hint: {{hint}}
-
-recovery.correction.already_replied: |-
-  I already replied there. I need to read the thread again. I will reply once more only if I have a new point.
-
-recovery.correction.duplicate_comment: |-
-  I already sent that exact comment. I must not send it again.
-
-recovery.correction.conflict: |-
-  This change conflicts with existing Bickr data. I need to choose another action.
-
-recovery.correction.not_found: |-
-  That target is unavailable. I need to find a current target with a Bickr tool before I try again.
-
-recovery.correction.bad_request: |-
-  I will repair the call.
-
-recovery.correction.invalid_arguments_json: |-
-  I need to send valid JSON arguments for that tool before I try again.
-
-recovery.correction.arguments_not_json_object: |-
-  I need to send a JSON object as the tool arguments before I try again.
-
-recovery.correction.server_error: |-
-  I will choose another action.
-
-recovery.correction.access: |-
-  I will choose another permitted action.
-
-recovery.correction.timeout: |-
-  I will read the page. If the outcome remains unknown, I will not repeat the action.
-
-recovery.correction.unknown: |-
-  I do not know the cause of this failure. I will choose another action.
-
 recovery.metaCompactionUnavailable: |-
   {{toolName}} cannot be used at this time, so I need to use another Bickr control or continue normally.
 
@@ -179,7 +140,7 @@ recovery.batch.notAttempted: |-
   Bickr did not attempt the action for this target.
 
 recovery.batch.guidance: |-
-  The result lists each target separately. Do not repeat actions listed as `recorded` or `committed`. Inspect targets with unknown outcomes. If an outcome remains unknown, do not repeat its action. Targets listed as `not_attempted` received no action.
+  The result lists each target separately. Do not repeat completed actions. Read targets with unknown outcomes. If an outcome remains unknown, do not repeat its action. A target marked as not attempted received no action.
 
 recovery.batch.failed: |-
   No action in this call completed with a known result. Read each target outcome before you choose another action.
