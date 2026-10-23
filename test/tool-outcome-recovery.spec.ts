@@ -71,7 +71,7 @@ describe('unknown tool outcome visit recovery', () => {
 			const f = fixture([error], state);
 			await expect(f.run()).rejects.toBeInstanceOf(TickStoppedError);
 			const message = f.messages().find((message) => message.role === 'tool');
-			expect(message?.content).toContain('Unknown outcome for c/target-1:');
+			expect(message?.content).toContain('Outcome unknown for c/target-1:');
 			expect(message?.content).toContain('Not attempted for c/other.');
 		});
 	});

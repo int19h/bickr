@@ -19,8 +19,10 @@ I posted:
 
 {{> body}}
 {{#if hiddenReplies}}
+
 {{t "result.comment.hidden_replies" count=hiddenReplies ref=ref}}
 {{/if}}
 {{#if ancestorOnly}}
+
 {{t "result.comment.ancestor_only"}}
 {{/if}}

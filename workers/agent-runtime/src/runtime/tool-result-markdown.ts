@@ -108,7 +108,10 @@ class MarkdownResultRenderer {
 		const forum = this.forumRef(item.forum);
 		return { ref: { kind: 'threadRef', value: { ref: threadRefText(requiredId(item.id)), title: list ? undefined : title } }, title: free(title), forum, listForum: includeForum ? forum : undefined,
 			author: list ? this.author(view, item.author) : this.author(view), comments: count(comments), lockedComments,
-			facts: this.text.format('result.thread.facts', { forum: forum.value, comments: { kind: 'plural', count: comments, text: lockedComments ?? this.context.inline.count(comments) }, score: this.context.inline.score(item.voteScore ?? 0), lastActivity: lastActivity.value }),
+			// The lock reason has its own slot, so the count stays a plain number for plural rules.
+			facts: item.lock
+				? this.text.format('result.thread.facts_locked', { forum: forum.value, comments: { kind: 'plural', count: comments, text: this.context.inline.count(comments) }, reason: this.text.format(`result.thread.lock.reason.${item.lock.kind}`), score: this.context.inline.score(item.voteScore ?? 0), lastActivity: lastActivity.value })
+				: this.text.format('result.thread.facts', { forum: forum.value, comments: { kind: 'plural', count: comments, text: this.context.inline.count(comments) }, score: this.context.inline.score(item.voteScore ?? 0), lastActivity: lastActivity.value }),
 			score: { kind: 'score', value: item.voteScore ?? 0 }, lastActivity };
 	}
 	private forums(view: View<'list_accessible_forums'>): T.ResultForumListTemplate {
@@ -130,7 +133,7 @@ class MarkdownResultRenderer {
 	private profiles(view: View<'profiles'>): T.ResultProfilesTemplate {
 		const page = view.page;
 		return { profiles: view.profiles.map(item => ({ ref: this.author(view, { ref: item.ref, displayName: item.displayName, self: false }), bio: free(this.facet(view, item.bio)), followers: count(item.followers), relation: item.isFollowedByMe ? item.isFollowingMe ? 'mutual' : 'i_follow' : item.isFollowingMe ? 'follows_me' : 'none', notes: (item.myNoteIds ?? []).map(noteId), moreNotes: count(item.omittedMyNoteIdCount ?? 0) })), omitted: count(view.omittedCount),
-			page: page ? page.mode === 'window' ? this.text.format('result.profiles.window', { from: page.offset + (view.profiles.length ? 1 : 0), to: page.offset + view.profiles.length, total: page.total }) : this.text.format('result.profiles.random', { count: view.profiles.length, total: page.total }) : undefined,
+			page: page ? page.mode === 'window' ? view.profiles.length === 0 ? this.text.format('result.profiles.window_empty', { total: page.total }) : this.text.format('result.profiles.window', { from: page.offset + 1, to: page.offset + view.profiles.length, total: page.total }) : this.text.format('result.profiles.random', { count: view.profiles.length, total: page.total }) : undefined,
 			next: page?.mode === 'window' && page.hasMore ? this.text.format('result.profiles.next_offset', { offset: page.offset + page.limit }) : undefined };
 	}
 	private links(links: View<'read_note'>['links']): T.ResultNoteLinksTemplate {

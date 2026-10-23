@@ -2318,7 +2318,7 @@ describe("Tick limits and recovery", () => {
 		);
 		const allowedProviderResult = String(allowed.providerResult);
 		expect(allowedProviderResult).toContain('I posted c/');
-		expect(allowedProviderResult).toContain(`in response to ${formatCommentRef(parent.id)}`);
+		expect(allowedProviderResult).toContain(`in reply to ${formatCommentRef(parent.id)}`);
 		expect(allowedProviderResult).toContain(formatThreadRef(thread.id));
 		expect(allowedProviderResult).not.toContain('Intentional second reply.');
 		expect(allowedProviderResult).not.toContain('Earlier reply.');

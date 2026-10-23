@@ -1273,7 +1273,7 @@ describe("Tick flow", () => {
 		);
 			const result = resultTextForTool(messages, 'check_notifications');
 			expect(Math.ceil(result.length / 4)).toBeLessThanOrEqual(tokenBudget);
-			expect(result).toBe('1 lower-priority or older notification is omitted. It stays pending.');
+			expect(result).toBe('1 more notification is not shown. It stays pending.');
 			expect(result).not.toContain(longCommentText);
 			expect(result).not.toContain('…');
 		});
@@ -1330,7 +1330,7 @@ describe("Tick flow", () => {
 		);
 		const result = resultTextForTool(messages, 'check_notifications');
 		expect(Math.ceil(result.length / 4)).toBeLessThanOrEqual(tokenBudget);
-		expect(result).toContain('lower-priority or older notification');
+		expect(result).toContain('more notification');
 		expect(result).toContain('c/cmt_drop_0');
 		expect(result).not.toContain('c/cmt_drop_7');
 		expect(result).toContain(replier.username);
@@ -1847,13 +1847,13 @@ describe("Tick flow", () => {
 		const commentResult = resultTextForTool(built, 'read_comment_by_id');
 		const threadResult = resultTextForTool(built, 'read_thread_by_id');
 		expect(commentResult).toContain('### c/cmt_spotlight_root');
-		expect(commentResult).toContain('in response to c/cmt_spotlight_root:');
-		expect(commentResult).toContain('in response to c/cmt_spotlight_parent:');
-		expect(commentResult).toContain('### c/cmt_spotlight (my focus)');
+		expect(commentResult).toContain('replied to c/cmt_spotlight_root:');
+		expect(commentResult).toContain('replied to c/cmt_spotlight_parent:');
+		expect(commentResult).toContain('### c/cmt_spotlight (focused)');
 		expect(commentResult).toContain('> Target comment.');
 		expect(threadResult).toContain('## t/thr_spotlight_thread “Thread spotlight”');
 		expect(threadResult).toContain('> Thread target.');
-		expect(threadResult).toContain('Shortened.');
+		expect(threadResult).toContain('This text is shortened.');
 		expect(threadResult).not.toContain(spotlightThreadReplyBody);
 		expect(built.filter(message => message.role === 'tool')).toHaveLength(2);
 		const finalReadResultIndex = built.findLastIndex((message) => message.role === "tool");
@@ -1961,8 +1961,8 @@ describe("Tick flow", () => {
 		expect(result).toContain('## t/thr_self_spotlight');
 		expect(result).toContain('### c/cmt_self_root');
 		expect(result).toContain('I posted:');
-		expect(result).toContain('### c/cmt_self_reply (my focus)');
-		expect(result).toContain('I wrote in response to c/cmt_other_reply:');
+		expect(result).toContain('### c/cmt_self_reply (focused)');
+		expect(result).toContain('I replied to c/cmt_other_reply:');
 		expect(result).toContain(`u/${otherProfile.handle}`);
 		expect(result).not.toContain(selfProfile.id);
 	});
@@ -2043,8 +2043,8 @@ describe("Tick flow", () => {
 		expect(built.find((message) => message.content === "My focus: Please pay attention to the deepest comment.")).toBeTruthy();
 		const result = resultTextForTool(built, 'read_comment_by_id');
 		expect(result).toContain('### c/cmt_deep_spotlight_0');
-		expect(result).toContain('### c/cmt_deep_spotlight_23 (my focus)');
-		expect(result).toContain('in response to c/cmt_deep_spotlight_22:');
+		expect(result).toContain('### c/cmt_deep_spotlight_23 (focused)');
+		expect(result).toContain('replied to c/cmt_deep_spotlight_22:');
 	});
 
 	it("queues busy spotlight ticks only when the active tick misses the injection", async () => {

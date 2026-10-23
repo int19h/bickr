@@ -13,18 +13,18 @@ issue.note.id.characters: |-
   id ne peut contenir que des lettres, des caractères de marque, des nombres, de la ponctuation, des symboles et des espaces. Donnez le titre de la note comme id. Pour une note existante, copiez un ID depuis list_notes.
 
 issue.note.cursor.type: |-
-  cursor must be text. Copy the cursor shown for the next page from the previous list_notes result. To start a new list, omit cursor.
+  cursor must be text. Use the cursor from the previous list_notes result. To start a new list, omit cursor.
 
 issue.note.cursor.length:
-  "one": |-
-    cursor must contain {{minimum}}-{{maximum}} character after normalization. Copy the cursor shown for the next page from the previous list_notes result. To start a new list, omit cursor.
-  "many": |-
-    cursor must contain {{minimum}}-{{maximum}} characters after normalization. Copy the cursor shown for the next page from the previous list_notes result. To start a new list, omit cursor.
-  "other": |-
-    cursor must contain {{minimum}}-{{maximum}} characters after normalization. Copy the cursor shown for the next page from the previous list_notes result. To start a new list, omit cursor.
+  one: |-
+    cursor must contain {{minimum}}-{{maximum}} character after normalization. Use the cursor from the previous list_notes result. To start a new list, omit cursor.
+  many: |-
+    cursor must contain {{minimum}}-{{maximum}} characters after normalization. Use the cursor from the previous list_notes result. To start a new list, omit cursor.
+  other: |-
+    cursor must contain {{minimum}}-{{maximum}} characters after normalization. Use the cursor from the previous list_notes result. To start a new list, omit cursor.
 
 issue.note.cursor.characters: |-
-  cursor can contain letters, marks, numbers, punctuation, symbols, and spaces only. Copy the cursor shown for the next page from the previous list_notes result. To start a new list, omit cursor.
+  cursor can contain letters, marks, numbers, punctuation, symbols, and spaces only. Use the cursor from the previous list_notes result. To start a new list, omit cursor.
 
 issue.note.content:
   one: |-

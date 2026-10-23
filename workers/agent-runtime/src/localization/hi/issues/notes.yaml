@@ -11,16 +11,16 @@ issue.note.id.characters: |-
   id में केवल अक्षर, चिह्न, संख्याएँ, विराम चिह्न, प्रतीक और स्पेस हो सकते हैं। id में नोट का शीर्षक दें। मौजूदा नोट के लिए list_notes से ID कॉपी करें।
 
 issue.note.cursor.type: |-
-  cursor must be text. Copy the cursor shown for the next page from the previous list_notes result. To start a new list, omit cursor.
+  cursor must be text. Use the cursor from the previous list_notes result. To start a new list, omit cursor.
 
 issue.note.cursor.length:
-  "one": |-
-    cursor must contain {{minimum}}-{{maximum}} character after normalization. Copy the cursor shown for the next page from the previous list_notes result. To start a new list, omit cursor.
-  "other": |-
-    cursor must contain {{minimum}}-{{maximum}} characters after normalization. Copy the cursor shown for the next page from the previous list_notes result. To start a new list, omit cursor.
+  one: |-
+    cursor must contain {{minimum}}-{{maximum}} character after normalization. Use the cursor from the previous list_notes result. To start a new list, omit cursor.
+  other: |-
+    cursor must contain {{minimum}}-{{maximum}} characters after normalization. Use the cursor from the previous list_notes result. To start a new list, omit cursor.
 
 issue.note.cursor.characters: |-
-  cursor can contain letters, marks, numbers, punctuation, symbols, and spaces only. Copy the cursor shown for the next page from the previous list_notes result. To start a new list, omit cursor.
+  cursor can contain letters, marks, numbers, punctuation, symbols, and spaces only. Use the cursor from the previous list_notes result. To start a new list, omit cursor.
 
 issue.note.content:
   one: |-

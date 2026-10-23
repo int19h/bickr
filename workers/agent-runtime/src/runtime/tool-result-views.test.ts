@@ -98,7 +98,7 @@ describe('Markdown result views', () => {
 			if (!withIdentity) delete input.contentIdentities;
 			const view = (await buildToolResultView({ kind: 'notifications_checked', events: [event] }, input))!;
 			const output = renderToolResultView(view, testViewRenderContext(view, text));
-			expect(output).toContain(withIdentity ? 'started this thread in f/general:' : 'started this thread:');
+			expect(output).toContain(withIdentity ? 'started this thread in my blog f/general:' : 'started this thread in my blog:');
 			expect(output).not.toContain('in :');
 			expect(output).toMatchSnapshot(`notification forum identity ${withIdentity}`);
 		}
@@ -107,7 +107,7 @@ describe('Markdown result views', () => {
 		for (const parentCommentId of ['cmt_parent', undefined, '', 'c/', '   ']) {
 			const view = (await buildToolResultView({ kind: 'comment_created', thread, comment: { id: 'cmt_reply', threadId: summary.id, parentCommentId } as never }, context()))!;
 			const output = renderToolResultView(view, testViewRenderContext(view, text));
-			expect(output).toBe(parentCommentId === 'cmt_parent' ? 'I posted c/cmt_reply in response to c/cmt_parent in t/thr_abc “A topic”.' : 'I posted c/cmt_reply in t/thr_abc “A topic”.');
+			expect(output).toBe(parentCommentId === 'cmt_parent' ? 'I posted c/cmt_reply in reply to c/cmt_parent in t/thr_abc “A topic”.' : 'I posted c/cmt_reply in t/thr_abc “A topic”.');
 		}
 	});
 	it('never builds an empty optional post or activity ref', async () => {
@@ -126,7 +126,7 @@ describe('Markdown result views', () => {
 			expect(output).toMatchSnapshot(`activity without context ${item.type}`);
 		}
 		const invalid = (await buildToolResultView({ kind: 'comment_created', thread, comment: { id: '', threadId: summary.id } as never }, context()))!;
-		expect(renderToolResultView(invalid, testViewRenderContext(invalid, text))).toBe('Result unavailable.');
+		expect(renderToolResultView(invalid, testViewRenderContext(invalid, text))).toBe('This result is unavailable.');
 	});
 	it('prints only the omitted notice when pruning removes every list item', async () => {
 		const kinds = new Set(['forums_listed', 'threads_listed', 'posts_searched', 'profiles_searched', 'activity_viewed', 'notifications_checked']);
@@ -211,7 +211,7 @@ describe('Markdown result views', () => {
 		const first = (await buildToolResultView({ kind: 'posts_read', read: nestedRead, items: [] }, context(scope)))!;
 		const output = renderToolResultView(first, testViewRenderContext(first, text));
 		expect(output.match(/Alice u\/alice/g)).toHaveLength(1);
-		expect(output).toContain('u/alice wrote in response to c/cmt_root:');
+		expect(output).toContain('u/alice replied to c/cmt_root:');
 		const second = (await buildToolResultView({ kind: 'posts_read', read: nestedRead, items: [] }, context(scope)))!;
 		const known = renderToolResultView(second, testViewRenderContext(second, text));
 		expect(known).not.toContain('Alice'); expect(known).not.toContain('A topic'); expect(known).not.toContain('The opening body');
@@ -243,15 +243,15 @@ describe('Markdown result views', () => {
 	});
 	it('distinguishes authored ellipses from shortened bodies after hydration', async () => {
 		const literal = (await buildToolResultView({ kind: 'posts_read', read: { ...read, content: [{ ...comment, body: authored('I pause…') }] }, items: [] }, context()))!;
-		expect(renderToolResultView(literal, testViewRenderContext(literal, text))).not.toContain('Shortened.');
+		expect(renderToolResultView(literal, testViewRenderContext(literal, text))).not.toContain('This text is shortened.');
 		const scope = new ResultContextScope();
 		const child = { ...comment, id: 'cmt_child', body: authored('A long reply '.repeat(100)), replies: [] };
 		const envelope: ToolResultEnvelope = { kind: 'posts_read', items: [], read: { ...read, content: [{ ...comment, replies: [child] }], contextDecision: { operation: 'read_thread', tokenBudget: 1, omittedReplyCount: 0, trimmedBodyCount: 0 } } };
 		const first = (await buildToolResultView(envelope, context(scope)))!;
 		const second = (await buildToolResultView(envelope, context(scope)))!;
-		expect(renderToolResultView(first, testViewRenderContext(first, text))).toContain('Shortened.');
+		expect(renderToolResultView(first, testViewRenderContext(first, text))).toContain('This text is shortened.');
 		expect(hydrateResultFacets(first.facets, [second.facets])).toBeGreaterThan(0);
-		expect(renderToolResultView(second, testViewRenderContext(second, text))).toContain('Shortened.');
+		expect(renderToolResultView(second, testViewRenderContext(second, text))).toContain('This text is shortened.');
 	});
 	it('shows negative and zero scores and includes a positive sign', async () => {
 		for (const score of [-2, 0, 6]) {
@@ -271,7 +271,7 @@ describe('Markdown result views', () => {
 		const child = { ...comment, id: 'cmt_budget_child', parentCommentId: comment.id, body: authored('A long reply '.repeat(1000)) };
 		const view = (await buildToolResultView({ kind: 'posts_read', items: [], read: { ...read, content: [{ ...comment, replies: [child] }], contextDecision: { operation: read.operation, tokenBudget, omittedReplyCount: 0, trimmedBodyCount: 0 } } }, context()))!;
 		const output = renderToolResultView(view, testViewRenderContext(view, text));
-		expect(output).toContain('Shortened.');
+		expect(output).toContain('This text is shortened.');
 		expect(Math.ceil(output.length / 4)).toBeLessThanOrEqual(tokenBudget);
 		expect(output).toContain('> The opening body');
 	});
@@ -316,7 +316,7 @@ describe('Markdown result views', () => {
 	});
 	it('bounds unknown view kinds without raw data', () => {
 		const unknown = { kind: 'future', privateData: 'SECRET' } as unknown as import('./tool-result-views').ToolResultView;
-		expect(renderToolResultView(unknown, testViewRenderContext(unknown, text))).toBe('Result unavailable.');
+		expect(renderToolResultView(unknown, testViewRenderContext(unknown, text))).toBe('This result is unavailable.');
 	});
 });
 

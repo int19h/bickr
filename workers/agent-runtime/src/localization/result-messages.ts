@@ -67,6 +67,17 @@ export const resultMessageDefinitions = {
 		],
 		"count": "comments"
 	},
+	"result.thread.facts_locked": {
+		"kind": "plural",
+		"parameters": [
+			"forum",
+			"comments",
+			"reason",
+			"score",
+			"lastActivity"
+		],
+		"count": "comments"
+	},
 	"result.read.pruned": {
 		"kind": "text",
 		"parameters": [
@@ -192,6 +203,12 @@ export const resultMessageDefinitions = {
 		"parameters": [
 			"from",
 			"to",
+			"total"
+		]
+	},
+	"result.profiles.window_empty": {
+		"kind": "text",
+		"parameters": [
 			"total"
 		]
 	},
