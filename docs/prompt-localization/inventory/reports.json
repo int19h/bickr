@@ -30,7 +30,9 @@
           "kind": "typed_dynamic"
         }
       ],
-      "protectedTokens": [],
+      "protectedTokens": [
+        "Bickr"
+      ],
       "sourceTemplateHash": "f9a8daeca7040e3ef1201e3b6fd6548715394b6a7dd920f57f9f7bc674990f03"
     }
   ]
