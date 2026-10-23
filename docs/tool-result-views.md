@@ -122,3 +122,59 @@ The render context supplies the account creation time.
 Each provider request supplies the current participant time configuration.
 A configuration change re-renders the timestamps in stored views.
 Old rows retain their stored text.
+
+## Retirement
+
+A retirement gate is evidence that old data no longer needs a reader.
+Keep every adapter below until its gate passes across the full fleet.
+Retire rollback releases that write an old shape before accepting its zero count.
+A failed, deferred, or incomplete census does not satisfy a gate.
+This work item removes none of these adapters.
+
+The view schema version is `toolResultViewSchemaVersion = 1`.
+Its next version is 2.
+A version change must include an explicit upgrade for surviving views or a reader for their unchanged shape.
+Do not change the constant alone because the current reader rejects other stored versions.
+The shared document schema version is `schemaVersion = 2`.
+Its next version is 3.
+
+The following temporary paths have separate gates:
+
+| Temporary path | Census that must reach zero | Version and removal |
+| --- | --- | --- |
+| WI-A: `participantTimeSettingsOf` fallback for absent `timeSettings` and old `openRouter.datetime` | Complete `/maintenance/participant-time` passes with no missing time configuration or old datetime fields | Advance document schema 2 to 3, require `timeSettings`, and remove the fallback. Keep the formatter. |
+| WI-A: `migrateParticipantTime`, `/maintenance/participant-time`, `/users/:userId/bots/:botId/normalize-time`, the `participant_time` callback in `normalizeKvDocuments`, and `participantTimeSweepCursor` | The same participant time census, with no deferred records and no old writers | Advance document schema 2 to 3 and remove these migration paths together. Delete the stored sweep cursor. Keep rejection of removed datetime inputs. |
+| WI-C: The no-view branch in `renderStoredLoopMessage`, including owner pages, provider history, compaction input, and token estimates | `/maintenance/legacy-history/census` reports zero on every page after forced compaction | Advance view schema 1 to 2 and remove active-history JSON branches. Keep archive support until the retained-row census below also reaches zero. |
+| WI-C: `legacyResultFacets`, `legacyProfileUsernamesInActiveContext`, old JSON content-scope readers, `compactedCommentBodies`, and `repairDanglingCommentReferencesAfterCompaction` | The same zero active-row census | Advance view schema 1 to 2 and remove the legacy scope and hydration paths. Keep facet hydration for views. |
+| WI-C and WI-D: `providerLegacyInputPayload`, `providerLegacyToolResultPayload`, `formatRuntimeEventForContext` and `migrateLegacyLoopMessages`, and old event-to-history formatting | The runtime localization census reports every `legacyHistoryDone`, and the active-row census reports zero | Advance view schema 1 to 2 when removing tool-result history adapters. Advance runtime localization schema 1 to 2 when removing the startup event migration. Keep owner event formatting until its retained-row census passes. |
+| WI-C and WI-D: `legacyToolResultEnvelope`, `legacyStoredToolResultEnvelope`, `legacyReadContentFocus`, and old shape readers retained by legacy result formatting | Zero active legacy rows plus zero retained event or tool rows that need those readers | Advance view schema 1 to 2 and remove the adapters and their legacy-only callers. A caller audit must establish that new writers supply typed envelopes. |
+| WI-C and WI-D: `legacyNotificationView`, `LegacyNotificationView`, `legacyNotificationEvent`, its type and delivery adapters, `providerLegacyNotificationEvent`, its target adapters, and legacy renderer branches | A bounded notification census reports zero old pending notification payloads, and a stored-view census reports zero legacy notification items | Advance view schema 1 to 2 and remove the notification adapters and renderer branches together. The active no-view census does not cover legacy items inside views. |
+| WI-C: `backfillDeletedReferenceHandles`, `backfillOwnedDeletedReferenceHandle`, `deletedReferenceHandle` repair dispatch, and `/maintenance/tool-result-handles` | Both deleted-handle index censuses report zero missing `handle_at_deletion` values | Advance view schema 1 to 2 and remove the backfill and repair branches. Keep the deletion columns, retention rules, and atomic delete writers. |
+| WI-C and WI-D: The JSON renderer, old JSON builders in `tool-result-golden-builders.test-support.ts`, and their golden comparisons | A caller census reports zero production callers after the Markdown renderer replaces them | Remove the old builders and comparisons in WI-D. This code-only removal needs no stored schema change. Keep live old-row adapters until their data gates pass. |
+| WI-F: `legacyToolRowCount`, `compactLegacyHistory`, legacy-only accounting arguments in compaction methods, and `/maintenance/legacy-history/{census,compact}` | A complete zero active-row census after forced compaction, with no deferred or failed runtimes | Advance view schema 1 to 2 and remove these routes, methods, and `legacy-history-maintenance.ts` together. Keep the shared fleet paging helper and normal automatic compaction. |
+
+The participant time sweep stores its own cursor and reports `done` only after a pass without deferrals.
+Retain each pass as evidence.
+The deleted-handle route visits missing index values directly.
+Complete both participant and forum pages without `missingIds` before accepting its zero count.
+An empty pass from the first cursor proves that neither index retains missing handles.
+
+The existing bootstrap census covers composed bootstrap payloads only.
+It does not prove that all other notification kinds use the new shape.
+Before removing the notification adapters, add a bounded census for those pending payloads and stored legacy notification items.
+Keep the adapters while that census remains unavailable.
+
+The active history census excludes compacted and deleted rows.
+Owner pages and retained event history can still read those rows.
+Before removing the shared legacy reader, run a bounded census of retained no-view tool rows and legacy events.
+Wait until retention removes those rows and the count reaches zero.
+If that retained-row census is unavailable, keep the archive reader separate from the active provider path.
+A zero active count alone does not authorize deletion of archive support.
+
+The removed generic failure narration and unused catalog keys from WI-D need no data migration.
+Their removal takes effect for new failures.
+Old assistant narration stays until normal compaction or retention removes it.
+The participant-facing failure result and the self-correction narration remain.
+
+Keep the saved-handle fallback for a missing entity or deletion handle.
+That fallback represents unavailable reference data and does not migrate stored records.

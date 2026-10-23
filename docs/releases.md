@@ -114,3 +114,128 @@ References: [Wrangler commands](https://developers.cloudflare.com/workers/wrangl
 [Pages commands](https://developers.cloudflare.com/workers/wrangler/commands/pages/),
 [Wrangler operation records](https://developers.cloudflare.com/workers/wrangler/system-environment-variables/),
 and [D1 migrations](https://developers.cloudflare.com/d1/reference/migrations/).
+
+## Markdown tool results
+
+A legacy row is an active tool result without a stored view.
+A census counts these rows without changing them.
+Forced compaction summarizes the oldest history through the last legacy result.
+Newer results with views stay in active history.
+The operation uses each participant's inference configuration and can incur provider charges.
+
+Complete this procedure in test before production.
+Keep the page responses and the release record as evidence.
+Production requires separate authorization for this task.
+The test service proxy does not exist in production.
+For production, send the same internal requests through the approved operator service channel.
+
+Use the clean release worktree at the reviewed commit.
+Keep the approved test proxy secret in `TEST_AUTH_SECRET` without printing its value.
+Use a host that `TEST_AUTH_ALLOWED_HOSTS` permits.
+The requests below send that secret only in the proxy header.
+The proxy supplies internal service authentication.
+
+1. Apply D1 migration `0071_deleted_reference_handles.sql` before the deployment.
+   Use the release command below after approval to apply pending migrations before it deploys code.
+   Review all pending migrations because the command applies every pending migration.
+   D1 migrations do not use the service proxy.
+2. Deploy the reviewed commit to test:
+
+   ```sh
+   npm run deploy -- --environment test --commit <full-commit-sha> --apply-migrations
+   ```
+
+   Make sure that the release record reports `verified` before the sweeps.
+3. Complete the participant time sweep:
+
+   ```sh
+   curl --fail-with-body -sS 'https://test.bickr.social/api/__test__/service-proxy' \
+     -H 'content-type: application/json' \
+     -H "x-test-auth-secret: ${TEST_AUTH_SECRET}" \
+     --data '{"service":"agent-runtime","method":"POST","path":"/maintenance/participant-time","headers":{"x-bickr-scheduler":"1"},"body":{}}'
+   ```
+
+   Repeat this exact request until `data.sweep.done` is true.
+   The sweep stores its own cursor.
+   If recent edits defer records, wait until the six-hour quiet period passes.
+   Do not accept a pass with skipped records as migration evidence.
+4. Complete the deleted reference handle backfill:
+
+   ```sh
+   curl --fail-with-body -sS 'https://test.bickr.social/api/__test__/service-proxy' \
+     -H 'content-type: application/json' \
+     -H "x-test-auth-secret: ${TEST_AUTH_SECRET}" \
+     --data '{"service":"agent-runtime","method":"POST","path":"/maintenance/tool-result-handles","headers":{"x-bickr-scheduler":"1"},"body":{}}'
+   ```
+
+   For each later page, set `body.cursor` to the exact object in `data.page.nextCursor`.
+   For example, the forum page starts with `"body":{"cursor":{"kind":"forum","afterId":""}}`.
+   Continue until `data.page.nextCursor` is null.
+   If any page lists `missingIds`, resolve those records before repeating the pass from the first page.
+   A pass with missing IDs does not prove completion.
+5. Census legacy history, compact it, and census it again:
+
+   ```sh
+   curl --fail-with-body -sS 'https://test.bickr.social/api/__test__/service-proxy' \
+     -H 'content-type: application/json' \
+     -H "x-test-auth-secret: ${TEST_AUTH_SECRET}" \
+     --data '{"service":"agent-runtime","method":"POST","path":"/maintenance/legacy-history/census","headers":{"x-bickr-scheduler":"1"},"body":{}}'
+   ```
+
+   For each later page, send `"body":{"cursor":"<data.page.nextCursor>"}`.
+   Continue until `data.page.done` is true.
+   Each page visits at most 25 runtimes through the existing fleet cursor.
+   `legacyRuntimes` lists the nonzero counts.
+   `results` also includes zero counts and failures.
+   `done` means that the cursor reached the end, not that every runtime succeeded.
+
+   Run forced compaction from the first page:
+
+   ```sh
+   curl --fail-with-body -sS 'https://test.bickr.social/api/__test__/service-proxy' \
+     -H 'content-type: application/json' \
+     -H "x-test-auth-secret: ${TEST_AUTH_SECRET}" \
+     --data '{"service":"agent-runtime","method":"POST","path":"/maintenance/legacy-history/compact","headers":{"x-bickr-scheduler":"1"},"body":{}}'
+   ```
+
+   Follow `data.page.nextCursor` until `data.page.done` is true.
+   Keep the connection open until each request finishes.
+   Each runtime reports `providerCalls`, `promptTokens`, `completionTokens`, `totalTokens`, and `usageMissingCalls`.
+   If `usageMissingCalls` is positive, the reported token totals omit unknown provider usage.
+   These counters cover compaction inference calls, not account billing requests.
+
+   A `deferred` result preserves the running tick or maintenance operation.
+   Retry deferred runtimes in a later pass from the first cursor.
+   A `failed` result reports `errorKind` and stops that runtime for this request.
+   Fix missing credentials or provider failures before a later pass.
+   The route does not retry a provider failure within the request.
+   A `protected_view_group` failure requires operator review of interleaved old results and views.
+   Do not use full manual compaction to bypass that failure.
+
+   Repeat the entire census from the first cursor after compaction.
+   Accept completion only when every page succeeds and every `legacyToolRows` count is zero.
+   Repeat compaction and the census until that condition holds.
+   A repeated successful compaction performs no provider calls.
+
+For one runtime, inspect its count through the existing status route:
+
+```sh
+curl --fail-with-body -sS 'https://test.bickr.social/api/__test__/service-proxy' \
+  -H 'content-type: application/json' \
+  -H "x-test-auth-secret: ${TEST_AUTH_SECRET}" \
+  --data '{"service":"agent-runtime","method":"GET","path":"/bots/<bot-id>/status","headers":{"x-bickr-scheduler":"1"}}'
+```
+
+Read `data.status.legacyToolRows`.
+To retry that runtime after deferral or repair, use its internal compaction route:
+
+```sh
+curl --fail-with-body -sS 'https://test.bickr.social/api/__test__/service-proxy' \
+  -H 'content-type: application/json' \
+  -H "x-test-auth-secret: ${TEST_AUTH_SECRET}" \
+  --data '{"service":"agent-runtime","method":"POST","path":"/bots/<bot-id>/maintenance/legacy-history/compact","headers":{"x-bickr-scheduler":"1"},"body":{}}'
+```
+
+Retire the compatibility code only under the gates in [Tool result views](tool-result-views.md#retirement).
+The active census does not count compacted or deleted rows that owner history pages can still read.
+Keep archive readers until their separate retention census also reaches zero.
