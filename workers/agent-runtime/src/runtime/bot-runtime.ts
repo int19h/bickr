@@ -324,6 +324,7 @@ import {
 	compactionRowsForEstimatedBudget,
 	compactionRowSelectionForEstimatedBudget,
 	loopMessageStructureFromRow,
+	loopMessageCompactionGroups,
 	reducedCompactionRowsAfterOutputLimit,
 	type CompactionCandidateEstimate,
 	type CompactionRowSelection,
@@ -4582,7 +4583,8 @@ export class BotRuntime {
 						legacyCost.totalTokens += usage.totalTokens;
 					}
 					// The operator retries failures in a later pass. This route never
-					// retries transport errors, schema repair, or output-limit shrinkage.
+					// retries transport errors or schema repair. The caller can reduce
+					// an output-limited batch before sending a smaller request.
 					throw error;
 				}
 				const input = this.compactionAttemptInputForError({
@@ -7439,16 +7441,11 @@ export class BotRuntime {
 				return { kind: 'failed', errorKind: 'no_key', before, remaining: this.legacyToolRowCount(), ...cost };
 			}
 			const candidates = this.compactionCandidateRows();
-			const lastLegacy = candidates.findLastIndex(row => row.role === 'tool' && row.tool_result_view_json == null);
-			const rows = candidates.slice(0, lastLegacy + 1);
-			// A mixed protocol group cannot lose only its old results. Keep the
-			// complete group for operator review instead of compacting a stored view.
-			const lastMessage = rows.at(-1);
-			const next = candidates[lastLegacy + 1];
-			if (lastLegacy < 0 || rows.some(row => row.tool_result_view_json != null) ||
-				(next?.role === 'tool' && lastMessage?.role === 'tool')) {
-				return { kind: 'failed', errorKind: 'protected_view_group', before, remaining: this.legacyToolRowCount(), ...cost };
-			}
+			const groups = loopMessageCompactionGroups(candidates.map(row => ({ row, tokens: 0 })));
+			const lastLegacyGroup = groups.findLastIndex(group => group.rows.some(row => row.role === 'tool' && row.tool_result_view_json == null));
+			// Keep the final call and all its results together, including stored views.
+			// Only groups after the last legacy result remain outside compaction.
+			const rows = groups.slice(0, lastLegacyGroup + 1).flatMap(group => group.rows);
 			const context = await buildResultRenderContext(this.env.BICKR_D1, bot, resultViewsFromRows(this.activeLoopMessageRows()));
 			await this.compactLoopMessageRowsInBatches(context, bot, settings, crypto.randomUUID(), new AbortController().signal, rows, 'auto', {}, cost);
 			const remaining = this.legacyToolRowCount();
@@ -7716,7 +7713,7 @@ export class BotRuntime {
 						};
 				break;
 			} catch (error) {
-				const reducedRows = !legacyCost && isProviderCompactionOutputLimitFailure(error)
+				const reducedRows = isProviderCompactionOutputLimitFailure(error)
 					? reducedCompactionRowsAfterOutputLimit(providerRows, calibration, context)
 					: providerRows;
 				if (reducedRows.length > 0 && reducedRows.length < providerRows.length) {

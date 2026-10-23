@@ -147,10 +147,27 @@ describe('legacy history runtime maintenance', () => {
 		expect(f.runtime.activeMaintenanceOperation).toBeNull();
 	});
 
-	it('reports an inseparable group without compacting a stored view', async () => {
-		const f = fixture(); f.old(); f.modern();
-		expect(await f.runtime.compactLegacyHistory('a')).toMatchObject({ kind: 'failed', errorKind: 'protected_view_group' });
-		expect(f.compact).not.toHaveBeenCalled();
+	it('compacts a view between legacy results and preserves later groups', async () => {
+		const f = fixture();
+		const first = f.old(); const interleaved = f.modern(); const last = f.old();
+		f.store.appendLoopMessage(testResultContext, 'run', { role: 'assistant', tool_calls: [{ id: 'new', type: 'function', function: { name: 'read_note', arguments: '{}' } }] }, 'provider_response');
+		const kept = f.modern();
+		const snapshot = f.storage.sql.exec('SELECT * FROM loop_messages WHERE seq = ?', kept.seq).one();
+		expect(await f.runtime.compactLegacyHistory('a')).toMatchObject({ kind: 'compacted', before: 2, remaining: 0 });
+		expect(f.compact.mock.calls.flatMap(call => call[5].map((row: { seq: number }) => row.seq))).toEqual([first.seq, interleaved.seq, last.seq]);
+		expect(f.storage.sql.exec('SELECT * FROM loop_messages WHERE seq = ?', kept.seq).one()).toEqual(snapshot);
+	});
+
+	it('compacts the whole mixed group that contains the last legacy result', async () => {
+		const f = fixture();
+		const call = f.store.appendLoopMessage(testResultContext, 'run', { role: 'assistant', tool_calls: ['old', 'new'].map(id => ({ id, type: 'function' as const, function: { name: 'read_note', arguments: '{}' } })) }, 'provider_response');
+		const old = f.old(); const mixed = f.modern();
+		const nextCall = f.store.appendLoopMessage(testResultContext, 'run', { role: 'assistant', tool_calls: [{ id: 'new', type: 'function', function: { name: 'read_note', arguments: '{}' } }] }, 'provider_response');
+		const kept = f.modern();
+		const snapshots = [nextCall.seq, kept.seq].map(seq => f.storage.sql.exec('SELECT * FROM loop_messages WHERE seq = ?', seq).one());
+		expect(await f.runtime.compactLegacyHistory('a')).toMatchObject({ kind: 'compacted', before: 1, remaining: 0 });
+		expect(f.compact.mock.calls.flatMap(call => call[5].map((row: { seq: number }) => row.seq))).toEqual([call.seq, old.seq, mixed.seq]);
+		expect([nextCall.seq, kept.seq].map(seq => f.storage.sql.exec('SELECT * FROM loop_messages WHERE seq = ?', seq).one())).toEqual(snapshots);
 	});
 
 	it.each([false, true])('counts provider calls and tokens without retrying a failure: %s', async fail => {

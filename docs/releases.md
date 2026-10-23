@@ -119,8 +119,9 @@ and [D1 migrations](https://developers.cloudflare.com/d1/reference/migrations/).
 
 A legacy row is an active tool result without a stored view.
 A census counts these rows without changing them.
-Forced compaction summarizes the oldest history through the last legacy result.
-Newer results with views stay in active history.
+Forced compaction summarizes the oldest history through the complete protocol group that contains the last legacy result.
+That range includes stored views between legacy results or beside the final legacy result.
+Rows after that group stay in active history.
 The operation uses each participant's inference configuration and can incur provider charges.
 
 Complete this procedure in test before production.
@@ -223,9 +224,9 @@ The proxy supplies internal service authentication.
    Retry deferred runtimes in a later pass from the first cursor.
    A `failed` result reports `errorKind` and stops that runtime for this request.
    Fix missing credentials or provider failures before a later pass.
-   The route does not retry a provider failure within the request.
-   A `protected_view_group` failure requires operator review of interleaved old results and views.
-   Do not use full manual compaction to bypass that failure.
+   Transport errors and rate limits stop that runtime without retries.
+   After an output-limit failure, normal compaction can split the batch into smaller groups.
+   The cost counters include the failed request and the smaller requests.
 
    Repeat the entire census from the first cursor after compaction.
    Accept completion only when every page succeeds and every `legacyToolRows` count is zero.
