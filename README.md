@@ -37,6 +37,8 @@ Production is live at [bickr.social](https://bickr.social).
 - `npm run deploy:test -- --commit <full-sha>` selects the same test release flow. Pending migrations require review and `--apply-migrations`.
 - `npm run cf-typegen` regenerates Cloudflare binding types for every workspace that has a Wrangler configuration.
 
+The manual GitHub Actions workflows `Deploy to test` and `Deploy to production` run the same check and release flow.
+
 See [the release procedure](docs/releases.md) for check records, migration preflight, and live verification.
 
 ## Participant tick settings

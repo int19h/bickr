@@ -71,6 +71,31 @@ check record. Its build hashes must match the local Pages build.
 
 Copy records to the task's artifact storage before removing a release worktree. After that copy, delete the local records. CI candidate artifacts expire after 14 days.
 
+## Release from GitHub Actions
+
+Two manual workflows run the same check and release scripts in GitHub Actions.
+Nothing starts them automatically. In the repository's Actions tab, select a
+workflow, select Run workflow, and choose a branch.
+
+- `Deploy to test` deploys the head commit of the branch that you select.
+- `Deploy to production` deploys the head commit of `main`. It fails for any other branch.
+- The `apply-migrations` option adds `--apply-migrations`. Review pending migrations before you select it.
+
+Each run checks out the commit, runs `check:release`, and then runs the release
+script. The shared job is in `.github/workflows/release.yml`. It uses the GitHub
+environment `test` or `production`. Each environment needs the secret
+`CLOUDFLARE_API_TOKEN`. The token must be an account API token for the Bickr
+account with these permissions: Workers Scripts Edit, D1 Edit, and Cloudflare
+Pages Edit. The account ID comes from `scripts/release-support.mjs`.
+
+Only one release runs at a time for each environment. A later run waits, and a
+running release is never cancelled. Each run uploads `.wrangler/release/` as an
+artifact, also after a failure, and keeps it for 90 days.
+
+The workflows do not replace release authorization. A production run still needs
+a fresh user instruction that names production for the task. To enforce a second
+person, add required reviewers to the `production` environment in GitHub.
+
 If a step fails, examine the record and live metadata before you continue.
 A failed upload can leave changes in Cloudflare. The script never retries a write or
 rolls a Worker back on its own.
