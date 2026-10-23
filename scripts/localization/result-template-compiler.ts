@@ -1,6 +1,5 @@
 import { readFileSync, readdirSync } from 'node:fs';
-import { dirname, join, relative, resolve } from 'node:path';
-import ts from 'typescript';
+import { join, relative, resolve } from 'node:path';
 import type { MessageDefinitions } from '../../packages/shared/src/instruction-template.ts';
 import { CatalogSourceError } from './catalog-source.ts';
 
@@ -11,7 +10,7 @@ type Node =
 	| { kind: 'literal' | 'value' | 'partial'; token: Token }
 	| { kind: 'if'; token: Token; unless: boolean; branches: { condition?: string; nodes: Node[] }[] }
 	| { kind: 'each'; token: Token; value: string; nodes: Node[] }
-	| { kind: 'switch'; token: Token; value: string; prefix: Node[]; cases: { name: string; nodes: Node[] }[] };
+	| { kind: 'switch'; token: Token; value: string; prefix: Node[]; cases: { names: string[]; nodes: Node[] }[] };
 type Template = { file: string; view: string; nodes: Node[] };
 export type GeneratedTemplate = { file: string; content: string };
 function fail(file: string, line: number, problem: string): never {
@@ -19,6 +18,8 @@ function fail(file: string, line: number, problem: string): never {
 }
 
 function parse(file: string, source: string): Template {
+	// The final file line break does not belong to the rendered result.
+	source = source.replace(/\r?\n$/, '');
 	const header = /^\s*{{!\s*view:\s*([A-Za-z_][A-Za-z0-9_]*)\s*}}/.exec(source);
 	if (!header) fail(file, 1, 'Start the template with a view type comment.');
 	const tokens: Token[] = [];
@@ -76,9 +77,10 @@ function parse(file: string, source: string): Template {
 				const cases: Extract<Node, { kind: 'switch' }>['cases'] = [];
 				while (tokens[position]?.value.startsWith(':case ')) {
 					const next = tokens[position++]!;
-					const name = next.value.slice(6).trim();
-					if (!/^[A-Za-z_][A-Za-z0-9_-]*$/.test(name) || cases.some((entry) => entry.name === name)) fail(file, next.line, 'The kind case is not valid or repeats another case.');
-					cases.push({ name, nodes: sequence([':case', '/kind']) });
+					const names = next.value.slice(6).trim().split(/\s+/);
+					const previous = new Set(cases.flatMap((entry) => entry.names));
+					if (new Set(names).size !== names.length || names.some((name) => !/^[A-Za-z_][A-Za-z0-9_-]*$/.test(name) || previous.has(name))) fail(file, next.line, 'The kind case is not valid or repeats another case.');
+					cases.push({ names, nodes: sequence([':case', '/kind']) });
 				}
 				if (!cases.length || tokens[position++]?.value !== '/kind') fail(file, token.line, 'The switch needs a case and a /kind tag.');
 				nodes.push({ kind: 'switch', token, value: token.value.slice(6).trim(), prefix: before, cases });
@@ -116,26 +118,31 @@ export function compileResultTemplates(root: string, definitions: MessageDefinit
 	const lines: string[] = [];
 	const locations = new Map<number, { file: string; line: number }>();
 	const used = new Set<string>();
-	const imports = new Set<string>();
+	const imports = new Map<string, Template>();
+	type Alias = { readonly path: string; readonly value: string };
 	const add = (value: string, template: Template, token: Token) => {
 		lines.push(value); locations.set(lines.length, { file: template.file, line: token.line });
 	};
 	let serial = 0;
-	function expression(value: string, current: string, first: string | undefined, template: Template, token: Token): string {
+	function expression(value: string, current: string, first: string | undefined, template: Template, token: Token, aliases: readonly Alias[]): string {
 		if (value === '@first') {
 			if (!first) fail(template.file, token.line, '@first needs an each block.');
 			return first;
 		}
 		if (!/^(?:this|[A-Za-z_][A-Za-z0-9_]*)(?:\.[A-Za-z_][A-Za-z0-9_]*)*$/.test(value)) fail(template.file, token.line, 'Use a field path.');
-		return value === 'this' ? current : value.startsWith('this.') ? `${current}${value.slice(4)}` : `${current}.${value}`;
+		let path = value === 'this' ? current : value.startsWith('this.') ? `${current}${value.slice(4)}` : `${current}.${value}`;
+		for (const alias of aliases) {
+			if (path === alias.path || path.startsWith(`${alias.path}.`)) path = alias.value + path.slice(alias.path.length);
+		}
+		return path;
 	}
-	function emit(nodes: readonly Node[], template: Template, current: string, first: string | undefined, stack: readonly string[]): { raw: boolean; output: boolean } {
+	function emit(nodes: readonly Node[], template: Template, current: string, first: string | undefined, stack: readonly string[], aliases: readonly Alias[] = []): { raw: boolean; output: boolean } {
 		let raw = false;
 		let output = false;
 		for (const node of nodes) {
 			const token = node.token;
 			const at = (code: string) => add(code, template, token);
-			const expr = (value: string) => expression(value, current, first, template, token);
+			const expr = (value: string) => expression(value, current, first, template, token, aliases);
 			const previousRaw: boolean = raw;
 			const previousOutput: boolean = output;
 			raw = false;
@@ -168,7 +175,7 @@ export function compileResultTemplates(root: string, definitions: MessageDefinit
 						const helper = Object.hasOwn(helpers, filter) ? helpers[filter] : undefined;
 						if (!helper) fail(template.file, token.line, `The filter does not exist: ${filter}.`);
 						used.add(helper);
-						at(`out += ${helper}(${value}${filter === 'inline' || filter === 'line' ? ', context' : ''});`);
+						at(`out += ${helper}(${value}${filter === 'inline' || filter === 'line' || filter === 'cell' ? ', context' : ''});`);
 						raw = filter === 'raw_last';
 					}
 					output = true;
@@ -182,9 +189,9 @@ export function compileResultTemplates(root: string, definitions: MessageDefinit
 					if (!partial) fail(template.file, token.line, `The partial does not exist: ${match[1]}.`);
 					if (stack.includes(key)) fail(template.file, token.line, 'A partial cannot call itself directly or through another partial.');
 					const variable = `part${serial++}`;
-					imports.add(partial.view);
-					at(`{ const ${variable}: ${partial.view} = ${match[2] ? expr(match[2]) : current}; void ${variable};`);
-					const result = emit(partial.nodes, partial, variable, undefined, [...stack, key]);
+					imports.set(partial.view, partial);
+					at(`{ const ${variable}: ${partial.view} = ${match[2] ? expr(match[2]) : expr('this')}; void ${variable};`);
+					const result = emit(partial.nodes, partial, variable, undefined, [...stack, key], aliases);
 					at('}'); raw ||= result.raw; output ||= result.output;
 					break;
 				}
@@ -194,7 +201,7 @@ export function compileResultTemplates(root: string, definitions: MessageDefinit
 						const value = branch.condition === undefined ? undefined : expr(branch.condition);
 						const condition = value === undefined ? '' : `${node.unless && index === 0 ? '!' : ''}(${value} && truthy(${value}))`;
 						at(`${index ? '} else ' : ''}${value === undefined ? '' : `if (${condition}) `}{`);
-						const result = emit(branch.nodes, template, current, first, stack);
+						const result = emit(branch.nodes, template, current, first, stack, aliases);
 						raw ||= result.raw; output ||= result.output;
 					}
 					at('}'); break;
@@ -203,28 +210,26 @@ export function compileResultTemplates(root: string, definitions: MessageDefinit
 					const id = serial++;
 					used.add('each');
 					at(`for (const [index${id}, item${id}] of each(${expr(node.value)}).entries()) {\nvoid index${id}; void item${id};`);
-					const result = emit(node.nodes, template, `item${id}`, `(index${id} === 0)`, stack);
+					const result = emit(node.nodes, template, `item${id}`, `(index${id} === 0)`, stack, aliases);
 					if (result.raw) fail(template.file, token.line, 'raw_last cannot appear in a repeating block.');
 					at('}'); output ||= result.output; break;
 				}
 				case 'switch': {
-					const prefix = emit(node.prefix, template, current, first, stack);
+					const prefix = emit(node.prefix, template, current, first, stack, aliases);
 					output ||= prefix.output;
 					const value = expr(node.value);
-					at(`switch (${value}.kind) {`);
+					const variable = `kind${serial++}`;
+					used.add('kind');
+					at(`{ const ${variable} = kind(${value});\nconst ${variable}Label = ${variable}.kind;\nswitch (${variable}Label) {`);
 					for (const entry of node.cases) {
-						if (!entry.nodes.length && entry !== node.cases.at(-1)) {
-							at(`case ${JSON.stringify(entry.name)}:`);
-							continue;
-						}
-						at(`case ${JSON.stringify(entry.name)}: {`);
-						const result = emit(entry.nodes, template, current, first, stack);
-						// Adjacent empty cases share the next case body, as in a normal switch.
+						for (const name of entry.names) at(`case ${JSON.stringify(name)}:`);
+						at('{');
+						const result = emit(entry.nodes, template, current, first, stack, [...aliases, { path: value, value: `${variable}.value` }]);
 						at('break;');
 						at('}'); raw ||= result.raw; output ||= result.output;
 					}
 					used.add('assertNever');
-					at(`default: assertNever(${value});\n}`); break;
+					at(`default: assertNever(${variable}Label);\n}\n}`); break;
 				}
 			}
 			if (previousRaw && output) fail(template.file, token.line, 'No output can follow raw_last, including output outside its block.');
@@ -235,7 +240,7 @@ export function compileResultTemplates(root: string, definitions: MessageDefinit
 	}
 	for (const [name, template] of templates) {
 
-		imports.add(template.view);
+		imports.set(template.view, template);
 		const token: Token = { value: '', tag: true, line: 1 };
 		add(`export function ${name.replace('partials/', 'partial_').replace(/-([a-z])/g, (_, letter: string) => letter.toUpperCase())}(view: ${template.view}, context: RenderContext<typeof messageParameters>): string {\nlet out = '';\nvoid view; void context;`, template, token);
 		emit(template.nodes, template, 'view', undefined, [name]);
@@ -245,51 +250,13 @@ export function compileResultTemplates(root: string, definitions: MessageDefinit
 	const bodyLines: string[] = [];
 	const bodyLocations: { file: string; line: number }[] = [];
 	lines.forEach((line, index) => { for (const part of line.split('\n')) { bodyLines.push(part); bodyLocations.push(locations.get(index + 1)!); } });
+	const firstTemplate = templates.values().next().value!;
+	const locationComment = (file: string, line: number) => ` // @result-template ${JSON.stringify([relative(root, file).replaceAll('\\', '/'), line])}`;
 	const prefix = [
-		`import { ${[...used].sort().join(', ')}${used.size ? ', ' : ''}type RenderContext } from ${JSON.stringify(modulePath(`${runtimeDirectory}/result-template.ts`))};`,
-		`import type { ${[...imports].sort().join(', ')} } from ${JSON.stringify(viewModule)};`,
-		`import type { messageParameters } from ${JSON.stringify(definitionsModule)};`,
+		`import { ${[...used].sort().join(', ')}${used.size ? ', ' : ''}type RenderContext } from ${JSON.stringify(modulePath(`${runtimeDirectory}/result-template.ts`))};` + locationComment(firstTemplate.file, 1),
+		...[...imports].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([view, template]) => `import type { ${view} } from ${JSON.stringify(viewModule)};` + locationComment(template.file, 1)),
+		`import type { messageParameters } from ${JSON.stringify(definitionsModule)};` + locationComment(firstTemplate.file, 1),
 	];
-	let content = [...prefix, ...bodyLines].join('\n') + '\n';
-	let optionsTs: ts.CompilerOptions = { target: ts.ScriptTarget.ES2024, module: ts.ModuleKind.ESNext, moduleResolution: ts.ModuleResolutionKind.Bundler, strict: true, noUnusedLocals: true, noUnusedParameters: true, noFallthroughCasesInSwitch: true, noEmit: true, skipLibCheck: true, allowImportingTsExtensions: true };
-	const configFile = join(root, 'workers/agent-runtime/tsconfig.json');
-	if (ts.sys.fileExists(configFile)) {
-		const config = ts.readConfigFile(configFile, ts.sys.readFile);
-		if (config.error) fail(configFile, 1, ts.flattenDiagnosticMessageText(config.error.messageText, '\n'));
-		const parsed = ts.parseJsonConfigFileContent(config.config, ts.sys, dirname(configFile), {}, configFile);
-		if (parsed.errors.length) fail(configFile, 1, ts.flattenDiagnosticMessageText(parsed.errors[0]!.messageText, '\n'));
-		// Use the runtime types and libraries without writing its build cache.
-		optionsTs = { ...optionsTs, ...parsed.options, noEmit: true, incremental: false, composite: false, tsBuildInfoFile: undefined };
-	}
-
-	function program(previous?: ts.Program): ts.Program {
-		const host = ts.createCompilerHost(optionsTs);
-		const original = host.getSourceFile.bind(host);
-		host.getSourceFile = (file, language, error, create) => resolve(file) === resolve(outputFile) ? ts.createSourceFile(file, content, language, true) : original(file, language, error, create);
-		return ts.createProgram([outputFile], optionsTs, host, previous);
-	}
-	// Object unions narrow on .kind. String unions switch on the value itself.
-	// Use TypeScript to choose the switch form for each declared view.
-	const probe = program();
-	const checker = probe.getTypeChecker();
-	const changes: { start: number; end: number; text: string }[] = [];
-	function visit(node: ts.Node): void {
-		if (ts.isSwitchStatement(node) && ts.isPropertyAccessExpression(node.expression)) {
-			const access = node.expression;
-			const type = checker.getTypeAtLocation(access.expression);
-			if (!type.getProperty('kind')) changes.push({ start: access.expression.end, end: access.end, text: '' });
-		}
-		ts.forEachChild(node, visit);
-	}
-	visit(probe.getSourceFile(outputFile)!);
-	for (const change of changes.sort((a, b) => b.start - a.start)) content = content.slice(0, change.start) + change.text + content.slice(change.end);
-	for (const diagnostic of ts.getPreEmitDiagnostics(changes.length ? program(probe) : probe)) {
-		if (diagnostic.file?.fileName !== outputFile) {
-			fail(diagnostic.file?.fileName ?? directory, diagnostic.file ? diagnostic.file.getLineAndCharacterOfPosition(diagnostic.start ?? 0).line + 1 : 1, ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'));
-		}
-		const line = diagnostic.file.getLineAndCharacterOfPosition(diagnostic.start ?? 0).line;
-		const location = bodyLocations[line - prefix.length] ?? { file: directory, line: 1 };
-		fail(location.file, location.line, ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'));
-	}
+	const content = [...prefix, ...bodyLines.map((line, index) => line + locationComment(bodyLocations[index]!.file, bodyLocations[index]!.line))].join('\n') + '\n';
 	return [{ file: outputFile, content }];
 }

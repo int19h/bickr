@@ -30,9 +30,13 @@ type InlineContext = Pick<RenderContext, 'inline' | 'quotationMarks'>;
 export function quote(value: FreeText): string {
 	return value.split(/\r\n|\r|\n/).map((line) => line ? `> ${line}` : '>').join('\n');
 }
-export function cell(value: FreeText): string {
+export function cell(value: FreeText, context?: InlineContext): string;
+export function cell(value: InlineValue, context: InlineContext): string;
+export function cell(value: FreeText | InlineValue, context?: InlineContext): string {
+	if (typeof value !== 'string' && !context) throw new Error('An inline cell needs a render context.');
+	const rendered = typeof value === 'string' ? value : inline(value, context!);
 	// Escape backslashes first so that an authored backslash cannot cancel a pipe escape.
-	return value.replace(/\\/g, '\\\\').replace(/\|/g, '\\|').replace(/\r\n|\r|\n/g, ' ').trim();
+	return rendered.replace(/\\/g, '\\\\').replace(/\|/g, '\\|').replace(/\r\n|\r|\n/g, ' ').trim();
 }
 export function line(value: FreeText, context: InlineContext): string {
 	return `${context.quotationMarks.open}${value.replace(/\r\n|\r|\n/g, ' ')}${context.quotationMarks.close}`;
@@ -74,6 +78,15 @@ export function truthy(value: boolean | number | readonly unknown[] | object | s
 		return (value as InlineValue<'count' | 'score'>).value !== 0;
 	}
 	return Boolean(value);
+}
+export type KindValue<Value> = Value extends string
+	? { readonly kind: Value; readonly value: Value }
+	: Value extends { readonly kind: string }
+		? { readonly kind: Value['kind']; readonly value: Value }
+		: never;
+/** Keep the kind field and its value together so that TypeScript can narrow both. */
+export function kind<Value extends string | { readonly kind: string }>(value: Value): KindValue<Value> {
+	return { kind: typeof value === 'string' ? value : value.kind, value } as KindValue<Value>;
 }
 export function assertNever(value: never): never { throw new Error(`The result variant does not exist: ${String(value)}`); }
 

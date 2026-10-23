@@ -27,9 +27,20 @@ Do not edit generated files.
 Use `npm run localization:check` to detect stale generated files.
 Vite and the development command wrappers watch Markdown templates and catalog sources.
 
-The generator reports the source file and line for syntax errors and generated type errors.
-It uses TypeScript to reject missing fields, wrong filter types, and incomplete switches before it publishes any generated module.
-The normal TypeScript build also reads the generated code.
+The generator reports the source file and line for syntax errors and catalog argument errors.
+It emits typed field access without loading the runtime type graph.
+This keeps generation fast when a development server reloads catalogs.
+
+The normal TypeScript build rejects missing fields, wrong filter types, and incomplete switches.
+Run `npm run build` from the repository root for these type checks.
+The build uses the complete project, including its ambient declarations, which define types without runtime code.
+Each generated line records its template location in a comment.
+The build maps diagnostics on those lines back to the template file and line.
+Errors in other project files retain their own locations.
+
+Generation and `localization:check` do not run a second TypeScript program.
+The compiler pairs each kind label with its value.
+This keeps field narrowing in generated TypeScript without asking TypeScript to inspect views during generation.
 
 ## Words and values
 
@@ -79,7 +90,11 @@ Choose a filter for its output position:
 
 The `quote` filter prefixes each nonempty line with `> ` and each empty line with `>`.
 This contains foreign Markdown, including fake headings and rules.
-The `cell` filter escapes backslashes and vertical bars, replaces line breaks with spaces, and trims edge whitespace.
+The `cell` filter accepts free text or an inline value.
+For an inline value, it first renders the inline form.
+It then escapes backslashes and vertical bars, replaces line breaks with spaces, and trims edge whitespace.
+Use `{{ref | cell}}` for a thread ref with a title inside a table.
+Use `{{author | cell}}` for an author with a display name inside a table.
 The `line` filter replaces line breaks with spaces and surrounds the text with the instruction language quotation marks.
 The `code` filter chooses a backtick fence longer than every backtick run in the value.
 It adds padding when CommonMark needs it and replaces line breaks with spaces.
@@ -88,7 +103,9 @@ The `text` filter accepts only `InstructionText` from Bickr catalogs.
 The `raw_last` filter inserts the reader's own note content without formatting.
 
 Nothing can follow `raw_last`, including whitespace or output after an enclosing block or partial.
-End such a template at its final tag without a final newline.
+The compiler removes one final file line break before parsing.
+A template can end with `{{content | raw_last}}` followed by the normal final newline.
+Additional trailing whitespace still counts as output.
 Both branches of a terminal condition can end with `raw_last`.
 A loop cannot contain `raw_last`, because a later iteration can add output.
 
@@ -139,8 +156,9 @@ A union is a type with a fixed set of alternatives.
 Each alternative needs a case.
 The generated switch calls `assertNever` in its default branch.
 TypeScript rejects that call when an alternative remains unhandled.
-Adjacent empty cases share the next case body.
-The last empty case produces no output.
+An empty case renders nothing.
+Use several names in one tag for a shared body, for example `{{:case search view}}`.
+A name cannot appear twice in a switch, including within the same tag.
 
 ## Partials
 
@@ -167,7 +185,7 @@ A line with only a comment or a block tag disappears with its newline.
 This rule also applies to a standalone partial tag.
 Blank lines around that line remain.
 Inline comments disappear but preserve the surrounding text and newline.
-A value or catalog call on its own line retains that line's newline.
+A value or catalog call on its own line keeps its newline unless it is the final file line break.
 Use output tests to make sure that spacing reads as intended.
 
 ## Select messages

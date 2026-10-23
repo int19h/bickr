@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import ts from 'typescript';
 import { afterEach, describe, expect, it } from 'vitest';
 import { compileResultTemplates, templateDirectory } from './result-template-compiler.ts';
 import { repository } from './paths.ts';
@@ -9,11 +10,14 @@ import { messageParameters } from './fixtures/result-messages.ts';
 import { InstructionTemplates } from '../../packages/shared/src/instruction-template.ts';
 import { cell, code } from '../../workers/agent-runtime/src/localization/result-template.ts';
 import { readCatalogGroup } from './catalog-source.ts';
+import { buildTypes, formatDiagnostic } from './check-types.ts';
+import { generateLocalization } from '../generate-localization.ts';
+import { copyResultProject } from './fixtures/result-project.mjs';
 import { catalog, context } from './fixtures/result-render-context.ts';
 
 const roots = [];
 const header = '{{! view: FixtureView }}\n';
-function fixture(source, partials = {}) {
+function fixture(source, partials = {}, viewType = 'FixtureView') {
 	const directory = join(repository, '.wrangler/result-template-tests');
 	mkdirSync(directory, { recursive: true });
 	const root = mkdtempSync(join(directory, 'fixture-'));
@@ -22,18 +26,33 @@ function fixture(source, partials = {}) {
 	mkdirSync(join(root, templateDirectory, 'partials'), { recursive: true });
 	symlinkSync(join(repository, 'node_modules'), join(root, 'node_modules'), 'dir');
 	writeFileSync(join(runtime, 'result-template.ts'), `export * from ${JSON.stringify(join(repository, 'workers/agent-runtime/src/localization/result-template.ts'))};\n`);
-	writeFileSync(join(root, templateDirectory, 'example.md'), header + source);
+	writeFileSync(join(root, templateDirectory, 'example.md'), `{{! view: ${viewType} }}\n` + source);
 	for (const [name, value] of Object.entries(partials)) writeFileSync(join(root, templateDirectory, 'partials', `${name}.md`), value);
 	return root;
 }
 function compile(root) {
-	return compileResultTemplates(root, messageParameters, {
+	const outputs = compileResultTemplates(root, messageParameters, {
 		viewModule: join(repository, 'scripts/localization/fixtures/result-views.ts'),
 		definitionsModule: join(repository, 'scripts/localization/fixtures/result-messages.ts'),
 	});
+	checkGenerated(root, outputs);
+	return outputs;
 }
-async function renderer(source, partials) {
-	const root = fixture(source, partials);
+function checkGenerated(root, outputs) {
+	for (const output of outputs) {
+		mkdirSync(dirname(output.file), { recursive: true });
+		writeFileSync(output.file, output.content);
+	}
+	const configFile = join(root, 'workers/agent-runtime/tsconfig.json');
+	const config = ts.sys.fileExists(configFile) ? ts.readConfigFile(configFile, ts.sys.readFile).config : { compilerOptions: {} };
+	const parsed = ts.parseJsonConfigFileContent(config, ts.sys, dirname(configFile), {}, configFile);
+	const options = { target: ts.ScriptTarget.ES2024, module: ts.ModuleKind.ESNext, moduleResolution: ts.ModuleResolutionKind.Bundler, strict: true, noUnusedLocals: true, noUnusedParameters: true, noFallthroughCasesInSwitch: true, allowImportingTsExtensions: true, skipLibCheck: true, ...parsed.options, noEmit: true };
+	const program = ts.createProgram(outputs.map((output) => output.file), options);
+	const errors = ts.getPreEmitDiagnostics(program);
+	if (errors.length) throw new Error(errors.map((error) => formatDiagnostic(error, root)).join(''));
+}
+async function renderer(source, partials, viewType = 'FixtureView') {
+	const root = fixture(source, partials, viewType);
 	const [output] = compile(root);
 	mkdirSync(dirname(output.file), { recursive: true });
 	writeFileSync(output.file, output.content);
@@ -90,8 +109,8 @@ describe('result template compiler', { timeout: 30000 }, () => {
 	});
 	it('strips only standalone tag lines and preserves explicit blank lines', async () => {
 		const render = await renderer('  {{! gone }}\n\n{{#if show}}\n### {{t "label"}} {{! inline }}\n\n{{/if}}\n---\n');
-		expect(render(view, context)).toBe('\n### Result \n\n---\n');
-		expect(render({ ...view, show: false }, context)).toBe('\n---\n');
+		expect(render(view, context)).toBe('\n### Result \n\n---');
+		expect(render({ ...view, show: false }, context)).toBe('\n---');
 	});
 	it('checks partial views and renders named and current values', async () => {
 		const render = await renderer('{{> same}}\n{{> item item}}\n{{#each items}}{{> item}}{{/each}}', {
@@ -117,7 +136,7 @@ describe('result template compiler', { timeout: 30000 }, () => {
 		expect(() => compile(root)).toThrow(new RegExp(`example\\.md: 2:.*${problem}`));
 	});
 	it.each([
-		'{{body | raw_last}}\n', '{{body | raw_last}}{{profile}}',
+		'{{body | raw_last}}\n\n', '{{body | raw_last}}{{profile}}',
 		'{{#if show}}{{body | raw_last}}{{/if}}---',
 		'{{#each items}}{{body | raw_last}}{{/each}}', '{{> raw}}---',
 	])('rejects output after raw_last through enclosing blocks and partials: %s', (source) => {
@@ -166,7 +185,85 @@ it('uses the runtime TypeScript configuration for view dependencies', () => {
 	writeFileSync(join(runtime, 'template-types.d.ts'), `import type { InlineValue } from ${JSON.stringify(join(repository, 'workers/agent-runtime/src/localization/result-template.ts'))};\ndeclare global { type TemplateReference = InlineValue<'profileRef'>; }\n`);
 	const views = join(runtime, 'src/localization/views.ts');
 	writeFileSync(views, 'export type FixtureView = { readonly ref: TemplateReference };\n');
-	expect(compileResultTemplates(root, messageParameters, {
+	const outputs = compileResultTemplates(root, messageParameters, {
 		viewModule: views, definitionsModule: join(repository, 'scripts/localization/fixtures/result-messages.ts'),
-	})[0].content).toContain('view.ref');
+	});
+	expect(() => checkGenerated(root, outputs)).not.toThrow();
 }, 30000);
+
+it('renders empty cases without output and shares only explicitly grouped cases', async () => {
+	const render = await renderer('{{#kind state}}{{:case up}}{{:case down cleared}}{{t "label"}}{{/kind}}');
+	expect(render({ ...view, state: 'up' })).toBe('');
+	expect(render({ ...view, state: 'down' })).toBe('Result');
+	expect(render({ ...view, state: 'cleared' })).toBe('Result');
+	for (const source of [
+		'{{#kind state}}{{:case up down}}{{:case down cleared}}{{/kind}}',
+		'{{#kind state}}{{:case up up}}{{:case down cleared}}{{/kind}}',
+	]) expect(() => compile(fixture(source))).toThrow('repeats another case');
+});
+
+it('omits one final file line break and permits raw_last on the last line', async () => {
+	const render = await renderer('{{body | raw_last}}\n');
+	expect(render(view)).toBe(hostile);
+	const blank = await renderer('{{t "label"}}\n\n');
+	expect(blank(view)).toBe('Result\n');
+});
+
+it('escapes hostile thread titles and author names through their inline cell forms', async () => {
+	const render = await renderer('| {{ref | cell}} | {{author | cell}} |\n');
+	const title = '---\n### | `x` \\| {{t "x"}}';
+	const author = '> name |\n``` \\| {{t "x"}}';
+	expect(render({
+		...view,
+		ref: { kind: 'threadRef', value: { ref: 't/a', title, privateField: 'SECRET' } },
+		author: { kind: 'author', value: { ref: 'u/a', displayName: author, person: 'other', privateField: 'SECRET' } },
+	})).toBe('| t/a 「--- ### \\| `x` ' + '\\'.repeat(3) + '| {{t "x"}}」 | > name \\| ``` ' + '\\'.repeat(3) + '| {{t "x"}} u/a |');
+});
+
+it('generates real runtime views and maps project type errors to template lines', async () => {
+	const directory = join(repository, '.wrangler/result-template-tests');
+	mkdirSync(directory, { recursive: true });
+	const root = mkdtempSync(join(directory, 'runtime-'));
+	roots.push(root);
+	copyResultProject(repository, root);
+	const runtime = join(root, 'workers/agent-runtime/src');
+	writeFileSync(join(runtime, 'runtime/result-template-probe.ts'), `
+import type { FreeText } from '../localization/result-template.ts';
+import type { withRunExecution } from './execution-scope.ts';
+export type ProbeView = { rows: { title: FreeText }[]; execution?: typeof withRunExecution };
+`);
+	writeFileSync(join(runtime, 'localization/result-template-views.ts'), "export type { ProbeView } from '../runtime/result-template-probe.ts';\n");
+	const template = join(root, templateDirectory, 'probe.md');
+	writeFileSync(template, '{{! view: ProbeView }}\n| {{#each rows}}{{this.title | cell}}{{/each}} |\n');
+	await expect(generateLocalization(root)).resolves.toBe(1);
+	const messages = [];
+	expect(buildTypes(root, (message) => messages.push(message)), messages.join('')).toBe(0);
+	writeFileSync(join(runtime, 'runtime/result-template-unrelated.ts'), 'export const unrelated: number = "wrong";\n');
+	writeFileSync(template, '{{! view: ProbeView }}\n| {{#each rows}}{{this.missing | cell}}{{/each}} |\n');
+	await expect(generateLocalization(root)).resolves.toBe(1);
+	messages.length = 0;
+	expect(buildTypes(root, (message) => messages.push(message))).not.toBe(0);
+	expect(messages.join('')).toContain(`${template}: 2: TS2339:`);
+	expect(messages.join('')).toContain('result-template-unrelated.ts');
+	expect(messages.join('')).not.toContain("Cannot find name 'node:async_hooks'");
+}, 120000);
+
+it('keeps object narrowing through nested and grouped switches', async () => {
+	const render = await renderer('{{#kind event}}{{:case post}}{{#kind state}}{{:case up down cleared}}{{event.ref}}{{/kind}}{{:case empty}}{{/kind}}');
+	expect(render(view)).toBe('c/one');
+	expect(render({ ...view, event: { kind: 'empty' } })).toBe('');
+});
+
+it('passes the narrowed current value to a partial inside a root kind switch', async () => {
+	const render = await renderer('{{#kind this}}{{:case post}}{{> post}}{{:case empty}}{{/kind}}', {
+		post: '{{! view: PostEventView }}\n{{ref}}\n',
+	}, 'EventView');
+	expect(render(view.event)).toBe('c/one');
+	expect(render({ kind: 'empty' })).toBe('');
+});
+
+
+it('accepts an exhaustive switch with a single kind', async () => {
+	const render = await renderer('{{#kind this}}{{:case post}}{{ref}}{{/kind}}', {}, 'PostEventView');
+	expect(render(view.event)).toBe('c/one');
+});

@@ -133,7 +133,7 @@ it('includes templates in generation, stale detection, and atomic publication', 
 	await expect(generateLocalization(root, { check: true })).rejects.toThrow('Generated catalogs are stale');
 	expect(await generateLocalization(root)).toBe(1);
 	const valid = readFileSync(output, 'utf8');
-	writeFileSync(template, '{{! view: SampleView }}\n{{missing}}');
+	writeFileSync(template, '{{! view: SampleView }}\n{{ref | missing_filter}}');
 	await expect(generateLocalization(root)).rejects.toThrow('sample.md: 2:');
 	expect(readFileSync(output, 'utf8')).toBe(valid);
 	rmSync(template);

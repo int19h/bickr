@@ -22,3 +22,6 @@ export type FixtureView = {
 	readonly state: 'up' | 'down' | 'cleared';
 	readonly event: { readonly kind: 'post'; readonly ref: InlineValue<'commentRef'> } | { readonly kind: 'empty' };
 };
+
+export type EventView = FixtureView['event'];
+export type PostEventView = Extract<EventView, { readonly kind: 'post' }>;
