@@ -405,7 +405,7 @@ const runtimeIndexSelection = `SELECT runtime.bot_id AS botId,
 	 LEFT JOIN bots_index bots ON bots.bot_id = runtime.bot_id
 	 WHERE runtime.runtime_storage_cleared_at IS NULL`;
 
-async function loadRuntimeIndexChunk(
+export async function loadRuntimeIndexChunk(
 	db: D1DatabaseLike,
 	cursor: string | undefined,
 	limit: number,

@@ -272,6 +272,7 @@ function runtimeHarness(
 			BICKR_D1: db,
 			BICKR_KV: testEnv.BICKR_KV,
 		},
+		legacyToolRowCount: () => 0,
 		activeAbortController: null,
 		activeRunId: null,
 		runtimeStorageClearedAt: options.storageCleared ? "2026-08-23T00:00:00.000Z" : null,

@@ -1,3 +1,4 @@
+import type { LegacyHistoryCompactionResult, LegacyHistoryCost } from './legacy-history-maintenance';
 import { buildResultRenderContext, contextWithProducedReferences, resultViewsFromRows } from './result-render-context';
 import { type ResultRenderContext } from './tool-result-views';
 import { legacyResultFacets } from './legacy-result-facets';
@@ -68,7 +69,7 @@ import {
 	internalServiceUrl,
 	isTrustedInternalServiceRequest,
 } from '@bickr/shared/internal-service';
-import { mutationMaintenanceResponse, requireMaintenanceDisabled, MaintenanceModeEnabledError, MaintenanceControlUnavailableError } from '@bickr/shared/maintenance';
+import { isExplicitMaintenanceRequest, mutationMaintenanceResponse, requireMaintenanceDisabled, MaintenanceModeEnabledError, MaintenanceControlUnavailableError } from '@bickr/shared/maintenance';
 import {
 	botById,
 	botPublicProfile,
@@ -2258,7 +2259,7 @@ export class BotRuntime {
 			if (!isTrustedInternalServiceRequest(request, this.env.INTERNAL_SERVICE_SECRET)) {
 				return agentRuntimeNotFoundResponse();
 			}
-			const maintenanceResponse = await mutationMaintenanceResponse(request, this.env.BICKR_D1, {
+			const maintenanceResponse = isExplicitMaintenanceRequest(request) ? null : await mutationMaintenanceResponse(request, this.env.BICKR_D1, {
 				allowRuntimeStop: true,
 				allowRuntimeStaleRunRecovery: true,
 			});
@@ -2293,7 +2294,7 @@ export class BotRuntime {
 		}
 		if (request.method === 'GET' && url.pathname.endsWith('/status')) {
 			await this.requireOwnerOrInternal(request, botId);
-			return ok({ status: await this.readStatus(botId) });
+			return ok({ status: { ...await this.readStatus(botId), legacyToolRows: this.legacyToolRowCount() } });
 		}
 
 		if (request.method === 'GET' && url.pathname.endsWith('/events')) {
@@ -2477,6 +2478,11 @@ export class BotRuntime {
 			await this.requireOwnerOrInternal(request, botId);
 			const cleared = await this.clearHistory(botId);
 			return ok({ cleared });
+		}
+
+		if (request.method === 'POST' && url.pathname.endsWith('/maintenance/legacy-history/compact')) {
+			this.requireInternalMaintenance(request);
+			return ok({ compaction: await this.compactLegacyHistory(botId) });
 		}
 
 		if (request.method === 'POST' && url.pathname.endsWith('/compact')) {
@@ -4460,6 +4466,7 @@ export class BotRuntime {
 		bot?: BotDocument,
 		initialReasoning?: CompactionAttemptReasoningState,
 		requestContextWindowTokens?: number,
+		legacyCost?: LegacyHistoryCost,
 	): Promise<
 		Pick<ProviderResponse, 'usage' | 'responseId' | 'responseModel' | 'responseProviderName' | 'requestBody' | 'rawResponse' | 'inferenceAttribution'> & {
 			compactionReasoning: CompactionAttemptReasoningState;
@@ -4523,7 +4530,14 @@ export class BotRuntime {
 			const body = stringifyProviderRequest(request);
 			const inferenceAttribution = bot ? this.recordInferenceAttribution(request, bot, runId, requestSeq, requestContextWindowTokens) : undefined;
 			try {
+				if (legacyCost) { legacyCost.providerCalls += 1; legacyCost.usageMissingCalls += 1; }
 				const response = await this.fetchProviderCompactionResponse(requestSettings, endpoint, body, signal, limits, mode);
+				if (response.usage && legacyCost) {
+					legacyCost.usageMissingCalls -= 1;
+					legacyCost.promptTokens += response.usage.promptTokens;
+					legacyCost.completionTokens += response.usage.completionTokens;
+					legacyCost.totalTokens += response.usage.totalTokens;
+				}
 				if (response.usage) {
 					this.recordProviderTokenCalibrationSample({
 						attempt: attemptState.calibrationAttempt,
@@ -4556,6 +4570,18 @@ export class BotRuntime {
 					settings: requestSettings,
 				});
 				if (error instanceof TickStoppedError || isAbortError(error)) {
+					throw error;
+				}
+				if (legacyCost) {
+					const usage = providerTokenUsageMetadataFromError(error)?.usage;
+					if (usage) {
+						legacyCost.usageMissingCalls -= 1;
+						legacyCost.promptTokens += usage.promptTokens;
+						legacyCost.completionTokens += usage.completionTokens;
+						legacyCost.totalTokens += usage.totalTokens;
+					}
+					// The operator retries failures in a later pass. This route never
+					// retries transport errors, schema repair, or output-limit shrinkage.
 					throw error;
 				}
 				const input = this.compactionAttemptInputForError({
@@ -7378,6 +7404,64 @@ export class BotRuntime {
 		};
 	}
 
+	// After the active-row census reaches zero, advance the view schema version
+	// and remove these census and compaction methods with their maintenance routes.
+	private legacyToolRowCount(): number {
+		return this.state.storage.sql.exec<{ count: number }>(
+			`SELECT COUNT(*) AS count FROM loop_messages
+			 WHERE role = 'tool' AND tool_result_view_json IS NULL
+			   AND compacted_by IS NULL AND deleted_at IS NULL`,
+		).one().count;
+	}
+
+	private async compactLegacyHistory(botId: string): Promise<LegacyHistoryCompactionResult> {
+		const cost: LegacyHistoryCost = { providerCalls: 0, promptTokens: 0, completionTokens: 0, totalTokens: 0, usageMissingCalls: 0 };
+		const before = this.legacyToolRowCount();
+		if (before === 0) return { kind: 'unchanged', before, remaining: 0, ...cost };
+		// The transition queue covers the status read and maintenance reservation.
+		// Do not reap or stop a run, even when its lease looks stale.
+		const reserved = await this.runtimeTransitionQueue().run(async () => {
+			if (this.activeRunId || this.activeMaintenanceOperation || this.liveness.read()) return false;
+			const status = await this.readStatus(botId);
+			if (status.status === 'running' || this.activeRunId || this.activeMaintenanceOperation || this.liveness.read()) return false;
+			this.requireWritableRuntimeStorage();
+			this.activeMaintenanceOperation = 'manual_compaction';
+			return true;
+		});
+		if (!reserved) return { kind: 'deferred', before, remaining: this.legacyToolRowCount(), ...cost };
+		try {
+			const bot = await this.botWithEffectivePostingSettings(await botById(this.env.BICKR_KV, this.env.BICKR_D1, botId));
+			const owner = await userById(this.env.BICKR_KV, bot.ownerUserId);
+			const settings = withProviderText(await this.effectiveProviderSettings(bot, owner), bot.text);
+			if (!settings.apiKey && !settings.usesCustomBaseUrl) {
+				return { kind: 'failed', errorKind: 'no_key', before, remaining: this.legacyToolRowCount(), ...cost };
+			}
+			const candidates = this.compactionCandidateRows();
+			const lastLegacy = candidates.findLastIndex(row => row.role === 'tool' && row.tool_result_view_json == null);
+			const rows = candidates.slice(0, lastLegacy + 1);
+			// A mixed protocol group cannot lose only its old results. Keep the
+			// complete group for operator review instead of compacting a stored view.
+			const lastMessage = rows.at(-1);
+			const next = candidates[lastLegacy + 1];
+			if (lastLegacy < 0 || rows.some(row => row.tool_result_view_json != null) ||
+				(next?.role === 'tool' && lastMessage?.role === 'tool')) {
+				return { kind: 'failed', errorKind: 'protected_view_group', before, remaining: this.legacyToolRowCount(), ...cost };
+			}
+			const context = await buildResultRenderContext(this.env.BICKR_D1, bot, resultViewsFromRows(this.activeLoopMessageRows()));
+			await this.compactLoopMessageRowsInBatches(context, bot, settings, crypto.randomUUID(), new AbortController().signal, rows, 'auto', {}, cost);
+			const remaining = this.legacyToolRowCount();
+			return remaining === 0
+				? { kind: 'compacted', before, remaining, ...cost }
+				: { kind: 'failed', errorKind: 'legacy_rows_remain', before, remaining, ...cost };
+		} catch (error) {
+			const cause = runtimeErrorCause(error);
+			return { kind: 'failed', errorKind: typeof cause === 'string' ? error instanceof RepositoryError ? error.code : 'runtime_error' : cause.kind,
+				before, remaining: this.legacyToolRowCount(), ...cost };
+		} finally {
+			this.finishMaintenanceOperation('manual_compaction');
+		}
+	}
+
 	private async manualCompactLoopMessages(botId: string): Promise<{ fromSeq?: number; toSeq?: number; messageCount: number }> {
 		await this.beginMaintenanceOperation(botId, 'manual_compaction', 'Cannot compact loop history while the bot is running.');
 		try {
@@ -7411,6 +7495,7 @@ export class BotRuntime {
 		rows: LoopMessageRow[],
 		mode: 'auto' | 'manual',
 		metrics: CompactionMetrics,
+		legacyCost?: LegacyHistoryCost,
 	): Promise<void> {
 		let remaining = rows;
 		let batchIndex = 0;
@@ -7462,7 +7547,7 @@ export class BotRuntime {
 				...metrics,
 				...(rows.length !== selected.length ? { batchIndex } : {}),
 				...(selection.overBudgetFallback ? { compactionOverBudgetFallback: true } : {}),
-			});
+			}, legacyCost);
 			const selectedSeqs = new Set((compactedRows.length > 0 ? compactedRows : selected).map((row) => row.seq));
 			remaining = remaining.filter((row) => !selectedSeqs.has(row.seq));
 			batchIndex += 1;
@@ -7491,6 +7576,7 @@ export class BotRuntime {
 		compacted: LoopMessageRow[],
 		mode: 'auto' | 'manual',
 		metrics: CompactionMetrics,
+		legacyCost?: LegacyHistoryCost,
 	): Promise<LoopMessageRow[]> {
 		await this.renewProgressLease(bot.id, runId, signal);
 		let providerRows = compacted.filter((row) => loopMessageContributesToCompactionProviderInput(row));
@@ -7618,6 +7704,7 @@ export class BotRuntime {
 							bot,
 							compactionReasoning,
 							requestContextWindowTokens,
+							legacyCost,
 						)
 					: {
 							compactionReasoning,
@@ -7625,7 +7712,7 @@ export class BotRuntime {
 						};
 				break;
 			} catch (error) {
-				const reducedRows = isProviderCompactionOutputLimitFailure(error)
+				const reducedRows = !legacyCost && isProviderCompactionOutputLimitFailure(error)
 					? reducedCompactionRowsAfterOutputLimit(providerRows, calibration, context)
 					: providerRows;
 				if (reducedRows.length > 0 && reducedRows.length < providerRows.length) {
