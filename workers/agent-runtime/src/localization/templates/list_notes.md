@@ -11,7 +11,9 @@ Example output:
 - {{this}}
 {{/each}}
 {{else}}
+{{#unless omitted}}
 {{t "result.notes.none"}}
+{{/unless}}
 {{/if}}
 {{#if cursor}}
 {{t "result.notes.next_cursor" cursor=cursor}}

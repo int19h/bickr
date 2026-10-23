@@ -9,7 +9,7 @@ Recent activity of u/alice:
 {{t "result.activity.heading" profile=profile}}
 {{#if activities}}
 {{#each activities}}
-- {{message | text}}{{#if preview}} {{preview | line}}{{/if}}{{#if reason}} {{t "result.activity.reason"}} {{reason | line}}{{/if}}
+- {{t "result.timestamp" when=when}}. {{message | text}}{{#if preview}} {{preview | line}}{{/if}}{{#if reason}} {{t "result.activity.reason"}} {{reason | line}}{{/if}}
 {{#if parentPreview}}
   - {{t "result.activity.parent_preview"}} {{parentPreview | line}}
 {{/if}}
@@ -18,7 +18,9 @@ Recent activity of u/alice:
 {{/if}}
 {{/each}}
 {{else}}
+{{#unless omitted}}
 {{t "result.activity.none"}}
+{{/unless}}
 {{/if}}
 {{#if omitted}}
 {{t "result.list.omitted" count=omitted}}

@@ -13,7 +13,9 @@ Example output:
 | {{ref | cell}} | {{thread | cell}} | {{forum | cell}} | {{author | cell}} | {{when}} | {{#if known}}{{t "result.search.seen_earlier"}}{{else}}{{snippet | cell}}{{/if}} |
 {{/each}}
 {{else}}
+{{#unless omitted}}
 {{t "result.search.none"}}
+{{/unless}}
 {{/if}}
 {{#if omitted}}
 {{t "result.list.omitted" count=omitted}}

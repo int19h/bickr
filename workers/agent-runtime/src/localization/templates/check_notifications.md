@@ -6,7 +6,9 @@ Example output:
 - Timestamp: 1d0h0m. Alice u/alice upvoted my comment c/abc.
 }}
 {{#unless events}}
+{{#unless omitted}}
 {{t "result.notifications.none"}}
+{{/unless}}
 {{/unless}}
 {{#if omitted}}
 {{t "result.notifications.omitted" count=omitted}}
@@ -19,7 +21,7 @@ Example output:
 {{/unless}}
 {{#kind this}}
 {{:case notice}}
-- {{message | text}}
+- {{t "result.timestamp" when=when}}. {{message | text}}
 {{:case bootstrap}}
 ### {{t "result.notifications.bootstrap.heading"}}
 {{t "result.timestamp" when=when}}
@@ -27,6 +29,7 @@ Example output:
 {{message | quote}}
 {{:case thread_post}}
 ## {{thread}}
+{{t "result.timestamp" when=when}}
 {{message | text}}
 
 {{> body post}}
@@ -34,7 +37,9 @@ Example output:
 {{#if heading}}
 ## {{heading}}
 {{/if}}
+{{#if message}}
 {{message | text}}
+{{/if}}
 {{#each posts}}
 {{#unless @first}}
 
@@ -48,7 +53,7 @@ Example output:
 | {{t "result.column.item"}} | {{t "result.column.thread"}} | {{t "result.column.when"}} |
 |---|---|---|
 {{#each activities}}
-| {{ref | cell}} | {{thread | cell}} | {{when}} |
+| {{ref | cell}} | {{#if thread}}{{thread | cell}}{{else}}{{title | cell}}{{/if}} | {{when}} |
 {{/each}}
 {{#if olderOmitted}}
 {{t "result.notifications.digest.older_omitted"}}

@@ -13,7 +13,9 @@ Example output:
 | {{ref | cell}} | {{description | cell}} | {{#if readOnly}}{{t "result.forums.read_only"}}{{/if}} |
 {{/each}}
 {{else}}
+{{#unless omitted}}
 {{t "result.forums.none"}}
+{{/unless}}
 {{/if}}
 {{#if omitted}}
 {{t "result.list.omitted" count=omitted}}

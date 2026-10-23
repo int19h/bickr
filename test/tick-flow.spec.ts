@@ -1273,8 +1273,7 @@ describe("Tick flow", () => {
 		);
 			const result = resultTextForTool(messages, 'check_notifications');
 			expect(Math.ceil(result.length / 4)).toBeLessThanOrEqual(tokenBudget);
-			expect(result).toContain('1 lower-priority or older notification is omitted. It stays pending.');
-			expect(result).toContain('No new notifications.');
+			expect(result).toBe('1 lower-priority or older notification is omitted. It stays pending.');
 			expect(result).not.toContain(longCommentText);
 			expect(result).not.toContain('…');
 		});

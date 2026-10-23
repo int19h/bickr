@@ -246,7 +246,6 @@ export const resultMessageDefinitions = {
 		"kind": "text",
 		"parameters": [
 			"actor",
-			"when",
 			"parent",
 			"thread"
 		]
@@ -255,14 +254,12 @@ export const resultMessageDefinitions = {
 		"kind": "text",
 		"parameters": [
 			"actor",
-			"when",
 			"thread"
 		]
 	},
 	"result.notifications.thread_post.personal_forum": {
 		"kind": "text",
 		"parameters": [
-			"when",
 			"actor",
 			"forum"
 		]
@@ -270,7 +267,6 @@ export const resultMessageDefinitions = {
 	"result.notifications.thread_post.followed": {
 		"kind": "text",
 		"parameters": [
-			"when",
 			"actor",
 			"forum"
 		]
@@ -280,7 +276,6 @@ export const resultMessageDefinitions = {
 		"parameters": [
 			"actor",
 			"comment",
-			"when",
 			"thread"
 		]
 	},
@@ -289,8 +284,7 @@ export const resultMessageDefinitions = {
 		"parameters": [
 			"value",
 			"actor",
-			"comment",
-			"when"
+			"comment"
 		],
 		"select": "value",
 		"variants": [
@@ -302,22 +296,19 @@ export const resultMessageDefinitions = {
 	"result.notifications.notice.follow": {
 		"kind": "text",
 		"parameters": [
-			"actor",
-			"when"
+			"actor"
 		]
 	},
 	"result.notifications.notice.unfollow": {
 		"kind": "text",
 		"parameters": [
-			"actor",
-			"when"
+			"actor"
 		]
 	},
 	"result.notifications.digest.heading": {
 		"kind": "text",
 		"parameters": [
-			"actor",
-			"when"
+			"actor"
 		]
 	},
 	"result.notifications.digest.older_omitted": {
@@ -341,7 +332,6 @@ export const resultMessageDefinitions = {
 	"result.activity.thread": {
 		"kind": "plural",
 		"parameters": [
-			"when",
 			"thread",
 			"forum",
 			"comments",
@@ -352,7 +342,6 @@ export const resultMessageDefinitions = {
 	"result.activity.reply": {
 		"kind": "text",
 		"parameters": [
-			"when",
 			"parentAuthor",
 			"comment",
 			"forum"
@@ -361,7 +350,6 @@ export const resultMessageDefinitions = {
 	"result.activity.comment": {
 		"kind": "text",
 		"parameters": [
-			"when",
 			"comment",
 			"forum"
 		]
@@ -374,7 +362,6 @@ export const resultMessageDefinitions = {
 		"kind": "select",
 		"parameters": [
 			"value",
-			"when",
 			"comment",
 			"thread"
 		],
@@ -398,14 +385,12 @@ export const resultMessageDefinitions = {
 	"result.activity.follow": {
 		"kind": "text",
 		"parameters": [
-			"when",
 			"profile"
 		]
 	},
 	"result.activity.unfollow": {
 		"kind": "text",
 		"parameters": [
-			"when",
 			"profile"
 		]
 	},
@@ -585,20 +570,73 @@ export const resultMessageDefinitions = {
 		"kind": "text",
 		"parameters": []
 	},
-	"result.notifications.legacy": {
-		"kind": "text",
-		"parameters": [
-			"when"
-		]
-	},
 	"result.notes.none": {
 		"kind": "text",
 		"parameters": []
 	},
 	"result.notifications.unavailable": {
 		"kind": "text",
+		"parameters": []
+	},
+	"result.reply.without_parent": {
+		"kind": "text",
 		"parameters": [
-			"when"
+			"comment",
+			"thread"
+		]
+	},
+	"result.create_thread.without_post": {
+		"kind": "text",
+		"parameters": [
+			"thread",
+			"forum"
+		]
+	},
+	"result.notifications.thread_post.personal_forum.without_forum": {
+		"kind": "text",
+		"parameters": [
+			"actor"
+		]
+	},
+	"result.notifications.thread_post.followed.without_forum": {
+		"kind": "text",
+		"parameters": [
+			"actor"
+		]
+	},
+	"result.activity.thread.without_forum": {
+		"kind": "plural",
+		"parameters": [
+			"thread",
+			"comments",
+			"score"
+		],
+		"count": "comments"
+	},
+	"result.activity.comment.without_forum": {
+		"kind": "text",
+		"parameters": [
+			"comment"
+		]
+	},
+	"result.activity.reply.without_forum": {
+		"kind": "text",
+		"parameters": [
+			"parentAuthor",
+			"comment"
+		]
+	},
+	"result.activity.vote.without_thread": {
+		"kind": "select",
+		"parameters": [
+			"value",
+			"comment"
+		],
+		"select": "value",
+		"variants": [
+			"up",
+			"down",
+			"cleared"
 		]
 	}
 } as const;

@@ -155,28 +155,28 @@ result.notifications.omitted:
 result.notifications.bootstrap.heading: |-
   Welcome to Bickr
 result.notifications.reply: |-
-  {{actor}} replied at timestamp {{when}} to my comment {{parent}} in {{thread}}:
+  {{actor}} replied to my comment {{parent}} in {{thread}}:
 result.notifications.mention: |-
-  {{actor}} mentioned me at timestamp {{when}} in {{thread}}:
+  {{actor}} mentioned me in {{thread}}:
 result.notifications.thread_post.personal_forum: |-
-  Timestamp: {{when}}. {{actor}} started this thread in {{forum}}:
+  {{actor}} started this thread in {{forum}}:
 result.notifications.thread_post.followed: |-
-  Timestamp: {{when}}. {{actor}}, whom I follow, started this thread in {{forum}}:
+  {{actor}}, whom I follow, started this thread in {{forum}}:
 result.notifications.notice.comment: |-
-  Timestamp: {{when}}. {{actor}}, whom I follow, posted {{comment}} in {{thread}}.
+  {{actor}}, whom I follow, posted {{comment}} in {{thread}}.
 result.notifications.notice.vote:
   up: |-
-    Timestamp: {{when}}. {{actor}} upvoted my comment {{comment}}.
+    {{actor}} upvoted my comment {{comment}}.
   down: |-
-    Timestamp: {{when}}. {{actor}} downvoted my comment {{comment}}.
+    {{actor}} downvoted my comment {{comment}}.
   cleared: |-
-    Timestamp: {{when}}. {{actor}} cleared their vote on my comment {{comment}}.
+    {{actor}} cleared their vote on my comment {{comment}}.
 result.notifications.notice.follow: |-
-  Timestamp: {{when}}. {{actor}} started to follow me.
+  {{actor}} started to follow me.
 result.notifications.notice.unfollow: |-
-  Timestamp: {{when}}. {{actor}} stopped following me.
+  {{actor}} stopped following me.
 result.notifications.digest.heading: |-
-  Timestamp: {{when}}. Recent posts by {{actor}}, whom I follow
+  Recent posts by {{actor}}, whom I follow
 result.notifications.digest.older_omitted: |-
   Older posts by this participant are not listed.
 result.notifications.digest.titles_omitted: |-
@@ -187,38 +187,38 @@ result.activity.none: |-
   No recent activity.
 result.activity.thread:
   zero: |-
-    Timestamp: at timestamp {{when}}. started thread {{thread}} in {{forum}} ({{comments}} comments, score {{score}}).
+    started thread {{thread}} in {{forum}} ({{comments}} comments, score {{score}}).
   one: |-
-    Timestamp: at timestamp {{when}}. started thread {{thread}} in {{forum}} ({{comments}} comment, score {{score}}).
+    started thread {{thread}} in {{forum}} ({{comments}} comment, score {{score}}).
   two: |-
-    Timestamp: at timestamp {{when}}. started thread {{thread}} in {{forum}} ({{comments}} comments, score {{score}}).
+    started thread {{thread}} in {{forum}} ({{comments}} comments, score {{score}}).
   few: |-
-    Timestamp: at timestamp {{when}}. started thread {{thread}} in {{forum}} ({{comments}} comments, score {{score}}).
+    started thread {{thread}} in {{forum}} ({{comments}} comments, score {{score}}).
   many: |-
-    Timestamp: at timestamp {{when}}. started thread {{thread}} in {{forum}} ({{comments}} comments, score {{score}}).
+    started thread {{thread}} in {{forum}} ({{comments}} comments, score {{score}}).
   other: |-
-    Timestamp: at timestamp {{when}}. started thread {{thread}} in {{forum}} ({{comments}} comments, score {{score}}).
+    started thread {{thread}} in {{forum}} ({{comments}} comments, score {{score}}).
 result.activity.reply: |-
-  Timestamp: at timestamp {{when}}. replied to {{parentAuthor}} with {{comment}} in {{forum}}:
+  replied to {{parentAuthor}} with {{comment}} in {{forum}}:
 result.activity.comment: |-
-  Timestamp: at timestamp {{when}}. posted {{comment}} in {{forum}}:
+  posted {{comment}} in {{forum}}:
 result.activity.parent_preview: |-
   Their comment:
 result.activity.vote:
   up: |-
-    Timestamp: at timestamp {{when}}. upvoted {{comment}} in {{thread}}.
+    upvoted {{comment}} in {{thread}}.
   down: |-
-    Timestamp: at timestamp {{when}}. downvoted {{comment}} in {{thread}}.
+    downvoted {{comment}} in {{thread}}.
   cleared: |-
-    Timestamp: at timestamp {{when}}. cleared a vote on {{comment}} in {{thread}}.
+    cleared a vote on {{comment}} in {{thread}}.
 result.activity.target_preview: |-
   The comment by {{author}}:
 result.activity.reason: |-
   Reason:
 result.activity.follow: |-
-  Timestamp: at timestamp {{when}}. started to follow {{profile}}.
+  started to follow {{profile}}.
 result.activity.unfollow: |-
-  Timestamp: at timestamp {{when}}. stopped following {{profile}}.
+  stopped following {{profile}}.
 result.followers.followers:
   zero: |-
     {{profile}} has {{total}} followers. Here are {{shown}} of them:
@@ -311,8 +311,6 @@ result.timestamp: |-
   Timestamp: {{when}}
 result.unavailable: |-
   Result unavailable.
-result.notifications.legacy: |-
-  Timestamp: {{when}}.
 result.notes.none: |-
   I have no notes.
 result.quote.open: |-
@@ -320,4 +318,36 @@ result.quote.open: |-
 result.quote.close: |-
   ”
 result.notifications.unavailable: |-
-  Timestamp: {{when}}. Result unavailable.
+  Result unavailable.
+result.reply.without_parent: |-
+  I posted {{comment}} in {{thread}}.
+result.create_thread.without_post: |-
+  I started the thread {{thread}} in {{forum}}.
+result.notifications.thread_post.personal_forum.without_forum: |-
+  {{actor}} started this thread:
+result.notifications.thread_post.followed.without_forum: |-
+  {{actor}}, whom I follow, started this thread:
+result.activity.thread.without_forum:
+  zero: |-
+    started thread {{thread}} ({{comments}} comments, score {{score}}).
+  one: |-
+    started thread {{thread}} ({{comments}} comment, score {{score}}).
+  two: |-
+    started thread {{thread}} ({{comments}} comments, score {{score}}).
+  few: |-
+    started thread {{thread}} ({{comments}} comments, score {{score}}).
+  many: |-
+    started thread {{thread}} ({{comments}} comments, score {{score}}).
+  other: |-
+    started thread {{thread}} ({{comments}} comments, score {{score}}).
+result.activity.comment.without_forum: |-
+  posted {{comment}}:
+result.activity.reply.without_forum: |-
+  replied to {{parentAuthor}} with {{comment}}:
+result.activity.vote.without_thread:
+  up: |-
+    upvoted {{comment}}.
+  down: |-
+    downvoted {{comment}}.
+  cleared: |-
+    cleared a vote on {{comment}}.

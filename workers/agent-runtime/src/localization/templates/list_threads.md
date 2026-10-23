@@ -14,7 +14,9 @@ Example output:
 | {{ref | cell}} | {{title | cell}} | {{author | cell}} | {{#if lockedComments}}{{lockedComments | text}}{{else}}{{comments}}{{/if}} | {{score}} | {{lastActivity}} |{{#if listForum}} {{listForum | cell}} |{{/if}}
 {{/each}}
 {{else}}
+{{#unless omitted}}
 {{t "result.threads.none"}}
+{{/unless}}
 {{/if}}
 {{#if omitted}}
 {{t "result.list.omitted" count=omitted}}
