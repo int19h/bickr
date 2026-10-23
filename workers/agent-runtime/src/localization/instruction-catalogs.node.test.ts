@@ -50,9 +50,13 @@ function allToolShapes(locale: typeof instructionLocales[number]): unknown {
 	]);
 }
 
+function messageDefinition(id: keyof typeof messageParameters): MessageDefinition {
+	return messageParameters[id];
+}
+
 function catalogSourceFingerprint(): string {
 	const sourceRecords = [...units].sort((a, b) => a.id.localeCompare(b.id, 'en')).map((unit) => {
-		const definition: MessageDefinition = messageParameters[unit.id];
+		const definition = messageDefinition(unit.id);
 		return {
 		id: unit.id, parameters: [...definition.parameters].sort(),
 		plural: definition.kind === 'plural' ? definition.count : null,
@@ -154,7 +158,7 @@ describe('reviewed instruction catalogs', () => {
 				parts.set(file, part);
 			}
 			const entry = part[unit.id];
-			const definition: MessageDefinition = messageParameters[unit.id];
+			const definition = messageDefinition(unit.id);
 			const variants = definition.kind !== 'text' ? Object.values(entry as Record<string, string>) : [entry as string];
 			if (definition.kind === 'plural') expect(Object.keys(entry).sort(), unit.id).toEqual([...categories].sort());
 			if (definition.kind === 'select') expect(Object.keys(entry).sort(), unit.id).toEqual([...definition.variants].sort());

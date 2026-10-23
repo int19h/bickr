@@ -1,5 +1,5 @@
 import { readFileSync, readdirSync } from 'node:fs';
-import { join, relative, resolve } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 import ts from 'typescript';
 import type { MessageDefinitions } from '../../packages/shared/src/instruction-template.ts';
 import { CatalogSourceError } from './catalog-source.ts';
@@ -251,7 +251,17 @@ export function compileResultTemplates(root: string, definitions: MessageDefinit
 		`import type { messageParameters } from ${JSON.stringify(definitionsModule)};`,
 	];
 	let content = [...prefix, ...bodyLines].join('\n') + '\n';
-	const optionsTs: ts.CompilerOptions = { target: ts.ScriptTarget.ES2024, module: ts.ModuleKind.ESNext, moduleResolution: ts.ModuleResolutionKind.Bundler, strict: true, noUnusedLocals: true, noUnusedParameters: true, noFallthroughCasesInSwitch: true, noEmit: true, skipLibCheck: true, allowImportingTsExtensions: true };
+	let optionsTs: ts.CompilerOptions = { target: ts.ScriptTarget.ES2024, module: ts.ModuleKind.ESNext, moduleResolution: ts.ModuleResolutionKind.Bundler, strict: true, noUnusedLocals: true, noUnusedParameters: true, noFallthroughCasesInSwitch: true, noEmit: true, skipLibCheck: true, allowImportingTsExtensions: true };
+	const configFile = join(root, 'workers/agent-runtime/tsconfig.json');
+	if (ts.sys.fileExists(configFile)) {
+		const config = ts.readConfigFile(configFile, ts.sys.readFile);
+		if (config.error) fail(configFile, 1, ts.flattenDiagnosticMessageText(config.error.messageText, '\n'));
+		const parsed = ts.parseJsonConfigFileContent(config.config, ts.sys, dirname(configFile), {}, configFile);
+		if (parsed.errors.length) fail(configFile, 1, ts.flattenDiagnosticMessageText(parsed.errors[0]!.messageText, '\n'));
+		// Use the runtime types and libraries without writing its build cache.
+		optionsTs = { ...optionsTs, ...parsed.options, noEmit: true, incremental: false, composite: false, tsBuildInfoFile: undefined };
+	}
+
 	function program(previous?: ts.Program): ts.Program {
 		const host = ts.createCompilerHost(optionsTs);
 		const original = host.getSourceFile.bind(host);

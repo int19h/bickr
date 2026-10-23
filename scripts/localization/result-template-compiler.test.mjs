@@ -155,3 +155,17 @@ it('keeps inline count formatting in plural parameters', async () => {
 it('keeps an authored backslash from opening another table cell', () => {
 	expect(cell(' x\\|y ')).toBe('x' + '\\'.repeat(3) + '|y');
 });
+
+it('uses the runtime TypeScript configuration for view dependencies', () => {
+	const root = fixture('{{ref}}');
+	const runtime = join(root, 'workers/agent-runtime');
+	writeFileSync(join(runtime, 'tsconfig.json'), JSON.stringify({
+		compilerOptions: { strict: true, types: ['./template-types'], lib: ['es2024'] }, include: ['src'],
+	}));
+	writeFileSync(join(runtime, 'template-types.d.ts'), `import type { InlineValue } from ${JSON.stringify(join(repository, 'workers/agent-runtime/src/localization/result-template.ts'))};\ndeclare global { type TemplateReference = InlineValue<'profileRef'>; }\n`);
+	const views = join(runtime, 'src/localization/views.ts');
+	writeFileSync(views, 'export type FixtureView = { readonly ref: TemplateReference };\n');
+	expect(compileResultTemplates(root, messageParameters, {
+		viewModule: views, definitionsModule: join(repository, 'scripts/localization/fixtures/result-messages.ts'),
+	})[0].content).toContain('view.ref');
+}, 30000);
