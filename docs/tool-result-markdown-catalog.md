@@ -17,6 +17,7 @@ Each language has the same keys and parameters.
 | `result.comment.hidden_replies` | `results.yaml` | `localization/templates/partials/comment.md` |
 | `result.comment.ancestor_only` | `results.yaml` | `localization/templates/partials/comment.md` |
 | `result.thread.facts` | `results.yaml` | `runtime/tool-result-markdown.ts` |
+| `result.thread.facts_locked` | `results.yaml` | `runtime/tool-result-markdown.ts` |
 | `result.read.pruned` | `results.yaml` | `localization/templates/read_comment_by_id.md`, `localization/templates/read_thread.md` |
 | `result.list.omitted` | `results.yaml` | `localization/templates/follow_profile.md`, `localization/templates/list_accessible_forums.md`, `localization/templates/list_notes.md`, `localization/templates/list_threads.md`, `localization/templates/profiles.md`, `localization/templates/query_followers.md`, `localization/templates/search_threads.md`, `localization/templates/view_activity.md`, `localization/templates/vote.md` |
 | `result.column.forum` | `results.yaml` | `localization/templates/list_accessible_forums.md`, `localization/templates/list_threads.md`, `localization/templates/search_threads.md` |
@@ -46,6 +47,7 @@ Each language has the same keys and parameters.
 | `result.search.seen_earlier` | `results.yaml` | `localization/templates/search_threads.md` |
 | `result.profiles.none` | `results.yaml` | `localization/templates/profiles.md` |
 | `result.profiles.window` | `results.yaml` | `runtime/tool-result-markdown.ts` |
+| `result.profiles.window_empty` | `results.yaml` | `runtime/tool-result-markdown.ts` |
 | `result.profiles.next_offset` | `results.yaml` | `runtime/tool-result-markdown.ts` |
 | `result.profiles.random` | `results.yaml` | `runtime/tool-result-markdown.ts` |
 | `result.profiles.relation.mutual` | `results.yaml` | `localization/templates/profiles.md` |

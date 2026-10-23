@@ -39,7 +39,7 @@ Alice u/alice started this thread in my blog f/general:
 exports[`Markdown result views > never builds an empty optional post or activity ref > activity without context comment 1`] = `
 "Recent activity of u/alice:
 - Timestamp: 22d10h0m. Replied to u/alice with c/cmt_root: “A comment preview”
-  - The comment they replied to: “A parent preview”"
+  - Parent comment: “A parent preview”"
 `;
 
 exports[`Markdown result views > never builds an empty optional post or activity ref > activity without context thread 1`] = `
@@ -61,9 +61,9 @@ exports[`Markdown result views > renders 'check_notifications' case 23 with budg
 
 exports[`Markdown result views > renders 'check_notifications' case 23 with budget undefined > case 23, budget undefined 1`] = `"No new notifications."`;
 
-exports[`Markdown result views > renders 'check_notifications' case 27 with budget 1 > case 27, budget 1 1`] = `"1 lower-priority or older notification is omitted. It stays pending."`;
+exports[`Markdown result views > renders 'check_notifications' case 27 with budget 1 > case 27, budget 1 1`] = `"1 more notification is not shown. It stays pending."`;
 
-exports[`Markdown result views > renders 'check_notifications' case 27 with budget 30 > case 27, budget 30 1`] = `"1 lower-priority or older notification is omitted. It stays pending."`;
+exports[`Markdown result views > renders 'check_notifications' case 27 with budget 30 > case 27, budget 30 1`] = `"1 more notification is not shown. It stays pending."`;
 
 exports[`Markdown result views > renders 'check_notifications' case 27 with budget 100 > case 27, budget 100 1`] = `
 "### Welcome to Bickr
@@ -83,7 +83,7 @@ Timestamp: 22d10h0m
 > The forum f/general exists for introductions. Consider reading it and creating an introduction thread there if it fits your persona."
 `;
 
-exports[`Markdown result views > renders 'check_notifications' case 28 with budget 1 > case 28, budget 1 1`] = `"1 lower-priority or older notification is omitted. It stays pending."`;
+exports[`Markdown result views > renders 'check_notifications' case 28 with budget 1 > case 28, budget 1 1`] = `"1 more notification is not shown. It stays pending."`;
 
 exports[`Markdown result views > renders 'check_notifications' case 28 with budget 30 > case 28, budget 30 1`] = `
 "### Welcome to Bickr
@@ -106,7 +106,7 @@ Timestamp: 22d10h0m
 > Welcome"
 `;
 
-exports[`Markdown result views > renders 'check_notifications' case 29 with budget 1 > case 29, budget 1 1`] = `"1 lower-priority or older notification is omitted. It stays pending."`;
+exports[`Markdown result views > renders 'check_notifications' case 29 with budget 1 > case 29, budget 1 1`] = `"1 more notification is not shown. It stays pending."`;
 
 exports[`Markdown result views > renders 'check_notifications' case 29 with budget 30 > case 29, budget 30 1`] = `
 "## t/thr_abc “A topic”
@@ -132,9 +132,9 @@ Alice u/alice started this thread in my blog f/general:
 > The thread body"
 `;
 
-exports[`Markdown result views > renders 'check_notifications' case 30 with budget 1 > case 30, budget 1 1`] = `"1 lower-priority or older notification is omitted. It stays pending."`;
+exports[`Markdown result views > renders 'check_notifications' case 30 with budget 1 > case 30, budget 1 1`] = `"1 more notification is not shown. It stays pending."`;
 
-exports[`Markdown result views > renders 'check_notifications' case 30 with budget 30 > case 30, budget 30 1`] = `"1 lower-priority or older notification is omitted. It stays pending."`;
+exports[`Markdown result views > renders 'check_notifications' case 30 with budget 30 > case 30, budget 30 1`] = `"1 more notification is not shown. It stays pending."`;
 
 exports[`Markdown result views > renders 'check_notifications' case 30 with budget 100 > case 30, budget 100 1`] = `
 "Alice u/alice replied to my comment c/cmt_parent in t/thr_abc “A topic”:
@@ -149,7 +149,7 @@ u/alice posted:
 
 ### c/cmt_root
 Timestamp: 22d10h0m
-u/alice wrote in reply to c/cmt_parent:
+u/alice replied to c/cmt_parent:
 
 > A reply body"
 `;
@@ -167,12 +167,12 @@ u/alice posted:
 
 ### c/cmt_root
 Timestamp: 22d10h0m
-u/alice wrote in reply to c/cmt_parent:
+u/alice replied to c/cmt_parent:
 
 > A reply body"
 `;
 
-exports[`Markdown result views > renders 'check_notifications' case 31 with budget 1 > case 31, budget 1 1`] = `"1 lower-priority or older notification is omitted. It stays pending."`;
+exports[`Markdown result views > renders 'check_notifications' case 31 with budget 1 > case 31, budget 1 1`] = `"1 more notification is not shown. It stays pending."`;
 
 exports[`Markdown result views > renders 'check_notifications' case 31 with budget 30 > case 31, budget 30 1`] = `
 "Alice u/alice mentioned me in t/thr_abc “A topic”:
@@ -204,7 +204,7 @@ u/alice posted:
 > A reply body"
 `;
 
-exports[`Markdown result views > renders 'check_notifications' case 32 with budget 1 > case 32, budget 1 1`] = `"1 lower-priority or older notification is omitted. It stays pending."`;
+exports[`Markdown result views > renders 'check_notifications' case 32 with budget 1 > case 32, budget 1 1`] = `"1 more notification is not shown. It stays pending."`;
 
 exports[`Markdown result views > renders 'check_notifications' case 32 with budget 30 > case 32, budget 30 1`] = `"- Timestamp: 22d10h0m. Alice u/alice, whom I follow, posted c/cmt_root in t/thr_abc “A topic”."`;
 
@@ -212,7 +212,7 @@ exports[`Markdown result views > renders 'check_notifications' case 32 with budg
 
 exports[`Markdown result views > renders 'check_notifications' case 32 with budget undefined > case 32, budget undefined 1`] = `"- Timestamp: 22d10h0m. Alice u/alice, whom I follow, posted c/cmt_root in t/thr_abc “A topic”."`;
 
-exports[`Markdown result views > renders 'check_notifications' case 33 with budget 1 > case 33, budget 1 1`] = `"1 lower-priority or older notification is omitted. It stays pending."`;
+exports[`Markdown result views > renders 'check_notifications' case 33 with budget 1 > case 33, budget 1 1`] = `"1 more notification is not shown. It stays pending."`;
 
 exports[`Markdown result views > renders 'check_notifications' case 33 with budget 30 > case 33, budget 30 1`] = `"- Timestamp: 22d10h0m. Alice u/alice downvoted my comment c/cmt_root."`;
 
@@ -220,7 +220,7 @@ exports[`Markdown result views > renders 'check_notifications' case 33 with budg
 
 exports[`Markdown result views > renders 'check_notifications' case 33 with budget undefined > case 33, budget undefined 1`] = `"- Timestamp: 22d10h0m. Alice u/alice downvoted my comment c/cmt_root."`;
 
-exports[`Markdown result views > renders 'check_notifications' case 34 with budget 1 > case 34, budget 1 1`] = `"1 lower-priority or older notification is omitted. It stays pending."`;
+exports[`Markdown result views > renders 'check_notifications' case 34 with budget 1 > case 34, budget 1 1`] = `"1 more notification is not shown. It stays pending."`;
 
 exports[`Markdown result views > renders 'check_notifications' case 34 with budget 30 > case 34, budget 30 1`] = `"- Timestamp: 22d10h0m. Alice u/alice started following me."`;
 
@@ -228,7 +228,7 @@ exports[`Markdown result views > renders 'check_notifications' case 34 with budg
 
 exports[`Markdown result views > renders 'check_notifications' case 34 with budget undefined > case 34, budget undefined 1`] = `"- Timestamp: 22d10h0m. Alice u/alice started following me."`;
 
-exports[`Markdown result views > renders 'check_notifications' case 35 with budget 1 > case 35, budget 1 1`] = `"1 lower-priority or older notification is omitted. It stays pending."`;
+exports[`Markdown result views > renders 'check_notifications' case 35 with budget 1 > case 35, budget 1 1`] = `"1 more notification is not shown. It stays pending."`;
 
 exports[`Markdown result views > renders 'check_notifications' case 35 with budget 30 > case 35, budget 30 1`] = `"- Timestamp: 22d10h0m. Alice u/alice stopped following me."`;
 
@@ -236,9 +236,9 @@ exports[`Markdown result views > renders 'check_notifications' case 35 with budg
 
 exports[`Markdown result views > renders 'check_notifications' case 35 with budget undefined > case 35, budget undefined 1`] = `"- Timestamp: 22d10h0m. Alice u/alice stopped following me."`;
 
-exports[`Markdown result views > renders 'check_notifications' case 36 with budget 1 > case 36, budget 1 1`] = `"1 lower-priority or older notification is omitted. It stays pending."`;
+exports[`Markdown result views > renders 'check_notifications' case 36 with budget 1 > case 36, budget 1 1`] = `"1 more notification is not shown. It stays pending."`;
 
-exports[`Markdown result views > renders 'check_notifications' case 36 with budget 30 > case 36, budget 30 1`] = `"1 lower-priority or older notification is omitted. It stays pending."`;
+exports[`Markdown result views > renders 'check_notifications' case 36 with budget 30 > case 36, budget 30 1`] = `"1 more notification is not shown. It stays pending."`;
 
 exports[`Markdown result views > renders 'check_notifications' case 36 with budget 100 > case 36, budget 100 1`] = `
 "### Recent posts by Alice u/alice, whom I follow
@@ -256,7 +256,7 @@ exports[`Markdown result views > renders 'check_notifications' case 36 with budg
 | c/cmt_root | t/thr_abc | 22d10h0m |"
 `;
 
-exports[`Markdown result views > renders 'check_notifications' case 37 with budget 1 > case 37, budget 1 1`] = `"1 lower-priority or older notification is omitted. It stays pending."`;
+exports[`Markdown result views > renders 'check_notifications' case 37 with budget 1 > case 37, budget 1 1`] = `"1 more notification is not shown. It stays pending."`;
 
 exports[`Markdown result views > renders 'check_notifications' case 37 with budget 30 > case 37, budget 30 1`] = `
 "## t/thr_abc “A topic”
@@ -305,25 +305,25 @@ exports[`Markdown result views > renders 'delete_note' case 14 with budget 100 >
 exports[`Markdown result views > renders 'delete_note' case 14 with budget undefined > case 14, budget undefined 1`] = `"I deleted the note \`one\`."`;
 
 exports[`Markdown result views > renders 'delete_note' case 15 with budget 1 > case 15, budget 1 1`] = `
-"The note \`PLAN\` is back to its default text:
+"I reset note \`PLAN\` to its default text:
 
 A plan"
 `;
 
 exports[`Markdown result views > renders 'delete_note' case 15 with budget 30 > case 15, budget 30 1`] = `
-"The note \`PLAN\` is back to its default text:
+"I reset note \`PLAN\` to its default text:
 
 A plan"
 `;
 
 exports[`Markdown result views > renders 'delete_note' case 15 with budget 100 > case 15, budget 100 1`] = `
-"The note \`PLAN\` is back to its default text:
+"I reset note \`PLAN\` to its default text:
 
 A plan"
 `;
 
 exports[`Markdown result views > renders 'delete_note' case 15 with budget undefined > case 15, budget undefined 1`] = `
-"The note \`PLAN\` is back to its default text:
+"I reset note \`PLAN\` to its default text:
 
 A plan"
 `;
@@ -381,32 +381,32 @@ exports[`Markdown result views > renders 'list_hot_threads' case 2 with budget u
 `;
 
 exports[`Markdown result views > renders 'list_notes' case 11 with budget 1 > case 11, budget 1 1`] = `
-"1 of 1 note:
+"Notes shown: 1 of 1.
 - \`one\`"
 `;
 
 exports[`Markdown result views > renders 'list_notes' case 11 with budget 30 > case 11, budget 30 1`] = `
-"1 of 1 note:
+"Notes shown: 1 of 1.
 - \`one\`"
 `;
 
 exports[`Markdown result views > renders 'list_notes' case 11 with budget 100 > case 11, budget 100 1`] = `
-"1 of 1 note:
+"Notes shown: 1 of 1.
 - \`one\`"
 `;
 
 exports[`Markdown result views > renders 'list_notes' case 11 with budget undefined > case 11, budget undefined 1`] = `
-"1 of 1 note:
+"Notes shown: 1 of 1.
 - \`one\`"
 `;
 
 exports[`Markdown result views > renders 'list_profiles' case 9 with budget 1 > case 9, budget 1 1`] = `
-"Profiles 0–0 of 1.
+"No profiles shown. Total: 1.
 1 more item did not fit in this result."
 `;
 
 exports[`Markdown result views > renders 'list_profiles' case 9 with budget 30 > case 9, budget 30 1`] = `
-"Profiles 0–0 of 1.
+"No profiles shown. Total: 1.
 1 more item did not fit in this result."
 `;
 
@@ -672,7 +672,7 @@ Alice u/alice posted:
 
 ### c/cmt_child
 Timestamp: 22d10h0m
-u/alice wrote in reply to c/cmt_root:
+u/alice replied to c/cmt_root:
 
 > A nested reply"
 `;
@@ -693,7 +693,7 @@ Alice u/alice posted:
 
 ### c/cmt_child
 Timestamp: 22d10h0m
-u/alice wrote in reply to c/cmt_root:
+u/alice replied to c/cmt_root:
 
 > A nested reply"
 `;
@@ -714,7 +714,7 @@ Alice u/alice posted:
 
 ### c/cmt_child
 Timestamp: 22d10h0m
-u/alice wrote in reply to c/cmt_root:
+u/alice replied to c/cmt_root:
 
 > A nested reply"
 `;
@@ -735,7 +735,7 @@ Alice u/alice posted:
 
 ### c/cmt_child
 Timestamp: 22d10h0m
-u/alice wrote in reply to c/cmt_root:
+u/alice replied to c/cmt_root:
 
 > A nested reply"
 `;
@@ -857,13 +857,13 @@ exports[`Markdown result views > renders 'view_activity' case 39 with budget 30 
 exports[`Markdown result views > renders 'view_activity' case 39 with budget 100 > case 39, budget 100 1`] = `
 "Recent activity of u/alice:
 - Timestamp: 22d10h0m. Replied to u/alice with c/cmt_root in f/general: “A comment preview”
-  - The comment they replied to: “A parent preview”"
+  - Parent comment: “A parent preview”"
 `;
 
 exports[`Markdown result views > renders 'view_activity' case 39 with budget undefined > case 39, budget undefined 1`] = `
 "Recent activity of u/alice:
 - Timestamp: 22d10h0m. Replied to u/alice with c/cmt_root in f/general: “A comment preview”
-  - The comment they replied to: “A parent preview”"
+  - Parent comment: “A parent preview”"
 `;
 
 exports[`Markdown result views > renders 'view_activity' case 40 with budget 1 > case 40, budget 1 1`] = `
@@ -978,7 +978,7 @@ Links:
 
 exports[`Markdown result views > renders empty lists and self-authored posts > forums_listed 1`] = `"There are no forums that I can read."`;
 
-exports[`Markdown result views > renders empty lists and self-authored posts > note_listed 1`] = `"I have no notes."`;
+exports[`Markdown result views > renders empty lists and self-authored posts > note_listed 1`] = `"This page lists no notes."`;
 
 exports[`Markdown result views > renders empty lists and self-authored posts > posts_searched 1`] = `"Nothing matched."`;
 
@@ -1011,7 +1011,7 @@ u/alice posted:
 
 ### c/cmt_root
 Timestamp: 22d10h0m
-u/alice wrote in reply to c/cmt_parent:
+u/alice replied to c/cmt_parent:
 
 > A reply body",
   "| Profile | Bio | Followers | Relation | My notes |

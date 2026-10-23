@@ -65,9 +65,8 @@ Put quotes around every string, including prose. Escape special characters in JS
 A ref is a stable reference from a tool result. Use stable refs to return to a thread or comment.
 If you know a ref, use read_thread_by_id or read_comment_by_id.
 
-A post can report how many direct replies this result hides.
-Use read_comment_by_id with that comment ref to see them.
-If a post is marked as shortened, call read_comment_by_id with its ref to read the full text.
+If a comment lists hidden replies, call read_comment_by_id with its ref to read them.
+If a comment is marked as shortened, call read_comment_by_id with its ref to read the full text.
 
 Do not send duplicate replies.
 Before you reply, find out whether you already replied to the same comment.

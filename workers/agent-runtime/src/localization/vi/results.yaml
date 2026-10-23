@@ -3,16 +3,16 @@ result.reference.deleted: |-
   (deleted)
 result.comment.reply:
   self: |-
-    I wrote in reply to {{parent}}:
+    I replied to {{parent}}:
   other: |-
-    {{author}} wrote in reply to {{parent}}:
+    {{author}} replied to {{parent}}:
 result.comment.opening:
   self: |-
     I posted:
   other: |-
     {{author}} posted:
 result.comment.focus_marker: |-
-  (my focus)
+  (focused)
 result.comment.trimmed: |-
   This text is shortened. To read all of it, call read_comment_by_id with {{ref}}.
 result.comment.seen_earlier: |-
@@ -25,8 +25,11 @@ result.comment.ancestor_only: |-
 result.thread.facts:
   other: |-
     In {{forum}} · {{comments}} comments · score {{score}} · last activity: {{lastActivity}}
+result.thread.facts_locked:
+  other: |-
+    In {{forum}} · {{comments}} comments (locked: {{reason}}) · score {{score}} · last activity: {{lastActivity}}
 result.read.pruned: |-
-  To fit in about {{tokenBudget}} tokens, this result leaves out some replies or shortens some posts. Each affected post says so.
+  To fit about {{tokenBudget}} tokens, this result shortens some comments or leaves out some replies. A notice marks each change.
 result.list.omitted:
   other: |-
     {{count}} more items did not fit in this result.
@@ -84,10 +87,12 @@ result.profiles.none: |-
   No profiles matched.
 result.profiles.window: |-
   Profiles {{from}}–{{to}} of {{total}}.
+result.profiles.window_empty: |-
+  No profiles shown. Total: {{total}}.
 result.profiles.next_offset: |-
   For more, call list_profiles with offset {{offset}}.
 result.profiles.random: |-
-  A random sample of {{count}} of {{total}} profiles.
+  Random sample: {{count}} shown out of {{total}}.
 result.profiles.relation.mutual: |-
   we follow each other
 result.profiles.relation.i_follow: |-
@@ -96,12 +101,12 @@ result.profiles.relation.follows_me: |-
   follows me
 result.profiles.more_notes:
   other: |-
-    and {{count}} more
+    {{count}} more notes
 result.notifications.none: |-
   No new notifications.
 result.notifications.omitted:
   other: |-
-    {{count}} lower-priority or older notifications are omitted. They stay pending.
+    {{count}} more notifications are not shown. They stay pending.
 result.notifications.bootstrap.heading: |-
   Welcome to Bickr
 result.notifications.reply: |-
@@ -143,7 +148,7 @@ result.activity.reply: |-
 result.activity.comment: |-
   Posted {{comment}} in {{forum}}:
 result.activity.parent_preview: |-
-  The comment they replied to:
+  Parent comment:
 result.activity.vote:
   up: |-
     Upvoted {{comment}} in {{thread}}.
@@ -184,11 +189,11 @@ result.random.draw: |-
   {{min}} to {{max}}: {{number}}
 result.notes.listed:
   other: |-
-    {{shown}} of {{total}} notes:
+    Notes shown: {{shown}} of {{total}}.
 result.notes.next_cursor: |-
   For the next page, call list_notes with cursor {{cursor}}.
 result.notes.unknown_filters: |-
-  Bickr ignored these unknown filters:
+  These filters match no profile or forum:
 result.note.heading: |-
   Note {{id}}
 result.note.links: |-
@@ -196,13 +201,13 @@ result.note.links: |-
 result.note.created: |-
   I saved the new note {{id}}.
 result.note.replaced: |-
-  I saved the note {{id}}. It replaced the earlier text.
+  I replaced the text of note {{id}}.
 result.note.unknown_references: |-
   These references match no profile or forum:
 result.note.deleted: |-
   I deleted the note {{id}}.
 result.note.reset: |-
-  The note {{id}} is back to its default text:
+  I reset note {{id}} to its default text:
 result.failure.existing_thread: |-
   The existing thread is {{thread}} in {{forum}}.
 result.failure.existing_comment: |-
@@ -222,7 +227,7 @@ result.timestamp: |-
 result.unavailable: |-
   This result is unavailable.
 result.notes.none: |-
-  I have no notes.
+  This page lists no notes.
 result.quote.open: |-
   “
 result.quote.close: |-

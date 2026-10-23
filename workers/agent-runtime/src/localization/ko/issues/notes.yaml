@@ -9,14 +9,14 @@ issue.note.id.characters: |-
   id에는 글자, 결합 부호, 숫자, 문장 부호, 기호, 공백만 넣을 수 있습니다. id에는 메모 제목을 지정하세요. 기존 메모라면 list_notes에서 ID를 복사하세요.
 
 issue.note.cursor.type: |-
-  cursor must be text. Copy the cursor from the next-page line of the previous list_notes result. To start a new list, omit cursor.
+  cursor must be text. Use the cursor from the previous list_notes result. To start a new list, omit cursor.
 
 issue.note.cursor.length:
   other: |-
-    cursor must contain {{minimum}}-{{maximum}} characters after normalization. Copy the cursor from the next-page line of the previous list_notes result. To start a new list, omit cursor.
+    cursor must contain {{minimum}}-{{maximum}} characters after normalization. Use the cursor from the previous list_notes result. To start a new list, omit cursor.
 
 issue.note.cursor.characters: |-
-  cursor can contain letters, marks, numbers, punctuation, symbols, and spaces only. Copy the cursor from the next-page line of the previous list_notes result. To start a new list, omit cursor.
+  cursor can contain letters, marks, numbers, punctuation, symbols, and spaces only. Use the cursor from the previous list_notes result. To start a new list, omit cursor.
 
 issue.note.content:
   other: |-

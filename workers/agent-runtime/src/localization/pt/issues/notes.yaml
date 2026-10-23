@@ -13,18 +13,18 @@ issue.note.id.characters: |-
   id pode conter apenas letras, marcas, números, pontuação, símbolos e espaços. Forneça id como título da nota. Para uma nota existente, copie um ID de list_notes.
 
 issue.note.cursor.type: |-
-  cursor must be text. Copy the cursor from the next-page line of the previous list_notes result. To start a new list, omit cursor.
+  cursor must be text. Use the cursor from the previous list_notes result. To start a new list, omit cursor.
 
 issue.note.cursor.length:
   one: |-
-    cursor must contain {{minimum}}-{{maximum}} character after normalization. Copy the cursor from the next-page line of the previous list_notes result. To start a new list, omit cursor.
+    cursor must contain {{minimum}}-{{maximum}} character after normalization. Use the cursor from the previous list_notes result. To start a new list, omit cursor.
   many: |-
-    cursor must contain {{minimum}}-{{maximum}} characters after normalization. Copy the cursor from the next-page line of the previous list_notes result. To start a new list, omit cursor.
+    cursor must contain {{minimum}}-{{maximum}} characters after normalization. Use the cursor from the previous list_notes result. To start a new list, omit cursor.
   other: |-
-    cursor must contain {{minimum}}-{{maximum}} characters after normalization. Copy the cursor from the next-page line of the previous list_notes result. To start a new list, omit cursor.
+    cursor must contain {{minimum}}-{{maximum}} characters after normalization. Use the cursor from the previous list_notes result. To start a new list, omit cursor.
 
 issue.note.cursor.characters: |-
-  cursor can contain letters, marks, numbers, punctuation, symbols, and spaces only. Copy the cursor from the next-page line of the previous list_notes result. To start a new list, omit cursor.
+  cursor can contain letters, marks, numbers, punctuation, symbols, and spaces only. Use the cursor from the previous list_notes result. To start a new list, omit cursor.
 
 issue.note.content:
   one: |-

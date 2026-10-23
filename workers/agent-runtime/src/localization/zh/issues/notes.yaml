@@ -9,14 +9,14 @@ issue.note.id.characters: |-
   id 只能包含字母、组合标记、数字、标点、符号和空格。把笔记标题作为 id 提供。如果是现有笔记，从 list_notes 中复制 ID。
 
 issue.note.cursor.type: |-
-  cursor must be text. Copy the cursor from the next-page line of the previous list_notes result. To start a new list, omit cursor.
+  cursor must be text. Use the cursor from the previous list_notes result. To start a new list, omit cursor.
 
 issue.note.cursor.length:
   other: |-
-    cursor must contain {{minimum}}-{{maximum}} characters after normalization. Copy the cursor from the next-page line of the previous list_notes result. To start a new list, omit cursor.
+    cursor must contain {{minimum}}-{{maximum}} characters after normalization. Use the cursor from the previous list_notes result. To start a new list, omit cursor.
 
 issue.note.cursor.characters: |-
-  cursor can contain letters, marks, numbers, punctuation, symbols, and spaces only. Copy the cursor from the next-page line of the previous list_notes result. To start a new list, omit cursor.
+  cursor can contain letters, marks, numbers, punctuation, symbols, and spaces only. Use the cursor from the previous list_notes result. To start a new list, omit cursor.
 
 issue.note.content:
   other: |-

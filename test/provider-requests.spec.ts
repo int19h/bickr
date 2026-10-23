@@ -278,7 +278,7 @@ describe("Provider requests", () => {
 
 		for (const name of ["read_thread", "read_thread_by_id", "read_comment_by_id"]) {
 			const readTool = toolDefinitions.find((definition) => definition.function.name === name);
-			expect(readTool?.function.description).toContain("If a post reports hidden replies");
+			expect(readTool?.function.description).toContain("If a comment lists hidden replies");
 			expect(readTool?.function.description).toContain("read_comment_by_id with its ref");
 			expect(readTool?.function.description).toContain("marked as shortened");
 			expect(readTool?.function.description).toContain("read the full text");
@@ -377,11 +377,11 @@ describe("Provider requests", () => {
 		expect(readResult.providerResult).toContain(`### ${formatCommentRef(thread.rootCommentId)}`);
 		expect(readResult.providerResult).toContain('I posted:');
 		expect(readResult.providerResult).toContain(`u/${other.handle}`);
-		expect(readResult.providerResult).toContain(`I wrote in reply to ${formatCommentRef(theirReply.id)}:`);
+		expect(readResult.providerResult).toContain(`I replied to ${formatCommentRef(theirReply.id)}:`);
 		// The stored result keeps canonical identity. The provider sees first-person headers.
 		expect(JSON.stringify(readResult.result)).toContain(reader.id);
 		expect(JSON.stringify(readResult.providerResult)).not.toContain(reader.id);
-		expect(readResult.providerResult).toContain('I wrote');
+		expect(readResult.providerResult).toContain('I replied');
 
 		const listResult = await executeTool(
 			bot,
@@ -551,7 +551,7 @@ describe("Provider requests", () => {
 			{ commentId: childComment.id },
 			{ mode: "normal", signal },
 		);
-		expect(readCommentResult.providerResult).toContain(`### ${formatCommentRef(childComment.id)} (my focus)`);
+		expect(readCommentResult.providerResult).toContain(`### ${formatCommentRef(childComment.id)} (focused)`);
 		expect(readCommentResult.providerResult).toContain('Its other replies are not shown here.');
 		const readBranchResult = await executeTool(
 			bot,
@@ -560,7 +560,7 @@ describe("Provider requests", () => {
 			{ commentId: comment.id },
 			{ mode: "normal", signal },
 		);
-		expect(readBranchResult.providerResult).toContain(`### ${formatCommentRef(comment.id)} (my focus)`);
+		expect(readBranchResult.providerResult).toContain(`### ${formatCommentRef(comment.id)} (focused)`);
 		expect(readBranchResult.providerResult).toContain('> Child comment body.');
 		const pruningRuntime = Object.assign(testRuntimeForToolExecution(), {
 			readCommentTreeTokenBudget: async () => 1,
@@ -608,7 +608,7 @@ describe("Provider requests", () => {
 		const prunedBranchContent = String(prunedBranchResult.providerResult);
 		expect(prunedBranchContent).toContain('> Focused root stays visible.');
 		expect(prunedBranchContent).toContain('> Focused target body stays visible.');
-		expect(prunedBranchContent).toContain(`### ${formatCommentRef(targetReply.id)} (my focus)`);
+		expect(prunedBranchContent).toContain(`### ${formatCommentRef(targetReply.id)} (focused)`);
 		expect(prunedBranchContent).toContain(formatCommentRef(descendantReply.id));
 		expect(prunedBranchContent).toContain('This text is shortened.');
 		expect(prunedBranchContent).not.toContain(descendantBody);
@@ -667,7 +667,7 @@ describe("Provider requests", () => {
 			{ mode: "normal", signal },
 		);
 		const randomProviderResult = String(randomListResult.providerResult);
-		expect(randomProviderResult).toContain('A random sample of 2 of 3 profiles.');
+		expect(randomProviderResult).toContain('Random sample: 2 shown out of 3.');
 		expect(randomProviderResult).not.toContain(`u/${bot.handle}`);
 		expect(randomProviderResult).not.toContain('u/bulk-target-away');
 		const randomPage = randomListResult.result as { profiles: Array<{ handle: string }> };

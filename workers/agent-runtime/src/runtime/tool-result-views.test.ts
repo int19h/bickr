@@ -211,7 +211,7 @@ describe('Markdown result views', () => {
 		const first = (await buildToolResultView({ kind: 'posts_read', read: nestedRead, items: [] }, context(scope)))!;
 		const output = renderToolResultView(first, testViewRenderContext(first, text));
 		expect(output.match(/Alice u\/alice/g)).toHaveLength(1);
-		expect(output).toContain('u/alice wrote in reply to c/cmt_root:');
+		expect(output).toContain('u/alice replied to c/cmt_root:');
 		const second = (await buildToolResultView({ kind: 'posts_read', read: nestedRead, items: [] }, context(scope)))!;
 		const known = renderToolResultView(second, testViewRenderContext(second, text));
 		expect(known).not.toContain('Alice'); expect(known).not.toContain('A topic'); expect(known).not.toContain('The opening body');

@@ -1,6 +1,6 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "sourceUnitCount": 519,
+  "sourceUnitCount": 521,
   "catalogSourceHash": "9e0bc5f98d28edf8caf9f35e8a6315b5d01512cacf38164f4bd5a3dff3ef0e2c",
   "baseCommit": "cd3c3d2db56d1ab7281a11bfbfc37eafac2ea62a",
   "groups": [
@@ -466,7 +466,9 @@
     "result.activity.thread.without_forum",
     "result.activity.comment.without_forum",
     "result.activity.reply.without_forum",
-    "result.activity.vote.without_thread"
+    "result.activity.vote.without_thread",
+    "result.thread.facts_locked",
+    "result.profiles.window_empty"
   ],
   "pendingUnits": [
     {
@@ -501,7 +503,7 @@
         }
       ],
       "status": "english_placeholder",
-      "sourceTemplateHash": "97cf5990d731a19b51457436092f031172ab4643c9b1cfc3f79e15d3e69b91cc"
+      "sourceTemplateHash": "f3ac8dc36ba907afbc47212c52eb8983143ac65e51a841d43ba4233daae8b1f2"
     },
     {
       "id": "result.comment.opening",
@@ -535,7 +537,7 @@
         }
       ],
       "status": "english_placeholder",
-      "sourceTemplateHash": "361d811ef580eafd3844f44d59fc7a85b6279ae193919d0a1b7e4b00a72b1859"
+      "sourceTemplateHash": "f1a71ab9c53acb4b97567e66ccd3b74475b7e4408d1a05d02779d8e2607962a3"
     },
     {
       "id": "result.comment.trimmed",
@@ -626,7 +628,7 @@
       "id": "result.read.pruned",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 32
+        "line": 37
       },
       "protectedTokens": [],
       "sinks": [
@@ -642,13 +644,13 @@
         }
       ],
       "status": "english_placeholder",
-      "sourceTemplateHash": "3ab54ac43cf4f0b86980fa37d95173157276a3221b66958aba013cb5decc9479"
+      "sourceTemplateHash": "7f9d684666c25b819ba57043db55058587b7d7ac240a22260a4e73dab2544974"
     },
     {
       "id": "result.list.omitted",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 34
+        "line": 39
       },
       "protectedTokens": [],
       "sinks": [
@@ -705,7 +707,7 @@
       "id": "result.column.forum",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 39
+        "line": 44
       },
       "protectedTokens": [],
       "sinks": [
@@ -732,7 +734,7 @@
       "id": "result.column.description",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 41
+        "line": 46
       },
       "protectedTokens": [],
       "sinks": [
@@ -749,7 +751,7 @@
       "id": "result.column.posting",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 43
+        "line": 48
       },
       "protectedTokens": [],
       "sinks": [
@@ -766,7 +768,7 @@
       "id": "result.column.thread",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 45
+        "line": 50
       },
       "protectedTokens": [],
       "sinks": [
@@ -793,7 +795,7 @@
       "id": "result.column.title",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 47
+        "line": 52
       },
       "protectedTokens": [],
       "sinks": [
@@ -810,7 +812,7 @@
       "id": "result.column.author",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 49
+        "line": 54
       },
       "protectedTokens": [],
       "sinks": [
@@ -832,7 +834,7 @@
       "id": "result.column.comments",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 51
+        "line": 56
       },
       "protectedTokens": [],
       "sinks": [
@@ -849,7 +851,7 @@
       "id": "result.column.score",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 53
+        "line": 58
       },
       "protectedTokens": [],
       "sinks": [
@@ -866,7 +868,7 @@
       "id": "result.column.last_activity",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 55
+        "line": 60
       },
       "protectedTokens": [],
       "sinks": [
@@ -883,7 +885,7 @@
       "id": "result.column.hit",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 57
+        "line": 62
       },
       "protectedTokens": [],
       "sinks": [
@@ -900,7 +902,7 @@
       "id": "result.column.when",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 59
+        "line": 64
       },
       "protectedTokens": [],
       "sinks": [
@@ -922,7 +924,7 @@
       "id": "result.column.excerpt",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 61
+        "line": 66
       },
       "protectedTokens": [],
       "sinks": [
@@ -939,7 +941,7 @@
       "id": "result.column.item",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 63
+        "line": 68
       },
       "protectedTokens": [],
       "sinks": [
@@ -956,7 +958,7 @@
       "id": "result.column.profile",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 65
+        "line": 70
       },
       "protectedTokens": [],
       "sinks": [
@@ -973,7 +975,7 @@
       "id": "result.column.bio",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 67
+        "line": 72
       },
       "protectedTokens": [],
       "sinks": [
@@ -990,7 +992,7 @@
       "id": "result.column.followers",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 69
+        "line": 74
       },
       "protectedTokens": [],
       "sinks": [
@@ -1007,7 +1009,7 @@
       "id": "result.column.relation",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 71
+        "line": 76
       },
       "protectedTokens": [],
       "sinks": [
@@ -1024,7 +1026,7 @@
       "id": "result.column.my_notes",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 73
+        "line": 78
       },
       "protectedTokens": [],
       "sinks": [
@@ -1041,7 +1043,7 @@
       "id": "result.author.self_mark",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 75
+        "line": 80
       },
       "protectedTokens": [],
       "sinks": [
@@ -1058,7 +1060,7 @@
       "id": "result.forums.none",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 77
+        "line": 82
       },
       "protectedTokens": [],
       "sinks": [
@@ -1075,7 +1077,7 @@
       "id": "result.forums.read_only",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 79
+        "line": 84
       },
       "protectedTokens": [],
       "sinks": [
@@ -1092,7 +1094,7 @@
       "id": "result.threads.none",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 81
+        "line": 86
       },
       "protectedTokens": [],
       "sinks": [
@@ -1109,7 +1111,7 @@
       "id": "result.threads.locked_count",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 83
+        "line": 88
       },
       "protectedTokens": [],
       "sinks": [
@@ -1126,7 +1128,7 @@
       "id": "result.search.none",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 85
+        "line": 90
       },
       "protectedTokens": [],
       "sinks": [
@@ -1143,7 +1145,7 @@
       "id": "result.search.seen_earlier",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 87
+        "line": 92
       },
       "protectedTokens": [],
       "sinks": [
@@ -1160,7 +1162,7 @@
       "id": "result.profiles.none",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 89
+        "line": 94
       },
       "protectedTokens": [],
       "sinks": [
@@ -1177,7 +1179,7 @@
       "id": "result.profiles.window",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 91
+        "line": 96
       },
       "protectedTokens": [],
       "sinks": [
@@ -1194,7 +1196,7 @@
       "id": "result.profiles.next_offset",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 93
+        "line": 100
       },
       "protectedTokens": [],
       "sinks": [
@@ -1211,7 +1213,7 @@
       "id": "result.profiles.random",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 95
+        "line": 102
       },
       "protectedTokens": [],
       "sinks": [
@@ -1222,13 +1224,13 @@
         }
       ],
       "status": "english_placeholder",
-      "sourceTemplateHash": "25ab076068be9d655aa4439b8e4fb86be4f25475c6d4d6b25c17a0f9388d0624"
+      "sourceTemplateHash": "f99f6dc0ed3cb37aac7cbb8ac38f9d37b24e8df8d750c10353b4eea5b2edc61a"
     },
     {
       "id": "result.profiles.relation.mutual",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 97
+        "line": 104
       },
       "protectedTokens": [],
       "sinks": [
@@ -1245,7 +1247,7 @@
       "id": "result.profiles.relation.i_follow",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 99
+        "line": 106
       },
       "protectedTokens": [],
       "sinks": [
@@ -1262,7 +1264,7 @@
       "id": "result.profiles.relation.follows_me",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 101
+        "line": 108
       },
       "protectedTokens": [],
       "sinks": [
@@ -1279,7 +1281,7 @@
       "id": "result.profiles.more_notes",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 103
+        "line": 110
       },
       "protectedTokens": [],
       "sinks": [
@@ -1290,13 +1292,13 @@
         }
       ],
       "status": "english_placeholder",
-      "sourceTemplateHash": "af9fee5ced7c577be7484206ea39b0c2d39a5c9cf4a4103207f5ee85733f3d18"
+      "sourceTemplateHash": "b833714ce506a9cb3944d1ff43f1b6bfffcd15de860bc7f42dc22b181f701558"
     },
     {
       "id": "result.notifications.none",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 108
+        "line": 115
       },
       "protectedTokens": [],
       "sinks": [
@@ -1313,7 +1315,7 @@
       "id": "result.notifications.omitted",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 110
+        "line": 117
       },
       "protectedTokens": [],
       "sinks": [
@@ -1324,13 +1326,13 @@
         }
       ],
       "status": "english_placeholder",
-      "sourceTemplateHash": "4d44b8749e97733bbbcc0a864318217fb034ccf27b9ca72173616407315e4db8"
+      "sourceTemplateHash": "4c5047e948394cfe9ff80bdcafbf29bb5f1dbfd385b832a382ac31b92b8ea183"
     },
     {
       "id": "result.notifications.bootstrap.heading",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 115
+        "line": 122
       },
       "protectedTokens": [],
       "sinks": [
@@ -1347,7 +1349,7 @@
       "id": "result.notifications.reply",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 117
+        "line": 124
       },
       "protectedTokens": [],
       "sinks": [
@@ -1364,7 +1366,7 @@
       "id": "result.notifications.mention",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 119
+        "line": 126
       },
       "protectedTokens": [],
       "sinks": [
@@ -1381,7 +1383,7 @@
       "id": "result.notifications.thread_post.personal_forum",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 121
+        "line": 128
       },
       "protectedTokens": [],
       "sinks": [
@@ -1398,7 +1400,7 @@
       "id": "result.notifications.thread_post.followed",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 123
+        "line": 130
       },
       "protectedTokens": [],
       "sinks": [
@@ -1415,7 +1417,7 @@
       "id": "result.notifications.notice.comment",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 125
+        "line": 132
       },
       "protectedTokens": [],
       "sinks": [
@@ -1437,7 +1439,7 @@
       "id": "result.notifications.notice.vote",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 127
+        "line": 134
       },
       "protectedTokens": [],
       "sinks": [
@@ -1454,7 +1456,7 @@
       "id": "result.notifications.notice.follow",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 134
+        "line": 141
       },
       "protectedTokens": [],
       "sinks": [
@@ -1471,7 +1473,7 @@
       "id": "result.notifications.notice.unfollow",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 136
+        "line": 143
       },
       "protectedTokens": [],
       "sinks": [
@@ -1488,7 +1490,7 @@
       "id": "result.notifications.digest.heading",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 138
+        "line": 145
       },
       "protectedTokens": [],
       "sinks": [
@@ -1505,7 +1507,7 @@
       "id": "result.notifications.digest.older_omitted",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 140
+        "line": 147
       },
       "protectedTokens": [],
       "sinks": [
@@ -1522,7 +1524,7 @@
       "id": "result.notifications.digest.titles_omitted",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 142
+        "line": 149
       },
       "protectedTokens": [],
       "sinks": [
@@ -1539,7 +1541,7 @@
       "id": "result.activity.heading",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 144
+        "line": 151
       },
       "protectedTokens": [],
       "sinks": [
@@ -1556,7 +1558,7 @@
       "id": "result.activity.none",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 146
+        "line": 153
       },
       "protectedTokens": [],
       "sinks": [
@@ -1573,7 +1575,7 @@
       "id": "result.activity.thread",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 148
+        "line": 155
       },
       "protectedTokens": [],
       "sinks": [
@@ -1590,7 +1592,7 @@
       "id": "result.activity.reply",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 153
+        "line": 160
       },
       "protectedTokens": [],
       "sinks": [
@@ -1607,7 +1609,7 @@
       "id": "result.activity.comment",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 155
+        "line": 162
       },
       "protectedTokens": [],
       "sinks": [
@@ -1624,7 +1626,7 @@
       "id": "result.activity.parent_preview",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 157
+        "line": 164
       },
       "protectedTokens": [],
       "sinks": [
@@ -1635,13 +1637,13 @@
         }
       ],
       "status": "english_placeholder",
-      "sourceTemplateHash": "4691e9241163eae1b5f70f5f631e34d903a1625ddffa371b90b8cb6e5a6de559"
+      "sourceTemplateHash": "f6badaca1691ae439e2475c6ca3db7dc8eb448aae8ca72f020cc93ff754aa77c"
     },
     {
       "id": "result.activity.vote",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 159
+        "line": 166
       },
       "protectedTokens": [],
       "sinks": [
@@ -1658,7 +1660,7 @@
       "id": "result.activity.target_preview",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 166
+        "line": 173
       },
       "protectedTokens": [],
       "sinks": [
@@ -1675,7 +1677,7 @@
       "id": "result.activity.reason",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 168
+        "line": 175
       },
       "protectedTokens": [],
       "sinks": [
@@ -1692,7 +1694,7 @@
       "id": "result.activity.follow",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 170
+        "line": 177
       },
       "protectedTokens": [],
       "sinks": [
@@ -1709,7 +1711,7 @@
       "id": "result.activity.unfollow",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 172
+        "line": 179
       },
       "protectedTokens": [],
       "sinks": [
@@ -1726,7 +1728,7 @@
       "id": "result.followers.followers",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 174
+        "line": 181
       },
       "protectedTokens": [],
       "sinks": [
@@ -1743,7 +1745,7 @@
       "id": "result.followers.following",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 179
+        "line": 186
       },
       "protectedTokens": [],
       "sinks": [
@@ -1760,7 +1762,7 @@
       "id": "result.follow.now_following",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 184
+        "line": 191
       },
       "protectedTokens": [],
       "sinks": [
@@ -1777,7 +1779,7 @@
       "id": "result.follow.no_longer_following",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 186
+        "line": 193
       },
       "protectedTokens": [],
       "sinks": [
@@ -1794,7 +1796,7 @@
       "id": "result.vote.done",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 188
+        "line": 195
       },
       "protectedTokens": [],
       "sinks": [
@@ -1811,7 +1813,7 @@
       "id": "result.create_thread.done",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 195
+        "line": 202
       },
       "protectedTokens": [],
       "sinks": [
@@ -1828,7 +1830,7 @@
       "id": "result.reply.done",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 197
+        "line": 204
       },
       "protectedTokens": [],
       "sinks": [
@@ -1845,7 +1847,7 @@
       "id": "result.random.draw",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 199
+        "line": 206
       },
       "protectedTokens": [],
       "sinks": [
@@ -1862,7 +1864,7 @@
       "id": "result.notes.listed",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 201
+        "line": 208
       },
       "protectedTokens": [],
       "sinks": [
@@ -1873,13 +1875,13 @@
         }
       ],
       "status": "english_placeholder",
-      "sourceTemplateHash": "d0e066042f565fa343f03e1ba20d00edf16077895ceba6ed36ec10e75fb0f5ee"
+      "sourceTemplateHash": "a2aa221120d8d220b7f3f4dfd049a032b9642df69ce2011fbc1eac77baf23660"
     },
     {
       "id": "result.notes.next_cursor",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 206
+        "line": 213
       },
       "protectedTokens": [],
       "sinks": [
@@ -1896,7 +1898,7 @@
       "id": "result.notes.unknown_filters",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 208
+        "line": 215
       },
       "protectedTokens": [],
       "sinks": [
@@ -1907,13 +1909,13 @@
         }
       ],
       "status": "english_placeholder",
-      "sourceTemplateHash": "ad57ab03e4ff582e19c133ac3dcd2831e06a9f332313fba4e82c2d666462c88a"
+      "sourceTemplateHash": "357bfeb956b02a33b5a7395be5aa513dc4e97496b59944f5d4609f70b63df1a7"
     },
     {
       "id": "result.note.heading",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 210
+        "line": 217
       },
       "protectedTokens": [],
       "sinks": [
@@ -1930,7 +1932,7 @@
       "id": "result.note.links",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 212
+        "line": 219
       },
       "protectedTokens": [],
       "sinks": [
@@ -1947,7 +1949,7 @@
       "id": "result.note.created",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 214
+        "line": 221
       },
       "protectedTokens": [],
       "sinks": [
@@ -1964,7 +1966,7 @@
       "id": "result.note.replaced",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 216
+        "line": 223
       },
       "protectedTokens": [],
       "sinks": [
@@ -1975,13 +1977,13 @@
         }
       ],
       "status": "english_placeholder",
-      "sourceTemplateHash": "5dc446285352f7c84d66eb615e6825145db69e0098044ea514b1721e1d01800e"
+      "sourceTemplateHash": "b899d0d5c754a52f98c3fc1bed2f28448676392d089efd549c864106d06c53df"
     },
     {
       "id": "result.note.unknown_references",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 218
+        "line": 225
       },
       "protectedTokens": [],
       "sinks": [
@@ -1998,7 +2000,7 @@
       "id": "result.note.deleted",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 220
+        "line": 227
       },
       "protectedTokens": [],
       "sinks": [
@@ -2015,7 +2017,7 @@
       "id": "result.note.reset",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 222
+        "line": 229
       },
       "protectedTokens": [],
       "sinks": [
@@ -2026,13 +2028,13 @@
         }
       ],
       "status": "english_placeholder",
-      "sourceTemplateHash": "002c52edeb1c2b188c570fd6d75db2b040052a8735311f05c98173df3148c2d1"
+      "sourceTemplateHash": "dab22b86d8d717af96ae08a9a79ac5d2ec62f7b9244cbeec6fc1e40c210bcdbe"
     },
     {
       "id": "result.failure.existing_thread",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 224
+        "line": 231
       },
       "protectedTokens": [],
       "sinks": [
@@ -2049,7 +2051,7 @@
       "id": "result.failure.existing_comment",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 226
+        "line": 233
       },
       "protectedTokens": [],
       "sinks": [
@@ -2066,7 +2068,7 @@
       "id": "result.batch.committed",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 228
+        "line": 235
       },
       "protectedTokens": [],
       "sinks": [
@@ -2083,7 +2085,7 @@
       "id": "result.batch.refused",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 230
+        "line": 237
       },
       "protectedTokens": [],
       "sinks": [
@@ -2100,7 +2102,7 @@
       "id": "result.batch.unknown",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 232
+        "line": 239
       },
       "protectedTokens": [],
       "sinks": [
@@ -2117,7 +2119,7 @@
       "id": "result.batch.not_attempted",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 234
+        "line": 241
       },
       "protectedTokens": [],
       "sinks": [
@@ -2134,7 +2136,7 @@
       "id": "result.thread.lock.reason.comment_limit",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 236
+        "line": 243
       },
       "protectedTokens": [],
       "sinks": [
@@ -2151,7 +2153,7 @@
       "id": "result.timestamp",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 238
+        "line": 245
       },
       "protectedTokens": [],
       "sinks": [
@@ -2188,7 +2190,7 @@
       "id": "result.unavailable",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 240
+        "line": 247
       },
       "protectedTokens": [],
       "sinks": [
@@ -2210,7 +2212,7 @@
       "id": "result.notes.none",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 242
+        "line": 249
       },
       "protectedTokens": [],
       "sinks": [
@@ -2221,13 +2223,13 @@
         }
       ],
       "status": "english_placeholder",
-      "sourceTemplateHash": "1f711ab0b84dfabf7a0bdbf75fcbe4b8074d62377f0404b66a5260398d54da45"
+      "sourceTemplateHash": "4d2c4770b5323cd3635775ba4d6867aac3e951c11bfa26ef5faa3d1e6f458889"
     },
     {
       "id": "result.quote.open",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 244
+        "line": 251
       },
       "protectedTokens": [],
       "sinks": [
@@ -2244,7 +2246,7 @@
       "id": "result.quote.close",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 246
+        "line": 253
       },
       "protectedTokens": [],
       "sinks": [
@@ -2261,7 +2263,7 @@
       "id": "result.notifications.unavailable",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 248
+        "line": 255
       },
       "protectedTokens": [],
       "sinks": [
@@ -2328,7 +2330,7 @@
         }
       ],
       "protectedTokens": [],
-      "sourceTemplateHash": "0c29a24dbcf85455e741c2fc0a25a00fbc061f7426ff4d07baf608eb429c2c9c",
+      "sourceTemplateHash": "146690020335a77dc6f5dec44159fb158263052b2dd642cd31c36d6b876a9d8e",
       "parameterNotes": {
         "svgElements": {
           "currentValue": 1500,
@@ -2385,7 +2387,7 @@
         }
       ],
       "protectedTokens": [],
-      "sourceTemplateHash": "82c5691aba04b7cc8a7d95a2b9a7935816da4083acd4c43e11d86f7c67eef4f6",
+      "sourceTemplateHash": "9cca5a1825cc6a093a6dd62bd55bcef737168f65108c0ed626ff80da952b19f5",
       "status": "english_placeholder"
     },
     {
@@ -2402,7 +2404,7 @@
         }
       ],
       "protectedTokens": [],
-      "sourceTemplateHash": "82c5691aba04b7cc8a7d95a2b9a7935816da4083acd4c43e11d86f7c67eef4f6",
+      "sourceTemplateHash": "9cca5a1825cc6a093a6dd62bd55bcef737168f65108c0ed626ff80da952b19f5",
       "status": "english_placeholder"
     },
     {
@@ -2419,7 +2421,7 @@
         }
       ],
       "protectedTokens": [],
-      "sourceTemplateHash": "3ed5b3d9a2c0612b6a227e57ae08f9d0508fb8b518ca59a5ee48b28c3be1248a",
+      "sourceTemplateHash": "b6c08b1ee93ecc4d6bbd8f926393534e85a3c91595216c4ec6e099b525d54c14",
       "status": "english_placeholder"
     },
     {
@@ -2436,7 +2438,7 @@
         }
       ],
       "protectedTokens": [],
-      "sourceTemplateHash": "a78d0d71031a0e3493c219581fdf4e898c24c693dd682ba1e91b2c1ffc30712a",
+      "sourceTemplateHash": "36309dc5a446b3d251a4119b58ef6161732ba5c1f9df7d86d8b17ee884972428",
       "status": "english_placeholder"
     },
     {
@@ -2463,7 +2465,7 @@
         }
       ],
       "protectedTokens": [],
-      "sourceTemplateHash": "8538b03d729a2ceb5cffad21cf24ec49270837b80979ba364057c3732e1784e0",
+      "sourceTemplateHash": "dec35dd2a39a2b5adc3c52d0021c330ef04c7c9cee18c39cccb47628b7d48a4e",
       "status": "english_placeholder"
     },
     {
@@ -2490,7 +2492,7 @@
         }
       ],
       "protectedTokens": [],
-      "sourceTemplateHash": "c332bf21f7e2bde7d14d4c93ba923e9694ddd00d435d2d61227d135bdfa1e5ce",
+      "sourceTemplateHash": "5c231e1be6723a28528884d6f695bf2c1b4f5d34a86157b051bd3e908837d8be",
       "status": "english_placeholder"
     },
     {
@@ -2517,7 +2519,7 @@
         }
       ],
       "protectedTokens": [],
-      "sourceTemplateHash": "12b75f10c19d4674277cfe16428eccef71dd180cdf5bc97a468e06f417bfef94",
+      "sourceTemplateHash": "06606ea9d80da9eb706cdedae857d53c651c2311fe14bb40928008c969af0486",
       "status": "english_placeholder"
     },
     {
@@ -2541,7 +2543,7 @@
       "id": "result.reply.without_parent",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 250
+        "line": 257
       },
       "protectedTokens": [],
       "sinks": [
@@ -2558,7 +2560,7 @@
       "id": "result.create_thread.without_post",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 252
+        "line": 259
       },
       "protectedTokens": [],
       "sinks": [
@@ -2575,7 +2577,7 @@
       "id": "result.notifications.thread_post.personal_forum.without_forum",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 254
+        "line": 261
       },
       "protectedTokens": [],
       "sinks": [
@@ -2592,7 +2594,7 @@
       "id": "result.notifications.thread_post.followed.without_forum",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 256
+        "line": 263
       },
       "protectedTokens": [],
       "sinks": [
@@ -2609,7 +2611,7 @@
       "id": "result.activity.thread.without_forum",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 258
+        "line": 265
       },
       "protectedTokens": [],
       "sinks": [
@@ -2626,7 +2628,7 @@
       "id": "result.activity.comment.without_forum",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 263
+        "line": 270
       },
       "protectedTokens": [],
       "sinks": [
@@ -2643,7 +2645,7 @@
       "id": "result.activity.reply.without_forum",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 265
+        "line": 272
       },
       "protectedTokens": [],
       "sinks": [
@@ -2660,7 +2662,7 @@
       "id": "result.activity.vote.without_thread",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/results.yaml",
-        "line": 267
+        "line": 274
       },
       "protectedTokens": [],
       "sinks": [
@@ -2672,6 +2674,40 @@
       ],
       "status": "english_placeholder",
       "sourceTemplateHash": "67c3035e90e818f00e4872ba527f24abd81523a692e2eddc8a65118eb4c1665d"
+    },
+    {
+      "id": "result.thread.facts_locked",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 32
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 113,
+          "kind": "direct"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "1b3e10aabcd68001c7ff02a7012e20292d0db5648a7e519c7159f35706262ed6"
+    },
+    {
+      "id": "result.profiles.window_empty",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/results.yaml",
+        "line": 98
+      },
+      "protectedTokens": [],
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-result-markdown.ts",
+          "line": 136,
+          "kind": "direct"
+        }
+      ],
+      "status": "english_placeholder",
+      "sourceTemplateHash": "b5329285a3c072f36c5418412acb780d11df383ddbf0757f6763cba3e1a88209"
     }
   ]
 }
