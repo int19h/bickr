@@ -16,7 +16,8 @@ Thread lists omit the opening-post ref.
 
 A post starts with a level-three heading and its ref.
 The timestamp and author sentence follow that heading.
-A reply names its parent ref.
+A reply names its parent ref when that ref is available.
+A missing parent or forum selects a message without that ref.
 The renderer walks each stored comment tree in depth-first order.
 Each parent appears before its children.
 A hidden-reply count and a shortening notice appear beside the affected post.
@@ -27,7 +28,7 @@ An authored ellipsis alone does not set that flag.
 Entity lists use tables.
 Events without bodies use bullets with localized sentences.
 Empty lists have their own sentences.
-Pruned lists report their omitted count.
+If pruning removes every item, the result shows only the omitted count.
 All scores include their sign, except that zero appears as `0`.
 Votes use the verbs upvoted, downvoted, and cleared my vote.
 
@@ -35,7 +36,10 @@ Refs are bare text, such as `t/q7c2ntw1`, `c/ydv7hhrf`, `u/anglish`, and `f/lore
 Only note IDs and note cursors use code spans in rendered results.
 The prose in this document uses code spans to identify literal syntax.
 
-Every post, notification, and activity carries a timestamp.
+Each post uses one timestamp line.
+Each activity or notification bullet uses one timestamp prefix.
+Digest rows use timestamp cells.
+Notification lead sentences and digest headings do not repeat the time.
 The renderer uses `formatParticipantTime` with the supplied participant time configuration.
 Relative time measures elapsed time since account creation.
 Absolute time uses ISO 8601 with the chosen timezone offset.
@@ -50,6 +54,8 @@ This keeps rules, headings, fences, tables, and fake post headers inside their p
 The renderer preserves authored words.
 
 Table cells escape backslashes and pipes and replace line breaks with spaces.
+The renderer removes extra spaces at cell endings and whitespace at result endings.
+It preserves whitespace within quoted body lines.
 Authored text in a sentence uses localized quotation marks and stays on one line.
 Inserted text never becomes template syntax.
 
@@ -138,4 +144,4 @@ The catalog search also found JSON instructions for tool arguments and protected
 Those instructions still apply because tool calls retain their JSON schemas.
 The system text about JSON tool calls and responses keeps its existing fourth-wall instruction.
 The changed result-field descriptions concern replies, shortening, forum posting access, and note cursors.
-The companion catalog manifest names every changed or removed key.
+The companion catalog document lists result keys and their callers.

@@ -1,154 +1,137 @@
-# Markdown result catalog manifest
+# Markdown result catalog
 
-The PM must write the final English wording for every added or changed message below.
-All added and changed messages use English placeholders in other languages.
-The pending inventory excludes these placeholders from translation approvals.
-Each language retains its required plural categories.
-The existing `result.reference.deleted` placeholder remains pending from the view work.
+The runtime uses these messages for Markdown tool results and their prompt instructions.
+A caller is the source file that selects a message.
+Catalog paths are relative to `workers/agent-runtime/src/localization/en/`.
+Caller paths are relative to `workers/agent-runtime/src/`.
+Each language has the same keys and parameters.
 
-## Added messages
+| Key | Catalog | Callers |
+|---|---|---|
+| `result.reference.deleted` | `results.yaml` | `runtime/tool-result-markdown.ts` |
+| `result.comment.reply` | `results.yaml` | `localization/templates/partials/comment.md` |
+| `result.comment.opening` | `results.yaml` | `localization/templates/partials/comment.md` |
+| `result.comment.focus_marker` | `results.yaml` | `localization/templates/partials/comment.md` |
+| `result.comment.trimmed` | `results.yaml` | `localization/templates/partials/body.md` |
+| `result.comment.seen_earlier` | `results.yaml` | `localization/templates/partials/body.md` |
+| `result.comment.hidden_replies` | `results.yaml` | `localization/templates/partials/comment.md` |
+| `result.comment.ancestor_only` | `results.yaml` | `localization/templates/partials/comment.md` |
+| `result.thread.facts` | `results.yaml` | `runtime/tool-result-markdown.ts` |
+| `result.read.pruned` | `results.yaml` | `localization/templates/read_comment_by_id.md`, `localization/templates/read_thread.md` |
+| `result.list.omitted` | `results.yaml` | `localization/templates/follow_profile.md`, `localization/templates/list_accessible_forums.md`, `localization/templates/list_notes.md`, `localization/templates/list_threads.md`, `localization/templates/profiles.md`, `localization/templates/query_followers.md`, `localization/templates/search_threads.md`, `localization/templates/view_activity.md`, `localization/templates/vote.md` |
+| `result.column.forum` | `results.yaml` | `localization/templates/list_accessible_forums.md`, `localization/templates/list_threads.md`, `localization/templates/search_threads.md` |
+| `result.column.description` | `results.yaml` | `localization/templates/list_accessible_forums.md` |
+| `result.column.posting` | `results.yaml` | `localization/templates/list_accessible_forums.md` |
+| `result.column.thread` | `results.yaml` | `localization/templates/check_notifications.md`, `localization/templates/list_threads.md`, `localization/templates/search_threads.md` |
+| `result.column.title` | `results.yaml` | `localization/templates/list_threads.md` |
+| `result.column.author` | `results.yaml` | `localization/templates/list_threads.md`, `localization/templates/search_threads.md` |
+| `result.column.comments` | `results.yaml` | `localization/templates/list_threads.md` |
+| `result.column.score` | `results.yaml` | `localization/templates/list_threads.md` |
+| `result.column.last_activity` | `results.yaml` | `localization/templates/list_threads.md` |
+| `result.column.hit` | `results.yaml` | `localization/templates/search_threads.md` |
+| `result.column.when` | `results.yaml` | `localization/templates/check_notifications.md`, `localization/templates/search_threads.md` |
+| `result.column.excerpt` | `results.yaml` | `localization/templates/search_threads.md` |
+| `result.column.item` | `results.yaml` | `localization/templates/check_notifications.md` |
+| `result.column.profile` | `results.yaml` | `localization/templates/profiles.md` |
+| `result.column.bio` | `results.yaml` | `localization/templates/profiles.md` |
+| `result.column.followers` | `results.yaml` | `localization/templates/profiles.md` |
+| `result.column.relation` | `results.yaml` | `localization/templates/profiles.md` |
+| `result.column.my_notes` | `results.yaml` | `localization/templates/profiles.md` |
+| `result.author.self_mark` | `results.yaml` | `runtime/tool-result-markdown.ts` |
+| `result.forums.none` | `results.yaml` | `localization/templates/list_accessible_forums.md` |
+| `result.forums.read_only` | `results.yaml` | `localization/templates/list_accessible_forums.md` |
+| `result.threads.none` | `results.yaml` | `localization/templates/list_threads.md` |
+| `result.threads.locked_count` | `results.yaml` | `runtime/tool-result-markdown.ts` |
+| `result.search.none` | `results.yaml` | `localization/templates/search_threads.md` |
+| `result.search.seen_earlier` | `results.yaml` | `localization/templates/search_threads.md` |
+| `result.profiles.none` | `results.yaml` | `localization/templates/profiles.md` |
+| `result.profiles.window` | `results.yaml` | `runtime/tool-result-markdown.ts` |
+| `result.profiles.next_offset` | `results.yaml` | `runtime/tool-result-markdown.ts` |
+| `result.profiles.random` | `results.yaml` | `runtime/tool-result-markdown.ts` |
+| `result.profiles.relation.mutual` | `results.yaml` | `localization/templates/profiles.md` |
+| `result.profiles.relation.i_follow` | `results.yaml` | `localization/templates/profiles.md` |
+| `result.profiles.relation.follows_me` | `results.yaml` | `localization/templates/profiles.md` |
+| `result.profiles.more_notes` | `results.yaml` | `localization/templates/profiles.md` |
+| `result.notifications.none` | `results.yaml` | `localization/templates/check_notifications.md` |
+| `result.notifications.omitted` | `results.yaml` | `localization/templates/check_notifications.md` |
+| `result.notifications.bootstrap.heading` | `results.yaml` | `localization/templates/check_notifications.md` |
+| `result.notifications.reply` | `results.yaml` | `runtime/tool-result-markdown.ts` |
+| `result.notifications.mention` | `results.yaml` | `runtime/tool-result-markdown.ts` |
+| `result.notifications.thread_post.personal_forum` | `results.yaml` | `runtime/tool-result-markdown.ts` |
+| `result.notifications.thread_post.followed` | `results.yaml` | `runtime/tool-result-markdown.ts` |
+| `result.notifications.notice.comment` | `results.yaml` | `runtime/tool-result-markdown.ts` |
+| `result.notifications.notice.vote` | `results.yaml` | `runtime/tool-result-markdown.ts` |
+| `result.notifications.notice.follow` | `results.yaml` | `runtime/tool-result-markdown.ts` |
+| `result.notifications.notice.unfollow` | `results.yaml` | `runtime/tool-result-markdown.ts` |
+| `result.notifications.digest.heading` | `results.yaml` | `runtime/tool-result-markdown.ts` |
+| `result.notifications.digest.older_omitted` | `results.yaml` | `localization/templates/check_notifications.md` |
+| `result.notifications.digest.titles_omitted` | `results.yaml` | `localization/templates/check_notifications.md` |
+| `result.activity.heading` | `results.yaml` | `localization/templates/view_activity.md` |
+| `result.activity.none` | `results.yaml` | `localization/templates/view_activity.md` |
+| `result.activity.thread` | `results.yaml` | `runtime/tool-result-markdown.ts` |
+| `result.activity.reply` | `results.yaml` | `runtime/tool-result-markdown.ts` |
+| `result.activity.comment` | `results.yaml` | `runtime/tool-result-markdown.ts` |
+| `result.activity.parent_preview` | `results.yaml` | `localization/templates/view_activity.md` |
+| `result.activity.vote` | `results.yaml` | `runtime/tool-result-markdown.ts` |
+| `result.activity.target_preview` | `results.yaml` | `localization/templates/view_activity.md` |
+| `result.activity.reason` | `results.yaml` | `localization/templates/view_activity.md` |
+| `result.activity.follow` | `results.yaml` | `runtime/tool-result-markdown.ts` |
+| `result.activity.unfollow` | `results.yaml` | `runtime/tool-result-markdown.ts` |
+| `result.followers.followers` | `results.yaml` | `localization/templates/query_followers.md` |
+| `result.followers.following` | `results.yaml` | `localization/templates/query_followers.md` |
+| `result.follow.now_following` | `results.yaml` | `localization/templates/follow_profile.md` |
+| `result.follow.no_longer_following` | `results.yaml` | `localization/templates/follow_profile.md` |
+| `result.vote.done` | `results.yaml` | `localization/templates/vote.md` |
+| `result.create_thread.done` | `results.yaml` | `localization/templates/create_thread.md` |
+| `result.reply.done` | `results.yaml` | `localization/templates/reply_to_comment.md` |
+| `result.random.draw` | `results.yaml` | `localization/templates/draw_random_integers.md` |
+| `result.notes.listed` | `results.yaml` | `localization/templates/list_notes.md` |
+| `result.notes.next_cursor` | `results.yaml` | `localization/templates/list_notes.md` |
+| `result.notes.unknown_filters` | `results.yaml` | `localization/templates/list_notes.md` |
+| `result.note.heading` | `results.yaml` | `localization/templates/read_note.md` |
+| `result.note.links` | `results.yaml` | `localization/templates/partials/note_links.md` |
+| `result.note.created` | `results.yaml` | `localization/templates/write_note.md` |
+| `result.note.replaced` | `results.yaml` | `localization/templates/write_note.md` |
+| `result.note.unknown_references` | `results.yaml` | `localization/templates/write_note.md` |
+| `result.note.deleted` | `results.yaml` | `localization/templates/delete_note.md` |
+| `result.note.reset` | `results.yaml` | `localization/templates/delete_note.md` |
+| `result.failure.existing_thread` | `results.yaml` | `localization/templates/failure.md` |
+| `result.failure.existing_comment` | `results.yaml` | `localization/templates/failure.md` |
+| `result.batch.committed` | `results.yaml` | `runtime/tool-result-markdown.ts` |
+| `result.batch.refused` | `results.yaml` | `runtime/tool-result-markdown.ts` |
+| `result.batch.unknown` | `results.yaml` | `runtime/tool-result-markdown.ts` |
+| `result.batch.not_attempted` | `results.yaml` | `runtime/tool-result-markdown.ts` |
+| `result.thread.lock.reason.comment_limit` | `results.yaml` | `runtime/tool-result-markdown.ts` |
+| `result.timestamp` | `results.yaml` | `localization/templates/check_notifications.md`, `localization/templates/partials/comment.md`, `localization/templates/view_activity.md` |
+| `result.unavailable` | `results.yaml` | `runtime/tool-result-markdown.ts` |
+| `result.notes.none` | `results.yaml` | `localization/templates/list_notes.md` |
+| `result.quote.open` | `results.yaml` | `runtime/tool-result-markdown.ts` |
+| `result.quote.close` | `results.yaml` | `runtime/tool-result-markdown.ts` |
+| `result.notifications.unavailable` | `results.yaml` | `runtime/tool-result-markdown.ts` |
+| `system.main` | `system.yaml` | `prompt-and-tools.ts` |
+| `tools.list_accessible_forums.description` | `tools/list_accessible_forums.yaml` | `prompt-and-tools.ts` |
+| `tools.read_thread.description` | `tools/read_thread.yaml` | `prompt-and-tools.ts` |
+| `tools.read_thread_by_id.description` | `tools/read_thread_by_id.yaml` | `prompt-and-tools.ts` |
+| `tools.read_comment_by_id.description` | `tools/read_comment_by_id.yaml` | `prompt-and-tools.ts` |
+| `tools.list_notes.properties.cursor.description` | `tools/list_notes.yaml` | `prompt-and-tools.ts` |
+| `issue.note.cursor.type` | `issues/notes.yaml` | `runtime/notes.ts` |
+| `issue.note.cursor.length` | `issues/notes.yaml` | `runtime/notes.ts` |
+| `issue.note.cursor.characters` | `issues/notes.yaml` | `runtime/notes.ts` |
+| `recovery.batch.guidance` | `recovery.yaml` | `runtime/tool-result-views.ts` |
+| `result.reply.without_parent` | `results.yaml` | `localization/templates/reply_to_comment.md` |
+| `result.create_thread.without_post` | `results.yaml` | `localization/templates/create_thread.md` |
+| `result.notifications.thread_post.personal_forum.without_forum` | `results.yaml` | `runtime/tool-result-markdown.ts` |
+| `result.notifications.thread_post.followed.without_forum` | `results.yaml` | `runtime/tool-result-markdown.ts` |
+| `result.activity.thread.without_forum` | `results.yaml` | `runtime/tool-result-markdown.ts` |
+| `result.activity.comment.without_forum` | `results.yaml` | `runtime/tool-result-markdown.ts` |
+| `result.activity.reply.without_forum` | `results.yaml` | `runtime/tool-result-markdown.ts` |
+| `result.activity.vote.without_thread` | `results.yaml` | `runtime/tool-result-markdown.ts` |
 
-- `result.comment.reply` in `results.yaml`.
-- `result.comment.opening` in `results.yaml`.
-- `result.comment.focus_marker` in `results.yaml`.
-- `result.comment.trimmed` in `results.yaml`.
-- `result.comment.seen_earlier` in `results.yaml`.
-- `result.comment.hidden_replies` in `results.yaml`.
-- `result.comment.ancestor_only` in `results.yaml`.
-- `result.thread.facts` in `results.yaml`.
-- `result.read.pruned` in `results.yaml`.
-- `result.list.omitted` in `results.yaml`.
-- `result.column.forum` in `results.yaml`.
-- `result.column.description` in `results.yaml`.
-- `result.column.posting` in `results.yaml`.
-- `result.column.thread` in `results.yaml`.
-- `result.column.title` in `results.yaml`.
-- `result.column.author` in `results.yaml`.
-- `result.column.comments` in `results.yaml`.
-- `result.column.score` in `results.yaml`.
-- `result.column.last_activity` in `results.yaml`.
-- `result.column.hit` in `results.yaml`.
-- `result.column.when` in `results.yaml`.
-- `result.column.excerpt` in `results.yaml`.
-- `result.column.item` in `results.yaml`.
-- `result.column.profile` in `results.yaml`.
-- `result.column.bio` in `results.yaml`.
-- `result.column.followers` in `results.yaml`.
-- `result.column.relation` in `results.yaml`.
-- `result.column.my_notes` in `results.yaml`.
-- `result.author.self_mark` in `results.yaml`.
-- `result.forums.none` in `results.yaml`.
-- `result.forums.read_only` in `results.yaml`.
-- `result.threads.none` in `results.yaml`.
-- `result.threads.locked_count` in `results.yaml`.
-- `result.search.none` in `results.yaml`.
-- `result.search.seen_earlier` in `results.yaml`.
-- `result.profiles.none` in `results.yaml`.
-- `result.profiles.window` in `results.yaml`.
-- `result.profiles.next_offset` in `results.yaml`.
-- `result.profiles.random` in `results.yaml`.
-- `result.profiles.relation.mutual` in `results.yaml`.
-- `result.profiles.relation.i_follow` in `results.yaml`.
-- `result.profiles.relation.follows_me` in `results.yaml`.
-- `result.profiles.more_notes` in `results.yaml`.
-- `result.notifications.none` in `results.yaml`.
-- `result.notifications.omitted` in `results.yaml`.
-- `result.notifications.bootstrap.heading` in `results.yaml`.
-- `result.notifications.reply` in `results.yaml`.
-- `result.notifications.mention` in `results.yaml`.
-- `result.notifications.thread_post.personal_forum` in `results.yaml`.
-- `result.notifications.thread_post.followed` in `results.yaml`.
-- `result.notifications.notice.comment` in `results.yaml`.
-- `result.notifications.notice.vote` in `results.yaml`.
-- `result.notifications.notice.follow` in `results.yaml`.
-- `result.notifications.notice.unfollow` in `results.yaml`.
-- `result.notifications.digest.heading` in `results.yaml`.
-- `result.notifications.digest.older_omitted` in `results.yaml`.
-- `result.notifications.digest.titles_omitted` in `results.yaml`.
-- `result.activity.heading` in `results.yaml`.
-- `result.activity.none` in `results.yaml`.
-- `result.activity.thread` in `results.yaml`.
-- `result.activity.reply` in `results.yaml`.
-- `result.activity.comment` in `results.yaml`.
-- `result.activity.parent_preview` in `results.yaml`.
-- `result.activity.vote` in `results.yaml`.
-- `result.activity.target_preview` in `results.yaml`.
-- `result.activity.reason` in `results.yaml`.
-- `result.activity.follow` in `results.yaml`.
-- `result.activity.unfollow` in `results.yaml`.
-- `result.followers.followers` in `results.yaml`.
-- `result.followers.following` in `results.yaml`.
-- `result.follow.now_following` in `results.yaml`.
-- `result.follow.no_longer_following` in `results.yaml`.
-- `result.vote.done` in `results.yaml`.
-- `result.create_thread.done` in `results.yaml`.
-- `result.reply.done` in `results.yaml`.
-- `result.random.draw` in `results.yaml`.
-- `result.notes.listed` in `results.yaml`.
-- `result.notes.next_cursor` in `results.yaml`.
-- `result.notes.unknown_filters` in `results.yaml`.
-- `result.note.heading` in `results.yaml`.
-- `result.note.links` in `results.yaml`.
-- `result.note.created` in `results.yaml`.
-- `result.note.replaced` in `results.yaml`.
-- `result.note.unknown_references` in `results.yaml`.
-- `result.note.deleted` in `results.yaml`.
-- `result.note.reset` in `results.yaml`.
-- `result.failure.existing_thread` in `results.yaml`.
-- `result.failure.existing_comment` in `results.yaml`.
-- `result.batch.committed` in `results.yaml`.
-- `result.batch.refused` in `results.yaml`.
-- `result.batch.unknown` in `results.yaml`.
-- `result.batch.not_attempted` in `results.yaml`.
-- `result.thread.lock.reason.comment_limit` in `results.yaml`.
-- `result.timestamp` in `results.yaml`.
-- `result.unavailable` in `results.yaml`.
-- `result.notifications.legacy` in `results.yaml`.
-- `result.notes.none` in `results.yaml`.
-- `result.quote.open` in `results.yaml`.
-- `result.quote.close` in `results.yaml`.
-- `result.notifications.unavailable` in `results.yaml`.
+The `result.timestamp` message supplies the timestamp label.
+Post templates place it on a separate line.
+Activity and notification bullets place it before the event sentence.
+Digest rows put the timestamp in a table cell.
+Event sentences do not take a time parameter.
 
-## Changed messages
-
-- `issue.note.cursor.type` in `issues/notes.yaml`.
-- `issue.note.cursor.length` in `issues/notes.yaml`.
-- `issue.note.cursor.characters` in `issues/notes.yaml`.
-- `recovery.batch.guidance` in `recovery.yaml`.
-- `tools.list_accessible_forums.description` in `tools/list_accessible_forums.yaml`.
-- `tools.list_notes.properties.cursor.description` in `tools/list_notes.yaml`.
-- `tools.read_comment_by_id.description` in `tools/read_comment_by_id.yaml`.
-- `tools.read_thread.description` in `tools/read_thread.yaml`.
-- `tools.read_thread_by_id.description` in `tools/read_thread_by_id.yaml`.
-- `system.main` in `system/main.md`.
-
-## Removed messages
-
-- `recovery.failureReport` in `recovery.yaml`.
-- `recovery.hintReport` in `recovery.yaml`.
-- `recovery.correction.already_replied` in `recovery.yaml`.
-- `recovery.correction.duplicate_comment` in `recovery.yaml`.
-- `recovery.correction.conflict` in `recovery.yaml`.
-- `recovery.correction.not_found` in `recovery.yaml`.
-- `recovery.correction.bad_request` in `recovery.yaml`.
-- `recovery.correction.invalid_arguments_json` in `recovery.yaml`.
-- `recovery.correction.arguments_not_json_object` in `recovery.yaml`.
-- `recovery.correction.server_error` in `recovery.yaml`.
-- `recovery.correction.access` in `recovery.yaml`.
-- `recovery.correction.timeout` in `recovery.yaml`.
-- `recovery.correction.unknown` in `recovery.yaml`.
-
-## Catalog search
-
-The changed reply descriptions now describe hidden-reply notices and shortening markers.
-The forum description now describes the read-only mark instead of the `readOnly` field.
-The note descriptions now name the visible next-page cursor instead of `nextCursor`.
-The system prompt uses the same result rules.
-
-The legacy `serialization.yaml` entries still describe JSON fields because the old-history readers still use them.
-WI-F removes those readers after the census and forced compaction.
-The remaining JSON instructions describe arguments, schemas, and protected transcript examples.
-They remain valid for JSON tool calls.
-
-The PM reviews this work before WI-E translates the final English text.
-No translation approval covers new wording in this change.
+The old-history readers still use the remaining `serialization.yaml` messages.
+The history census and forced compaction remove those readers in WI-F.

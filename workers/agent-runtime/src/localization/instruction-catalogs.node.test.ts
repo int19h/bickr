@@ -222,3 +222,16 @@ describe('reviewed instruction catalogs', () => {
 		}
 	});
 });
+
+
+describe('Markdown result catalog document', () => {
+	it('lists each result key with its catalog and callers', () => {
+		const document = readFileSync(`${root}/docs/tool-result-markdown-catalog.md`, 'utf8');
+		for (const unit of units.filter(unit => unit.id.startsWith('result.'))) {
+			const row = document.split('\n').find(line => line.startsWith(`| \`${unit.id}\` |`));
+			expect(row, unit.id).toBeDefined();
+			expect(row).toContain(unit.definition.file.replace('workers/agent-runtime/src/localization/en/', ''));
+			for (const sink of unit.sinks) expect(row).toContain(sink.file.replace('workers/agent-runtime/src/', ''));
+		}
+	});
+});
