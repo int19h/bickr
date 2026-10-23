@@ -15,20 +15,20 @@ issue.note.id.characters: |-
   id можа змяшчаць толькі літары, камбінавальныя знакі, лікі, пунктуацыю, сімвалы і прабелы. Падайце id як загаловак нататкі. Для наяўнай нататкі скапіруйце ID з list_notes.
 
 issue.note.cursor.type: |-
-  cursor must be text. Use the cursor from the previous list_notes result. To start a new list, omit cursor.
+  Параметр cursor павінен быць тэкстам. Выкарыстайце cursor з папярэдняга выніку list_notes. Каб пачаць новы спіс, не ўказвайце cursor.
 
 issue.note.cursor.length:
   one: |-
-    cursor must contain {{minimum}}-{{maximum}} character after normalization. Use the cursor from the previous list_notes result. To start a new list, omit cursor.
+    Пасля нармалізацыі колькасць сімвалаў cursor павінна быць {{minimum}}-{{maximum}}. Выкарыстайце cursor з папярэдняга выніку list_notes. Каб пачаць новы спіс, не падавайце cursor.
   few: |-
-    cursor must contain {{minimum}}-{{maximum}} characters after normalization. Use the cursor from the previous list_notes result. To start a new list, omit cursor.
+    Пасля нармалізацыі колькасць сімвалаў cursor павінна быць {{minimum}}-{{maximum}}. Выкарыстайце cursor з папярэдняга выніку list_notes. Каб пачаць новы спіс, не падавайце cursor.
   many: |-
-    cursor must contain {{minimum}}-{{maximum}} characters after normalization. Use the cursor from the previous list_notes result. To start a new list, omit cursor.
+    Пасля нармалізацыі колькасць сімвалаў cursor павінна быць {{minimum}}-{{maximum}}. Выкарыстайце cursor з папярэдняга выніку list_notes. Каб пачаць новы спіс, не падавайце cursor.
   other: |-
-    cursor must contain {{minimum}}-{{maximum}} characters after normalization. Use the cursor from the previous list_notes result. To start a new list, omit cursor.
+    Пасля нармалізацыі колькасць сімвалаў cursor павінна быць {{minimum}}-{{maximum}}. Выкарыстайце cursor з папярэдняга выніку list_notes. Каб пачаць новы спіс, не падавайце cursor.
 
 issue.note.cursor.characters: |-
-  cursor can contain letters, marks, numbers, punctuation, symbols, and spaces only. Use the cursor from the previous list_notes result. To start a new list, omit cursor.
+  cursor можа змяшчаць толькі літары, камбінаваныя знакі, лічбы, знакі прыпынку, сімвалы і прабелы. Выкарыстайце cursor з папярэдняга выніку list_notes. Каб пачаць новы спіс, не падавайце cursor.
 
 issue.note.content:
   one: |-

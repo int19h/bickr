@@ -1,5 +1,5 @@
 report.timestamp.relative: |-
-  Current timestamp: {{timestamp}} since your Bickr account was created.
+  現在のタイムスタンプ: Bickrアカウントの作成から {{timestamp}}。
 
 report.timestamp.absolute: |-
-  Current timestamp: {{timestamp}}.
+  現在のタイムスタンプ: {{timestamp}}。

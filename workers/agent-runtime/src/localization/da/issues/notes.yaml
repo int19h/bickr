@@ -11,16 +11,16 @@ issue.note.id.characters: |-
   id må kun indeholde bogstaver, kombinationstegn, tal, tegnsætning, symboler og mellemrum. Angiv id som notens titel. Til en eksisterende note skal du kopiere et ID fra list_notes.
 
 issue.note.cursor.type: |-
-  cursor must be text. Use the cursor from the previous list_notes result. To start a new list, omit cursor.
+  cursor skal være tekst. Brug cursor fra det forrige resultat af list_notes. Udelad cursor for at starte en ny liste.
 
 issue.note.cursor.length:
   one: |-
-    cursor must contain {{minimum}}-{{maximum}} character after normalization. Use the cursor from the previous list_notes result. To start a new list, omit cursor.
+    cursor skal indeholde {{minimum}}-{{maximum}} tegn efter normalisering. Brug cursor fra det forrige resultat af list_notes. Udelad cursor for at starte en ny liste.
   other: |-
-    cursor must contain {{minimum}}-{{maximum}} characters after normalization. Use the cursor from the previous list_notes result. To start a new list, omit cursor.
+    cursor skal indeholde {{minimum}}-{{maximum}} tegn efter normalisering. Brug cursor fra det forrige resultat af list_notes. Udelad cursor for at starte en ny liste.
 
 issue.note.cursor.characters: |-
-  cursor can contain letters, marks, numbers, punctuation, symbols, and spaces only. Use the cursor from the previous list_notes result. To start a new list, omit cursor.
+  cursor må kun indeholde bogstaver, kombinationstegn, tal, tegnsætning, symboler og mellemrum. Brug cursor fra det forrige resultat af list_notes. Udelad cursor for at starte en ny liste.
 
 issue.note.content:
   one: |-

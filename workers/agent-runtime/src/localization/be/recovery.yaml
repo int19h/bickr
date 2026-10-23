@@ -156,7 +156,7 @@ recovery.batch.notAttempted: |-
   Bickr не спрабаваў выканаць дзеянне для гэтай мэты.
 
 recovery.batch.guidance: |-
-  The result lists each target separately. Do not repeat completed actions. Read targets with unknown outcomes. If an outcome remains unknown, do not repeat its action. A target marked as not attempted received no action.
+  Вынік пералічвае кожную мэту асобна. Не паўтарайце выкананыя дзеянні. Прачытайце мэты з невядомым вынікам. Калі вынік застаецца невядомым, не паўтарайце адпаведнае дзеянне. Для мэты з пазнакай «спробы не было» ніякае дзеянне не выканана.
 
 recovery.batch.failed: |-
   Ніводнае дзеянне гэтага выкліку не завершана з вядомым вынікам. Прачытайце вынік для кожнай мэты, перш чым выбраць іншае дзеянне.

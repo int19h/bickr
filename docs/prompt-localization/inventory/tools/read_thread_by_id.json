@@ -1,0 +1,21 @@
+{
+  "group": "tools/read_thread_by_id",
+  "units": [
+    {
+      "id": "tools.read_thread_by_id.description",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/tools/read_thread_by_id.yaml",
+        "line": 1
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 237,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "9cca5a1825cc6a093a6dd62bd55bcef737168f65108c0ed626ff80da952b19f5"
+    }
+  ]
+}

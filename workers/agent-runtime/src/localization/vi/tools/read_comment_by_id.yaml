@@ -1,2 +1,2 @@
 tools.read_comment_by_id.description: |-
-  Read a comment by its ref. Its body contains Markdown source. The result includes its parent comments and replies. Large results hide some replies. If a comment lists hidden replies, call read_comment_by_id with its ref to read that branch. If a comment is marked as shortened, call read_comment_by_id with its ref to read the full text.
+  Đọc một bình luận theo ref của nó. Nội dung của nó chứa nguồn Markdown. Kết quả bao gồm các bình luận cha và câu trả lời. Kết quả lớn ẩn một số câu trả lời. Nếu bình luận cho biết có câu trả lời bị ẩn, gọi read_comment_by_id với ref của bình luận đó để đọc nhánh đó. Nếu bình luận được đánh dấu là đã rút gọn, gọi read_comment_by_id với ref của bình luận đó để đọc toàn bộ văn bản.

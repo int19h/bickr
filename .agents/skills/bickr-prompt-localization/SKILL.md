@@ -35,7 +35,22 @@ Keep exactly one final newline in each Markdown prompt file.
 Run `npm run localization:generate` before direct type checks or imports outside the normal project commands.
 Run the catalog tests after each source change.
 
-Freeze the English source before translators produce independent drafts.
+Choose the translation process named in the task.
+Freeze the English source before translation starts.
+For the four-draft process, collect independent Codex, Opus, Grok, and Gemini drafts.
+Keep the four draft hashes and the existing Opus and Grok reasons.
+For the lead-translation process, ask a separate session to review the lead translations.
+Record `provenance: lead_translation` on new groups and changed decisions.
+Name the lead, reviewer sessions, and reviewed commit.
+Record `leadReason` and `reviewerReason`.
+Do not invent draft hashes or reasons from reviewers who did not take part.
+Keep earlier four-draft evidence for unchanged decisions.
+Add one `incrementalReviews` entry per language for the update.
+Name the English source commit, changed units, catalog fingerprint, and unresolved questions.
+If a reviewer examined an earlier draft, name that draft and record how the lead resolved each finding.
+Do not claim that the reviewer examined later fixes without evidence.
+Keep Irish as best effort and retain its unresolved language questions.
+After all pending units receive reviews, clear both pending lists and use the `approved` status.
 Use the reviewers and models named in the current task.
 Compare meaning, grammar, terminology, and protected syntax before choosing the final text.
 Record source hashes and review results for future prompt updates.

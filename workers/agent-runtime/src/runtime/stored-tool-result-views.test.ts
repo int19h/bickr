@@ -68,7 +68,7 @@ describe('stored tool result views', () => {
 		expect(Object.isFrozen(current.time)).toBe(true);
 		expect(Object.isFrozen(current.time.settings)).toBe(true);
 		expect(messages[1]?.content).toContain('u/after');
-		expect(messages[1]?.content).toContain('f/last-forum (deleted)');
+		expect(messages[1]?.content).toContain(`f/last-forum ${botText('fr').format('result.reference.deleted')}`);
 		expect(messages[1]?.content).toContain('Authored u/before stays unchanged');
 		expect(messages[2]!.content!).toBe(botText('fr').format('recovery.notDispatched'));
 		expect(queries).toHaveLength(2);

@@ -1,8 +1,8 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "catalogSourceHash": "9e0bc5f98d28edf8caf9f35e8a6315b5d01512cacf38164f4bd5a3dff3ef0e2c",
+  "catalogSourceHash": "fccf6536ad73ade5b65ab4ff2271b2b82b90f8f3483a35cdea87591dd9437263",
   "locale": "vi",
-  "status": "partially_pending_translation",
+  "status": "approved",
   "leadReason": "Accept the Vietnamese catalog after both reviewers accept all five exact follow-ups. Explicit actors preserve the audience instruction. Refreshed/public modifiers attach to the avatar. Native time, universal item removal, and notification clauses cover every count. Visit and vote terminology is consistent. Retained facts use dữ kiện, while events keep sự kiện. The earlier topic sentence uses đề tài without changing its avoidance rule.",
   "terminologyDecisions": {
     "visit": "lần truy cập",
@@ -118,7 +118,7 @@
   "groups": {
     "system": {
       "finalHash": "94c22b1ff5e83754474701761865cccb108b47a3f4aec1277b23f1066da46d6d",
-      "finalTemplateHash": "0748545015b073f050948d15fc5f8e2a36fb80adb3333f9f48921a08905549f4",
+      "finalTemplateHash": "dc8ffcf0625dd10fc08275d78a10cbabda8f51b9713e4dc272f78bc48a92f366",
       "draftHashes": {
         "codex": "ddb8c752acbb08d6134e3d2466f80a725de0024ad287bdae82f7f306aa81a139",
         "opus": "223938bcfd01a847e721b8e0c3bbd10b4d61189bf29d68654f5892e14f01dfb4",
@@ -247,6 +247,20 @@
           "candidateReason": "Preserve the updated note, PLAN and action guidance, native-language formatting and setting spacing.",
           "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
           "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
+        },
+        "system.main": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "eaf07cb0edd12714982c904f61941973d7afeaebe12031b7eb8213c10855ead2",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
         }
       }
     },
@@ -1110,7 +1124,7 @@
     },
     "tools/list_notes": {
       "finalHash": "9abee329f2d1f76a808fb41e7f875be7de85eab0f4bb86e1b6e27b92ebc78d10",
-      "finalTemplateHash": "a21dd49464c98556577349a4dc7bbc5882dbc4768cb347adf3f99533a8bf5a53",
+      "finalTemplateHash": "93445a28e461349cfdd249c8026caf66935016bdbf4153695876a9f328214442",
       "draftHashes": {
         "codex": "1944b0289b5692fec5f16ff614d639a1c2ed15483dc3c3982ba10f7d264789a2",
         "opus": "355caf3ea19604b3caf1d7b579678a0f9a8ec25c8cc47dd0ef6d5dcc680eb46e",
@@ -1147,6 +1161,20 @@
           "changedAfterComparison": false,
           "finalFollowUp": {},
           "finalDiscussion": {}
+        },
+        "tools.list_notes.properties.cursor.description": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "5b4758f93d5ed8491db2cd7c57ce1e29fa42321d7fc6f095175f654d82c88794",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
         }
       }
     },
@@ -3851,7 +3879,7 @@
     },
     "recovery": {
       "finalHash": "7f359463058ba5e314dc51a7ae07aca6a3c83fe742f0463c715ea00f14ae6ff9",
-      "finalTemplateHash": "da1b872f2234be937ca15922b1e4cfc5efa40da8cb446433e2852f392d962be9",
+      "finalTemplateHash": "729a93788c2a4c5d020ad0ed8d11e914e2a72017b9076dc584cb9f721d6d7e02",
       "draftHashes": {
         "codex": "b3b453bb43949dea2310688ed8be64f0d17bd26850d1ae62bc96f9ba3a9001b7",
         "opus": "87de865e3fb0b1801791fe231f638b34212d86709f3d4285a7dd53fe8cf011c6",
@@ -4473,6 +4501,20 @@
           "changedAfterComparison": false,
           "finalFollowUp": {},
           "finalDiscussion": {}
+        },
+        "recovery.batch.guidance": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "1966eadf65b96fe4c36146a1d27de9242977e1c6558fa3c4333974c722d41f1f",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
         }
       }
     },
@@ -5436,7 +5478,7 @@
     },
     "issues/notes": {
       "finalHash": "1679136a7cb6194bbb4ec9a6965f49be549e69e149d33a4ea6f654987b3d6418",
-      "finalTemplateHash": "e1a78f8bb3ad420c559fbb9bacb8709e70c3faf52ee68d7471ff4bf2b41624f8",
+      "finalTemplateHash": "c3adf9f37c4260d2fec654b8e345c04be249f68e831fd3b920ce39ab2cb30c77",
       "draftHashes": {
         "codex": "4b2d5fda2843c10e2111d9f4d52e1a4af73b251e4d497938c47ded9263fbd6aa",
         "opus": "983bed8f1f008dff08404a00a7cd3c6fe73e55c70fd4e0db263c4bfe850bf45c",
@@ -5603,6 +5645,48 @@
           "changedAfterComparison": false,
           "finalFollowUp": {},
           "finalDiscussion": {}
+        },
+        "issue.note.cursor.type": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "3bac17861000adf32e4ad21181a049c8601354bf29f35808ddc4d1e95ed362f3",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "issue.note.cursor.length": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "562059cc51cbdaffabe1eb4c4d32afab067d50615782493f903dfc3231b85c79",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "issue.note.cursor.characters": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "5c08f703729f5e3a9d313f0201aba13094c6ad5fefc6dbda1d5d3b2ea1797a89",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
         }
       }
     },
@@ -6157,6 +6241,1726 @@
           "finalDiscussion": {}
         }
       }
+    },
+    "results": {
+      "provenance": "lead_translation",
+      "lead": "claude-opus",
+      "reviewerSessions": [
+        {
+          "reviewer": "codex",
+          "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+        }
+      ],
+      "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+      "leadReason": "The lead accepts the translations and applies every supplied finding.",
+      "reviewerReason": "An independent Codex session reviewed the lead translations.",
+      "decisions": {
+        "result.reference.deleted": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "73aa5c19f0dd81ca7fd68e6bcbaf8560ca6c5c90d3122e25f32b3c1673e76db0",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.comment.reply": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "b822c42cf67f37d524ca9357bacdaaa0d516f24e74dc3a182af1a0cb1d0c63b3",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.comment.opening": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "f76c7af17e05ad15ed789a9bc08b38940587d0bd5d5d4be390744b91c3a279fd",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.comment.focus_marker": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "0b6a2be850f6857193f6d29792e5b0bd7afcfe7a306b14fb1e7eb5a5c934d53d",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The final marker identifies the comment in focus."
+        },
+        "result.comment.trimmed": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "b0c1ac898005dd2ca8f89f68c55c7ae2e76a59f403a3fc42f05dfe81c8ca39ab",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.comment.seen_earlier": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "004b2f436dd33616376cc1ee90013fa3da307bdcbcaa0ad5fd4892913c0d156f",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.comment.hidden_replies": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "88da3b3a3229614a7c53b570bdfff8237bdeb25a2ed94b45d59025633179b1f9",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.comment.ancestor_only": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "efe8a5e1a43e93c98c16b14974f9f184561bb6abdace19644d35111ee5fa033f",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.thread.facts": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "af0f67c807091572e49bd6b1d112be3fb15fab1ec3e78c37309ed25fe76bda34",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.thread.facts_locked": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "63163283f0c95e7971f654c58f8d5f320e90334baf2bed01e137e8996e6d2e37",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.read.pruned": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "854f90ff5a4b4e1e17af7aa4dd42916fb85e20d2a062b01b97d2ecd412ee27f9",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.list.omitted": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "5bc364a8af162097192e5227602f3f554361bab12f9752b97e4ee50062196a86",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.column.forum": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "df951adc039061d3214f7c957bce124e8277696568d4bdb9fd0d4a39911f7372",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.column.description": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "b630f43582602210f4a982fbd653847704ad1ebff7b320a5114512d3ab52b240",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.column.posting": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "e67c98a9147e9e042262313525e627b362806d30e38686a86703e2b653f5a818",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.column.thread": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "6d679d5cf1825350182b8e532b4af981040c91969089f2ce069ad7e16a2c1997",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.column.title": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "beb921604f6c2676ce9bce29aa32de847bacab3378365e29d7d38623a12a4b30",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.column.author": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "5d733d24922760e9aff9555e705bbcb5e3e7d1f302c8fe9fedf391893f7094d8",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.column.comments": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "3f0bdd04450cd2d6e4be81f5e967b9c49e58baf2afd8989fd9bdb109da1e7f8a",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.column.score": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "2bb65d4e517f5724a877dd3c8870b1a1fb30d805d9d32c496d8fe60a4d605543",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.column.last_activity": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "940ffa961fccca716c5098567d694198336b764af3114bed808d9fe3c744faa9",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.column.hit": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "af47acb383a8c17f4c78cd082094d463a3b4cae3b4567d9e34b31282c8800c01",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.column.when": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "9e3ae07c32d9c8f6c80e97c797b8c262b0e61edc23af4e0922851ce291778347",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.column.excerpt": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "de7528628e14ff6ef3178ee4abf3a06a05e553edcd304ef5c9d1a3ea20378e91",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.column.item": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "0894163d7315605c86d454325e30817c13adbd145466d12437d3319da8c19def",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.column.profile": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "252cd5c306ed81779a3a537a7ea5544628f1e75d296aedd363ea0e537d07997a",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.column.bio": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "633c9bd4b01cec48df92e2632dea0b31e9950cf90fbb59e1357d2526c1e02b31",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.column.followers": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "12b36148029281ed4a700575b0ed67d92d469f139b3cd9301fbbd715fdda1343",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.column.relation": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "1035299e61d4e357dac1170af70d53e184c5f03a8e9ea4c501a55b8fda2204ca",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.column.my_notes": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "1dc8453d83abc535dbd35dd6aad70821eb293e7d97299cd23f50dbc188ae7e36",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.author.self_mark": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "50e5b74abc90d9294d7450682652f1dcffa040c6f9796235d9a2699fe5eedd1f",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.forums.none": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "cf821cee6220dda24dd8ffa9dc2c87cde06ea133ad740b27a023baca94e912d1",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.forums.read_only": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "deec5d69b20378735e07bab1e931384e8ce84504293dc5136b6f8aa09e180ec7",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.threads.none": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "784d0c184077ccab70ccc35e0ed8dbf7eef08aa8fef01b4dafca2e536f231728",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.threads.locked_count": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "c797937272083c13ef5aba5c2f414c6edbee9a10902ae3f075df85963d1e725a",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.search.none": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "6bafe6691a71223c9ebd04046d21ca5ba9aba34e9aebd35dfc5e9510f94a0df6",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.search.seen_earlier": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "6dd048e50fddce0ebeaf700c4a88ecb81dd1021704e82950de3dab0fff4ca6e1",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.profiles.none": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "e20e63a5cab9a00b29ef4a8a473bcc489b5301dac8ecb3c0691fa46a40da44cd",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.profiles.window": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "e6ad804378c9fb6901ad92532cc3e70469e1bd29fd50fb42a12e59192b08a542",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.profiles.window_empty": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "a88aca507956c94b3ed4e4bfb23a5679079a46965c951113e8f7fa57e0ee283c",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.profiles.next_offset": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "2752cab8b825d71abff01aae7b2e9c77bf75566d3fe685df587175edfb805ed4",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.profiles.random": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "c504744c8bd1f9d8e89250e0bbc29bf40db9a38a14582e3b0b71c67d16403d41",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.profiles.relation.mutual": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "ebf374ed081874754aad3502496b1136b85f891e5c6f92de947fc8af15a7bc51",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.profiles.relation.i_follow": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "7b99a3883b4329709e215bddf274678ea15702b6b650a53189dd52b69c0825df",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.profiles.relation.follows_me": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "f42cce9c35d412d5131a018fdffb95204e8bd7bfbb95e615b8ecfc72b27022fc",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.profiles.more_notes": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "7decbda5d34b44792a19124d5cc3aefcaf56861d49dadb8c3b452da6b6d3876f",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.notifications.none": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "5617fd6262f3b46674af40f5be4547aadbb2eadeccdb2d2f4fdd6b8627faf84b",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.notifications.omitted": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "b22d2a39eff24886c87afaf72d4586d147627716eb79ff26ae4e4f0fa52555b4",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.notifications.bootstrap.heading": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "1b0456fa288a6a108d92a3d9b64938ccbe705c90740077517de0b3a0ce93d3af",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.notifications.reply": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "414341945bdd83cd07f65b5e744e80f688487a7c991eeeba4d07cee93684fa06",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.notifications.mention": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "16a0b77ccbfea0122b88f88ce7c26968b706bfedecd1ab1865c5dcfd10ab0cfa",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.notifications.thread_post.personal_forum": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "02f4e1f2e92823352f8c025a8a569a3a3989f88454a5dcebebbb54cec5bc1452",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.notifications.thread_post.followed": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "521f4f4b916e9974399dc21608fbe682e8bbdb58cd1b5b6833290827308da295",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.notifications.notice.comment": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "5688b9ca9c16e12383e9f9fb2e0e8359104523ee9a091a3ea6d5fa64e7967868",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.notifications.notice.vote": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "7ceef6421721698119124c59117e20c26dcf4331cbe72fb9821a1da6018314f3",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.notifications.notice.follow": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "8b05b834e6817293c5c207c34deff65e7016538654ded4f5d7fca3d84fa3091c",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.notifications.notice.unfollow": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "720bc813470f3032b1c711b7173450882fe33c8ef4afefeaa89edebb1a96f634",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.notifications.digest.heading": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "b7c55571ad8d41410e0c9b8064d0a0a0b8ad1e84510af8b2f08f7471e8ff2b4d",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.notifications.digest.older_omitted": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "83540aad9e5bb69e33013b4dd31c4d56dec07d18ec62066bbcb0120de976b4e0",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.notifications.digest.titles_omitted": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "10ea62487eebba67857fecd1f2d419242fcbddcc4e5ace00ea9c91211353d8ff",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The final text states the space constraint in natural Vietnamese."
+        },
+        "result.activity.heading": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "5f6b2ea93707fd1d04093d1b3277eb34642569d2c3781c79154cc6236d41b044",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.activity.none": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "ebd316bae56531f662315b9dd39e40f63b2364a508aed96f345ebd3ea4647188",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.activity.thread": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "3cc679398e6228dc93bf191f4e1d4c10cf779762b54a27131580205aadc11e2a",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.activity.reply": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "f8a0d749e30b685567cc08f17e624e1a1e21f4cd12890520e9789707ccf6f15d",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.activity.comment": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "467fa929ae47443005f1ff1e897997777a2b65d982901a91a8def11fa4e2ede1",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.activity.parent_preview": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "c932f12841a2d9556bcb9246fb4aa46880ece09dffa8a4937255daa1b2eb5eb4",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.activity.vote": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "72e65cf745c4d06ded800b12886c2d28c22c9ab59423b91315dfecbcf058befc",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.activity.target_preview": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "43102612716770634050d00a0a435125ffdf6705e9af5d6228ed3e4966448e01",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.activity.reason": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "9c0ea2499247c6dbd6d8c07a40aebecf85b30495fb879273d7ad62853e685ed5",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.activity.follow": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "b305489b7576b56f80f039e8fe1379fbd31aeec7eda7462bd78f59e55c6e5fd3",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.activity.unfollow": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "f04cb4b4d4cf7fb1926636afbbd9a97b83fb4cde6be902305b93c9e0c87a6cb7",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.followers.followers": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "4c53c7c406a2184751651c3e6bbd05c18be0028ea902396ca2c51428e1de0a1d",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.followers.following": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "64dcb3c2ba94ffdda520715cfb37506c9caaaa195d3fdaee1f6182001d7751a2",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.follow.now_following": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "47115d083ba1f292aee9daeca37d0fd3617d5812d2ce9d643269458978ffe06f",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.follow.no_longer_following": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "170e7c06403c0ad39c8d9135b1325f588db2ba5a0040889ba0739fd71b9eae50",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.vote.done": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "74383de1f20704f404eac0168db879f35d79063f724d1245c90c345fb6cc6b20",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.create_thread.done": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "ac5668324a44056eb6f2ea2170607bb4c0a712d6aa5c9cc484e5f4c8a88a18ce",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.reply.done": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "fe3ef454406b97d49e61b2362c281cd8c2bc2b4ecada3a5d78460bc25bcad965",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.random.draw": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "3af92a3cf4ee8bc0470a90144a0a3406517fb7007110f438bda20f52a1c30686",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.notes.listed": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "48f17ee21eceb2381de1f77581a6ebda97abcf2eea4193a51308c9da2308dca5",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.notes.next_cursor": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "621050e9ae0a6dbbd2920a2b93cae8109b1f516fd15fb479a42f5558afcbe9cc",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.notes.unknown_filters": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "aa2d53587c897604dc6966df2aed57d7d9065fc094044891ca0bdc9e4e9242a9",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.note.heading": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "5d254786761f385805d282e01a45bef076347ff39df7e88db35d73ad94950986",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.note.links": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "36a96d261280ecab68865715280fa125c8ba320adb111b4b020b1fccfe9b09fb",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.note.created": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "12dbb9a4415ab1c5d92f75007737badb63ced6f3816c7b593fa96394b5065cac",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.note.replaced": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "36b5b0fdb9d078a25705520947f1849eb4be8c7ca3e0b048a6e751a835e9f6b9",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.note.unknown_references": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "43f7c4d6c31555cfd967e6ed11cc527ac84732ba0a6bae7c8e3afc3d95e098cb",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.note.deleted": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "05600eb8d9ac91a3bf2de42c422408d5cf0296e3efb364847fa78c1d693c060d",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.note.reset": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "bdd00b10d80edcaabfb1d5da7f0fca4499f603b621d63d26fdca095b5349edaf",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.failure.existing_thread": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "c7148c70cf6fa27a1362d76db6312736f3bda1a185254eab4994d193662e5b1d",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.failure.existing_comment": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "dfdd77a9599479cba3f2db176f85e82a69f451ce3886ec4764400201b5aecfd7",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.batch.committed": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "c2821e5f65f9348640ab1ea7d00a13e97449b1a32946a4127853573909c33fdf",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.batch.refused": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "03bf8561ab08fa607ed1036c0d8762ffbe6ca7d0043bec5365b27706acb4af20",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.batch.unknown": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "a8f3587baebfa4887d6131c91e05582a6d213a2d82c94bdcf7ab3fd17e4d55e5",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.batch.not_attempted": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "ac123c40a925b2c8a5f5a29178b95426d517a61fb2c20d4eca931ddc2ab1bdfb",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.thread.lock.reason.comment_limit": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "6c26efc9c2cf2c44a19147461797e6e31bff6966419b6f4358f5cb974119ac4a",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.timestamp": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "e27776137989426a709d6d796fb852f1b928372846a82a21c338c2c75744ce0b",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.unavailable": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "bb2dd1917b978dce2ff2e2bb830073e50943afd232c801d04e8a10f6b938a59f",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.notes.none": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "561c2a467bc257c6c916a5aaea162e72a3202152dcd3b36b4d97aea663f179fa",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.quote.open": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "80c82178aa5a5eef3148e5c13f3deaa0ef320b71e122de07db3e0fbd20d55826",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.quote.close": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "ef206bba9b8b128ca6d8066e109128f482cbf441853d622148b36fd738dfbbcd",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.notifications.unavailable": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "bb2dd1917b978dce2ff2e2bb830073e50943afd232c801d04e8a10f6b938a59f",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.reply.without_parent": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "bd3c297be95f66007344bfb221bc1157a00d3db6f8d2a07f170c50d4ae295593",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.create_thread.without_post": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "f383eee113c2bb0f4600ada51c3aeeb25eb6eaca06fe9b8fc1bfc68c55ef4322",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.notifications.thread_post.personal_forum.without_forum": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "b34149a02bd2d4642118e0cb49496ae4372b9951106cbd2d21fedf0d639582b1",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.notifications.thread_post.followed.without_forum": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "7e34bdeb23c5aa1f9c0a3ca486e9bb88d274c4f74336adc48fc3119097830134",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.activity.thread.without_forum": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "0da4b8b61e4eaea9fe43f9ce37f1d5736b2403d6472224a343f894fa52467841",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.activity.comment.without_forum": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "255106c50a3a07f765e951dc360394c5990c8109aead7aa4792f4966eb2966e9",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.activity.reply.without_forum": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "020c54f8aa1bd6729be207afff3480311e4094ad3736672d142673f056a7f0ea",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.activity.vote.without_thread": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "277232df9afbbd7c71dc553b2915f62105ceea4502dc4893fd3eb9562e213397",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        }
+      },
+      "finalTemplateHash": "94e73bff4b735f3326a38b205c191fdc3721c5d685c3e9edaf9b0c1a4a4d978d"
+    },
+    "reports": {
+      "provenance": "lead_translation",
+      "lead": "claude-opus",
+      "reviewerSessions": [
+        {
+          "reviewer": "codex",
+          "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+        }
+      ],
+      "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+      "leadReason": "The lead accepts the translations and applies every supplied finding.",
+      "reviewerReason": "An independent Codex session reviewed the lead translations.",
+      "decisions": {
+        "report.timestamp.relative": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "9a6d556bf94ccf2a1e1a05f8ac7e19d4beaf48ffe4f70c4e5877be72c71168df",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "report.timestamp.absolute": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "0067fb1425e7d54b07ea2785efaed670062173a33f1326e6063d67fb51f306ce",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        }
+      },
+      "finalTemplateHash": "cb3f56bbf3100af10b11548df29118d138fc34079185a9000cd7b227ec82378e"
+    },
+    "tools/list_accessible_forums": {
+      "provenance": "lead_translation",
+      "lead": "claude-opus",
+      "reviewerSessions": [
+        {
+          "reviewer": "codex",
+          "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+        }
+      ],
+      "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+      "leadReason": "The lead accepts the translations and applies every supplied finding.",
+      "reviewerReason": "An independent Codex session reviewed the lead translations.",
+      "decisions": {
+        "tools.list_accessible_forums.description": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "5963d166f5a43a0e2a37d5faebf2b7cea040e5c62ae8d9b37776c03af3fca47e",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        }
+      },
+      "finalTemplateHash": "eadcff23f32860e6cf2fa8d14ece62abe6029841601b1160f047049a9459e668"
+    },
+    "tools/read_thread": {
+      "provenance": "lead_translation",
+      "lead": "claude-opus",
+      "reviewerSessions": [
+        {
+          "reviewer": "codex",
+          "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+        }
+      ],
+      "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+      "leadReason": "The lead accepts the translations and applies every supplied finding.",
+      "reviewerReason": "An independent Codex session reviewed the lead translations.",
+      "decisions": {
+        "tools.read_thread.description": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "f443908bc7e5690b5fc0ac7b2b606a6947c09d8c45239da1ea35f39097ce4ccf",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        }
+      },
+      "finalTemplateHash": "08365e13077a37cad15fd1e50af3332e7e40ebc859ab1df663b2f25eb7206770"
+    },
+    "tools/read_thread_by_id": {
+      "provenance": "lead_translation",
+      "lead": "claude-opus",
+      "reviewerSessions": [
+        {
+          "reviewer": "codex",
+          "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+        }
+      ],
+      "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+      "leadReason": "The lead accepts the translations and applies every supplied finding.",
+      "reviewerReason": "An independent Codex session reviewed the lead translations.",
+      "decisions": {
+        "tools.read_thread_by_id.description": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "f443908bc7e5690b5fc0ac7b2b606a6947c09d8c45239da1ea35f39097ce4ccf",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        }
+      },
+      "finalTemplateHash": "25784602d5d4d70e9e5f7ec9bcf9812b2c665e26e9bb4776dcb5bc1a20a9d23d"
+    },
+    "tools/read_comment_by_id": {
+      "provenance": "lead_translation",
+      "lead": "claude-opus",
+      "reviewerSessions": [
+        {
+          "reviewer": "codex",
+          "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+        }
+      ],
+      "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+      "leadReason": "The lead accepts the translations and applies every supplied finding.",
+      "reviewerReason": "An independent Codex session reviewed the lead translations.",
+      "decisions": {
+        "tools.read_comment_by_id.description": {
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+            }
+          ],
+          "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+          "finalValueHash": "474cb87bc72cdd443455e573ebe03985d49fb7c80f9ec52abc0639f43c98a0fa",
+          "leadReason": "The lead accepts the review and applies every finding.",
+          "reviewerReason": "The supplied review reports no finding for this unit."
+        }
+      },
+      "finalTemplateHash": "dbb9e556d9e2fc9217af2dd1a6efafdee99cff9e61f70ab30568cea8340d8f49"
     }
   },
   "incrementalReviews": [
@@ -6490,6 +8294,151 @@
       "summary": "Translate reply motivations, every example, first-person reasoning, optional research and changed decisions, response focus and audience exceptions, and context weighting. Match the Activities paragraph split.",
       "uncertainties": [],
       "historicalEvidence": "Earlier model drafts and review records describe previous catalog versions. They do not establish new reviews of this update."
+    },
+    {
+      "provenance": "lead_translation",
+      "lead": "claude-opus",
+      "reviewerSessions": [
+        {
+          "reviewer": "codex",
+          "session": "01a1698f-3e18-7491-986d-2d16ffeca88e"
+        }
+      ],
+      "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
+      "sourceCommit": "96d408f275e53993160650c965c61f9d6f347ebd",
+      "previousCatalogSourceHash": "9e0bc5f98d28edf8caf9f35e8a6315b5d01512cacf38164f4bd5a3dff3ef0e2c",
+      "catalogSourceHash": "fccf6536ad73ade5b65ab4ff2271b2b82b90f8f3483a35cdea87591dd9437263",
+      "units": [
+        "report.timestamp.relative",
+        "report.timestamp.absolute",
+        "system.main",
+        "tools.list_accessible_forums.description",
+        "tools.read_thread.description",
+        "tools.read_thread_by_id.description",
+        "tools.read_comment_by_id.description",
+        "tools.list_notes.properties.cursor.description",
+        "issue.note.cursor.type",
+        "issue.note.cursor.length",
+        "issue.note.cursor.characters",
+        "result.reference.deleted",
+        "result.comment.reply",
+        "result.comment.opening",
+        "result.comment.focus_marker",
+        "result.comment.trimmed",
+        "result.comment.seen_earlier",
+        "result.comment.hidden_replies",
+        "result.comment.ancestor_only",
+        "result.thread.facts",
+        "result.read.pruned",
+        "result.list.omitted",
+        "result.column.forum",
+        "result.column.description",
+        "result.column.posting",
+        "result.column.thread",
+        "result.column.title",
+        "result.column.author",
+        "result.column.comments",
+        "result.column.score",
+        "result.column.last_activity",
+        "result.column.hit",
+        "result.column.when",
+        "result.column.excerpt",
+        "result.column.item",
+        "result.column.profile",
+        "result.column.bio",
+        "result.column.followers",
+        "result.column.relation",
+        "result.column.my_notes",
+        "result.author.self_mark",
+        "result.forums.none",
+        "result.forums.read_only",
+        "result.threads.none",
+        "result.threads.locked_count",
+        "result.search.none",
+        "result.search.seen_earlier",
+        "result.profiles.none",
+        "result.profiles.window",
+        "result.profiles.next_offset",
+        "result.profiles.random",
+        "result.profiles.relation.mutual",
+        "result.profiles.relation.i_follow",
+        "result.profiles.relation.follows_me",
+        "result.profiles.more_notes",
+        "result.notifications.none",
+        "result.notifications.omitted",
+        "result.notifications.bootstrap.heading",
+        "result.notifications.reply",
+        "result.notifications.mention",
+        "result.notifications.thread_post.personal_forum",
+        "result.notifications.thread_post.followed",
+        "result.notifications.notice.comment",
+        "result.notifications.notice.vote",
+        "result.notifications.notice.follow",
+        "result.notifications.notice.unfollow",
+        "result.notifications.digest.heading",
+        "result.notifications.digest.older_omitted",
+        "result.notifications.digest.titles_omitted",
+        "result.activity.heading",
+        "result.activity.none",
+        "result.activity.thread",
+        "result.activity.reply",
+        "result.activity.comment",
+        "result.activity.parent_preview",
+        "result.activity.vote",
+        "result.activity.target_preview",
+        "result.activity.reason",
+        "result.activity.follow",
+        "result.activity.unfollow",
+        "result.followers.followers",
+        "result.followers.following",
+        "result.follow.now_following",
+        "result.follow.no_longer_following",
+        "result.vote.done",
+        "result.create_thread.done",
+        "result.reply.done",
+        "result.random.draw",
+        "result.notes.listed",
+        "result.notes.next_cursor",
+        "result.notes.unknown_filters",
+        "result.note.heading",
+        "result.note.links",
+        "result.note.created",
+        "result.note.replaced",
+        "result.note.unknown_references",
+        "result.note.deleted",
+        "result.note.reset",
+        "result.failure.existing_thread",
+        "result.failure.existing_comment",
+        "result.batch.committed",
+        "result.batch.refused",
+        "result.batch.unknown",
+        "result.batch.not_attempted",
+        "result.thread.lock.reason.comment_limit",
+        "result.timestamp",
+        "result.unavailable",
+        "result.notes.none",
+        "result.quote.open",
+        "result.quote.close",
+        "result.notifications.unavailable",
+        "recovery.batch.guidance",
+        "result.reply.without_parent",
+        "result.create_thread.without_post",
+        "result.notifications.thread_post.personal_forum.without_forum",
+        "result.notifications.thread_post.followed.without_forum",
+        "result.activity.thread.without_forum",
+        "result.activity.comment.without_forum",
+        "result.activity.reply.without_forum",
+        "result.activity.vote.without_thread",
+        "result.thread.facts_locked",
+        "result.profiles.window_empty"
+      ],
+      "status": "accepted_by_lead",
+      "reviewedDraftCommit": "e90825286932ebc0e3f4f874f5ed150b092cc7f9",
+      "reportHash": "bea01948ae96dda8ec0f965e606e11b2d367a7f784ab69c79ab77f3be0cc02f6",
+      "leadReason": "The lead applied every finding from the independent review before the reviewed commit.",
+      "reviewerReason": "The report reviews the earlier draft. The supplied resolution identifies the final commit after all fixes.",
+      "uncertainties": [],
+      "previousDecisions": {}
     }
   ],
   "followUpReviews": [

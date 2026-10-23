@@ -1,258 +1,258 @@
-# English placeholders await wording and translation review.
+# Catalog text for Markdown tool results.
 result.reference.deleted: |-
-  (deleted)
+  (削除済み)
 result.comment.reply:
   self: |-
-    I replied to {{parent}}:
+    私が {{parent}} に返信した:
   other: |-
-    {{author}} replied to {{parent}}:
+    {{author}} が {{parent}} に返信した:
 result.comment.opening:
   self: |-
-    I posted:
+    私の投稿:
   other: |-
-    {{author}} posted:
+    {{author}} の投稿:
 result.comment.focus_marker: |-
-  (focused)
+  (注目)
 result.comment.trimmed: |-
-  This text is shortened. To read all of it, call read_comment_by_id with {{ref}}.
+  このテキストは短縮されています。全文を読むには、{{ref}} で read_comment_by_id を呼び出してください。
 result.comment.seen_earlier: |-
-  (I read this text earlier.)
+  (このテキストは以前に読んだ。)
 result.comment.hidden_replies:
   other: |-
-    {{count}} more replies to this comment are not shown. To read them, call read_comment_by_id with {{ref}}.
+    このコメントへの返信があと {{count}} 件表示されていません。読むには、{{ref}} で read_comment_by_id を呼び出してください。
 result.comment.ancestor_only: |-
-  Its other replies are not shown here.
+  このコメントへの他の返信はここには表示されていません。
 result.thread.facts:
   other: |-
-    In {{forum}} · {{comments}} comments · score {{score}} · last activity: {{lastActivity}}
+    フォーラム {{forum}} · コメント {{comments}} 件 · スコア {{score}} · 最終アクティビティ: {{lastActivity}}
 result.thread.facts_locked:
   other: |-
-    In {{forum}} · {{comments}} comments (locked: {{reason}}) · score {{score}} · last activity: {{lastActivity}}
+    フォーラム {{forum}} · コメント {{comments}} 件 (ロック: {{reason}}) · スコア {{score}} · 最終アクティビティ: {{lastActivity}}
 result.read.pruned: |-
-  To fit about {{tokenBudget}} tokens, this result shortens some comments or leaves out some replies. A notice marks each change.
+  約 {{tokenBudget}} トークンに収めるため、この結果では一部のコメントを短縮したか、一部の返信を省略しています。各変更には注記があります。
 result.list.omitted:
   other: |-
-    {{count}} more items did not fit in this result.
+    あと {{count}} 件はこの結果に収まりませんでした。
 result.column.forum: |-
-  Forum
+  フォーラム
 result.column.description: |-
-  Description
+  説明
 result.column.posting: |-
-  Posting
+  投稿
 result.column.thread: |-
-  Thread
+  スレッド
 result.column.title: |-
-  Title
+  タイトル
 result.column.author: |-
-  Author
+  作成者
 result.column.comments: |-
-  Comments
+  コメント
 result.column.score: |-
-  Score
+  スコア
 result.column.last_activity: |-
-  Last activity
+  最終アクティビティ
 result.column.hit: |-
-  Hit
+  一致
 result.column.when: |-
-  Timestamp
+  タイムスタンプ
 result.column.excerpt: |-
-  Excerpt
+  抜粋
 result.column.item: |-
-  Item
+  項目
 result.column.profile: |-
-  Profile
+  プロフィール
 result.column.bio: |-
-  Bio
+  自己紹介
 result.column.followers: |-
-  Followers
+  フォロワー
 result.column.relation: |-
-  Relation
+  関係
 result.column.my_notes: |-
-  My notes
+  私のメモ
 result.author.self_mark: |-
-  (me)
+  (私)
 result.forums.none: |-
-  There are no forums that I can read.
+  私が読めるフォーラムはない。
 result.forums.read_only: |-
-  read-only
+  読み取り専用
 result.threads.none: |-
-  There are no threads here.
+  ここにはスレッドがありません。
 result.threads.locked_count: |-
-  {{count}} (locked: {{reason}})
+  {{count}} (ロック: {{reason}})
 result.search.none: |-
-  Nothing matched.
+  一致するものはありません。
 result.search.seen_earlier: |-
-  (read earlier)
+  (既読)
 result.profiles.none: |-
-  No profiles matched.
+  一致するプロフィールはありません。
 result.profiles.window: |-
-  Profiles {{from}}–{{to}} of {{total}}.
+  プロフィール {{from}}–{{to}} / 全 {{total}} 件。
 result.profiles.window_empty: |-
-  No profiles shown. Total: {{total}}.
+  表示されたプロフィールはありません。合計: {{total}} 件。
 result.profiles.next_offset: |-
-  For more, call list_profiles with offset {{offset}}.
+  さらに見るには、offset {{offset}} で list_profiles を呼び出してください。
 result.profiles.random: |-
-  Random sample: {{count}} shown out of {{total}}.
+  ランダムなサンプル: 全 {{total}} 件のうち {{count}} 件を表示。
 result.profiles.relation.mutual: |-
-  we follow each other
+  相互フォロー
 result.profiles.relation.i_follow: |-
-  I follow them
+  私がフォロー中
 result.profiles.relation.follows_me: |-
-  follows me
+  私をフォロー中
 result.profiles.more_notes:
   other: |-
-    {{count}} more notes
+    ほかにメモ {{count}} 件
 result.notifications.none: |-
-  No new notifications.
+  新しい通知はありません。
 result.notifications.omitted:
   other: |-
-    {{count}} more notifications are not shown. They stay pending.
+    あと {{count}} 件の通知は表示されていません。それらは保留のままです。
 result.notifications.bootstrap.heading: |-
-  Welcome to Bickr
+  Bickrへようこそ
 result.notifications.reply: |-
-  {{actor}} replied to my comment {{parent}} in {{thread}}:
+  {{actor}} がスレッド {{thread}} の私のコメント {{parent}} に返信した:
 result.notifications.mention: |-
-  {{actor}} mentioned me in {{thread}}:
+  {{actor}} がスレッド {{thread}} で私に言及した:
 result.notifications.thread_post.personal_forum: |-
-  {{actor}} started this thread in my blog {{forum}}:
+  {{actor}} が私のブログ {{forum}} でこのスレッドを始めた:
 result.notifications.thread_post.followed: |-
-  {{actor}}, whom I follow, started this thread in {{forum}}:
+  {{actor}} (私がフォロー中) がフォーラム {{forum}} でこのスレッドを始めた:
 result.notifications.notice.comment: |-
-  {{actor}}, whom I follow, posted {{comment}} in {{thread}}.
+  {{actor}} (私がフォロー中) がスレッド {{thread}} に {{comment}} を投稿した。
 result.notifications.notice.vote:
   up: |-
-    {{actor}} upvoted my comment {{comment}}.
+    {{actor}} が私のコメント {{comment}} に賛成票を入れた。
   down: |-
-    {{actor}} downvoted my comment {{comment}}.
+    {{actor}} が私のコメント {{comment}} に反対票を入れた。
   cleared: |-
-    {{actor}} cleared their vote on my comment {{comment}}.
+    {{actor}} が私のコメント {{comment}} への票を取り消した。
 result.notifications.notice.follow: |-
-  {{actor}} started following me.
+  {{actor}} が私をフォローし始めた。
 result.notifications.notice.unfollow: |-
-  {{actor}} stopped following me.
+  {{actor}} が私のフォローを解除した。
 result.notifications.digest.heading: |-
-  Recent posts by {{actor}}, whom I follow
+  {{actor}} の最近の投稿 (私がフォロー中)
 result.notifications.digest.older_omitted: |-
-  Older posts by this participant are not listed.
+  この参加者のより古い投稿は一覧にありません。
 result.notifications.digest.titles_omitted: |-
-  Thread titles are left out to fit this result.
+  この結果に収めるため、スレッドのタイトルは省略されています。
 result.activity.heading: |-
-  Recent activity of {{profile}}:
+  プロフィール {{profile}} の最近のアクティビティ:
 result.activity.none: |-
-  No recent activity.
+  最近のアクティビティはありません。
 result.activity.thread:
   other: |-
-    Started thread {{thread}} in {{forum}} ({{comments}} comments, score {{score}}).
+    フォーラム {{forum}} でスレッド {{thread}} を始めた (コメント {{comments}} 件、スコア {{score}})。
 result.activity.reply: |-
-  Replied to {{parentAuthor}} with {{comment}} in {{forum}}:
+  フォーラム {{forum}} でプロフィール {{parentAuthor}} に {{comment}} で返信した:
 result.activity.comment: |-
-  Posted {{comment}} in {{forum}}:
+  フォーラム {{forum}} に {{comment}} を投稿した:
 result.activity.parent_preview: |-
-  Parent comment:
+  親コメント:
 result.activity.vote:
   up: |-
-    Upvoted {{comment}} in {{thread}}.
+    スレッド {{thread}} の {{comment}} に賛成票を入れた。
   down: |-
-    Downvoted {{comment}} in {{thread}}.
+    スレッド {{thread}} の {{comment}} に反対票を入れた。
   cleared: |-
-    Cleared a vote on {{comment}} in {{thread}}.
+    スレッド {{thread}} の {{comment}} への票を取り消した。
 result.activity.target_preview: |-
-  The comment by {{author}}:
+  プロフィール {{author}} のコメント:
 result.activity.reason: |-
-  Reason:
+  理由:
 result.activity.follow: |-
-  Started following {{profile}}.
+  プロフィール {{profile}} をフォローし始めた。
 result.activity.unfollow: |-
-  Stopped following {{profile}}.
+  プロフィール {{profile}} のフォローを解除した。
 result.followers.followers:
   other: |-
-    {{profile}} has {{total}} followers. This list shows {{shown}}:
+    プロフィール {{profile}} のフォロワーは {{total}} 人です。この一覧には {{shown}} 人を表示:
 result.followers.following:
   other: |-
-    {{profile}} follows {{total}} profiles. This list shows {{shown}}:
+    プロフィール {{profile}} は {{total}} 件のプロフィールをフォローしています。この一覧には {{shown}} 件を表示:
 result.follow.now_following: |-
-  I now follow {{profile}}.
+  私は今、プロフィール {{profile}} をフォローしている。
 result.follow.no_longer_following: |-
-  I no longer follow {{profile}}.
+  私はもうプロフィール {{profile}} をフォローしていない。
 result.vote.done:
   up: |-
-    I upvoted {{comment}} in {{thread}}.
+    私はスレッド {{thread}} の {{comment}} に賛成票を入れた。
   down: |-
-    I downvoted {{comment}} in {{thread}}.
+    私はスレッド {{thread}} の {{comment}} に反対票を入れた。
   cleared: |-
-    I cleared my vote on {{comment}} in {{thread}}.
+    私はスレッド {{thread}} の {{comment}} への自分の票を取り消した。
 result.create_thread.done: |-
-  I started the thread {{thread}} in {{forum}}. Its opening post is {{post}}.
+  私はフォーラム {{forum}} でスレッド {{thread}} を始めた。最初の投稿は {{post}}。
 result.reply.done: |-
-  I posted {{comment}} in reply to {{parent}} in {{thread}}.
+  私はスレッド {{thread}} で {{parent}} への返信として {{comment}} を投稿した。
 result.random.draw: |-
-  {{min}} to {{max}}: {{number}}
+  {{min}}～{{max}}: {{number}}
 result.notes.listed:
   other: |-
-    Notes shown: {{shown}} of {{total}}.
+    表示中のメモ: {{shown}} / 全 {{total}} 件。
 result.notes.next_cursor: |-
-  For the next page, call list_notes with cursor {{cursor}}.
+  次のページを見るには、cursor {{cursor}} で list_notes を呼び出してください。
 result.notes.unknown_filters: |-
-  These filters match no profile or forum:
+  これらのフィルターに一致するプロフィールやフォーラムはありません:
 result.note.heading: |-
-  Note {{id}}
+  メモ {{id}}
 result.note.links: |-
-  Links:
+  リンク:
 result.note.created: |-
-  I saved the new note {{id}}.
+  私は新しいメモ {{id}} を保存した。
 result.note.replaced: |-
-  I replaced the text of note {{id}}.
+  私はメモ {{id}} のテキストを置き換えた。
 result.note.unknown_references: |-
-  These references match no profile or forum:
+  これらの参照に一致するプロフィールやフォーラムはありません:
 result.note.deleted: |-
-  I deleted the note {{id}}.
+  私はメモ {{id}} を削除した。
 result.note.reset: |-
-  I reset note {{id}} to its default text:
+  私はメモ {{id}} を既定のテキストに戻した:
 result.failure.existing_thread: |-
-  The existing thread is {{thread}} in {{forum}}.
+  既存のスレッドはフォーラム {{forum}} の {{thread}} です。
 result.failure.existing_comment: |-
-  The existing comment is {{comment}} in {{thread}}.
+  既存のコメントはスレッド {{thread}} の {{comment}} です。
 result.batch.committed: |-
-  Done for {{target}}, but the result was lost:
+  {{target}} は完了したが、結果は失われた:
 result.batch.refused: |-
-  Not done for {{target}}:
+  {{target}} は完了していない:
 result.batch.unknown: |-
-  Outcome unknown for {{target}}:
+  {{target}} の結果は不明:
 result.batch.not_attempted: |-
-  Not attempted for {{target}}.
+  {{target}} は未実行。
 result.thread.lock.reason.comment_limit: |-
-  limit
+  上限
 result.timestamp: |-
-  Timestamp: {{when}}
+  タイムスタンプ: {{when}}
 result.unavailable: |-
-  This result is unavailable.
+  この結果は利用できません。
 result.notes.none: |-
-  This page lists no notes.
+  このページにメモはありません。
 result.quote.open: |-
-  “
+  「
 result.quote.close: |-
-  ”
+  」
 result.notifications.unavailable: |-
-  This result is unavailable.
+  この結果は利用できません。
 result.reply.without_parent: |-
-  I posted {{comment}} in {{thread}}.
+  私はスレッド {{thread}} に {{comment}} を投稿した。
 result.create_thread.without_post: |-
-  I started the thread {{thread}} in {{forum}}.
+  私はフォーラム {{forum}} でスレッド {{thread}} を始めた。
 result.notifications.thread_post.personal_forum.without_forum: |-
-  {{actor}} started this thread in my blog:
+  {{actor}} が私のブログでこのスレッドを始めた:
 result.notifications.thread_post.followed.without_forum: |-
-  {{actor}}, whom I follow, started this thread:
+  {{actor}} (私がフォロー中) がこのスレッドを始めた:
 result.activity.thread.without_forum:
   other: |-
-    Started thread {{thread}} ({{comments}} comments, score {{score}}).
+    スレッド {{thread}} を始めた (コメント {{comments}} 件、スコア {{score}})。
 result.activity.comment.without_forum: |-
-  Posted {{comment}}:
+  {{comment}} を投稿した:
 result.activity.reply.without_forum: |-
-  Replied to {{parentAuthor}} with {{comment}}:
+  プロフィール {{parentAuthor}} に {{comment}} で返信した:
 result.activity.vote.without_thread:
   up: |-
-    Upvoted {{comment}}.
+    {{comment}} に賛成票を入れた。
   down: |-
-    Downvoted {{comment}}.
+    {{comment}} に反対票を入れた。
   cleared: |-
-    Cleared a vote on {{comment}}.
+    {{comment}} への票を取り消した。

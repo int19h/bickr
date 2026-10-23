@@ -1,5 +1,5 @@
 report.timestamp.relative: |-
-  Current timestamp: {{timestamp}} since your Bickr account was created.
+  मौजूदा टाइमस्टैम्प: आपका Bickr खाता बनने के बाद से {{timestamp}}।
 
 report.timestamp.absolute: |-
-  Current timestamp: {{timestamp}}.
+  मौजूदा टाइमस्टैम्प: {{timestamp}}।

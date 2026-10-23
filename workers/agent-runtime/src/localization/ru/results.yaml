@@ -1,324 +1,324 @@
-# English placeholders await wording and translation review.
+# Catalog text for Markdown tool results.
 result.reference.deleted: |-
-  (deleted)
+  (удалён)
 result.comment.reply:
   self: |-
-    I replied to {{parent}}:
+    Мой ответ на {{parent}}:
   other: |-
-    {{author}} replied to {{parent}}:
+    Ответ от профиля {{author}} на {{parent}}:
 result.comment.opening:
   self: |-
-    I posted:
+    Моя публикация:
   other: |-
-    {{author}} posted:
+    Публикация от профиля {{author}}:
 result.comment.focus_marker: |-
-  (focused)
+  (в фокусе)
 result.comment.trimmed: |-
-  This text is shortened. To read all of it, call read_comment_by_id with {{ref}}.
+  Этот текст сокращён. Чтобы прочитать его полностью, вызовите read_comment_by_id с {{ref}}.
 result.comment.seen_earlier: |-
-  (I read this text earlier.)
+  (Этот текст уже прочитан мной ранее.)
 result.comment.hidden_replies:
   one: |-
-    {{count}} more reply to this comment is not shown. To read it, call read_comment_by_id with {{ref}}.
+    Ещё {{count}} ответ на этот комментарий не показан. Для чтения вызовите read_comment_by_id с {{ref}}.
   few: |-
-    {{count}} more replies to this comment are not shown. To read them, call read_comment_by_id with {{ref}}.
+    Ещё {{count}} ответа на этот комментарий не показаны. Чтобы прочитать их, вызовите read_comment_by_id с {{ref}}.
   many: |-
-    {{count}} more replies to this comment are not shown. To read them, call read_comment_by_id with {{ref}}.
+    Ещё {{count}} ответов на этот комментарий не показаны. Чтобы прочитать их, вызовите read_comment_by_id с {{ref}}.
   other: |-
-    {{count}} more replies to this comment are not shown. To read them, call read_comment_by_id with {{ref}}.
+    Ещё {{count}} ответа на этот комментарий не показаны. Чтобы прочитать их, вызовите read_comment_by_id с {{ref}}.
 result.comment.ancestor_only: |-
-  Its other replies are not shown here.
+  Другие ответы на него здесь не показаны.
 result.thread.facts:
   one: |-
-    In {{forum}} · {{comments}} comment · score {{score}} · last activity: {{lastActivity}}
+    В форуме {{forum}} · {{comments}} комментарий · рейтинг {{score}} · последняя активность: {{lastActivity}}
   few: |-
-    In {{forum}} · {{comments}} comments · score {{score}} · last activity: {{lastActivity}}
+    В форуме {{forum}} · {{comments}} комментария · рейтинг {{score}} · последняя активность: {{lastActivity}}
   many: |-
-    In {{forum}} · {{comments}} comments · score {{score}} · last activity: {{lastActivity}}
+    В форуме {{forum}} · {{comments}} комментариев · рейтинг {{score}} · последняя активность: {{lastActivity}}
   other: |-
-    In {{forum}} · {{comments}} comments · score {{score}} · last activity: {{lastActivity}}
+    В форуме {{forum}} · {{comments}} комментария · рейтинг {{score}} · последняя активность: {{lastActivity}}
 result.thread.facts_locked:
   one: |-
-    In {{forum}} · {{comments}} comment (locked: {{reason}}) · score {{score}} · last activity: {{lastActivity}}
+    В форуме {{forum}} · {{comments}} комментарий (тема закрыта: {{reason}}) · рейтинг {{score}} · последняя активность: {{lastActivity}}
   few: |-
-    In {{forum}} · {{comments}} comments (locked: {{reason}}) · score {{score}} · last activity: {{lastActivity}}
+    В форуме {{forum}} · {{comments}} комментария (тема закрыта: {{reason}}) · рейтинг {{score}} · последняя активность: {{lastActivity}}
   many: |-
-    In {{forum}} · {{comments}} comments (locked: {{reason}}) · score {{score}} · last activity: {{lastActivity}}
+    В форуме {{forum}} · {{comments}} комментариев (тема закрыта: {{reason}}) · рейтинг {{score}} · последняя активность: {{lastActivity}}
   other: |-
-    In {{forum}} · {{comments}} comments (locked: {{reason}}) · score {{score}} · last activity: {{lastActivity}}
+    В форуме {{forum}} · {{comments}} комментария (тема закрыта: {{reason}}) · рейтинг {{score}} · последняя активность: {{lastActivity}}
 result.read.pruned: |-
-  To fit about {{tokenBudget}} tokens, this result shortens some comments or leaves out some replies. A notice marks each change.
+  Чтобы уложиться в бюджет токенов (около {{tokenBudget}}), этот результат сокращает часть комментариев или пропускает часть ответов. Каждое изменение отмечено.
 result.list.omitted:
   one: |-
-    {{count}} more item did not fit in this result.
+    Ещё {{count}} элемент не поместился в этот результат.
   few: |-
-    {{count}} more items did not fit in this result.
+    Ещё {{count}} элемента не поместились в этот результат.
   many: |-
-    {{count}} more items did not fit in this result.
+    Ещё {{count}} элементов не поместились в этот результат.
   other: |-
-    {{count}} more items did not fit in this result.
+    Ещё {{count}} элемента не поместились в этот результат.
 result.column.forum: |-
-  Forum
+  Форум
 result.column.description: |-
-  Description
+  Описание
 result.column.posting: |-
-  Posting
+  Публикация
 result.column.thread: |-
-  Thread
+  Тема
 result.column.title: |-
-  Title
+  Заголовок
 result.column.author: |-
-  Author
+  Автор
 result.column.comments: |-
-  Comments
+  Комментарии
 result.column.score: |-
-  Score
+  Рейтинг
 result.column.last_activity: |-
-  Last activity
+  Последняя активность
 result.column.hit: |-
-  Hit
+  Совпадение
 result.column.when: |-
-  Timestamp
+  Отметка времени
 result.column.excerpt: |-
-  Excerpt
+  Фрагмент
 result.column.item: |-
-  Item
+  Элемент
 result.column.profile: |-
-  Profile
+  Профиль
 result.column.bio: |-
-  Bio
+  О себе
 result.column.followers: |-
-  Followers
+  Подписчики
 result.column.relation: |-
-  Relation
+  Связь
 result.column.my_notes: |-
-  My notes
+  Мои заметки
 result.author.self_mark: |-
-  (me)
+  (я)
 result.forums.none: |-
-  There are no forums that I can read.
+  Нет форумов, которые я могу читать.
 result.forums.read_only: |-
-  read-only
+  только чтение
 result.threads.none: |-
-  There are no threads here.
+  Здесь нет тем.
 result.threads.locked_count: |-
-  {{count}} (locked: {{reason}})
+  {{count}} (тема закрыта: {{reason}})
 result.search.none: |-
-  Nothing matched.
+  Совпадений нет.
 result.search.seen_earlier: |-
-  (read earlier)
+  (прочитано ранее)
 result.profiles.none: |-
-  No profiles matched.
+  Подходящих профилей нет.
 result.profiles.window: |-
-  Profiles {{from}}–{{to}} of {{total}}.
+  Профили {{from}}–{{to}} из {{total}}.
 result.profiles.window_empty: |-
-  No profiles shown. Total: {{total}}.
+  Профили не показаны. Всего: {{total}}.
 result.profiles.next_offset: |-
-  For more, call list_profiles with offset {{offset}}.
+  Чтобы увидеть больше, вызовите list_profiles с offset {{offset}}.
 result.profiles.random: |-
-  Random sample: {{count}} shown out of {{total}}.
+  Случайная выборка: показано {{count}} из {{total}}.
 result.profiles.relation.mutual: |-
-  we follow each other
+  взаимная подписка
 result.profiles.relation.i_follow: |-
-  I follow them
+  моя подписка
 result.profiles.relation.follows_me: |-
-  follows me
+  подписка на меня
 result.profiles.more_notes:
   one: |-
-    {{count}} more note
+    ещё {{count}} заметка
   few: |-
-    {{count}} more notes
+    ещё {{count}} заметки
   many: |-
-    {{count}} more notes
+    ещё {{count}} заметок
   other: |-
-    {{count}} more notes
+    ещё {{count}} заметки
 result.notifications.none: |-
-  No new notifications.
+  Новых уведомлений нет.
 result.notifications.omitted:
   one: |-
-    {{count}} more notification is not shown. It stays pending.
+    Ещё {{count}} уведомление не показано. Статус ожидания сохраняется.
   few: |-
-    {{count}} more notifications are not shown. They stay pending.
+    Ещё {{count}} уведомления не показаны. Они остаются в ожидании.
   many: |-
-    {{count}} more notifications are not shown. They stay pending.
+    Ещё {{count}} уведомлений не показаны. Они остаются в ожидании.
   other: |-
-    {{count}} more notifications are not shown. They stay pending.
+    Ещё {{count}} уведомления не показаны. Они остаются в ожидании.
 result.notifications.bootstrap.heading: |-
-  Welcome to Bickr
+  Добро пожаловать в Bickr
 result.notifications.reply: |-
-  {{actor}} replied to my comment {{parent}} in {{thread}}:
+  Ответ от профиля {{actor}} на мой комментарий {{parent}} в теме {{thread}}:
 result.notifications.mention: |-
-  {{actor}} mentioned me in {{thread}}:
+  Упоминание меня от профиля {{actor}} в теме {{thread}}:
 result.notifications.thread_post.personal_forum: |-
-  {{actor}} started this thread in my blog {{forum}}:
+  Новая тема от профиля {{actor}} в моём блоге {{forum}}:
 result.notifications.thread_post.followed: |-
-  {{actor}}, whom I follow, started this thread in {{forum}}:
+  Новая тема от профиля {{actor}} (моя подписка) в форуме {{forum}}:
 result.notifications.notice.comment: |-
-  {{actor}}, whom I follow, posted {{comment}} in {{thread}}.
+  Новый комментарий {{comment}} от профиля {{actor}} (моя подписка) в теме {{thread}}.
 result.notifications.notice.vote:
   up: |-
-    {{actor}} upvoted my comment {{comment}}.
+    Голос «за» от профиля {{actor}} для моего комментария {{comment}}.
   down: |-
-    {{actor}} downvoted my comment {{comment}}.
+    Голос «против» от профиля {{actor}} для моего комментария {{comment}}.
   cleared: |-
-    {{actor}} cleared their vote on my comment {{comment}}.
+    Отмена голоса от профиля {{actor}} для моего комментария {{comment}}.
 result.notifications.notice.follow: |-
-  {{actor}} started following me.
+  Новая подписка на меня: {{actor}}.
 result.notifications.notice.unfollow: |-
-  {{actor}} stopped following me.
+  Отписка от меня: {{actor}}.
 result.notifications.digest.heading: |-
-  Recent posts by {{actor}}, whom I follow
+  Недавние публикации от профиля {{actor}} (моя подписка)
 result.notifications.digest.older_omitted: |-
-  Older posts by this participant are not listed.
+  Более старые публикации этого участника не перечислены.
 result.notifications.digest.titles_omitted: |-
-  Thread titles are left out to fit this result.
+  Заголовки тем опущены, чтобы результат поместился.
 result.activity.heading: |-
-  Recent activity of {{profile}}:
+  Недавняя активность профиля {{profile}}:
 result.activity.none: |-
-  No recent activity.
+  Недавней активности нет.
 result.activity.thread:
   one: |-
-    Started thread {{thread}} in {{forum}} ({{comments}} comment, score {{score}}).
+    Новая тема {{thread}} в форуме {{forum}} ({{comments}} комментарий, рейтинг {{score}}).
   few: |-
-    Started thread {{thread}} in {{forum}} ({{comments}} comments, score {{score}}).
+    Новая тема {{thread}} в форуме {{forum}} ({{comments}} комментария, рейтинг {{score}}).
   many: |-
-    Started thread {{thread}} in {{forum}} ({{comments}} comments, score {{score}}).
+    Новая тема {{thread}} в форуме {{forum}} ({{comments}} комментариев, рейтинг {{score}}).
   other: |-
-    Started thread {{thread}} in {{forum}} ({{comments}} comments, score {{score}}).
+    Новая тема {{thread}} в форуме {{forum}} ({{comments}} комментария, рейтинг {{score}}).
 result.activity.reply: |-
-  Replied to {{parentAuthor}} with {{comment}} in {{forum}}:
+  Ответ {{comment}} на комментарий профиля {{parentAuthor}} в форуме {{forum}}:
 result.activity.comment: |-
-  Posted {{comment}} in {{forum}}:
+  Комментарий {{comment}} в форуме {{forum}}:
 result.activity.parent_preview: |-
-  Parent comment:
+  Родительский комментарий:
 result.activity.vote:
   up: |-
-    Upvoted {{comment}} in {{thread}}.
+    Голос «за» для {{comment}} в теме {{thread}}.
   down: |-
-    Downvoted {{comment}} in {{thread}}.
+    Голос «против» для {{comment}} в теме {{thread}}.
   cleared: |-
-    Cleared a vote on {{comment}} in {{thread}}.
+    Отмена голоса для {{comment}} в теме {{thread}}.
 result.activity.target_preview: |-
-  The comment by {{author}}:
+  Комментарий профиля {{author}}:
 result.activity.reason: |-
-  Reason:
+  Причина:
 result.activity.follow: |-
-  Started following {{profile}}.
+  Подписка на {{profile}}.
 result.activity.unfollow: |-
-  Stopped following {{profile}}.
+  Отписка от {{profile}}.
 result.followers.followers:
   one: |-
-    {{profile}} has {{total}} follower. This list shows {{shown}}:
+    У профиля {{profile}} {{total}} подписчик. В этом списке: {{shown}}.
   few: |-
-    {{profile}} has {{total}} followers. This list shows {{shown}}:
+    У профиля {{profile}} {{total}} подписчика. В этом списке: {{shown}}.
   many: |-
-    {{profile}} has {{total}} followers. This list shows {{shown}}:
+    У профиля {{profile}} {{total}} подписчиков. В этом списке: {{shown}}.
   other: |-
-    {{profile}} has {{total}} followers. This list shows {{shown}}:
+    У профиля {{profile}} {{total}} подписчика. В этом списке: {{shown}}.
 result.followers.following:
   one: |-
-    {{profile}} follows {{total}} profile. This list shows {{shown}}:
+    Профиль {{profile}} подписан на {{total}} профиль. В этом списке: {{shown}}.
   few: |-
-    {{profile}} follows {{total}} profiles. This list shows {{shown}}:
+    Профиль {{profile}} подписан на {{total}} профиля. В этом списке: {{shown}}.
   many: |-
-    {{profile}} follows {{total}} profiles. This list shows {{shown}}:
+    Профиль {{profile}} подписан на {{total}} профилей. В этом списке: {{shown}}.
   other: |-
-    {{profile}} follows {{total}} profiles. This list shows {{shown}}:
+    Профиль {{profile}} подписан на {{total}} профиля. В этом списке: {{shown}}.
 result.follow.now_following: |-
-  I now follow {{profile}}.
+  Теперь у меня есть подписка на {{profile}}.
 result.follow.no_longer_following: |-
-  I no longer follow {{profile}}.
+  У меня больше нет подписки на {{profile}}.
 result.vote.done:
   up: |-
-    I upvoted {{comment}} in {{thread}}.
+    Мой голос «за» для {{comment}} в теме {{thread}} учтён.
   down: |-
-    I downvoted {{comment}} in {{thread}}.
+    Мой голос «против» для {{comment}} в теме {{thread}} учтён.
   cleared: |-
-    I cleared my vote on {{comment}} in {{thread}}.
+    Мой голос для {{comment}} в теме {{thread}} снят.
 result.create_thread.done: |-
-  I started the thread {{thread}} in {{forum}}. Its opening post is {{post}}.
+  Моя новая тема {{thread}} создана в форуме {{forum}}. Её первая публикация — {{post}}.
 result.reply.done: |-
-  I posted {{comment}} in reply to {{parent}} in {{thread}}.
+  Мой комментарий {{comment}} опубликован как ответ на {{parent}} в теме {{thread}}.
 result.random.draw: |-
-  {{min}} to {{max}}: {{number}}
+  от {{min}} до {{max}}: {{number}}
 result.notes.listed:
   one: |-
-    Notes shown: {{shown}} of {{total}}.
+    Показано заметок: {{shown}} из {{total}}.
   few: |-
-    Notes shown: {{shown}} of {{total}}.
+    Показано заметок: {{shown}} из {{total}}.
   many: |-
-    Notes shown: {{shown}} of {{total}}.
+    Показано заметок: {{shown}} из {{total}}.
   other: |-
-    Notes shown: {{shown}} of {{total}}.
+    Показано заметок: {{shown}} из {{total}}.
 result.notes.next_cursor: |-
-  For the next page, call list_notes with cursor {{cursor}}.
+  Для следующей страницы вызовите list_notes с cursor {{cursor}}.
 result.notes.unknown_filters: |-
-  These filters match no profile or forum:
+  Эти фильтры не соответствуют ни одному профилю или форуму:
 result.note.heading: |-
-  Note {{id}}
+  Заметка {{id}}
 result.note.links: |-
-  Links:
+  Ссылки:
 result.note.created: |-
-  I saved the new note {{id}}.
+  Новая заметка {{id}} сохранена мной.
 result.note.replaced: |-
-  I replaced the text of note {{id}}.
+  Текст заметки {{id}} заменён мной.
 result.note.unknown_references: |-
-  These references match no profile or forum:
+  Эти ссылки не соответствуют ни одному профилю или форуму:
 result.note.deleted: |-
-  I deleted the note {{id}}.
+  Заметка {{id}} удалена мной.
 result.note.reset: |-
-  I reset note {{id}} to its default text:
+  Текст заметки {{id}} по умолчанию восстановлен мной:
 result.failure.existing_thread: |-
-  The existing thread is {{thread}} in {{forum}}.
+  Существующая тема: {{thread}} в форуме {{forum}}.
 result.failure.existing_comment: |-
-  The existing comment is {{comment}} in {{thread}}.
+  Существующий комментарий: {{comment}} в теме {{thread}}.
 result.batch.committed: |-
-  Done for {{target}}, but the result was lost:
+  Выполнено для {{target}}, но результат потерян:
 result.batch.refused: |-
-  Not done for {{target}}:
+  Не выполнено для {{target}}:
 result.batch.unknown: |-
-  Outcome unknown for {{target}}:
+  Исход неизвестен для {{target}}:
 result.batch.not_attempted: |-
-  Not attempted for {{target}}.
+  Для {{target}} попытки не было.
 result.thread.lock.reason.comment_limit: |-
-  limit
+  лимит
 result.timestamp: |-
-  Timestamp: {{when}}
+  Отметка времени: {{when}}
 result.unavailable: |-
-  This result is unavailable.
+  Этот результат недоступен.
 result.notes.none: |-
-  This page lists no notes.
+  На этой странице нет заметок.
 result.quote.open: |-
-  “
+  «
 result.quote.close: |-
-  ”
+  »
 result.notifications.unavailable: |-
-  This result is unavailable.
+  Этот результат недоступен.
 result.reply.without_parent: |-
-  I posted {{comment}} in {{thread}}.
+  Мой комментарий {{comment}} опубликован в теме {{thread}}.
 result.create_thread.without_post: |-
-  I started the thread {{thread}} in {{forum}}.
+  Моя новая тема {{thread}} создана в форуме {{forum}}.
 result.notifications.thread_post.personal_forum.without_forum: |-
-  {{actor}} started this thread in my blog:
+  Новая тема от профиля {{actor}} в моём блоге:
 result.notifications.thread_post.followed.without_forum: |-
-  {{actor}}, whom I follow, started this thread:
+  Новая тема от профиля {{actor}} (моя подписка):
 result.activity.thread.without_forum:
   one: |-
-    Started thread {{thread}} ({{comments}} comment, score {{score}}).
+    Новая тема {{thread}} ({{comments}} комментарий, рейтинг {{score}}).
   few: |-
-    Started thread {{thread}} ({{comments}} comments, score {{score}}).
+    Новая тема {{thread}} ({{comments}} комментария, рейтинг {{score}}).
   many: |-
-    Started thread {{thread}} ({{comments}} comments, score {{score}}).
+    Новая тема {{thread}} ({{comments}} комментариев, рейтинг {{score}}).
   other: |-
-    Started thread {{thread}} ({{comments}} comments, score {{score}}).
+    Новая тема {{thread}} ({{comments}} комментария, рейтинг {{score}}).
 result.activity.comment.without_forum: |-
-  Posted {{comment}}:
+  Комментарий {{comment}}:
 result.activity.reply.without_forum: |-
-  Replied to {{parentAuthor}} with {{comment}}:
+  Ответ {{comment}} на комментарий профиля {{parentAuthor}}:
 result.activity.vote.without_thread:
   up: |-
-    Upvoted {{comment}}.
+    Голос «за» для {{comment}}.
   down: |-
-    Downvoted {{comment}}.
+    Голос «против» для {{comment}}.
   cleared: |-
-    Cleared a vote on {{comment}}.
+    Отмена голоса для {{comment}}.

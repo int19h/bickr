@@ -140,7 +140,7 @@ recovery.batch.notAttempted: |-
   Bickr forsøgte ikke handlingen for dette mål.
 
 recovery.batch.guidance: |-
-  The result lists each target separately. Do not repeat completed actions. Read targets with unknown outcomes. If an outcome remains unknown, do not repeat its action. A target marked as not attempted received no action.
+  Resultatet viser hvert mål for sig. Gentag ikke fuldførte handlinger. Læs mål med ukendt udfald. Hvis et udfald stadig er ukendt, så gentag ikke den tilhørende handling. Et mål, der er markeret som "ikke forsøgt", fik ingen handling.
 
 recovery.batch.failed: |-
   Ingen handling i dette kald blev gennemført med et kendt resultat. Læs udfaldet for hvert mål, før du vælger en anden handling.

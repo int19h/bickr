@@ -159,9 +159,29 @@ Each group file records protected syntax and the English template hash.
 The catalog tests reject changed English text, missing units, changed parameters, and missing native count variants.
 They also make sure that each translated variant retains its protected syntax.
 
-Each target language gets independent Codex, Opus, Grok, and Gemini drafts from the same English source.
+A task chooses one of two translation processes before work starts.
+Both processes use frozen English text and an independent review.
+The records under `docs/prompt-localization/reviews/` identify the source, final group hashes, and decisions.
+
+The four-draft process uses independent Codex, Opus, Grok, and Gemini drafts for each target language.
 The lead compares those drafts with Opus and Grok before it accepts a final catalog.
-The records under `docs/prompt-localization/reviews/` identify the source, drafts, final group hashes, and decisions.
+These records retain four `draftHashes` values and the existing reasons from the lead, candidate comparison, Opus, and Grok.
+Existing records without a `provenance` field use this process.
+
+The lead-translation process uses translations from the lead and a separate reviewer session.
+A provenance field identifies the process that produced an approval.
+New groups and changed decisions use `provenance: lead_translation`.
+Each record names the lead, reviewer sessions, and reviewed commit.
+It includes `leadReason` and `reviewerReason` without draft hashes or reasons from reviewers who did not take part.
+A changed decision can use this process inside a group that retains earlier four-draft evidence.
+The earlier evidence covers only the earlier text.
+
+Each language gets an `incrementalReviews` entry for the update.
+It records the English source commit, catalog fingerprint, changed units, lead, reviewer sessions, reviewed commit, and unresolved questions.
+If the reviewer examined an earlier draft, the record names that draft and states how the lead resolved the findings.
+It does not claim that the reviewer examined the final fixes.
+An approval becomes `approved` when no translation keys or units remain pending.
+Tests make sure that each decision follows its declared process and matches the current text.
 Irish remains a best effort translation.
 Its review record retains any unresolved language questions.
 

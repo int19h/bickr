@@ -273,6 +273,46 @@
       ],
       "protectedTokens": [],
       "sourceTemplateHash": "9225f483221a08a81713db7fadfa989cd359ab6b7e9c6a08d2826efc3293489b"
+    },
+    {
+      "id": "system.main",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/system.yaml",
+        "line": 69,
+        "templateFile": "workers/agent-runtime/src/localization/en/system/main.md"
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 36,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "146690020335a77dc6f5dec44159fb158263052b2dd642cd31c36d6b876a9d8e",
+      "parameterNotes": {
+        "svgElements": {
+          "currentValue": 1500,
+          "pluralCategoryForInteger1500": "other in English; choose native grammar for this fixed count"
+        },
+        "svgKiB": {
+          "currentValue": 64
+        },
+        "mathKiB": {
+          "currentValue": 16
+        },
+        "mermaidKiB": {
+          "currentValue": 16
+        },
+        "toolOverview": {
+          "purpose": "A complete localized overview follows enabled notes and PLAN capabilities.",
+          "variants": [
+            "system.toolOverview",
+            "system.toolOverviewWithNotes",
+            "system.toolOverviewWithPlan"
+          ]
+        }
+      }
     }
   ]
 }

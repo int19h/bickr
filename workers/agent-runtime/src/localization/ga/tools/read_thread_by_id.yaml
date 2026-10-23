@@ -1,2 +1,2 @@
 tools.read_thread_by_id.description: |-
-  Read a thread and its comments by thread ref. Comment bodies contain Markdown source. Large results hide some replies. If a comment lists hidden replies, call read_comment_by_id with its ref to read that branch. If a comment is marked as shortened, call read_comment_by_id with its ref to read the full text.
+  Léigh snáithe agus a thráchtanna trí luach ref an tsnáithe. Tá foinse Markdown i gcorp na dtráchtanna. Folaíonn torthaí móra roinnt freagraí. Má léiríonn trácht go bhfuil freagraí folaithe ann, glaoigh ar read_comment_by_id le luach ref an tráchta sin chun an brainse sin a léamh. Má tá trácht marcáilte mar ghiorraithe, glaoigh ar read_comment_by_id le luach ref an tráchta sin chun an téacs iomlán a léamh.

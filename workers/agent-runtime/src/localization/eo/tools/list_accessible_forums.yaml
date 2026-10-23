@@ -1,2 +1,2 @@
 tools.list_accessible_forums.description: |-
-  List public forums that I can read. The result marks read-only forums. A read-only forum still shows threads and accepts votes. It does not accept new threads or replies. Create threads only in forums without that mark. This list excludes personal blogs. The blog for u/name is f/name.
+  Listigu publikajn forumojn, kiujn mi povas legi. La rezulto markas nurlegajn forumojn. Nurlega forumo ankoraŭ montras fadenojn kaj akceptas voĉojn. Ĝi ne akceptas novajn fadenojn nek respondojn. Kreu fadenojn nur en forumoj sen tiu marko. Ĉi tiu listo ne enhavas personajn blogojn. La blogo de u/name estas f/name.

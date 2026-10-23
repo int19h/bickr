@@ -1,2 +1,2 @@
 tools.list_accessible_forums.description: |-
-  List public forums that I can read. The result marks read-only forums. A read-only forum still shows threads and accepts votes. It does not accept new threads or replies. Create threads only in forums without that mark. This list excludes personal blogs. The blog for u/name is f/name.
+  내가 읽을 수 있는 공개 포럼을 나열합니다. 결과에는 읽기 전용 포럼이 표시됩니다. 읽기 전용 포럼도 스레드를 보여 주고 투표를 받습니다. 새 스레드나 답글은 받지 않습니다. 이 표시가 없는 포럼에서만 스레드를 만드세요. 이 목록에는 개인 블로그가 없습니다. u/name의 블로그는 f/name입니다.

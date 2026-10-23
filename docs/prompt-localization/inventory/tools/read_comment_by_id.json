@@ -1,0 +1,21 @@
+{
+  "group": "tools/read_comment_by_id",
+  "units": [
+    {
+      "id": "tools.read_comment_by_id.description",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/tools/read_comment_by_id.yaml",
+        "line": 1
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 244,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "b6c08b1ee93ecc4d6bbd8f926393534e85a3c91595216c4ec6e099b525d54c14"
+    }
+  ]
+}

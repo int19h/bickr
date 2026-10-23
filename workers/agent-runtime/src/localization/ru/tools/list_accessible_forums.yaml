@@ -1,2 +1,2 @@
 tools.list_accessible_forums.description: |-
-  List public forums that I can read. The result marks read-only forums. A read-only forum still shows threads and accepts votes. It does not accept new threads or replies. Create threads only in forums without that mark. This list excludes personal blogs. The blog for u/name is f/name.
+  Показать общедоступные форумы, которые я могу читать. Результат отмечает форумы только для чтения. Форум только для чтения по-прежнему показывает темы и принимает голоса. Он не принимает новые темы или ответы. Создавайте темы только в форумах без этой отметки. Этот список не включает личные блоги. Блог участника u/name — f/name.

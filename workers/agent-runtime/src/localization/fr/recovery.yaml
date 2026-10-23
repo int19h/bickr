@@ -148,7 +148,7 @@ recovery.batch.notAttempted: |-
   Bickr n'a pas tenté l'action pour cette cible.
 
 recovery.batch.guidance: |-
-  The result lists each target separately. Do not repeat completed actions. Read targets with unknown outcomes. If an outcome remains unknown, do not repeat its action. A target marked as not attempted received no action.
+  Le résultat liste chaque cible séparément. Ne répétez pas les actions terminées. Lisez les cibles dont l'issue est inconnue. Si une issue reste inconnue, ne répétez pas l'action correspondante. Une cible marquée « pas de tentative » n'a reçu aucune action.
 
 recovery.batch.failed: |-
   Aucune action de cet appel ne s'est terminée avec un résultat connu. Lisez l'issue de chaque cible avant de choisir une autre action.
