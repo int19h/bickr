@@ -63,6 +63,9 @@ It preserves the separate shared catalog that browser code imports.
 
 Installation, builds, tests, the CLI command, and development servers generate the catalogs before using them.
 Vite, Vitest watch mode, and Wrangler watch the readable sources for changes.
+
+For Markdown tool results, use [the template language](result-templates.md).
+These shared templates support comments and control blocks before generation.
 Both Pages development commands restart their servers after a catalog source change.
 This restart reloads the generated shared text in Pages Functions.
 The commands stop on invalid text.

@@ -6,5 +6,5 @@
 		"types": ["./worker-configuration.d.ts"],
 		"noEmit": true
 	},
-	"include": ["src"]
+	"include": ["src", "src/.generated/localization/result-templates.ts"]
 }

@@ -9,6 +9,7 @@ import { InstructionTemplates, type MessageCatalog, type MessageDefinitions } fr
 import { sharedMessageDefinitions } from '../packages/shared/src/localization/messages.ts';
 import { messageParameters } from '../workers/agent-runtime/src/localization/messages.ts';
 import { CatalogSourceError, readCatalogGroup, type SourceMessage } from './localization/catalog-source.ts';
+import { compileResultTemplates, templateDirectory } from './localization/result-template-compiler.ts';
 import { catalogRoots, repository } from './localization/paths.ts';
 
 const header = '// Generated from localization YAML and Markdown. Do not edit.\n';
@@ -49,7 +50,7 @@ function readLanguage(directory: string, definitions: MessageDefinitions): Recor
 function compileLocalization(root: string): { file: string; content: string }[] {
 	const catalogs = catalogRoots.map((directory, index) => {
 		const path = join(root, directory);
-		const locales = readdirSync(path, { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
+		const locales = readdirSync(path, { withFileTypes: true }).filter((entry) => entry.isDirectory() && (index === 0 || entry.name !== 'templates')).map((entry) => entry.name).sort();
 		if (JSON.stringify(locales) !== JSON.stringify([...instructionLocales].sort())) {
 			throw new CatalogSourceError(path, 'Catalog language directories must match the supported languages.');
 		}
@@ -85,6 +86,7 @@ function compileLocalization(root: string): { file: string; content: string }[] 
 			});
 		}
 	}
+	outputs.push(...compileResultTemplates(root, messageParameters).map((output) => ({ ...output, content: header + output.content })));
 	return outputs;
 }
 
@@ -120,16 +122,28 @@ function publish(outputs: readonly { file: string; content: string }[], check: b
 	return changes.length + obsolete.length;
 }
 
+function templateSourceFiles(directory: string): string[] {
+	return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+		if (entry.name === '.gitkeep') return [];
+		const file = join(directory, entry.name);
+		if (entry.isSymbolicLink()) throw new CatalogSourceError(file, 'Template sources cannot be symbolic links.');
+		return entry.isDirectory() ? templateSourceFiles(file) : [file];
+	}).sort();
+}
+
 function inputFingerprint(root: string): string {
 	const hash = createHash('sha256');
 	for (const directory of catalogRoots) {
 		hash.update(JSON.stringify(readdirSync(join(root, directory), { withFileTypes: true })
-			.filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort()));
+			.filter((entry) => entry.isDirectory() && (directory === catalogRoots[0] || entry.name !== 'templates')).map((entry) => entry.name).sort()));
 		for (const locale of instructionLocales) {
 			for (const file of sourceFiles(join(root, directory, locale))) {
 				hash.update(JSON.stringify(relative(root, file))).update('\0').update(readFileSync(file)).update('\0');
 			}
 		}
+	}
+	for (const file of templateSourceFiles(join(root, templateDirectory))) {
+		hash.update(JSON.stringify(relative(root, file))).update('\0').update(readFileSync(file)).update('\0');
 	}
 	return hash.digest('hex');
 }
