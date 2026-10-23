@@ -34,7 +34,11 @@ export function cell(value: FreeText, context?: InlineContext): string;
 export function cell(value: InlineValue, context: InlineContext): string;
 export function cell(value: FreeText | InlineValue, context?: InlineContext): string {
 	if (typeof value !== 'string' && !context) throw new Error('An inline cell needs a render context.');
-	const rendered = typeof value === 'string' ? value : inline(value, context!);
+	// Apply cell escaping to authored names once. Keep the ref's inline form.
+	const rendered = typeof value === 'string' ? value
+		: value.kind === 'author' && value.value.displayName !== undefined
+			? `${value.value.displayName.replace(/\r\n|\r|\n/g, ' ')} ${context!.inline.author({ ref: value.value.ref, person: value.value.person })}`
+			: inline(value, context!);
 	// Escape backslashes first so that an authored backslash cannot cancel a pipe escape.
 	return rendered.replace(/\\/g, '\\\\').replace(/\|/g, '\\|').replace(/\r\n|\r|\n/g, ' ').trim();
 }
