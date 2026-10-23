@@ -211,19 +211,23 @@ describe('reviewed instruction catalogs', () => {
 				}
 			}
 		}
-		const update = approval.incrementalReviews.at(-1) as IncrementalReview;
-		assertLeadTranslation(update);
-		expect(update.catalogSourceHash).toBe(sourceHash);
-		expect(update.sourceCommit).toMatch(/^[a-f0-9]{40}$/);
-		expect(update.reviewedDraftCommit).toMatch(/^[a-f0-9]{40}$/);
-		expect(update.reportHash).toMatch(/^[a-f0-9]{64}$/);
-		expect(update.status).toBe('accepted_by_lead');
+		// Later updates can use either provenance, so check every lead-translation entry instead of the last entry.
+		const leadUpdates = approval.incrementalReviews.filter((entry): entry is IncrementalReview => entry.provenance === 'lead_translation');
+		for (const update of leadUpdates) {
+			assertLeadTranslation(update);
+			expect(update.sourceCommit).toMatch(/^[a-f0-9]{40}$/);
+			expect(update.reviewedDraftCommit).toMatch(/^[a-f0-9]{40}$/);
+			expect(update.catalogSourceHash).toMatch(/^[a-f0-9]{64}$/);
+			expect(update.reportHash).toMatch(/^[a-f0-9]{64}$/);
+			expect(update.status).toBe('accepted_by_lead');
+		}
 		const leadDecisions = Object.values(approval.groups).flatMap(group => Object.entries(group.decisions))
 			.filter(([, decision]) => decision.provenance === 'lead_translation').map(([id]) => id);
-		expect(update.units.sort()).toEqual(leadDecisions.sort());
+		expect([...new Set(leadUpdates.flatMap(update => update.units))].sort()).toEqual(leadDecisions.sort());
 		if (locale === 'ga') {
-			expect(update.uncertainties.join(' ')).toContain('best effort');
-			expect(update.uncertainties.join(' ')).toContain('tócain téacs');
+			const uncertainties = leadUpdates.flatMap(update => update.uncertainties).join(' ');
+			expect(uncertainties).toContain('best effort');
+			expect(uncertainties).toContain('tócain téacs');
 		}
 	});
 

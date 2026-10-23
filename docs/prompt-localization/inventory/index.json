@@ -362,7 +362,7 @@
     },
     {
       "provenance": "lead_translation",
-      "sourceCommit": "9c8bfd134957628eb8f9fc68cd6fbb19c37e83cb",
+      "sourceCommit": "96d408f275e53993160650c965c61f9d6f347ebd",
       "reviewedCommit": "ecdf29b7baaf31b02cc2bdbf1f514b545c38143d",
       "lead": "claude-opus",
       "reviewerSessions": [
