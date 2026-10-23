@@ -1,4 +1,4 @@
-import { buildToolResultView, toolResultViewPayload } from './tool-result-views';
+import { buildToolResultView, toolResultViewPayload, resultViewBuildRenderContext } from './tool-result-views';
 import { resultContentIdentities } from './result-handles';
 import type { ResultContextScope } from './result-context-scope';
 import { participantTimeSettingsOf } from "@bickr/shared/participant-time-migration";
@@ -478,7 +478,7 @@ export class RuntimeTools {
 		const references = new Map<string, string>();
 		const view = await buildToolResultView(envelope, { time: { settings: participantTimeSettingsOf(bot), createdAt: bot.createdAt }, text: bot.text, selfId: bot.id, scope: await this.runtime.resultContextScope(), writtenAt: new Date().toISOString(), references, contentIdentities }, providerResultTokenBudget);
 		if (!view) throw new Error('The tool result has no typed view.');
-		const providerResult: unknown = toolResultViewPayload(view, bot.text);
+		const providerResult: unknown = toolResultViewPayload(view, resultViewBuildRenderContext(view, { text: bot.text, time: { settings: participantTimeSettingsOf(bot), createdAt: bot.createdAt } }));
 		const toolResultPayload = {
 			name: canonicalName,
 			args: providerToolArgs(canonicalName, normalizedArgs),

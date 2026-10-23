@@ -1,3 +1,4 @@
+import { testResultContext } from './result-render-context.test-support';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { RuntimeInputHistory } from './input-history';
 import { RuntimeMessageStore } from './message-store';
@@ -25,13 +26,13 @@ describe('committed input history marker', () => {
 		const history = new RuntimeInputHistory(storage);
 		history.initializeLegacy(0);
 		expect(history.startedAfter(0)).toBe(false);
-		new RuntimeMessageStore(storage).appendLoopMessageGroup([{ runId: 'failed', origin: 'injection', message: { role: 'assistant', content: 'old fragment' } }]);
+		new RuntimeMessageStore(storage).appendLoopMessageGroup(testResultContext, [{ runId: 'failed', origin: 'injection', message: { role: 'assistant', content: 'old fragment' } }]);
 		history.initializeLegacy(0);
 		expect(history.startedAfter(0)).toBe(false);
 	});
 	it('converts retained legacy history and ignores later input-only failures', () => {
 		const committed = input('success');
-		new RuntimeMessageStore(storage).appendLoopMessageGroup([{ runId: 'success', origin: 'synthetic_context', message: { role: 'user', content: 'Opening context' } }]);
+		new RuntimeMessageStore(storage).appendLoopMessageGroup(testResultContext, [{ runId: 'success', origin: 'synthetic_context', message: { role: 'user', content: 'Opening context' } }]);
 		input('failed');
 		const history = new RuntimeInputHistory(storage);
 		history.initializeLegacy(0);

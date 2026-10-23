@@ -18,6 +18,30 @@ The readers do not convert these rows.
 After the active-row census and WI-F forced compaction, advance the view schema version and remove the legacy readers.
 Remove the legacy notification adapter after its notification census also reaches zero.
 
+## Render context
+
+`ResultRenderContext` holds the language catalog, participant time configuration, and handle map for a render.
+`buildResultRenderContext` builds it from the participant document and the views that the reader will render.
+The context and its time data are read-only.
+Every renderer requires a context.
+A missing current handle stops the render.
+The renderer never uses stored language, time configuration, or handles as a fallback.
+
+Each provider request builds one context for its active history.
+Owner pages, log responses, and monitor backfill each build a separate context for their selected rows.
+Compaction and token estimates receive the context from their caller.
+Manual compaction includes all active views so that hydration can render any kept view.
+
+The running visit passes its context to the message store for writes and live broadcasts.
+New tool results add their current references without changing existing references in that request.
+The store adds no D1 queries for broadcasts.
+The timeout handler saves terminal state before recovery loads a context and publishes pending results.
+
+New views omit the former `instructionLocale` and `time` fields.
+Existing views can still contain these fields, but the renderer ignores them.
+`writtenAt` records when the view and its instant data entered history.
+The scope and hydration still read facet state and `contextProfiles`.
+
 ## Context and hydration
 
 A facet is one named value on an entity.
@@ -69,14 +93,15 @@ Retain the columns and the delete writers.
 
 ## Readers of tool rows
 
-The following readers render a stored view before they consume a tool row.
+The following readers use stored views or their protocol fields.
+Each renderer receives an explicit context.
 The inference submission stores the rendered request as an audit snapshot.
 A later rename does not rewrite that earlier request snapshot.
 
 1. `runtime/message-store.ts` renders owner message pages, message backfill, and the message attached to a log response.
 2. `runtime/bot-runtime.ts` renders active history before it builds each provider request.
 3. `runtime/bot-runtime.ts` uses that rendered request for inference submission records.
-4. `compaction/selection.ts` reads view-backed rows for message grouping and provider protocol rules.
+4. `compaction/selection.ts` renders rows for reduced-batch estimates. Protocol grouping and provider normalization read only stored roles and call IDs.
 5. `runtime/bot-runtime.ts` renders rows for token estimates, compaction limits, and compaction input.
 6. `runtime/bot-runtime.ts` reads facets from views for the context scope and hydration.
 7. `runtime/note-newline-migration.ts` retains its existing one-time reader for old JSON content.
@@ -89,7 +114,8 @@ WI-D removes that module and its golden comparisons when it replaces JSON with M
 ## Participant time
 
 The renderer uses WI-A's `formatParticipantTime` function.
-A view keeps UTC instants and the account creation time.
+A view keeps UTC instants.
+The render context supplies the account creation time.
 Each provider request supplies the current participant time configuration.
 A configuration change re-renders the timestamps in stored views.
 Old rows retain their stored text.

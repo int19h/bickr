@@ -1,3 +1,4 @@
+import { testViewRenderContext } from './result-render-context.test-support';
 import { botServiceIssue } from '@bickr/shared/bot-service-issues';
 import { providerBatchOutcome } from './batch-outcomes.test-support';
 import { toolFailurePayload } from './bot-runtime';
@@ -91,8 +92,8 @@ describe('JSON result views', () => {
 			const serialized = JSON.stringify(view);
 			expect(serialized).not.toContain('SECRET');
 			expect(serialized).not.toContain('futurePrivateField');
-			expect(renderToolResultView(view!, text)).toBe(old);
-			expect(renderToolResultView(JSON.parse(serialized), text)).toBe(old);
+			expect(renderToolResultView(view!, testViewRenderContext(view!, text))).toBe(old);
+			expect(renderToolResultView(JSON.parse(serialized), testViewRenderContext(JSON.parse(serialized), text))).toBe(old);
 		} finally { vi.useRealTimers(); }
 	});
 	it.each([1, 70, 150, 300, 1000, 10000])('matches the old read pruning with budget %s', async budget => {
@@ -104,19 +105,19 @@ describe('JSON result views', () => {
 		const pruned = pruneReadContentTreeForProviderBudget(text, content, budget, { botId: 'reader' });
 		const old = JSON.stringify(providerToolResultPayload('read_thread_by_id', { ...read, content: pruned.content, context: readResultContext(text, read.operation, pruned, budget), contextGuidance: { collapsedReplies: pruned.omittedReplyCount > 0, trimmedBodies: pruned.trimmedBodyCount > 0 } }, {}, providerSerializationContext(text, { botId: 'reader' })));
 		const view = await buildToolResultView({ kind: 'posts_read', items: [], read: { ...read, content, contextDecision: { operation: read.operation, tokenBudget: budget, omittedReplyCount: 0, trimmedBodyCount: 0 } } }, context());
-		expect(renderToolResultView(view!, text)).toBe(old);
+		expect(renderToolResultView(view!, testViewRenderContext(view!, text))).toBe(old);
 		expect(view?.kind === 'read_thread' && view.pruning?.omittedReplyCount).toBe(pruned.omittedReplyCount);
 		} finally { vi.useRealTimers(); }
 	});
 	it('re-renders generated bootstrap forum advice after a rename', async () => {
 		const view = await buildToolResultView({ kind: 'notifications_checked', events: [notificationPayloads[0]!] }, context());
 		const handle = new Map([[JSON.stringify(['forum', forum.id]), { handle: 'renamed', deleted: false }]]);
-		expect(renderToolResultView(view!, text, handle)).toContain('f/renamed');
+		expect(renderToolResultView(view!, testViewRenderContext(view!, text, handle))).toContain('f/renamed');
 		expect(JSON.stringify(view)).not.toContain('SECRET');
 	});
 	it('returns a bounded result when an old bootstrap forum has no ID', async () => {
 		const view = await buildToolResultView({ kind: 'notifications_checked', events: [notificationPayloads[0]!] }, { ...context(), references: new Map() });
-		expect(renderToolResultView(view!, text)).not.toContain('f/general');
+		expect(renderToolResultView(view!, testViewRenderContext(view!, text))).not.toContain('f/general');
 		expect(view?.kind === 'check_notifications' && view.events[0]?.kind).toBe('unavailable');
 	});
 	it('shows edited bodies again and omits repeated bodies across results', async () => {
@@ -125,9 +126,9 @@ describe('JSON result views', () => {
 		const first = await buildToolResultView(envelope, context(scope));
 		const second = await buildToolResultView(envelope, context(scope));
 		const edited = await buildToolResultView({ ...envelope, read: { ...read, content: [{ ...comment, body: authored('Edited body') }] } }, context(scope));
-		expect(renderToolResultView(first!, text)).toContain('The opening body');
-		expect(renderToolResultView(second!, text)).not.toContain('The opening body');
-		expect(renderToolResultView(edited!, text)).toContain('Edited body');
+		expect(renderToolResultView(first!, testViewRenderContext(first!, text))).toContain('The opening body');
+		expect(renderToolResultView(second!, testViewRenderContext(second!, text))).not.toContain('The opening body');
+		expect(renderToolResultView(edited!, testViewRenderContext(edited!, text))).toContain('Edited body');
 	});
 });
 
@@ -137,8 +138,8 @@ describe('failure and settlement views', () => {
 		const original = toolFailurePayload(text, 'read_note', { id: 'one' }, new Error('Internal details'));
 		const view = failureResultView({ ...original, ...privateData, args: { id: 'one', ...privateData } }, text, { message: resultMessage('recovery.genericError') });
 		expect(JSON.stringify(view)).not.toContain('SECRET');
-		expect(renderToolResultView(view, text)).toBe(JSON.stringify(original));
-		expect(renderToolResultView(view, botText('fr'))).toBe(JSON.stringify(toolFailurePayload(botText('fr'), 'read_note', { id: 'one' }, new Error('Internal details'))));
+		expect(renderToolResultView(view, testViewRenderContext(view, text))).toBe(JSON.stringify(original));
+		expect(renderToolResultView(view, testViewRenderContext(view, botText('fr')))).toBe(JSON.stringify(toolFailurePayload(botText('fr'), 'read_note', { id: 'one' }, new Error('Internal details'))));
 	});
 	it('uses the current forum handle in duplicate-title failures', () => {
 		const original = toolFailurePayload(text, 'create_thread', { forumHandle: 'old', title: authored('Title'), body: authored('Body') }, new Error('Internal details'));
@@ -146,19 +147,19 @@ describe('failure and settlement views', () => {
 		const view = failureResultView(original, text, { message: resultMessage('recovery.genericError') });
 		view.existingForum = { kind: 'forum', entityId: forum.id, handle: 'old' };
 		const handles = new Map([[JSON.stringify(['forum', forum.id]), { handle: 'new', deleted: true }]]);
-		expect(JSON.parse(renderToolResultView(view, text, handles)).existingForumHandle).toBe('new (deleted)');
-		expect(JSON.parse(renderToolResultView(view, text, handles)).args.forumHandle).toBe('old');
+		expect(JSON.parse(renderToolResultView(view, testViewRenderContext(view, text, handles))).existingForumHandle).toBe('new (deleted)');
+		expect(JSON.parse(renderToolResultView(view, testViewRenderContext(view, text, handles))).args.forumHandle).toBe('old');
 	});
 	it.each(['prepared', 'reading', 'dispatched'] as const)('matches interrupted settlement at %s', stage => {
 		const old = interruptedToolSettlement(text, 'create_thread', stage);
 		const kind = old.outcome === 'unknown' ? 'outcome_unknown' : old.outcome;
 		const recipe = stage === 'prepared' ? resultMessage('recovery.notDispatched') : stage === 'reading' ? resultMessage('recovery.interrupted') : unknownOutcomeText('create_thread');
-		expect(renderToolResultView(settlementResultView(kind, recipe, text), text)).toBe(JSON.stringify(old.result));
+		expect(renderToolResultView(settlementResultView(kind, recipe, text), testViewRenderContext(settlementResultView(kind, recipe, text), text))).toBe(JSON.stringify(old.result));
 	});
 	it.each(['not_attempted', 'completed_result_unavailable', 'outcome_unknown', 'result_unavailable'] as const)('keeps the %s result shape', kind => {
 		const view = settlementResultView(kind, resultMessage('recovery.genericError'), text);
 		const old = kind === 'result_unavailable' ? { ok: false, code: kind, message: text.format('recovery.genericError') } : { kind, message: text.format('recovery.genericError') };
-		expect(renderToolResultView(view, text)).toBe(JSON.stringify(old));
+		expect(renderToolResultView(view, testViewRenderContext(view, text))).toBe(JSON.stringify(old));
 	});
 	it('re-renders participant targets for every batch outcome', async () => {
 		const targetParticipant = { id: profile.id, handle: profile.handle, ...privateData };
@@ -169,7 +170,7 @@ describe('failure and settlement views', () => {
 		];
 		const view = await batchResultView('follow_profile', items, context(), () => { throw new Error('Unexpected refusal'); });
 		const handles = new Map([[JSON.stringify(['participant', profile.id]), { handle: 'renamed', deleted: false }]]);
-		expect(JSON.parse(renderToolResultView(view, text, handles)).items.map((item: { target: string }) => item.target)).toEqual(['u/renamed', 'u/renamed', 'u/renamed']);
+		expect(JSON.parse(renderToolResultView(view, testViewRenderContext(view, text, handles))).items.map((item: { target: string }) => item.target)).toEqual(['u/renamed', 'u/renamed', 'u/renamed']);
 		expect(JSON.stringify(view)).not.toContain('SECRET');
 	});
 	it('matches every batch outcome without reading nested result text', async () => {
@@ -185,7 +186,7 @@ describe('failure and settlement views', () => {
 		const failure = (args: Record<string, unknown>, cause: unknown) => toolFailurePayload(text, 'vote', args, cause);
 		const old = providerBatchOutcome(text, 'vote', items, providerSerializationContext(text, { botId: 'reader' }), failure);
 		const view = await batchResultView('vote', items, context(), (args, cause) => failureResultView(failure(args, cause), text, { message: resultMessage('recovery.genericError') }));
-		expect(renderToolResultView(view, text)).toBe(JSON.stringify(old));
+		expect(renderToolResultView(view, testViewRenderContext(view, text))).toBe(JSON.stringify(old));
 		expect(JSON.stringify(view)).not.toContain('Internal details');
 	});
 });

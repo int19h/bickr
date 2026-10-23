@@ -1,3 +1,6 @@
+import { renderToolResultView } from '../../workers/agent-runtime/src/runtime/tool-result-views';
+import { toolResultViewForMessage } from '../../workers/agent-runtime/src/runtime/result-messages';
+import { testResultContext } from '../../workers/agent-runtime/src/runtime/result-render-context.test-support';
 import { botText as testBotText } from "../../workers/agent-runtime/src/localization";
 const englishInstructions = testBotText("en");
 import { defaultReasoningPrefill } from "@bickr/shared/model";
@@ -2003,14 +2006,16 @@ export function testRuntimeForToolExecution(): BotRuntime {
  * use RuntimeMessageStore with SQLite and never this adapter. */
 export function testAppendLoopMessageGroup(
 	this: {
-		appendLoopMessage: (runId: string, message: LoopMessageGroupEntry['message'], origin: LoopMessageGroupEntry['origin'], status?: LoopMessageGroupEntry['status'], options?: LoopMessageGroupEntry['options']) => BotLoopMessage;
+		appendLoopMessage: (_context: typeof testResultContext, runId: string, message: LoopMessageGroupEntry['message'], origin: LoopMessageGroupEntry['origin'], status?: LoopMessageGroupEntry['status'], options?: LoopMessageGroupEntry['options']) => BotLoopMessage;
 		recordLoopMessageLog: (seq: number, kind: string, text: string) => unknown;
 	},
-	entries: LoopMessageGroupEntry[],
+	context: typeof testResultContext, entries: LoopMessageGroupEntry[],
 	commit?: () => void,
 ): BotLoopMessage[] {
 	const inserted = entries.map(entry => {
-		const message = this.appendLoopMessage(entry.runId, entry.message, entry.origin, entry.status, entry.options);
+		const view = toolResultViewForMessage(entry.message);
+		const rendered = view ? { ...entry.message, content: renderToolResultView(view, context) } : entry.message;
+		const message = this.appendLoopMessage(context, entry.runId, rendered, entry.origin, entry.status, entry.options);
 		for (const log of entry.extraLogs ?? []) this.recordLoopMessageLog(message.seq, log.kind, log.text);
 		return message;
 	});
@@ -2019,18 +2024,18 @@ export function testAppendLoopMessageGroup(
 }
 
 function testAppendProviderToolResult(
-	this: { appendLoopMessageGroup(entries: LoopMessageGroupEntry[]): BotLoopMessage[]; clearPendingTool(runId: string): void },
-	assistant: LoopMessageGroupEntry,
+	this: { appendLoopMessageGroup(_context: typeof testResultContext, entries: LoopMessageGroupEntry[]): BotLoopMessage[]; clearPendingTool(runId: string): void },
+	context: typeof testResultContext, assistant: LoopMessageGroupEntry,
 	result: LoopMessageGroupEntry,
 	group: BotLoopMessage | null,
 ): BotLoopMessage {
 	if (!group) {
-		const inserted = this.appendLoopMessageGroup([assistant, result])[0]!;
+		const inserted = this.appendLoopMessageGroup(context, [assistant, result])[0]!;
 		this.clearPendingTool(assistant.runId);
 		return inserted;
 	}
 	group.message.tool_calls = [...(group.message.tool_calls ?? []), ...assistant.message.tool_calls!];
-	this.appendLoopMessageGroup([result]);
+	this.appendLoopMessageGroup(context, [result]);
 	this.clearPendingTool(assistant.runId);
 	return group;
 }
@@ -2042,7 +2047,7 @@ export function testLoopMessageMemory(initial: Array<Record<string, unknown>> = 
 		appendProviderToolResult: testAppendProviderToolResult,
 		appendLoopMessageGroup: testAppendLoopMessageGroup,
 		activeLoopMessagesForProvider: () => [...messages],
-		appendLoopMessage: (runId: string, message: Record<string, unknown>, origin: string, status = "complete") => {
+		appendLoopMessage: (_context: typeof testResultContext, runId: string, message: Record<string, unknown>, origin: string, status = "complete") => {
 			seq += 1;
 			messages.push(message);
 			return {
@@ -2578,6 +2583,8 @@ export function attachTestRunLiveness(runtime: object): RunLiveness {
 }
 
 export function withTestRunLiveness<T extends object>(runtime: T): T {
+	if (!Object.hasOwn(runtime, 'env')) Object.assign(runtime, { env: testEnv });
+	Object.assign(runtime, { resultRenderContextForRows: async () => testResultContext });
 	if (Object.hasOwn(runtime, 'appendLoopMessage') && !Object.hasOwn(runtime, 'appendLoopMessageGroup')) {
 		Object.assign(runtime, { appendLoopMessageGroup: testAppendLoopMessageGroup });
 	}
@@ -2586,6 +2593,7 @@ export function withTestRunLiveness<T extends object>(runtime: T): T {
 	if (notes) notes.read ??= () => null;
 	else Object.assign(runtime, { notes: { read: () => null } });
 	if (!Object.hasOwn(runtime, 'state')) {
+		if (!Object.hasOwn(runtime, 'activeLoopMessageRows')) Object.assign(runtime, { activeLoopMessageRows: () => [] });
 		// Storage-free loop harnesses deliberately observe publication through
 		// their append-method spies. Do not give them a SQL backend and silently
 		// switch those tests to a different message-store path. Journal/pending

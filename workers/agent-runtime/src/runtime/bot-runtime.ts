@@ -1,9 +1,11 @@
+import { buildResultRenderContext, contextWithProducedReferences, resultViewsFromRows } from './result-render-context';
+import { type ResultRenderContext } from './tool-result-views';
 import { legacyResultFacets } from './legacy-result-facets';
 import { resultMessage, resultDescriptor, renderResultText, unknownOutcomeText, type ResultText } from './result-text';
 import { renderStoredLoopMessage, toolResultViewFromRow, toolResultViewForMessage, attachToolResultView } from './result-messages';
-import { buildToolResultView, renderToolResultView, resultViewReferences, failureResultView, settlementResultView, batchResultView, toolResultViewPayload, notificationContentIds, retainKnownProfiles, resultViewFacetArrays } from './tool-result-views';
+import { buildToolResultView, renderToolResultView, failureResultView, settlementResultView, batchResultView, toolResultViewPayload, notificationContentIds, retainKnownProfiles, resultViewFacetArrays } from './tool-result-views';
 import { ResultContextScope, hydrateResultFacets, facetFingerprint } from './result-context-scope';
-import { currentResultHandles, resultContentIdentities, resultForumIds, type ResultHandleMap } from './result-handles';
+import { resultContentIdentities, resultForumIds } from './result-handles';
 import { formatParticipantTime } from "@bickr/shared/participant-time";
 import { participantTimeSettingsOf } from "@bickr/shared/participant-time-migration";
 import { RuntimeFollowerActivityDelivery } from './follower-activity-delivery';
@@ -237,7 +239,7 @@ import {
 } from '../provider/sanitize';
 import { createProviderStructuredOutput } from '../provider/structured-output';
 import { RuntimeEventsStore } from './events';
-import { RuntimeMessageStore } from './message-store';
+import { RuntimeMessageStore, loopMessageFromRow } from './message-store';
 import { RuntimeSpotlightTickQueue } from './spotlight-tick-queue';
 import type { RuntimeStaleRunRecoveryResult } from './stale-run-recovery';
 import {
@@ -319,7 +321,7 @@ import {
 import {
 	compactionRowsForEstimatedBudget,
 	compactionRowSelectionForEstimatedBudget,
-	loopMessageChatMessageFromRow,
+	loopMessageStructureFromRow,
 	reducedCompactionRowsAfterOutputLimit,
 	type CompactionCandidateEstimate,
 	type CompactionRowSelection,
@@ -1357,7 +1359,7 @@ function estimatedMinimumCompactedPromptTokens(parts: ContextBudgetPromptParts, 
 }
 
 function loopMessageContributesToCompactionProviderInput(row: LoopMessageRow): boolean {
-	const message = loopMessageChatMessageFromRow(row);
+	const message = loopMessageStructureFromRow(row);
 	return loopMessageContributesToProviderHistory(row.origin, message);
 }
 
@@ -1854,9 +1856,6 @@ function pendingToolFromStoredRow(row: { key: string; value_json: string }): Pen
 }
 
 export class BotRuntime {
-	private resultViewText?: BotText;
-	private resultViewTime?: import('./tool-result-views').ResultTimeContext;
-	private resultViewHandles: ResultHandleMap = new Map();
 	private readonly state: DurableObjectState;
 	private readonly env: Env;
 	private readonly notes: BotNotesStore;
@@ -2066,16 +2065,14 @@ export class BotRuntime {
 		);
 		if (summary) {
 			const message = { role: 'assistant' as const, content: summary };
-			const inserted = this.insertLoopMessage({
-				runId: 'legacy-migration',
-				message,
-				origin: 'legacy_migration',
-				status: 'complete',
-				position: 1,
-				createdAt: rows[0]?.created_at ?? new Date().toISOString(),
-				broadcast: false,
-			});
-			this.recordLoopMessageLog(inserted.seq, 'message', JSON.stringify(message));
+			const messageJson = JSON.stringify(message);
+			this.state.storage.sql.exec(
+				`INSERT INTO loop_messages (position, run_id, role, message_json, origin, status, token_estimate, created_at)
+					VALUES (1, 'legacy-migration', 'assistant', ?, 'legacy_migration', 'complete', ?, ?)`,
+				messageJson, estimateTextTokens(messageJson), rows[0]?.created_at ?? new Date().toISOString(),
+			);
+			const seq = this.state.storage.sql.exec<{ seq: number }>('SELECT last_insert_rowid() AS seq').one().seq;
+			this.recordLoopMessageLog(seq, 'message', messageJson);
 		}
 		this.setRuntimeState('loop_messages_legacy_migrated', true);
 	}
@@ -2309,11 +2306,10 @@ export class BotRuntime {
 			await this.requireOwnerOrInternal(request, botId);
 			const after = Number(url.searchParams.get('after') ?? 0);
 			const page = Number(url.searchParams.get('page') ?? 1);
-			const response = this.loopMessagesPage({ after: Number.isFinite(after) ? after : 0, page: Number.isFinite(page) ? page : 1 });
-			const rows = this.state.storage.sql.exec<LoopMessageRow>('SELECT * FROM loop_messages WHERE seq IN (SELECT value FROM json_each(?))', JSON.stringify(response.messages.map(message => message.seq))).toArray();
-			const render = await this.ownerResultRenderer(botId, rows);
-			const bySeq = new Map(rows.map(row => [row.seq, row]));
-			return ok({ ...response, messages: response.messages.map(message => ({ ...message, message: renderStoredLoopMessage(bySeq.get(message.seq)!, render) })) });
+			const input = { after: Number.isFinite(after) ? after : 0, page: Number.isFinite(page) ? page : 1 };
+			const { rows, page: pageInfo } = this.runtimeMessageStore().loopMessagePageRows(input);
+			const context = await this.resultRenderContextForRows(botId, rows);
+			return ok(this.loopMessagesPage(context, input, { rows, page: pageInfo }));
 		}
 
 		if (request.method === 'GET' && url.pathname.endsWith('/inference-logs')) {
@@ -2326,15 +2322,17 @@ export class BotRuntime {
 				'SELECT seq FROM loop_messages WHERE stream_seq = ? AND run_id = ? AND deleted_at IS NULL ORDER BY seq LIMIT 1', requestSeq, runId,
 			).toArray()[0];
 			if (!row) throw new RepositoryError('not_found', 'The source inference is no longer retained in this loop.', 404);
-			return ok(this.loopMessageLogsForSeq(row.seq));
+			const source = this.runtimeMessageStore().loopMessageRow(row.seq)!;
+			const context = await this.resultRenderContextForRows(botId, [source]);
+			return ok(this.loopMessageLogsForSeq(context, row.seq));
 		}
 
 		const messageLogSeq = messageLogsSeqFromPath(url.pathname);
 		if (request.method === 'GET' && messageLogSeq !== null) {
 			await this.requireOwnerOrInternal(request, botId);
 			const row = this.runtimeMessageStore().loopMessageRow(messageLogSeq);
-			const response = this.loopMessageLogsForSeq(messageLogSeq);
-			if (row?.tool_result_view_json) response.message.message = renderStoredLoopMessage(row, await this.ownerResultRenderer(botId, [row]));
+			const context = await this.resultRenderContextForRows(botId, row ? [row] : []);
+			const response = this.loopMessageLogsForSeq(context, messageLogSeq);
 			return ok(response);
 		}
 
@@ -2351,7 +2349,9 @@ export class BotRuntime {
 
 		if (request.method === 'GET' && url.pathname.endsWith('/token-usage')) {
 			await this.requireOwnerOrInternal(request, botId);
-			return ok({ usage: this.tokenUsageStats(await botById(this.env.BICKR_KV, this.env.BICKR_D1, botId)) });
+			const bot = await botById(this.env.BICKR_KV, this.env.BICKR_D1, botId);
+			const context = await buildResultRenderContext(this.env.BICKR_D1, bot, resultViewsFromRows(this.activeLoopMessageRows()));
+			return ok({ usage: this.tokenUsageStats(context, bot) });
 		}
 
 		if (request.method === 'GET' && url.pathname.endsWith('/token-spend')) {
@@ -2608,7 +2608,9 @@ export class BotRuntime {
 		this.state.acceptWebSocket(server, [botId]);
 		const messageBackfill = runtimeMonitorBackfillCursor(url, 'afterMessage');
 		const eventBackfill = runtimeMonitorBackfillCursor(url, 'afterEvent');
-		for (const message of this.loopMessagesAfter(messageBackfill.afterSeq, messageBackfill.initialLimit)) {
+		const rows = this.runtimeMessageStore().loopMessageRowsForPage(null, messageBackfill.afterSeq, messageBackfill.initialLimit);
+		const context = await this.resultRenderContextForRows(botId, rows);
+		for (const message of this.loopMessagesAfter(context, messageBackfill.afterSeq, messageBackfill.initialLimit, rows)) {
 			server.send(JSON.stringify({ type: 'loop_message', loopMessage: message }));
 		}
 		for (const event of this.eventsAfter(eventBackfill.afterSeq, eventBackfill.initialLimit)) {
@@ -2693,6 +2695,7 @@ export class BotRuntime {
 			}
 
 			const bot = await this.botWithEffectivePostingSettings(await botById(this.env.BICKR_KV, this.env.BICKR_D1, botId));
+			const finalizationContext = await buildResultRenderContext(this.env.BICKR_D1, bot, []);
 			const owner = await userById(this.env.BICKR_KV, bot.ownerUserId);
 			const providerSettings = withProviderText(await this.effectiveProviderSettings(bot, owner), botTextFor(bot));
 			const runId = crypto.randomUUID();
@@ -2708,7 +2711,7 @@ export class BotRuntime {
 			} catch (error) {
 				const cause = runtimeErrorCause(error);
 				const message = ownerFacingRuntimeErrorMessage(cause) ?? 'Runtime admission failed.';
-				const finalized = await this.finalizeRun(runId, 'tick_failed', { message, reason: 'admission_failure' }, cause);
+				const finalized = await this.finalizeRun(finalizationContext, runId, 'tick_failed', { message, reason: 'admission_failure' }, cause);
 				return { admitted: false, result: { runId, status: finalized ? 'failed' : 'stopped', error: message } };
 			}
 			if (!claimed) {
@@ -2761,7 +2764,9 @@ export class BotRuntime {
 		admitted: AdmittedTick,
 	): Promise<TickRunResult> {
 		const { bot, providerSettings, runId, abortController, mode, setupMode } = admitted;
+		let finalizationContext = await buildResultRenderContext(this.env.BICKR_D1, bot, []);
 		const runContext: RunContext = {
+			onResultRenderContext: context => { finalizationContext = context; },
 			mode,
 			setupMode,
 			...(options.spotlightId ? { spotlightId: options.spotlightId } : {}),
@@ -2799,7 +2804,7 @@ export class BotRuntime {
 				const injections = pendingInjections.map(injection => injection.text);
 				if (mode === 'spotlight' && injections.length === 0) {
 					await this.renewProgressLease(bot.id, runId, abortController.signal);
-					const release = await this.finalizeRun(runId, 'tick_completed', { note: 'No pending spotlight injection was available.' });
+					const release = await this.finalizeRun(finalizationContext, runId, 'tick_completed', { note: 'No pending spotlight injection was available.' });
 					if (!release) {
 						throw new TickStoppedError();
 					}
@@ -2856,7 +2861,7 @@ export class BotRuntime {
 
 				await this.compactIfNeeded(bot, providerSettings, runId, abortController.signal);
 				await this.renewProgressLease(bot.id, runId, abortController.signal);
-				const release = await this.finalizeRun(runId, 'tick_completed', { unknownOutcomeCount: outcome.unknownOutcomeCount ?? 0 });
+				const release = await this.finalizeRun(finalizationContext, runId, 'tick_completed', { unknownOutcomeCount: outcome.unknownOutcomeCount ?? 0 });
 				if (!release) {
 					throw new TickStoppedError();
 				}
@@ -2880,7 +2885,7 @@ export class BotRuntime {
 				...(error instanceof PersistentMissingToolCallError ? { toolNames: error.toolNames } : {}),
 				...(persistentCompaction ? { pauseRequested: true, reason: 'persistent_non_reducing_compaction', attempts: error.attempts } : {}),
 			};
-			const finished = await this.finalizeRun(runId, stopped ? 'tick_stopped' : 'tick_failed', payload, cause, runtimeFailureLogs(error), persistentCompaction ? { ownerUserId: bot.ownerUserId, revision: bot.revision } : undefined);
+			const finished = await this.finalizeRun(finalizationContext, runId, stopped ? 'tick_stopped' : 'tick_failed', payload, cause, runtimeFailureLogs(error), persistentCompaction ? { ownerUserId: bot.ownerUserId, revision: bot.revision } : undefined);
 			if (!finished) return { runId, status: 'stopped' };
 			if (!stopped) {
 				await this.reportCleanup(runId, 'failure_notification', () => recordBotRuntimeFailureHumanNotification(this.env.BICKR_D1, { bot, runId, message: cause }));
@@ -2979,13 +2984,13 @@ export class BotRuntime {
 		this.state.storage.sql.exec(`DELETE FROM runtime_state WHERE key IN ('pending_tool_v1', 'pending_tool_v2', 'pending_tool_v3') AND json_extract(value_json, '$.runId') = ?`, runId);
 	}
 
-	private settlePendingTool(runId: string): void {
+	private settlePendingTool(context: ResultRenderContext, runId: string): void {
 		const row = this.state.storage.sql.exec<{ key: string; value_json: string }>(`SELECT key, value_json FROM runtime_state WHERE key IN ('pending_tool_v1', 'pending_tool_v2', 'pending_tool_v3') AND json_extract(value_json, '$.runId') = ? ORDER BY key DESC LIMIT 1`, runId).toArray()[0];
 		if (!row) return;
 		// One compatibility adapter consumes old journals. Old requests used English.
 		// Retire v1/v2 after the bounded fleet sweep and rollback window end.
 		const pending = pendingToolFromStoredRow(row);
-		const text = botText(pending.instructionLocale);
+		const text = context.text;
 		const settlement = interruptedToolSettlement(text, pending.toolCall.function.name, pending.stage);
 		const outcome = settlement.result;
 		let assistant: ChatMessage;
@@ -3002,6 +3007,7 @@ export class BotRuntime {
 		}
 		let event: BotRuntimeEvent | undefined;
 		this.runtimeMessageStore().appendProviderToolResult(
+			context,
 			{ runId, message: { ...assistant, tool_calls: [pending.toolCall] }, origin: 'provider_response', status: 'interrupted' },
 			{ runId, message: attachToolResultView({ role: 'tool', tool_call_id: pending.toolCall.id, content: JSON.stringify(outcome) }, settlementResultView(settlement.outcome === 'unknown' ? 'outcome_unknown' : settlement.outcome, settlement.outcome === 'not_dispatched' ? resultMessage('recovery.notDispatched') : settlement.outcome === 'interrupted' ? resultMessage('recovery.interrupted') : unknownOutcomeText(pending.toolCall.function.name), text)), origin: 'tool_failure', status: 'interrupted' },
 			assistantSeq,
@@ -3055,6 +3061,7 @@ export class BotRuntime {
 	}
 
 	private async finalizeRun(
+		context: ResultRenderContext,
 		runId: string,
 		type: 'tick_completed' | 'tick_failed' | 'tick_stopped', payload: Record<string, unknown>,
 		cause?: RuntimeErrorCause | string, logs: RuntimeFailureLog[] = [],
@@ -3066,8 +3073,8 @@ export class BotRuntime {
 			const finished = this.liveness.finish(runId, type === 'tick_failed' ? 'failed' : 'idle', stringValue(payload.message) ?? null, type);
 			if (finished?.kind === 'finalizing' && pause) this.liveness.write({ ...finished, pause });
 			if (!this.hasTerminalEvent(runId)) {
-				this.settlePendingTool(runId);
-				if (type === 'tick_failed') this.recordTickFailure(runId, payload, logs, { cause });
+				this.settlePendingTool(context, runId);
+				if (type === 'tick_failed') this.recordTickFailure(context, runId, payload, logs, { cause });
 				else {
 					if (type === 'tick_stopped') this.markPendingCompactionEventsFailed(runId, stringValue(payload.message) ?? 'This Bickr visit was stopped.');
 					this.appendEvent(runId, type, {
@@ -3105,15 +3112,16 @@ export class BotRuntime {
 			const stopped = this.hasStopRequest(journal.runId);
 			const message = stopped ? 'This Bickr visit was stopped.' : 'This Bickr visit closed after five minutes without progress. I do not know whether a pending website action finished. I will read the page. If the outcome remains unknown, I will not repeat the action.';
 			const runId = journal.runId;
+			const context = await this.resultRenderContextForRows(journal.botId, this.activeLoopMessageRows());
 			settleOutsideExecution(() => this.state.storage.transactionSync(() => {
 				journal = this.liveness.finish(runId, stopped ? 'idle' : 'failed', message, stopped ? 'tick_stopped' : 'tick_failed')!;
 				if (!this.hasTerminalEvent(runId)) {
-					this.settlePendingTool(runId);
+					this.settlePendingTool(context, runId);
 					if (stopped) {
 						this.markPendingCompactionEventsFailed(runId, message);
 						this.appendEvent(runId, 'tick_stopped', { message });
 					}
-					else this.recordTickFailure(runId, { message, reason: 'run_inactivity', inactivityMs: runInactivityMs });
+					else this.recordTickFailure(context, runId, { message, reason: 'run_inactivity', inactivityMs: runInactivityMs });
 				}
 			}));
 			if (this.activeRunId === runId) {
@@ -3128,6 +3136,13 @@ export class BotRuntime {
 		// explicitly rearming preserves recovery through a prolonged outage.
 		await this.state.storage.setAlarm(Date.now() + finalizationRetryMs);
 		try {
+			if (!this.hasTerminalEvent(final.runId)) {
+				const context = await this.resultRenderContextForRows(final.botId, this.activeLoopMessageRows());
+				settleOutsideExecution(() => this.state.storage.transactionSync(() => {
+					this.settlePendingTool(context, final.runId);
+					this.recordTickFailure(context, final.runId, { message: final.message, reason: 'transition_timeout' });
+				}));
+			}
 			// Required account mutation remains journaled until the coordinator has
 			// settled it. Revision fencing makes retries and newer owner edits safe.
 			const pause = final.pause;
@@ -3167,10 +3182,7 @@ export class BotRuntime {
 			const message = 'This Bickr visit closed because a runtime transition did not finish.';
 			settleOutsideExecution(() => this.state.storage.transactionSync(() => {
 				this.liveness.finish(journal.runId, 'failed', message, 'tick_failed');
-				if (!this.hasTerminalEvent(journal.runId)) {
-					this.settlePendingTool(journal.runId);
-					this.recordTickFailure(journal.runId, { message, reason: 'transition_timeout' });
-				}
+				// Recovery loads a fresh render context before it publishes the pending result.
 			}));
 		}
 		// Reset, rather than unlocking a timed-out queue: its suspended closure
@@ -3483,7 +3495,7 @@ export class BotRuntime {
 		if (!this.env?.BICKR_KV || !this.env?.BICKR_D1) {
 			return bot;
 		}
-		let current: BotDocument;
+		let current: EffectiveBotDocument;
 		try {
 			current = await botById(this.env.BICKR_KV, this.env.BICKR_D1, bot.id);
 		} catch {
@@ -3492,6 +3504,7 @@ export class BotRuntime {
 		return this.botWithEffectivePostingSettings({
 			...bot,
 			postingSettings: current.postingSettings,
+			instructionLocale: current.instructionLocale,
 			timeSettings: participantTimeSettingsOf(current),
 			tickSettings: {
 				...bot.tickSettings,
@@ -3533,6 +3546,7 @@ export class BotRuntime {
 		_messages: ChatMessage[],
 		runContext: RunContext,
 	): Promise<ProviderLoopOutcome> {
+		let context: ResultRenderContext;
 		let consecutiveToolFailures = 0;
 		let unknownOutcomeCount = 0;
 		let spotlightOutcomeUncertain = false;
@@ -3581,6 +3595,8 @@ export class BotRuntime {
 			let allToolCallsDroppedRetried = false;
 			for (;;) {
 				const budgetCheck = await this.ensureProviderPromptWithinBudget(bot, settings, runId, runContext.signal, providerTools);
+				context = budgetCheck.renderContext;
+				runContext.onResultRenderContext?.(context);
 				providerTools = budgetCheck.providerTools;
 				const requestMessages = budgetCheck.requestMessages;
 				const requestContextWindowTokens = budgetCheck.contextWindowTokens ?? tickSettings.contextWindowTokens;
@@ -3691,6 +3707,7 @@ export class BotRuntime {
 					break;
 				}
 				this.appendDroppedProviderResponseAttempt(
+					context,
 					runId,
 					failedResponse,
 					requestEvent.seq,
@@ -3709,7 +3726,7 @@ export class BotRuntime {
 						content: correction,
 						status: 'complete',
 					});
-					this.appendLoopMessage(runId, { role: 'assistant', content: correction }, 'self_correction');
+					this.appendLoopMessage(context, runId, { role: 'assistant', content: correction }, 'self_correction');
 				}
 				allToolCallsDroppedRetried = true;
 			}
@@ -3747,7 +3764,11 @@ export class BotRuntime {
 					if (!assistantMessage) {
 						return;
 					}
+					const view = toolResultViewForMessage(toolMessage);
+					if (view) context = contextWithProducedReferences(context, [view]);
+					runContext.onResultRenderContext?.(context);
 					providerResponseGroup.current = this.appendProviderToolResult(
+						context,
 						{
 							runId,
 							message: { ...assistantMessage, tool_calls: [recordedToolCall] },
@@ -3776,7 +3797,7 @@ export class BotRuntime {
 				if (!assistantMessage) {
 					return;
 				}
-				this.appendLoopMessageGroup([
+				this.appendLoopMessageGroup(context, [
 					{
 						runId,
 						message: assistantMessage,
@@ -3790,6 +3811,7 @@ export class BotRuntime {
 			if (responseStatus === 'interrupted') {
 				if (response.toolCalls.length > 0) {
 					this.appendInterruptedToolMessages(
+						context,
 						bot.text, runId,
 						response.toolCalls,
 						new Set(response.toolCalls.map((toolCall) => toolCall.id)),
@@ -3825,7 +3847,7 @@ export class BotRuntime {
 						content: acknowledgementContent,
 						status: 'complete',
 					});
-					this.appendLoopMessage(runId, { role: 'assistant', content: acknowledgementContent }, 'self_correction');
+					this.appendLoopMessage(context, runId, { role: 'assistant', content: acknowledgementContent }, 'self_correction');
 					continue;
 				}
 				return finishProviderLoop();
@@ -3963,7 +3985,7 @@ export class BotRuntime {
 						selfCorrectionAcknowledgements.push(...error.selfCorrectionMessages);
 						const outcomeView = await batchResultView(canonicalName, error.items, { time: { settings: participantTimeSettingsOf(bot), createdAt: bot.createdAt }, text: bot.text, selfId: bot.id, scope: await this.resultContextScope(), writtenAt: new Date().toISOString(), references: new Map() },
 							(targetArgs, cause) => failureResultView(toolFailurePayload(bot.text, canonicalName, targetArgs, cause), bot.text, { message: toolFailureMessageText(cause), guidance: toolFailureGuidanceText(canonicalName, cause) }));
-						const outcome = toolResultViewPayload(outcomeView, bot.text);
+						const outcome = toolResultViewPayload(outcomeView, contextWithProducedReferences(context, [outcomeView]));
 						const committed = error.items.filter((item) => item.kind === 'recorded' || item.kind === 'committed');
 						const unknown = error.items.some((item) => item.kind === 'unknown');
 						spotlightOutcomeUncertain ||= error.items.some((item) => item.kind === 'unknown' && item.scope.related);
@@ -3995,7 +4017,7 @@ export class BotRuntime {
 							break;
 						}
 						if (error.cause instanceof TickStoppedError || isAbortError(error.cause)) {
-							this.appendInterruptedToolMessages(bot.text, runId, response.toolCalls, pendingToolCallIds, (remaining, message, _content, commit) => appendAssistantToolResultPair(remaining, message, 'tool_failure', 'interrupted', {}, remaining, commit));
+							this.appendInterruptedToolMessages(context, bot.text, runId, response.toolCalls, pendingToolCallIds, (remaining, message, _content, commit) => appendAssistantToolResultPair(remaining, message, 'tool_failure', 'interrupted', {}, remaining, commit));
 							throw error.cause;
 						}
 						if (unrelated) {
@@ -4046,7 +4068,7 @@ export class BotRuntime {
 						break;
 					}
 					if (error instanceof TickStoppedError || isAbortError(error)) {
-						this.appendInterruptedToolMessages(bot.text, runId, response.toolCalls, pendingToolCallIds, (interruptedToolCall, toolMessage, content, commit) => {
+						this.appendInterruptedToolMessages(context, bot.text, runId, response.toolCalls, pendingToolCallIds, (interruptedToolCall, toolMessage, content, commit) => {
 							appendAssistantToolResultPair(interruptedToolCall, toolMessage, 'tool_failure', 'interrupted', {}, interruptedToolCall, commit);
 							return content;
 						});
@@ -4077,7 +4099,7 @@ export class BotRuntime {
 					await this.renewProgressLease(bot.id, runId, runContext.signal);
 				} catch (error) {
 					if (error instanceof TickStoppedError || isAbortError(error)) {
-						this.appendInterruptedToolMessages(bot.text, runId, response.toolCalls, pendingToolCallIds, (interruptedToolCall, interruptedMessage, content, commit) => {
+						this.appendInterruptedToolMessages(context, bot.text, runId, response.toolCalls, pendingToolCallIds, (interruptedToolCall, interruptedMessage, content, commit) => {
 							appendAssistantToolResultPair(interruptedToolCall, interruptedMessage, 'tool_failure', 'interrupted', {}, interruptedToolCall, commit);
 							return content;
 						});
@@ -4124,7 +4146,7 @@ export class BotRuntime {
 					role: 'assistant',
 					content: acknowledgementContent,
 				};
-				this.appendLoopMessage(runId, acknowledgementMessage, 'provider_response');
+				this.appendLoopMessage(context, runId, acknowledgementMessage, 'provider_response');
 			}
 			if (selfCorrectionAcknowledgements.length > 0) {
 				const acknowledgementContent = selfCorrectionAcknowledgements.join('\n\n');
@@ -4136,7 +4158,7 @@ export class BotRuntime {
 					role: 'assistant',
 					content: acknowledgementContent,
 				};
-				this.appendLoopMessage(runId, acknowledgementMessage, 'self_correction');
+				this.appendLoopMessage(context, runId, acknowledgementMessage, 'self_correction');
 			}
 			if (persistentFailure && consecutiveToolFailures >= 5) {
 				throw new PersistentToolFailureError(persistentFailure);
@@ -4159,7 +4181,8 @@ export class BotRuntime {
 	}
 
 	private appendInterruptedToolMessages(
-		text: BotText,
+		context: ResultRenderContext,
+		_text: BotText,
 		runId: string,
 		toolCalls: ToolCall[],
 		pendingToolCallIds: Set<string>,
@@ -4174,7 +4197,7 @@ export class BotRuntime {
 			}
 			pendingToolCallIds.delete(toolCall.id);
 			const active = pending?.toolCall.id === toolCall.id ? pending : undefined;
-			const settlementText = active ? botText(active.instructionLocale) : text;
+			const settlementText = context.text;
 			const settlement = interruptedToolSettlement(settlementText, toolCall.function.name, active?.stage ?? 'prepared');
 			const content = JSON.stringify(settlement.result);
 			let event: BotRuntimeEvent | undefined;
@@ -4190,7 +4213,7 @@ export class BotRuntime {
 				if (event) this.broadcast(event);
 				continue;
 			}
-			this.runtimeMessageStore().appendLoopMessageGroup([{ runId, message: toolMessage, origin: 'tool_failure', status: 'interrupted', extraLogs: [{ kind: 'tool_call', text: JSON.stringify(toolCall) }, { kind: 'tool_result', text: content }] }], () => { commit(); this.clearPendingTool(runId); });
+			this.runtimeMessageStore().appendLoopMessageGroup(context, [{ runId, message: toolMessage, origin: 'tool_failure', status: 'interrupted', extraLogs: [{ kind: 'tool_call', text: JSON.stringify(toolCall) }, { kind: 'tool_result', text: content }] }], () => { commit(); this.clearPendingTool(runId); });
 			if (event) this.broadcast(event);
 		}
 	}
@@ -4619,6 +4642,7 @@ export class BotRuntime {
 	}
 
 	private appendDroppedProviderResponseAttempt(
+		context: ResultRenderContext,
 		runId: string,
 		response: ProviderResponse,
 		streamSeq: number,
@@ -4628,7 +4652,7 @@ export class BotRuntime {
 		if (!message) {
 			throw new Error('Malformed provider response did not contain a displayable assistant message.');
 		}
-		this.appendLoopMessageGroup([
+		this.appendLoopMessageGroup(context, [
 			{
 				runId,
 				message,
@@ -4741,13 +4765,15 @@ export class BotRuntime {
 			status: 'complete',
 		});
 		const result = await this.executeTool(bot, runId, 'log_off', args, runContext);
+		const context = await buildResultRenderContext(this.env.BICKR_D1, bot, result.view ? [result.view] : []);
+		runContext.onResultRenderContext?.(context);
 		const toolMessage: ChatMessage = {
 			role: 'tool',
 			tool_call_id: toolCall.id,
 			content: JSON.stringify(result.providerResult),
 		};
 		if (result.view) attachToolResultView(toolMessage, result.view);
-		this.appendLoopMessageGroup([
+		this.appendLoopMessageGroup(context, [
 			{
 				runId,
 				message: syntheticToolCallMessage(bot.text, toolCall, narration, reason),
@@ -4773,11 +4799,11 @@ export class BotRuntime {
 			this.state.storage,
 			(message) => this.broadcastLoopMessage(message),
 			() => this.broadcastControl({ type: 'loop_messages_reset' }),
-			view => renderToolResultView(view, this.resultViewText ?? botText(view.instructionLocale), this.resultViewHandles, this.resultViewTime ?? view.time ?? null),
 		);
 	}
 
 	private appendLoopMessage(
+		context: ResultRenderContext,
 		runId: string,
 		message: ChatMessage,
 		origin: BotLoopMessageOrigin,
@@ -4785,20 +4811,21 @@ export class BotRuntime {
 		options: { streamSeq?: number; displayEventSeq?: number } = {},
 	): BotLoopMessage {
 		assertExecutionPublication();
-		return this.runtimeMessageStore().appendLoopMessage(runId, message, origin, status, options);
+		return this.runtimeMessageStore().appendLoopMessage(context, runId, message, origin, status, options);
 	}
 
-	private appendLoopMessageGroup(entries: LoopMessageGroupEntry[], commit?: () => void): BotLoopMessage[] {
+	private appendLoopMessageGroup(context: ResultRenderContext, entries: LoopMessageGroupEntry[], commit?: () => void): BotLoopMessage[] {
 		assertExecutionPublication();
-		return this.runtimeMessageStore().appendLoopMessageGroup(entries, commit);
+		return this.runtimeMessageStore().appendLoopMessageGroup(context, entries, commit);
 	}
 
-	private appendProviderToolResult(assistant: LoopMessageGroupEntry, result: LoopMessageGroupEntry, group: BotLoopMessage | null, commit?: () => void): BotLoopMessage {
+	private appendProviderToolResult(context: ResultRenderContext, assistant: LoopMessageGroupEntry, result: LoopMessageGroupEntry, group: BotLoopMessage | null, commit?: () => void): BotLoopMessage {
 		assertExecutionPublication();
-		return this.runtimeMessageStore().appendProviderToolResult(assistant, result, group?.seq ?? null, commit);
+		return this.runtimeMessageStore().appendProviderToolResult(context, assistant, result, group?.seq ?? null, commit);
 	}
 
 	private recordTickFailure(
+		context: ResultRenderContext,
 		runId: string,
 		payload: Record<string, unknown>,
 		logs: RuntimeFailureLog[] = [],
@@ -4814,6 +4841,7 @@ export class BotRuntime {
 			).toArray()[0] : undefined;
 		const attribution = failedInference?.attribution ? JSON.parse(failedInference.attribution) as InferenceAttribution : undefined;
 		const loopMessage = this.appendLoopMessage(
+			context,
 			runId,
 			{
 				role: 'user',
@@ -4837,7 +4865,7 @@ export class BotRuntime {
 		}
 	}
 
-	private insertLoopMessage(input: {
+	private insertLoopMessage(context: ResultRenderContext, input: {
 		runId: string;
 		message: ChatMessage;
 		origin: BotLoopMessageOrigin;
@@ -4849,7 +4877,7 @@ export class BotRuntime {
 		broadcast: boolean;
 	}): BotLoopMessage {
 		assertExecutionPublication();
-		return this.runtimeMessageStore().insertLoopMessage(input);
+		return this.runtimeMessageStore().insertLoopMessage(context, input);
 	}
 
 	private broadcastLoopMessage(message: BotLoopMessage): void {
@@ -4864,8 +4892,8 @@ export class BotRuntime {
 		return this.runtimeMessageStore().nextLoopMessagePosition();
 	}
 
-	private renderLoopMessageRow(row: LoopMessageRow): ChatMessage {
-		return renderStoredLoopMessage(row, view => renderToolResultView(view, this.resultViewText ?? botText(view.instructionLocale), this.resultViewHandles, this.resultViewTime ?? view.time ?? null));
+	private renderLoopMessageRow(context: ResultRenderContext, row: LoopMessageRow): ChatMessage {
+		return renderStoredLoopMessage(row, context);
 	}
 
 	private async resultContextScope(): Promise<ResultContextScope> {
@@ -4878,31 +4906,18 @@ export class BotRuntime {
 		return scope;
 	}
 
-	private async ownerResultRenderer(botId: string, rows: LoopMessageRow[]): Promise<import('./result-messages').ResultViewRenderer> {
-		const bot = await botById(this.env.BICKR_KV, this.env.BICKR_D1, botId);
-		const text = botTextFor(bot);
-		const time = { settings: participantTimeSettingsOf(bot), createdAt: bot.createdAt };
-		const views = rows.flatMap(row => { const view = toolResultViewFromRow(row); return view ? [view] : []; });
-		const handles = await currentResultHandles(this.env.BICKR_D1, views.flatMap(resultViewReferences));
-		// Owner reads can overlap a provider request. Keep their render data local.
-		return view => renderToolResultView(view, text, handles, time);
+	private async resultRenderContextForRows(botId: string, rows: readonly LoopMessageRow[]): Promise<ResultRenderContext> {
+	const bot = await botById(this.env.BICKR_KV, this.env.BICKR_D1, botId);
+	return buildResultRenderContext(this.env.BICKR_D1, bot, resultViewsFromRows(rows));
 	}
 
-	private async refreshResultViewRendering(text: BotText, rows = this.activeLoopMessageRows(), time?: import('./tool-result-views').ResultTimeContext): Promise<void> {
-		const views = rows.flatMap(row => { const view = toolResultViewFromRow(row); return view ? [view] : []; });
-		const handles = views.length > 0 ? await currentResultHandles(this.env.BICKR_D1, views.flatMap(resultViewReferences)) : new Map();
-		this.resultViewText = text;
-		this.resultViewTime = time;
-		this.resultViewHandles = handles;
-	}
-
-	private activeLoopMessagesForProvider(): ChatMessage[] {
-		return this.activeProviderHistoryLoopMessageRows().map(row => this.renderLoopMessageRow(row));
+	private activeLoopMessagesForProvider(context: ResultRenderContext): ChatMessage[] {
+		return this.activeProviderHistoryLoopMessageRows().map(row => this.renderLoopMessageRow(context, row));
 	}
 
 	private activeProviderHistoryLoopMessageRows(): LoopMessageRow[] {
 		return this.activeLoopMessageRows().filter((row) =>
-			loopMessageContributesToProviderHistory(row.origin, this.renderLoopMessageRow(row)),
+			loopMessageContributesToProviderHistory(row.origin, loopMessageStructureFromRow(row)),
 		);
 	}
 
@@ -4910,20 +4925,22 @@ export class BotRuntime {
 		this.runtimeMessageStore().updateActiveLoopMessagePositions(seqOrder);
 	}
 
-	private loopMessagesAfter(afterSeq: number, initialLimit?: number): BotLoopMessage[] {
-		return this.runtimeMessageStore().loopMessagesAfter(afterSeq, initialLimit);
+
+
+	private loopMessagesAfter(context: ResultRenderContext, afterSeq: number, initialLimit?: number, rows = this.runtimeMessageStore().loopMessageRowsForPage(null, afterSeq, initialLimit)): BotLoopMessage[] {
+		return rows.map(row => loopMessageFromRow(row, context));
 	}
 
-	private loopMessagesPage(input: { page: number; after?: number }): BotLoopMessagesResponse {
-		return this.runtimeMessageStore().loopMessagesPage(input);
+	private loopMessagesPage(context: ResultRenderContext, input: { page: number; after?: number }, page = this.runtimeMessageStore().loopMessagePageRows(input)): BotLoopMessagesResponse {
+		return { messages: page.rows.map(row => loopMessageFromRow(row, context)), page: page.page };
 	}
 
 	private latestActiveLoopCompactionBoundary(): { messageSeq: number; requestSeq: number; created_at: string } | null {
 		return this.runtimeMessageStore().latestActiveLoopCompactionBoundary();
 	}
 
-	private loopMessageLogsForSeq(seq: number): BotLoopMessageLogsResponse {
-		const response = this.runtimeMessageStore().loopMessageLogsForSeq(seq);
+	private loopMessageLogsForSeq(context: ResultRenderContext, seq: number): BotLoopMessageLogsResponse {
+		const response = this.runtimeMessageStore().loopMessageLogsForSeq(context, seq);
 		const row = this.runtimeMessageStore().loopMessageRow(seq);
 		if (!row) {
 			throw new RepositoryError('not_found', 'Loop message was not found.', 404);
@@ -5341,7 +5358,7 @@ export class BotRuntime {
 		return this.state.storage.sql.exec<{ count: number }>(`SELECT changes() AS count`).one().count;
 	}
 
-	private tokenUsageStats(bot: EffectiveBotDocument, now = new Date()): BotTokenUsageStats {
+	private tokenUsageStats(context: ResultRenderContext, bot: EffectiveBotDocument, now = new Date()): BotTokenUsageStats {
 		const windowEndMs = now.getTime();
 		const windowStartMs = windowEndMs - 7 * dayMs;
 		const last24StartMs = windowEndMs - dayMs;
@@ -5381,7 +5398,7 @@ export class BotRuntime {
 			}
 		}
 		const dailyAverageDays = tokenUsageAverageDays(rows, windowEndMs);
-		const contextWindow = this.contextWindowBreakdown(bot);
+		const contextWindow = this.contextWindowBreakdown(context, bot);
 
 		return {
 			generatedAt: windowEnd,
@@ -5427,7 +5444,7 @@ export class BotRuntime {
 		);
 	}
 
-	private contextWindowBreakdown(bot: EffectiveBotDocument): BotContextWindowBreakdown | undefined {
+	private contextWindowBreakdown(context: ResultRenderContext, bot: EffectiveBotDocument): BotContextWindowBreakdown | undefined {
 		const boundary = this.latestActiveLoopCompactionBoundary();
 		const latest = this.latestLoopProviderUsage();
 		if (!latest) {
@@ -5451,7 +5468,7 @@ export class BotRuntime {
 		const initialTokens = Math.min(baselinePromptTokens, promptTokens);
 		const ongoingTokens = Math.max(0, promptTokens - baselinePromptTokens);
 		const freeTokens = Math.max(0, requestContextWindowTokens - promptTokens);
-		const compactionCutoffTokens = this.nextCompactionTokens({ ...bot, text: botTextFor(bot) }, requestContextWindowTokens, latest.requested_model);
+		const compactionCutoffTokens = this.nextCompactionTokens(context, { ...bot, text: botTextFor(bot) }, requestContextWindowTokens, latest.requested_model);
 		return {
 			usedAt: latest.created_at,
 			runId: latest.run_id,
@@ -6071,6 +6088,7 @@ export class BotRuntime {
 		input: { notifications: LoopNotification[]; ping: boolean },
 		runContext: RunContext,
 	): Promise<ProviderLoopOutcome> {
+		const context = await buildResultRenderContext(this.env.BICKR_D1, bot, resultViewsFromRows(this.activeLoopMessageRows()));
 		this.throwIfStopped(runId, runContext.signal);
 		const contentText = botText(automaticInstructionLocale(bot.language));
 		const hot = await listHotThreads(this.env.BICKR_D1, bot.homeWorldId, 10);
@@ -6083,6 +6101,7 @@ export class BotRuntime {
 		if (replyTarget && !introducing) {
 			this.throwIfStopped(runId, runContext.signal);
 			this.appendLoopMessage(
+				context,
 				runId,
 				{
 					role: 'assistant',
@@ -6118,6 +6137,7 @@ export class BotRuntime {
 		const forum = forums.find((item) => !item.personalBotId) ?? forums.find((item) => item.personalBotId === bot.id) ?? forums[0];
 		if (!forum) {
 			this.appendLoopMessage(
+				context,
 				runId,
 				{
 					role: 'assistant',
@@ -6132,6 +6152,7 @@ export class BotRuntime {
 		}
 		this.throwIfStopped(runId, runContext.signal);
 		this.appendLoopMessage(
+			context,
 			runId,
 			{
 				role: 'assistant',
@@ -6350,7 +6371,9 @@ export class BotRuntime {
 			prepared.push({ runId, message: { role: 'assistant', content: recurringPrompt }, origin: 'synthetic_context' });
 		}
 		const pendingInjections = options.pendingInjections ?? [];
-		this.appendLoopMessageGroup(prepared, () => {
+		const views = prepared.flatMap(entry => { const view = toolResultViewForMessage(entry.message); return view ? [view] : []; });
+		const context = contextWithProducedReferences(await buildResultRenderContext(this.env.BICKR_D1, bot, resultViewsFromRows(this.activeLoopMessageRows())), views);
+		this.appendLoopMessageGroup(context, prepared, () => {
 			new RuntimeInjectionStore(this.state.storage).acknowledge(pendingInjections);
 			// The earlier input event is an audit record, not a commit proof. Save
 			// this marker with history so a failed setup remains a new iteration.
@@ -6359,7 +6382,7 @@ export class BotRuntime {
 				options.preparedDelivery.followers, options.preparedDelivery.candidates, deliveredNotificationIds,
 			);
 		});
-		const messages = this.activeLoopMessagesForProvider() as RuntimeLoopMessages;
+		const messages = this.activeLoopMessagesForProvider(context) as RuntimeLoopMessages;
 		Object.defineProperty(messages, 'deliveredNotificationIds', {
 			value: deliveredNotificationIds,
 			enumerable: false,
@@ -6392,7 +6415,7 @@ export class BotRuntime {
 				toolCalls.push(call);
 				const view = await buildToolResultView({ kind: 'note_read', id: planNoteId, content: plan.content, links }, viewContext);
 				if (!view) throw new Error('The PLAN result has no typed view.');
-				results.push(attachToolResultView({ role: 'tool', tool_call_id: call.id, content: renderToolResultView(view, bot.text) }, view));
+				results.push(attachToolResultView({ role: 'tool', tool_call_id: call.id, content: '' }, view));
 			}
 		}
 		const notificationCall = syntheticToolCall(runId, 'check_notifications', toolCalls.length, {});
@@ -6403,7 +6426,7 @@ export class BotRuntime {
 		const includedEventIds = notificationView.events.flatMap(event => event.ids);
 		const includedNotificationIds = new Set(includedEventIds);
 		const includedNotifications = notifications.filter(notification => includedNotificationIds.has(notification.id));
-		results.push(attachToolResultView({ role: 'tool', tool_call_id: notificationCall.id, content: renderToolResultView(notificationView, bot.text) }, notificationView));
+		results.push(attachToolResultView({ role: 'tool', tool_call_id: notificationCall.id, content: '' }, notificationView));
 		const usernames = referencedProfileUsernamesFromNotifications(includedNotifications, bot.handle, existingProfileUsernames);
 		if (usernames.length > 0) {
 			const profiles = await this.syntheticProfilesForUsernames(bot, usernames, runId);
@@ -6412,10 +6435,10 @@ export class BotRuntime {
 				await this.markSyntheticProfilesSeen(bot, profiles.filter(profile => profileResult.profiles.some(item => item.ref.entityId === profile.id)), runId, 'notification');
 				const toolCall = syntheticToolCall(runId, 'view_profiles', toolCalls.length, { usernames });
 				toolCalls.push(toolCall);
-				results.push(attachToolResultView({ role: 'tool', tool_call_id: toolCall.id, content: renderToolResultView(profileResult, bot.text) }, profileResult));
+				results.push(attachToolResultView({ role: 'tool', tool_call_id: toolCall.id, content: '' }, profileResult));
 			}
 		}
-		this.appendToolCallChainLoopMessages(
+		const entries = this.toolCallChainLoopMessages(
 			bot.text,
 			runId,
 			'synthetic_context',
@@ -6425,8 +6448,12 @@ export class BotRuntime {
 			toolCalls,
 			results,
 			'complete',
-			collect,
 		);
+		if (collect) collect(entries);
+		else {
+			const context = contextWithProducedReferences(await buildResultRenderContext(this.env.BICKR_D1, bot, []), results.flatMap(message => { const view = toolResultViewForMessage(message); return view ? [view] : []; }));
+			this.appendLoopMessageGroup(context, entries);
+		}
 		return includedEventIds;
 	}
 
@@ -6447,7 +6474,7 @@ export class BotRuntime {
 			const read = spotlightReadInput(chain.context, chain.toolName, tokenBudget, chain.targetCommentId, chain.targetThreadId);
 			const view = await buildToolResultView({ kind: 'posts_read', read, items: [] }, viewContext);
 			if (!view) throw new Error('The spotlight result has no typed view.');
-			results.push(attachToolResultView({ role: 'tool', tool_call_id: toolCalls[index]?.id ?? syntheticToolCallId(runId, index), content: renderToolResultView(view, bot.text) }, view));
+			results.push(attachToolResultView({ role: 'tool', tool_call_id: toolCalls[index]?.id ?? syntheticToolCallId(runId, index), content: '' }, view));
 		}
 		const usernames = referencedProfileUsernamesFromSpotlight(contexts, bot.handle, existingProfileUsernames);
 		if (usernames.length > 0) {
@@ -6457,13 +6484,13 @@ export class BotRuntime {
 				await this.markSyntheticProfilesSeen(bot, profiles.filter(profile => profileResult.profiles.some(item => item.ref.entityId === profile.id)), runId, 'spotlight');
 				const toolCall = syntheticToolCall(runId, 'view_profiles', toolCalls.length, { usernames });
 				toolCalls.push(toolCall);
-				results.push(attachToolResultView({ role: 'tool', tool_call_id: toolCall.id, content: renderToolResultView(profileResult, bot.text) }, profileResult));
+				results.push(attachToolResultView({ role: 'tool', tool_call_id: toolCall.id, content: '' }, profileResult));
 			}
 		}
 		if (toolCalls.length === 0) {
 			return;
 		}
-		this.appendToolCallChainLoopMessages(
+		const entries = this.toolCallChainLoopMessages(
 			bot.text,
 			runId,
 			'synthetic_context',
@@ -6471,16 +6498,24 @@ export class BotRuntime {
 			toolCalls,
 			results,
 			'complete',
-			collect,
 		);
+		if (collect) collect(entries);
+		else {
+			const context = contextWithProducedReferences(await buildResultRenderContext(this.env.BICKR_D1, bot, []), results.flatMap(message => { const view = toolResultViewForMessage(message); return view ? [view] : []; }));
+			this.appendLoopMessageGroup(context, entries);
+		}
 		const focusContent = spotlightFocusAssistantContent(bot.text, contexts);
 		if (focusContent) {
 			const entries: LoopMessageGroupEntry[] = [{ runId, message: { role: 'assistant', content: focusContent }, origin: 'synthetic_context' }];
-			if (collect) collect(entries); else this.appendLoopMessageGroup(entries);
+			if (collect) collect(entries);
+			else {
+				const context = await buildResultRenderContext(this.env.BICKR_D1, bot, []);
+				this.appendLoopMessageGroup(context, entries);
+			}
 		}
 	}
 
-	private appendToolCallChainLoopMessages(
+	private toolCallChainLoopMessages(
 		text: BotText,
 		runId: string,
 		origin: BotLoopMessageOrigin,
@@ -6488,8 +6523,7 @@ export class BotRuntime {
 		toolCalls: readonly SyntheticToolCall[],
 		results: readonly ChatMessage[],
 		status: BotLoopMessageStatus = 'complete',
-		collect?: (entries: LoopMessageGroupEntry[]) => void,
-	): void {
+	): LoopMessageGroupEntry[] {
 		if (toolCalls.length !== results.length) {
 			throw new Error('Synthetic tool-call chain must have one result per request.');
 		}
@@ -6512,7 +6546,7 @@ export class BotRuntime {
 				});
 			}
 		}
-		if (collect) collect(entries); else this.appendLoopMessageGroup(entries);
+		return entries;
 	}
 
 	private async syntheticProfileView(profiles: ViewedProfileResult[], context: import('./tool-result-views').ViewBuildContext, tokenBudget?: number, anchor?: import('./tool-result-views').ToolResultView): Promise<import('./tool-result-views').ProfilesView | null> {
@@ -6586,7 +6620,7 @@ export class BotRuntime {
 			}
 			// Remove this legacy branch after the active-row census, WI-F forced
 			// compaction, and the next view schema version.
-			for (const username of profileUsernamesFromToolResultContent(this.renderLoopMessageRow(row).content)) {
+			for (const username of profileUsernamesFromToolResultContent(loopMessageStructureFromRow(row).content)) {
 				usernames.add(username);
 			}
 		}
@@ -7081,14 +7115,15 @@ export class BotRuntime {
 			providerTools = providerToolsForBotRound(budgetBot, settings).tools;
 			const compactionMode = providerCompactionMode(settings);
 			const calibration = this.textTokenCalibration(settings.model);
-			await this.refreshResultViewRendering(budgetBot.text, undefined, { settings: participantTimeSettingsOf(budgetBot), createdAt: budgetBot.createdAt });
+			const context = await buildResultRenderContext(this.env.BICKR_D1, budgetBot, resultViewsFromRows(this.activeLoopMessageRows()));
 			const requestMessages = providerMessagesWithPrefillCompatibility(settings.text,
 				settings,
-				this.activeProviderRequestMessages(budgetBot, providerTools, providerToolCallsForSettings(settings)),
+				this.activeProviderRequestMessages(context, budgetBot, providerTools, providerToolCallsForSettings(settings)),
 			);
-			const thresholdContextEstimate = options.reason === 'threshold' ? this.currentCompactionContextEstimate(settings.model) : null;
+			const thresholdContextEstimate = options.reason === 'threshold' ? this.currentCompactionContextEstimate(context, settings.model) : null;
 			const limits = thresholdContextEstimate
 				? this.compactionSummaryLimitsForRows(
+						context,
 						budgetBot,
 						thresholdContextEstimate.rows.map((item) => item.row),
 						thresholdContextEstimate.calibration,
@@ -7136,6 +7171,7 @@ export class BotRuntime {
 							promptTokens: estimate.promptTokens,
 							providerTools,
 							requestMessages,
+							renderContext: context,
 						}
 					: null;
 			}
@@ -7146,6 +7182,7 @@ export class BotRuntime {
 				options.reason === 'threshold'
 					? {
 							rows: this.compactionRowsForEstimatedBudget(
+								context,
 								budgetBot,
 								providerTools,
 								compactionMode,
@@ -7155,6 +7192,7 @@ export class BotRuntime {
 							overBudgetFallback: false,
 						}
 					: this.compactionRowSelectionForEstimatedBudget(
+							context,
 							budgetBot,
 							providerTools,
 							compactionMode,
@@ -7170,7 +7208,7 @@ export class BotRuntime {
 				throw new PromptContextBudgetExceededError(estimate.promptTokens, allowedPromptTokens);
 			}
 			compactionAttempts += 1;
-			await this.compactLoopMessageRows(budgetBot, settings, runId, signal, rowsToCompact, 'auto', {
+			await this.compactLoopMessageRows(context, budgetBot, settings, runId, signal, rowsToCompact, 'auto', {
 				compactionMaxCharacters: limits.maxLength,
 				compactionMaxCompletionTokens: limits.maxCompletionTokens,
 				estimatedPromptTokens: estimate.promptTokens,
@@ -7186,6 +7224,7 @@ export class BotRuntime {
 	}
 
 	private activeProviderRequestMessages(
+		context: ResultRenderContext,
 		bot: RuntimeBotDocument,
 		providerTools: readonly ProviderToolDefinition[] = providerFunctionToolsForBot(bot),
 		toolCalls: BotInferenceToolCalls = 'require',
@@ -7195,7 +7234,7 @@ export class BotRuntime {
 			includePlan: planEnabled(bot.toolSettings),
 		});
 		const systemContent = toolCalls === 'at_will' ? baseSystemContent : appendToolRequirementInstruction(bot.text, baseSystemContent, providerTools);
-		return [{ role: 'system', content: systemContent }, ...this.activeLoopMessagesForProvider()];
+		return [{ role: 'system', content: systemContent }, ...this.activeLoopMessagesForProvider(context)];
 	}
 
 	private estimateProviderPromptTokens(
@@ -7260,6 +7299,7 @@ export class BotRuntime {
 	}
 
 	private compactionRowsForEstimatedBudget(
+		context: ResultRenderContext,
 		bot: RuntimeBotDocument,
 		providerTools?: ProviderToolDefinition[],
 		mode: ProviderCompactionMode = 'structured_output',
@@ -7268,6 +7308,7 @@ export class BotRuntime {
 		options: CompactionSelectionOptions<LoopMessageRow> = {},
 	): LoopMessageRow[] {
 		const input = this.compactionSelectionInputForEstimatedBudget(
+			context,
 			bot,
 			providerTools,
 			mode,
@@ -7279,6 +7320,7 @@ export class BotRuntime {
 	}
 
 	private compactionRowSelectionForEstimatedBudget(
+		context: ResultRenderContext,
 		bot: RuntimeBotDocument,
 		providerTools?: ProviderToolDefinition[],
 		mode: ProviderCompactionMode = 'structured_output',
@@ -7287,6 +7329,7 @@ export class BotRuntime {
 		options: CompactionSelectionOptions<LoopMessageRow> = {},
 	): CompactionRowSelection<LoopMessageRow> {
 		const input = this.compactionSelectionInputForEstimatedBudget(
+			context,
 			bot,
 			providerTools,
 			mode,
@@ -7298,6 +7341,7 @@ export class BotRuntime {
 	}
 
 	private compactionSelectionInputForEstimatedBudget(
+		context: ResultRenderContext,
 		bot: RuntimeBotDocument,
 		providerTools?: ProviderToolDefinition[],
 		mode: ProviderCompactionMode = 'structured_output',
@@ -7306,10 +7350,11 @@ export class BotRuntime {
 		options: CompactionSelectionOptions<LoopMessageRow> = {},
 	) {
 		const calibration = this.textTokenCalibration(requestedModel);
-		const rows = this.compactionCandidateEstimates(calibration);
+		const rows = this.compactionCandidateEstimates(context, calibration);
 		return {
 			rows,
 			limitTokens: this.compactionPromptTokenLimit(
+				context,
 				bot,
 				rows.map((item) => item.row),
 				calibration,
@@ -7320,6 +7365,7 @@ export class BotRuntime {
 			options: {
 				canIncludeRows: (selectedRows: readonly LoopMessageRow[]) =>
 					this.compactionRowsLeaveOutputBudget(
+						context,
 						bot,
 						selectedRows,
 						calibration,
@@ -7340,10 +7386,11 @@ export class BotRuntime {
 			const settings = withProviderText(await this.effectiveProviderSettings(bot, owner), bot.text);
 			const runId = crypto.randomUUID();
 			const rows = this.compactionCandidateRows();
+			const context = await buildResultRenderContext(this.env.BICKR_D1, bot, resultViewsFromRows(this.activeLoopMessageRows()));
 			if (rows.length === 0) {
 				return { messageCount: 0 };
 			}
-			await this.compactLoopMessageRowsInBatches(bot, settings, runId, new AbortController().signal, rows, 'manual', {});
+			await this.compactLoopMessageRowsInBatches(context, bot, settings, runId, new AbortController().signal, rows, 'manual', {});
 			try {
 				await boundedCleanup('Provider usage export', (signal) => this.exportRecentProviderUsage(bot, new Date(), signal));
 			} catch (error) {
@@ -7356,6 +7403,7 @@ export class BotRuntime {
 	}
 
 	private async compactLoopMessageRowsInBatches(
+		context: ResultRenderContext,
 		bot: RuntimeBotDocument,
 		settings: LocalizedProviderSettings,
 		runId: string,
@@ -7375,11 +7423,12 @@ export class BotRuntime {
 			);
 			const estimates = remaining.map((row) => ({
 				row,
-				tokens: estimateChatMessageTokens(this.renderLoopMessageRow(row), calibration),
+				tokens: estimateChatMessageTokens(this.renderLoopMessageRow(context, row), calibration),
 			}));
 			const selection = compactionRowSelectionForEstimatedBudget<LoopMessageRow>(
 				estimates,
 				this.compactionPromptTokenLimit(
+					context,
 					bot,
 					remaining,
 					calibration,
@@ -7390,6 +7439,7 @@ export class BotRuntime {
 				{
 					canIncludeRows: (selectedRows) =>
 						this.compactionRowsLeaveOutputBudget(
+							context,
 							bot,
 							selectedRows,
 							calibration,
@@ -7408,7 +7458,7 @@ export class BotRuntime {
 				);
 			}
 			const selected = batch;
-			const compactedRows = await this.compactLoopMessageRows(bot, settings, runId, signal, selected, mode, {
+			const compactedRows = await this.compactLoopMessageRows(context, bot, settings, runId, signal, selected, mode, {
 				...metrics,
 				...(rows.length !== selected.length ? { batchIndex } : {}),
 				...(selection.overBudgetFallback ? { compactionOverBudgetFallback: true } : {}),
@@ -7420,6 +7470,7 @@ export class BotRuntime {
 	}
 
 	private compactionRowsLeaveOutputBudget(
+		context: ResultRenderContext,
 		bot: RuntimeBotDocument,
 		rows: readonly LoopMessageRow[],
 		calibration: TextTokenCalibration,
@@ -7427,11 +7478,12 @@ export class BotRuntime {
 		mode: ProviderCompactionMode = 'structured_output',
 		contextWindowTokens?: number,
 	): boolean {
-		const limits = this.compactionSummaryLimitsForRows(bot, rows, calibration, providerTools, mode, contextWindowTokens);
+		const limits = this.compactionSummaryLimitsForRows(context, bot, rows, calibration, providerTools, mode, contextWindowTokens);
 		return limits.maxCompletionTokens >= providerCompactionRequiredCompletionTokens(limits);
 	}
 
 	private async compactLoopMessageRows(
+		context: ResultRenderContext,
 		bot: RuntimeBotDocument,
 		settings: LocalizedProviderSettings,
 		runId: string,
@@ -7472,13 +7524,13 @@ export class BotRuntime {
 			const compactionMode = providerCompactionMode(settings);
 			const compactionReasoning = this.compactionReasoningForSettings(settings);
 			ledgerRows = this.compactionLedgerRows(providerRows);
-			recentActivity = providerRows.map((message) => truncateForContext(loopMessageContextLine(bot.text, message, this.renderLoopMessageRow(message)), 1_200)).join('\n');
-			compactedMessages = providerRows.map((row) => this.renderLoopMessageRow(row));
-			compactedCommentBodies = commentTextRecordsFromChatMessages(providerRows.filter(row => !row.tool_result_view_json).map(row => this.renderLoopMessageRow(row)));
+			recentActivity = providerRows.map((message) => truncateForContext(loopMessageContextLine(bot.text, this.renderLoopMessageRow(context, message)), 1_200)).join('\n');
+			compactedMessages = providerRows.map((row) => this.renderLoopMessageRow(context, row));
+			compactedCommentBodies = commentTextRecordsFromChatMessages(providerRows.filter(row => !row.tool_result_view_json).map(row => this.renderLoopMessageRow(context, row)));
 			compactedFacets = [];
 			for (const row of providerRows) {
 				const view = toolResultViewFromRow(row);
-				compactedFacets.push(...(view ? resultViewFacetArrays(view).flat() : await legacyResultFacets(this.renderLoopMessageRow(row).content)));
+				compactedFacets.push(...(view ? resultViewFacetArrays(view).flat() : await legacyResultFacets(this.renderLoopMessageRow(context, row).content)));
 			}
 			const baseLimits = providerCompactionSummaryLimitsForChat(
 				bot,
@@ -7574,7 +7626,7 @@ export class BotRuntime {
 				break;
 			} catch (error) {
 				const reducedRows = isProviderCompactionOutputLimitFailure(error)
-					? reducedCompactionRowsAfterOutputLimit(providerRows, calibration)
+					? reducedCompactionRowsAfterOutputLimit(providerRows, calibration, context)
 					: providerRows;
 				if (reducedRows.length > 0 && reducedRows.length < providerRows.length) {
 					outputLimitShrinkAttempts += 1;
@@ -7616,7 +7668,7 @@ export class BotRuntime {
 		await this.renewProgressLease(bot.id, runId, signal);
 		let summaryMessage!: BotLoopMessage;
 		this.runStorageTransactionSync(() => {
-			summaryMessage = this.insertLoopMessage({
+			summaryMessage = this.insertLoopMessage(context, {
 				runId,
 				message: { role: 'assistant', content: summary },
 				origin: 'compaction',
@@ -7657,7 +7709,7 @@ export class BotRuntime {
 					{ role: 'assistant', content: summary },
 				]);
 			}
-			this.hydrateResultViewsAfterCompaction(compactedFacets);
+			this.hydrateResultViewsAfterCompaction(context, compactedFacets);
 			this.repairDanglingCommentReferencesAfterCompaction(
 				summaryMessage.seq,
 				summaryPosition,
@@ -7677,7 +7729,7 @@ export class BotRuntime {
 		const lastProviderPosition = Math.max(...providerRows.map((row) => row.position));
 		const rowsBySeq = new Map<number, LoopMessageRow>();
 		for (const row of this.activeLoopMessageRows()) {
-			const message = this.renderLoopMessageRow(row);
+			const message = loopMessageStructureFromRow(row);
 			if (
 				providerSeqs.has(row.seq) ||
 				(row.position <= lastProviderPosition && !loopMessageContributesToProviderHistory(row.origin, message))
@@ -7691,13 +7743,13 @@ export class BotRuntime {
 		return [...rowsBySeq.values()].sort((left, right) => left.position - right.position || left.seq - right.seq);
 	}
 
-	private hydrateResultViewsAfterCompaction(removed: readonly import('./result-context-scope').ResultFacetValue[]): void {
+	private hydrateResultViewsAfterCompaction(context: ResultRenderContext, removed: readonly import('./result-context-scope').ResultFacetValue[]): void {
 		const rows = this.activeLoopMessageRows().flatMap(row => { const view = toolResultViewFromRow(row); return view ? [{ row, view, before: row.tool_result_view_json }] : []; });
 		if (hydrateResultFacets(removed, rows.flatMap(item => resultViewFacetArrays(item.view))) === 0) return;
 		for (const item of rows) {
 			const json = JSON.stringify(item.view);
 			if (json === item.before) continue;
-			const content = renderToolResultView(item.view, this.resultViewText ?? botText(item.view.instructionLocale), this.resultViewHandles, this.resultViewTime ?? item.view.time ?? null);
+			const content = renderToolResultView(item.view, context);
 			this.state.storage.sql.exec('UPDATE loop_messages SET tool_result_view_json = ?, token_estimate = ? WHERE seq = ?', json, estimateTextTokens(content), item.row.seq);
 		}
 	}
@@ -7736,12 +7788,12 @@ export class BotRuntime {
 		const activeScope = emptyProviderContextContentScope();
 		collectProviderContextContentFromValue(summaryMessage.content, activeScope);
 		for (const row of rows) {
-			collectProviderContextContentFromValue(this.renderLoopMessageRow(row).content, activeScope);
+			collectProviderContextContentFromValue(loopMessageStructureFromRow(row).content, activeScope);
 		}
 
 		const pendingCommentIds = new Set<string>();
 		for (const row of rows) {
-			const refs = commentReferencesWithoutTextFromValue(this.renderLoopMessageRow(row).content);
+			const refs = commentReferencesWithoutTextFromValue(loopMessageStructureFromRow(row).content);
 			for (const commentId of refs) {
 				if (!activeScope.commentsWithText.has(commentId) && compactedCommentBodies.has(commentId)) {
 					pendingCommentIds.add(commentId);
@@ -7757,7 +7809,7 @@ export class BotRuntime {
 			if (pendingCommentIds.size === 0) {
 				break;
 			}
-			const refs = commentReferencesWithoutTextFromValue(this.renderLoopMessageRow(row).content);
+			const refs = commentReferencesWithoutTextFromValue(loopMessageStructureFromRow(row).content);
 			for (const commentId of refs) {
 				if (!pendingCommentIds.has(commentId)) {
 					continue;
@@ -7780,7 +7832,7 @@ export class BotRuntime {
 			if (!ids) {
 				continue;
 			}
-			const message = this.renderLoopMessageRow(row);
+			const message = loopMessageStructureFromRow(row);
 			if (typeof message.content !== 'string') {
 				continue;
 			}
@@ -7811,14 +7863,14 @@ export class BotRuntime {
 		}
 	}
 
-	private currentCompactionContextEstimate(requestedModel?: string): {
+	private currentCompactionContextEstimate(context: ResultRenderContext, requestedModel?: string): {
 		totalTokens: number;
 		rowTokens: number;
 		rows: CompactionCandidateEstimate<LoopMessageRow>[];
 		calibration: TextTokenCalibration;
 	} {
 		const calibration = this.textTokenCalibration(requestedModel);
-		const rows = this.compactionCandidateEstimates(calibration);
+		const rows = this.compactionCandidateEstimates(context, calibration);
 		const rowTokens = rows.reduce((total, item) => total + item.tokens, 0);
 		return {
 			totalTokens: rowTokens,
@@ -7832,14 +7884,15 @@ export class BotRuntime {
 		return this.activeProviderHistoryLoopMessageRows();
 	}
 
-	private compactionCandidateEstimates(calibration = this.textTokenCalibration()): CompactionCandidateEstimate<LoopMessageRow>[] {
+	private compactionCandidateEstimates(context: ResultRenderContext, calibration = this.textTokenCalibration()): CompactionCandidateEstimate<LoopMessageRow>[] {
 		return this.compactionCandidateRows().map((row) => ({
 			row,
-			tokens: estimateChatMessageTokens(this.renderLoopMessageRow(row), calibration),
+			tokens: estimateChatMessageTokens(this.renderLoopMessageRow(context, row), calibration),
 		}));
 	}
 
 	private compactionSummaryLimitsForRows(
+		context: ResultRenderContext,
 		bot: RuntimeBotDocument,
 		rows: readonly LoopMessageRow[],
 		calibration = this.textTokenCalibration(),
@@ -7849,7 +7902,7 @@ export class BotRuntime {
 	): ProviderCompactionSummaryLimits {
 		return providerCompactionSummaryLimitsForChat(
 			bot,
-			rows.map((row) => this.renderLoopMessageRow(row)),
+			rows.map((row) => this.renderLoopMessageRow(context, row)),
 			calibration,
 			providerTools,
 			mode,
@@ -7857,7 +7910,7 @@ export class BotRuntime {
 		);
 	}
 
-	private nextCompactionTokens(bot: RuntimeBotDocument, contextWindowTokens?: number, requestedModel?: string): number {
+	private nextCompactionTokens(context: ResultRenderContext, bot: RuntimeBotDocument, contextWindowTokens?: number, requestedModel?: string): number {
 		const tickSettings =
 			contextWindowTokens === undefined
 				? bot.tickSettings
@@ -7865,7 +7918,7 @@ export class BotRuntime {
 		const budgetBot = { ...bot, tickSettings };
 		return providerCompactionSummaryLimitsForChat(
 			budgetBot,
-			this.hasRuntimeStorage() ? this.activeLoopMessagesForProvider() : [],
+			this.hasRuntimeStorage() ? this.activeLoopMessagesForProvider(context) : [],
 			this.textTokenCalibration(requestedModel),
 			providerFunctionToolsForBot(budgetBot, { compactionMode: budgetBot.inferenceSettings.compactionMode ?? 'structured_output' }),
 			budgetBot.inferenceSettings.compactionMode ?? 'structured_output',
@@ -7873,6 +7926,7 @@ export class BotRuntime {
 	}
 
 	private compactionPromptTokenLimit(
+		context: ResultRenderContext,
 		bot: RuntimeBotDocument,
 		rows: readonly LoopMessageRow[],
 		calibration = this.textTokenCalibration(),
@@ -7880,7 +7934,7 @@ export class BotRuntime {
 		mode: ProviderCompactionMode = 'structured_output',
 		contextWindowTokens?: number,
 	): number {
-		const limits = this.compactionSummaryLimitsForRows(bot, rows, calibration, providerTools, mode, contextWindowTokens);
+		const limits = this.compactionSummaryLimitsForRows(context, bot, rows, calibration, providerTools, mode, contextWindowTokens);
 		return Math.max(1, Math.min(providerCompactionMaxPromptEstimateTokens, limits.compactionInputTokens));
 	}
 
@@ -8128,7 +8182,8 @@ export class BotRuntime {
 			return false;
 		}
 		if (runId && !this.hasTerminalEvent(runId)) {
-			this.recordTickFailure(runId, {
+			const context = await this.resultRenderContextForRows(botId, this.activeLoopMessageRows());
+			this.recordTickFailure(context, runId, {
 				message,
 				leaseExpiresAt: row.leaseExpiresAt,
 			});
@@ -10252,7 +10307,7 @@ export function runtimeRecord(value: unknown): Record<string, unknown> {
 	return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }
 
-function loopMessageContextLine(text: BotText, row: LoopMessageRow, message = loopMessageChatMessageFromRow(row)): string {
+function loopMessageContextLine(text: BotText, message: ChatMessage): string {
 	const content = typeof message.content === 'string' ? message.content : '';
 	if (message.role === 'user') {
 		return text.format('compaction.history.app', { content: markdownQuoteForContext(content, 1_500) });

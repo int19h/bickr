@@ -1,3 +1,4 @@
+import { testResultContext } from './result-render-context.test-support';
 import { botText } from '../localization';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BotRuntime } from './bot-runtime';
@@ -30,7 +31,7 @@ function fixture() {
 		return [];
 	});
 	const runtime = Object.assign(Object.create(BotRuntime.prototype), {
-		state: { storage }, runtimeMessageStore: () => store,
+		env: { BICKR_D1: {} }, state: { storage }, runtimeMessageStore: () => store,
 		legacyProfileUsernamesInActiveContext: () => new Set(),
 		appendNotificationSyntheticContext: prepareContext,
 		activeLoopMessagesForProvider: () => store.activeLoopMessageRows(),
@@ -129,7 +130,7 @@ describe('durable thought delivery', () => {
 		const f = fixture();
 		const selected = f.injections.pending();
 		f.injections.acknowledge(selected);
-		expect(() => f.store.appendLoopMessageGroup([{ runId: 'run', origin: 'injection', message: { role: 'assistant', content: 'Remember this' } }], () => f.injections.acknowledge(selected))).toThrow('Pending input changed');
+		expect(() => f.store.appendLoopMessageGroup(testResultContext, [{ runId: 'run', origin: 'injection', message: { role: 'assistant', content: 'Remember this' } }], () => f.injections.acknowledge(selected))).toThrow('Pending input changed');
 		expect(f.store.activeLoopMessageRows()).toHaveLength(0);
 	});
 });

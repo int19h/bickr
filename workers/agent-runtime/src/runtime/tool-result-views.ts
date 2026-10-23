@@ -12,7 +12,8 @@ import { ResultContextScope, type ResultFacetValue, type ResultFacet } from './r
 import { resultHandleKey, type ResultEntityReference, type ResultHandleMap, type ResultContentIdentities } from './result-handles';
 
 export const toolResultViewSchemaVersion = 1;
-export type ResultTimeContext = { settings: import('@bickr/shared/model').ParticipantTimeSettings; createdAt: string };
+export type ResultRenderContext = Readonly<{ text: BotText; time: ResultTimeContext; handles: ReadonlyMap<string, Readonly<{ handle: string; deleted: boolean }>> }>;
+export type ResultTimeContext = Readonly<{ settings: Readonly<import('@bickr/shared/model').ParticipantTimeSettings>; createdAt: string }>;
 export type ResultInstant = { instant: string; writtenAt: string };
 type Facet = number;
 type Author = { ref: ResultEntityReference; self: boolean; displayName?: Facet };
@@ -28,7 +29,7 @@ type ProfileView = {
 	ref: ResultEntityReference; displayName?: Facet; bio: Facet; isFollowedByMe: boolean; isFollowingMe: boolean; followers: number;
 	myNoteIds?: string[]; totalMyNoteCount?: number; omittedMyNoteIdCount?: number;
 };
-type ViewBase = { instructionLocale: import('@bickr/shared/instruction-language').InstructionLocale; schemaVersion: 1; writtenAt: string; facets: ResultFacetValue[]; omittedCount: number; contextProfiles?: ProfileView[]; time?: ResultTimeContext };
+type ViewBase = { schemaVersion: 1; writtenAt: string; facets: ResultFacetValue[]; omittedCount: number; contextProfiles?: ProfileView[] };
 export type ForumListView = ViewBase & { kind: 'list_accessible_forums'; forums: { ref: ResultEntityReference; description: Facet; readOnly: boolean }[] };
 export type ThreadListView = ViewBase & { kind: 'list_threads'; includeForum: boolean; threads: ThreadView[] };
 export type ReadThreadView = ViewBase & { kind: 'read_thread'; operation: string; context: ResultText; pruning: { tokenBudget: number; omittedReplyCount: number; trimmedBodyCount: number } | null; thread: ThreadView; targetCommentId?: string; content: CommentView[] };
@@ -87,7 +88,7 @@ export type ViewBuildContext = {
 	references: ReadonlyMap<string, string>;
 	contentIdentities?: ResultContentIdentities;
  retainKnownBodyValues?: boolean;
- time?: ResultTimeContext;
+	time: ResultTimeContext;
 };
 export class UnresolvedResultReferenceError extends Error {
 	readonly entityKind: ResultEntityReference['kind'];
@@ -107,8 +108,8 @@ function value(text: LocalizedText | string | undefined): string | undefined {
 	return raw?.trim() || undefined;
 }
 function instant(timestamp: string, context: ViewBuildContext): ResultInstant { return { instant: timestamp, writtenAt: context.writtenAt }; }
-export function resultViewBase(text: BotText, writtenAt = new Date().toISOString()): ViewBase { return { instructionLocale: text.locale, schemaVersion: 1, writtenAt, facets: [], omittedCount: 0 }; }
-function base(context: ViewBuildContext): ViewBase { return { ...resultViewBase(context.text, context.writtenAt), ...(context.time ? { time: { settings: { mode: context.time.settings.mode, timezone: context.time.settings.timezone }, createdAt: context.time.createdAt } } : {}) }; }
+export function resultViewBase(_text: BotText, writtenAt = new Date().toISOString()): ViewBase { return { schemaVersion: 1, writtenAt, facets: [], omittedCount: 0 }; }
+function base(context: ViewBuildContext): ViewBase { return resultViewBase(context.text, context.writtenAt); }
 async function facet(entityId: string, kind: ResultFacet, text: string, context: ViewBuildContext, facets: ResultFacetValue[]): Promise<Facet> {
 	const entry = await context.scope.observe({ entityId, facet: kind }, text);
 	const index = facets.length;
@@ -280,7 +281,7 @@ async function activityFeed(feed: import('@bickr/shared/model').BotActivityFeed,
 export async function buildToolResultView(envelope: ToolResultEnvelope, context: ViewBuildContext, tokenBudget?: number): Promise<ToolResultView | null> {
 	const view = await buildUnprunedToolResultView(envelope, { ...context, scope: context.scope.clone(), retainKnownBodyValues: envelope.kind === 'posts_read' });
 	if (view) {
-		pruneToolResultView(view, context.text, tokenBudget);
+		pruneToolResultView(view, resultViewBuildRenderContext(view, context), tokenBudget);
 		if (view.kind === 'read_thread' || view.kind === 'read_comment_by_id') {
 			const scope = context.scope.clone();
 			for (let index = 0; index < view.facets.length; index += 1) {
@@ -342,10 +343,12 @@ async function buildUnprunedToolResultView(envelope: ToolResultEnvelope, context
 
 export function renderResultReference(reference: ResultEntityReference, handles: ResultHandleMap, deletedMark: string): string {
 	const current = handles.get(resultHandleKey(reference));
-	return `${reference.kind === 'participant' ? 'u' : 'f'}/${current?.handle ?? reference.handle}${current?.deleted ? deletedMark : ''}`;
+	if (!current?.handle) throw new Error('The render context has no handle for this reference.');
+	return `${reference.kind === 'participant' ? 'u' : 'f'}/${current.handle}${current.deleted ? deletedMark : ''}`;
 }
 
-export function toolResultViewPayload(view: ToolResultView, text: BotText, handles: ResultHandleMap = new Map(), time: ResultTimeContext | null = view.time ?? null): unknown {
+export function toolResultViewPayload(view: ToolResultView, context: ResultRenderContext): unknown {
+	const { text, handles, time } = context;
 	const facetValue = (index: Facet): string | undefined => view.facets[index]?.value;
 	const shown = (index: Facet): boolean => view.facets[index]?.state === 'shown';
 	const reference = (item: ResultEntityReference): string => renderResultReference(item, handles, ` ${text.format('result.reference.deleted')}`);
@@ -363,7 +366,11 @@ export function toolResultViewPayload(view: ToolResultView, text: BotText, handl
 		...(item.focused ? { focused: true, focusDescription: text.format('read.focus.description') } : {}), ...(item.ancestorOnly ? { ancestorOnly: true } : {}),
 		replies: typeof item.replies === 'number' ? item.replies : item.replies.map(commentData),
 	});
-	const noteLinks = (items: NoteLinkView[]): object[] => items.map(link => ({ kind: link.ref.kind, handle: (handles.get(resultHandleKey(link.ref))?.handle ?? link.ref.handle), deleted: handles.get(resultHandleKey(link.ref))?.deleted ?? link.deleted }));
+	const noteLinks = (items: NoteLinkView[]): object[] => items.map(link => {
+		const current = handles.get(resultHandleKey(link.ref));
+		if (!current?.handle) throw new Error('The render context has no handle for this reference.');
+		return { kind: link.ref.kind, handle: current.handle, deleted: current.deleted };
+	});
 	const notificationThreadData = (item: NotificationThreadView): object => ({ threadRef: parseThreadRef(item.id) ? formatThreadRef(item.id) : undefined, ...(item.title !== undefined ? { title: facetValue(item.title) } : {}), ...(item.author ? { author: authorRef(item.author) } : {}), ...(item.body !== undefined && shown(item.body) ? { text: facetValue(item.body) } : {}) });
 	const notificationCommentData = (item: NotificationCommentView): object => ({ commentRef: parseCommentRef(item.id) ? formatCommentRef(item.id) : undefined, threadRef: parseThreadRef(item.threadId) ? formatThreadRef(item.threadId) : undefined, ...(item.author ? { author: authorRef(item.author) } : {}), ...(item.body !== undefined && shown(item.body) ? { text: facetValue(item.body) } : {}) });
 	const legacyTargetData = (target: LegacyNotificationTargetView | undefined): unknown => target?.kind === 'profile' ? reference(target.ref) : target?.kind === 'thread' ? notificationThreadData(target.thread) : target?.kind === 'comment' ? notificationCommentData(target.comment) : undefined;
@@ -411,7 +418,7 @@ export function toolResultViewPayload(view: ToolResultView, text: BotText, handl
 			break;
 		}
 		case 'settlement': payload = view.outcome.kind === 'not_dispatched' || view.outcome.kind === 'interrupted' || view.outcome.kind === 'result_unavailable' ? { ok: false, code: view.outcome.kind, message: renderResultText(view.outcome.message, text) } : { kind: view.outcome.kind, message: renderResultText(view.outcome.message, text) }; break;
-		case 'batch_outcome': payload = { kind: 'batch_outcome', items: view.items.map(item => item.kind === 'recorded' ? { kind: 'recorded', target: item.targetRef ? reference(item.targetRef) : item.target, result: toolResultViewPayload(item.view, text, handles, time ?? item.view.time ?? null) } : item.kind === 'refused' ? { kind: item.kind, target: item.targetRef ? reference(item.targetRef) : item.target, message: renderResultText(item.message, text), ...(item.guidance ? { guidance: renderResultText(item.guidance, text) } : {}) } : { kind: item.kind, target: item.targetRef ? reference(item.targetRef) : item.target, message: renderResultText(item.message, text) }), guidance: renderResultText(view.guidance, text) }; break;
+		case 'batch_outcome': payload = { kind: 'batch_outcome', items: view.items.map(item => item.kind === 'recorded' ? { kind: 'recorded', target: item.targetRef ? reference(item.targetRef) : item.target, result: toolResultViewPayload(item.view, context) } : item.kind === 'refused' ? { kind: item.kind, target: item.targetRef ? reference(item.targetRef) : item.target, message: renderResultText(item.message, text), ...(item.guidance ? { guidance: renderResultText(item.guidance, text) } : {}) } : { kind: item.kind, target: item.targetRef ? reference(item.targetRef) : item.target, message: renderResultText(item.message, text) }), guidance: renderResultText(view.guidance, text) }; break;
 		case 'list_accessible_forums': payload = view.forums.map(forum => ({ forum: reference(forum.ref), description: facetValue(forum.description), readOnly: forum.readOnly })); break;
 		case 'list_threads': payload = view.threads.map(item => threadData(item, view.includeForum)); break;
 		case 'read_thread':
@@ -442,12 +449,12 @@ export function toolResultViewPayload(view: ToolResultView, text: BotText, handl
 	return payload;
 }
 
-export function renderToolResultView(view: ToolResultView, text: BotText, handles: ResultHandleMap = new Map(), time: ResultTimeContext | null = view.time ?? null): string {
-	return JSON.stringify(toolResultViewPayload(view, text, handles, time));
+export function renderToolResultView(view: ToolResultView, context: ResultRenderContext): string {
+	return JSON.stringify(toolResultViewPayload(view, context));
 }
 
-function participantTimestamp(timestamp: ResultInstant, time: ResultTimeContext | null): string | undefined {
-	if (!time || !Number.isFinite(Date.parse(timestamp.instant))) return undefined;
+function participantTimestamp(timestamp: ResultInstant, time: ResultTimeContext): string | undefined {
+	if (!Number.isFinite(Date.parse(timestamp.instant))) return undefined;
 	return formatParticipantTime(timestamp.instant, time.settings, time.createdAt);
 }
 
@@ -515,11 +522,11 @@ function retainReferencedFacets(view: ToolResultView): void {
 }
 
 /** Budget decisions happen once. Rendering never re-prunes stored history. */
-export function pruneToolResultView(view: ToolResultView, text: BotText, tokenBudget?: number): void {
+export function pruneToolResultView(view: ToolResultView, context: ResultRenderContext, tokenBudget?: number): void {
 	if ((view.kind === 'read_thread' || view.kind === 'read_comment_by_id') && view.pruning) {
 		const estimate = (): number => {
 			const allBodies = view.facets.map(item => item.facet === 'comment_body' || item.facet === 'thread_body' ? { ...item, state: 'shown' as const, value: item.value ?? '' } : item);
-			const payload = toolResultViewPayload({ ...view, facets: allBodies }, text) as { content: object[] };
+			const payload = toolResultViewPayload({ ...view, facets: allBodies }, context) as { content: object[] };
 			return Math.max(1, Math.ceil(JSON.stringify(payload.content).length / 4));
 		};
 		const outcome = pruneReadView(view, view.pruning.tokenBudget, estimate);
@@ -536,7 +543,7 @@ export function pruneToolResultView(view: ToolResultView, text: BotText, tokenBu
 	const budget = Math.max(1, Math.floor(tokenBudget));
 	const estimate = (): number => {
 		const budgetView = view.kind === 'profiles' && view.source === 'list' ? { ...view, source: 'view' as const, omittedCount: 0 } : view;
-		return Math.ceil(renderToolResultView(budgetView, text).length / 4);
+		return Math.ceil(renderToolResultView(budgetView, context).length / 4);
 	};
 	if (view.kind === 'profiles' && view.source === 'view' && estimate() > budget) {
 		const original = view.profiles.map(profile => profile.myNoteIds?.slice());
@@ -693,4 +700,21 @@ export function notificationContentIds(events: import('@bickr/shared/model').Sto
 		}
 	}
 	return { threadIds, commentIds };
+}
+
+/** The producer supplies current references for the first budget preview. */
+export function resultViewBuildRenderContext(view: ToolResultView, input: Pick<ViewBuildContext, 'text' | 'time'>): ResultRenderContext {
+	return Object.freeze({ text: input.text, time: Object.freeze({ settings: Object.freeze({ mode: input.time.settings.mode, timezone: input.time.settings.timezone }), createdAt: input.time.createdAt }), handles: producedResultHandles(view) });
+}
+
+/** The first render uses references from the new result, before it enters history. */
+export function producedResultHandles(view: ToolResultView): ResultRenderContext['handles'] {
+	const handles: Map<string, Readonly<{ handle: string; deleted: boolean }>> = new Map(resultViewReferences(view).map(ref => [resultHandleKey(ref), Object.freeze({ handle: ref.handle, deleted: false })]));
+	if (view.kind === 'read_note' || view.kind === 'write_note') {
+		for (const link of view.links) handles.set(resultHandleKey(link.ref), Object.freeze({ handle: link.ref.handle, deleted: link.deleted }));
+	}
+	if (view.kind === 'batch_outcome') for (const item of view.items) {
+		if (item.kind === 'recorded') for (const [key, handle] of producedResultHandles(item.view)) handles.set(key, Object.freeze({ handle: handle.handle, deleted: handle.deleted }));
+	}
+	return handles;
 }

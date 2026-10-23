@@ -1,3 +1,4 @@
+import { testResultContext } from '../workers/agent-runtime/src/runtime/result-render-context.test-support';
 import { ResultContextScope } from '../workers/agent-runtime/src/runtime/result-context-scope';
 import type { RuntimeBotDocument } from "../workers/agent-runtime/src/types";
 import type { LocalizedProviderSettings } from "../workers/agent-runtime/src/provider-requests";
@@ -187,7 +188,7 @@ describe("Tick limits and recovery", () => {
 				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
 			},
 			appendLoopMessage: (
-				_runId: string,
+				_context: typeof testResultContext, _runId: string,
 				message: Record<string, unknown>,
 				origin: string,
 			) => ({
@@ -204,7 +205,7 @@ describe("Tick limits and recovery", () => {
 				{ id: "call-read", name: "read_thread", args: { threadId: "thr_missing" } },
 				{ id: "call-vote", name: "vote", args: { votes: [{ commentId: "cmt_test", value: 1 }], reason: "Clear useful context." } },
 			]),
-			ensureProviderPromptWithinBudget: async () => ({
+			ensureProviderPromptWithinBudget: async () => ({renderContext: testResultContext,
 				allowedPromptTokens: 13_500,
 				providerTools: toolDefinitionsForProviderRound(englishInstructions),
 				promptTokens: 100,
@@ -271,7 +272,7 @@ describe("Tick limits and recovery", () => {
 					return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
 				},
 				appendLoopMessage: (
-					_runId: string,
+					_context: typeof testResultContext, _runId: string,
 					message: Record<string, unknown>,
 					origin: string,
 				) => {
@@ -288,7 +289,7 @@ describe("Tick limits and recovery", () => {
 				},
 				appendProviderMessages: async () => {},
 				callProvider,
-				ensureProviderPromptWithinBudget: async () => ({
+				ensureProviderPromptWithinBudget: async () => ({renderContext: testResultContext,
 					allowedPromptTokens: 13_500,
 					providerTools: toolDefinitionsForProviderRound(englishInstructions),
 					promptTokens: 100,
@@ -361,7 +362,7 @@ describe("Tick limits and recovery", () => {
 				appendEvent: (runId: string, type: string, payload: Record<string, unknown>) =>
 					runtimeEvent(callProvider.mock.calls.length + executedTools.length + 1, runId, type as BotRuntimeEvent["type"], payload),
 				appendLoopMessage: (
-					_runId: string,
+					_context: typeof testResultContext, _runId: string,
 					message: Record<string, unknown>,
 					origin: string,
 				) => ({
@@ -375,7 +376,7 @@ describe("Tick limits and recovery", () => {
 				}),
 				appendProviderMessages: async () => {},
 				callProvider,
-				ensureProviderPromptWithinBudget: async () => ({
+				ensureProviderPromptWithinBudget: async () => ({renderContext: testResultContext,
 					allowedPromptTokens: 13_500,
 					providerTools: toolDefinitionsForProviderRound(englishInstructions),
 					promptTokens: 100,
@@ -440,7 +441,7 @@ describe("Tick limits and recovery", () => {
 					return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
 				},
 				appendLoopMessage: (
-					_runId: string,
+					_context: typeof testResultContext, _runId: string,
 					message: Record<string, unknown>,
 					origin: string,
 				) => ({
@@ -454,7 +455,7 @@ describe("Tick limits and recovery", () => {
 				}),
 				appendProviderMessages: async () => {},
 				callProvider,
-				ensureProviderPromptWithinBudget: async () => ({
+				ensureProviderPromptWithinBudget: async () => ({renderContext: testResultContext,
 					allowedPromptTokens: 13_500,
 					providerTools: toolDefinitionsForProviderRound(englishInstructions),
 					promptTokens: 100,
@@ -526,7 +527,7 @@ describe("Tick limits and recovery", () => {
 					return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
 				},
 				appendLoopMessage: (
-					_runId: string,
+					_context: typeof testResultContext, _runId: string,
 					message: Record<string, unknown>,
 					origin: string,
 				) => ({
@@ -540,7 +541,7 @@ describe("Tick limits and recovery", () => {
 				}),
 				appendProviderMessages: async () => {},
 				callProvider,
-				ensureProviderPromptWithinBudget: async () => ({
+				ensureProviderPromptWithinBudget: async () => ({renderContext: testResultContext,
 					allowedPromptTokens: 13_500,
 					providerTools: toolDefinitionsForProviderRound(englishInstructions),
 					promptTokens: 100,
@@ -633,7 +634,7 @@ describe("Tick limits and recovery", () => {
 				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
 			},
 			appendLoopMessage: (
-				_runId: string,
+				_context: typeof testResultContext, _runId: string,
 				message: BotInferenceSubmissionMessage,
 				origin: BotLoopMessage["origin"],
 				status: NonNullable<BotLoopMessage["status"]> = "complete",
@@ -652,7 +653,7 @@ describe("Tick limits and recovery", () => {
 			},
 			appendProviderMessages: async () => {},
 			callProvider,
-			ensureProviderPromptWithinBudget: async () => ({
+			ensureProviderPromptWithinBudget: async () => ({renderContext: testResultContext,
 				allowedPromptTokens: 13_500,
 				providerTools: toolDefinitionsForProviderRound(englishInstructions),
 				promptTokens: 100,
@@ -806,7 +807,7 @@ describe("Tick limits and recovery", () => {
 			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) =>
 				runtimeEvent(1, runId, type as BotRuntimeEvent["type"], payload),
 			appendLoopMessage: (
-				_runId: string,
+				_context: typeof testResultContext, _runId: string,
 				message: BotInferenceSubmissionMessage,
 				origin: BotLoopMessage["origin"],
 				status: NonNullable<BotLoopMessage["status"]> = "complete",
@@ -825,7 +826,7 @@ describe("Tick limits and recovery", () => {
 			},
 			appendProviderMessages: async () => {},
 			callProvider,
-			ensureProviderPromptWithinBudget: async () => ({
+			ensureProviderPromptWithinBudget: async () => ({renderContext: testResultContext,
 				allowedPromptTokens: 13_500,
 				providerTools: toolDefinitionsForProviderRound(englishInstructions),
 				promptTokens: 100,
@@ -917,7 +918,7 @@ describe("Tick limits and recovery", () => {
 				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
 			},
 			appendLoopMessage: (
-				_runId: string,
+				_context: typeof testResultContext, _runId: string,
 				message: BotInferenceSubmissionMessage,
 				origin: BotLoopMessage["origin"],
 				status: NonNullable<BotLoopMessage["status"]> = "complete",
@@ -936,7 +937,7 @@ describe("Tick limits and recovery", () => {
 			},
 			appendProviderMessages: async () => {},
 			callProvider,
-			ensureProviderPromptWithinBudget: async () => ({
+			ensureProviderPromptWithinBudget: async () => ({renderContext: testResultContext,
 				allowedPromptTokens: 13_500,
 				providerTools: toolDefinitionsForProviderRound(englishInstructions),
 				promptTokens: 100,
@@ -1031,17 +1032,17 @@ describe("Tick limits and recovery", () => {
 				_runId: string,
 				_signal: AbortSignal,
 				tools: ProviderToolDefinition[],
-			) => ({
+			) => ({renderContext: testResultContext,
 				allowedPromptTokens: 13_500,
 				providerTools: tools,
 				promptTokens: 100,
 				requestMessages: (BotRuntime.prototype as unknown as {
 					activeProviderRequestMessages: (
-						bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
+						_context: typeof testResultContext, bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
 						tools: ProviderToolDefinition[],
 						toolCalls: "require" | "railroad" | "at_will",
 					) => Array<Record<string, unknown>>;
-				}).activeProviderRequestMessages.bind(runtime)(bot, tools, settings.toolCalls ?? "require"),
+				}).activeProviderRequestMessages.bind(runtime, testResultContext)(bot, tools, settings.toolCalls ?? "require"),
 			}),
 			executeTool: testToolExecutor(async (_bot: unknown, _runId: string, name: string) => ({
 				name,
@@ -1112,17 +1113,17 @@ describe("Tick limits and recovery", () => {
 				_runId: string,
 				_signal: AbortSignal,
 				tools: ProviderToolDefinition[],
-			) => ({
+			) => ({renderContext: testResultContext,
 				allowedPromptTokens: 13_500,
 				providerTools: tools,
 				promptTokens: 100,
 				requestMessages: (BotRuntime.prototype as unknown as {
 					activeProviderRequestMessages: (
-						bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
+						_context: typeof testResultContext, bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
 						tools: ProviderToolDefinition[],
 						toolCalls: "require" | "railroad" | "at_will",
 					) => Array<Record<string, unknown>>;
-				}).activeProviderRequestMessages.bind(runtime)(bot, tools, settings.toolCalls ?? "require"),
+				}).activeProviderRequestMessages.bind(runtime, testResultContext)(bot, tools, settings.toolCalls ?? "require"),
 			}),
 			executeTool: testToolExecutor(async (_bot: unknown, _runId: string, name: string) => ({
 				name,
@@ -1176,13 +1177,13 @@ describe("Tick limits and recovery", () => {
 			...loopMemory,
 			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) =>
 				runtimeEvent(callProvider.mock.calls.length + appendedLoopMessages.length + 1, runId, type as BotRuntimeEvent["type"], payload),
-			appendLoopMessage: (runId: string, message: Record<string, unknown>, origin: string) => {
+			appendLoopMessage: (_context: typeof testResultContext, runId: string, message: Record<string, unknown>, origin: string) => {
 				appendedLoopMessages.push({ origin, message });
-				return loopMemory.appendLoopMessage(runId, message, origin);
+				return loopMemory.appendLoopMessage(testResultContext, runId, message, origin);
 			},
 			appendProviderMessages: async () => {},
 			callProvider,
-			ensureProviderPromptWithinBudget: async () => ({
+			ensureProviderPromptWithinBudget: async () => ({renderContext: testResultContext,
 				allowedPromptTokens: 13_500,
 				providerTools: toolDefinitionsForProviderRound(englishInstructions),
 				promptTokens: 100,
@@ -1230,7 +1231,7 @@ describe("Tick limits and recovery", () => {
 			activeLoopMessagesForProvider: () => [],
 			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) =>
 				runtimeEvent(providerToolsByCall.length + appendedLoopMessages.length + 1, runId, type as BotRuntimeEvent["type"], payload),
-			appendLoopMessage: (_runId: string, message: Record<string, unknown>, origin: string) => {
+			appendLoopMessage: (_context: typeof testResultContext, _runId: string, message: Record<string, unknown>, origin: string) => {
 				appendedLoopMessages.push({ origin, message });
 				return {
 					seq: appendedLoopMessages.length,
@@ -1254,17 +1255,17 @@ describe("Tick limits and recovery", () => {
 				_runId: string,
 				_signal: AbortSignal,
 				tools: ProviderToolDefinition[],
-			) => ({
+			) => ({renderContext: testResultContext,
 				allowedPromptTokens: 13_500,
 				providerTools: tools,
 				promptTokens: 100,
 				requestMessages: (BotRuntime.prototype as unknown as {
 					activeProviderRequestMessages: (
-						bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
+						_context: typeof testResultContext, bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
 						tools: ProviderToolDefinition[],
 						toolCalls: "require" | "railroad" | "at_will",
 					) => Array<Record<string, unknown>>;
-				}).activeProviderRequestMessages.bind(runtime)(bot, tools, settings.toolCalls ?? "require"),
+				}).activeProviderRequestMessages.bind(runtime, testResultContext)(bot, tools, settings.toolCalls ?? "require"),
 			}),
 			recordInferenceSubmission: () => {},
 			recordLoopMessageLog: () => {},
@@ -1314,7 +1315,7 @@ describe("Tick limits and recovery", () => {
 				events.push({ type, payload });
 				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
 			},
-			appendLoopMessage: (_runId: string, message: Record<string, unknown>, origin: string) => ({
+			appendLoopMessage: (_context: typeof testResultContext, _runId: string, message: Record<string, unknown>, origin: string) => ({
 				seq: events.length,
 				runId: "run-disallowed-logoff",
 				role: message.role,
@@ -1342,17 +1343,17 @@ describe("Tick limits and recovery", () => {
 				_runId: string,
 				_signal: AbortSignal,
 				tools: ProviderToolDefinition[],
-			) => ({
+			) => ({renderContext: testResultContext,
 				allowedPromptTokens: 13_500,
 				providerTools: tools,
 				promptTokens: 100,
 				requestMessages: (BotRuntime.prototype as unknown as {
 					activeProviderRequestMessages: (
-						bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
+						_context: typeof testResultContext, bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
 						tools: ProviderToolDefinition[],
 						toolCalls: "require" | "railroad" | "at_will",
 					) => Array<Record<string, unknown>>;
-				}).activeProviderRequestMessages.bind(runtime)(bot, tools, settings.toolCalls ?? "require"),
+				}).activeProviderRequestMessages.bind(runtime, testResultContext)(bot, tools, settings.toolCalls ?? "require"),
 			}),
 			executeTool: testToolExecutor(async (_bot: unknown, _runId: string, name: string) => {
 				executedTools.push(name);
@@ -1413,7 +1414,7 @@ describe("Tick limits and recovery", () => {
 			activeLoopMessagesForProvider: () => [],
 			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) =>
 				runtimeEvent(providerCall + 1, runId, type as BotRuntimeEvent["type"], payload),
-			appendLoopMessage: (_runId: string, message: Record<string, unknown>, origin: string) => ({
+			appendLoopMessage: (_context: typeof testResultContext, _runId: string, message: Record<string, unknown>, origin: string) => ({
 				seq: providerCall,
 				runId: "run-logoff-gate",
 				role: message.role,
@@ -1437,17 +1438,17 @@ describe("Tick limits and recovery", () => {
 				_runId: string,
 				_signal: AbortSignal,
 				tools: ProviderToolDefinition[],
-			) => ({
+			) => ({renderContext: testResultContext,
 				allowedPromptTokens: 13_500,
 				providerTools: tools,
 				promptTokens: 100,
 				requestMessages: (BotRuntime.prototype as unknown as {
 					activeProviderRequestMessages: (
-						bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
+						_context: typeof testResultContext, bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
 						tools: ProviderToolDefinition[],
 						toolCalls: "require" | "railroad" | "at_will",
 					) => Array<Record<string, unknown>>;
-				}).activeProviderRequestMessages.bind(runtime)(bot, tools, settings.toolCalls ?? "require"),
+				}).activeProviderRequestMessages.bind(runtime, testResultContext)(bot, tools, settings.toolCalls ?? "require"),
 			}),
 			executeTool: testToolExecutor(async (_bot: unknown, _runId: string, name: string) => ({
 				name,
@@ -1528,7 +1529,7 @@ describe("Tick limits and recovery", () => {
 			activeLoopMessagesForProvider: () => [],
 			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) =>
 				runtimeEvent(providerToolsByCall.length + 1, runId, type as BotRuntimeEvent["type"], payload),
-			appendLoopMessage: (_runId: string, message: Record<string, unknown>, origin: string) => ({
+			appendLoopMessage: (_context: typeof testResultContext, _runId: string, message: Record<string, unknown>, origin: string) => ({
 				seq: 1,
 				runId: "run-logoff-through-compaction",
 				role: message.role,
@@ -1542,7 +1543,7 @@ describe("Tick limits and recovery", () => {
 				providerToolsByCall.push(tools.map((tool) => "function" in tool ? tool.function.name : tool.type));
 				return providerResponseWithContent("No action.");
 			},
-			ensureProviderPromptWithinBudget: async () => ({
+			ensureProviderPromptWithinBudget: async () => ({renderContext: testResultContext,
 				allowedPromptTokens: 13_500,
 				providerTools: toolDefinitionsForProviderRound(englishInstructions),
 				promptTokens: 100,
@@ -1635,7 +1636,7 @@ describe("Tick limits and recovery", () => {
 			activeLoopMessagesForProvider: () => [],
 			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) =>
 				runtimeEvent(providerToolsByCall.length + 1, runId, type as BotRuntimeEvent["type"], payload),
-			appendLoopMessage: (_runId: string, message: Record<string, unknown>, origin: string) => ({
+			appendLoopMessage: (_context: typeof testResultContext, _runId: string, message: Record<string, unknown>, origin: string) => ({
 				seq: 1,
 				runId: "run-after-logoff",
 				role: message.role,
@@ -1649,7 +1650,7 @@ describe("Tick limits and recovery", () => {
 				providerToolsByCall.push(tools.map((tool) => "function" in tool ? tool.function.name : tool.type));
 				return providerResponseWithContent("New visit can act normally.");
 			},
-			ensureProviderPromptWithinBudget: async () => ({
+			ensureProviderPromptWithinBudget: async () => ({renderContext: testResultContext,
 				allowedPromptTokens: 13_500,
 				providerTools: toolDefinitionsForProviderRound(englishInstructions),
 				promptTokens: 100,
@@ -1929,7 +1930,7 @@ describe("Tick limits and recovery", () => {
 		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
 			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) =>
 				runtimeEvent(type === "provider_request" ? 100 + callProvider.mock.calls.length : 200 + callProvider.mock.calls.length, runId, type as BotRuntimeEvent["type"], payload),
-			appendLoopMessageGroup: (entries: Array<{ message: BotInferenceSubmissionMessage; origin: string }>) => {
+			appendLoopMessageGroup: (_context: typeof testResultContext, entries: Array<{ message: BotInferenceSubmissionMessage; origin: string }>) => {
 				loopMessageGroups.push(entries);
 				return entries.map((entry) => ({
 					seq: ++nextLoopSeq,
@@ -1943,7 +1944,7 @@ describe("Tick limits and recovery", () => {
 			},
 			callProvider,
 			recordDroppedProviderToolCalls: async () => {},
-			ensureProviderPromptWithinBudget: async () => ({
+			ensureProviderPromptWithinBudget: async () => ({renderContext: testResultContext,
 				allowedPromptTokens: 13_500,
 				providerTools: toolDefinitionsForProviderRound(englishInstructions),
 				promptTokens: 100,
@@ -2019,12 +2020,12 @@ describe("Tick limits and recovery", () => {
 				runtimeEvent(submissions.length + 1, runId, type as BotRuntimeEvent["type"], payload),
 			appendLoopMessageGroup: () => [],
 			callProvider: async () => providerResponseWithContent("Clean migrated history is ready."),
-			ensureProviderPromptWithinBudget: async () => ({
+			ensureProviderPromptWithinBudget: async () => ({renderContext: testResultContext,
 				allowedPromptTokens: 13_500,
 				providerTools: toolDefinitionsForProviderRound(englishInstructions),
 				promptTokens: 100,
-				requestMessages: (BotRuntime.prototype as unknown as { activeLoopMessagesForProvider: () => BotInferenceSubmissionMessage[] })
-					.activeLoopMessagesForProvider.bind(harness.runtime)(),
+				requestMessages: (BotRuntime.prototype as unknown as { activeLoopMessagesForProvider: (_context: typeof testResultContext) => BotInferenceSubmissionMessage[] })
+					.activeLoopMessagesForProvider.bind(harness.runtime, testResultContext)(),
 			}),
 			loopGeneratedTokenCountSinceLastLogOff: () => 0,
 			prematureLogOffCorrectedSinceLastLogOff: () => false,
@@ -2105,7 +2106,7 @@ describe("Tick limits and recovery", () => {
 				},
 			},
 			appendLoopMessage: (
-				runId: string,
+				_context: typeof testResultContext, runId: string,
 				message: Record<string, unknown>,
 				origin: string,
 			) => {
@@ -2132,11 +2133,11 @@ describe("Tick limits and recovery", () => {
 		}));
 		const recordTickFailure = (BotRuntime.prototype as unknown as {
 			recordTickFailure: (
-				runId: string,
+				_context: typeof testResultContext, runId: string,
 				payload: Record<string, unknown>,
 				logs?: Array<{ kind: BotLoopMessageLog["kind"]; text: string }>,
 			) => BotRuntimeEvent;
-		}).recordTickFailure.bind(runtime);
+		}).recordTickFailure.bind(runtime, testResultContext);
 
 		expect(
 			recordTickFailure("run-provider-failed", { message: providerMessage }, [

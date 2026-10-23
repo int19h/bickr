@@ -1,3 +1,4 @@
+import { testResultContext } from '../workers/agent-runtime/src/runtime/result-render-context.test-support';
 import { ResultContextScope } from "../workers/agent-runtime/src/runtime/result-context-scope";
 import { botText as testBotText } from "../workers/agent-runtime/src/localization";
 const englishInstructions = testBotText("en");
@@ -1390,7 +1391,7 @@ describe("Provider requests", () => {
 			state: { storage: { sql } },
 		});
 		const insertLoopMessage = (BotRuntime.prototype as unknown as {
-			insertLoopMessage: (input: {
+			insertLoopMessage: (_context: typeof testResultContext, input: {
 				runId: string;
 				message: BotInferenceSubmissionMessage;
 				origin: BotLoopMessage["origin"];
@@ -1398,7 +1399,7 @@ describe("Provider requests", () => {
 				displayEventSeq?: number;
 				broadcast: boolean;
 			}) => BotLoopMessage;
-		}).insertLoopMessage.bind(runtime);
+		}).insertLoopMessage.bind(runtime, testResultContext);
 		const minimizedContent = JSON.stringify({ content: [{ commentId: "cmt_display" }] });
 
 		const inserted = insertLoopMessage({
@@ -1802,11 +1803,11 @@ describe("Provider requests", () => {
 			});
 			const activeProviderRequestMessages = (BotRuntime.prototype as unknown as {
 				activeProviderRequestMessages: (
-					bot: BotDocument,
+					_context: typeof testResultContext, bot: BotDocument,
 					tools?: ProviderToolDefinition[],
 					toolCalls?: "require" | "railroad" | "at_will",
 				) => Array<{ role: string; content?: string }>;
-			}).activeProviderRequestMessages.bind(runtime);
+			}).activeProviderRequestMessages.bind(runtime, testResultContext);
 
 			const defaultSystem = activeProviderRequestMessages(fakeBotDocument())[0]?.content ?? "";
 			const requireSystem = activeProviderRequestMessages(fakeBotDocument(), tools, "require")[0]?.content ?? "";
@@ -3152,7 +3153,7 @@ describe("Provider requests", () => {
 			},
 			appendLoopMessageGroup: testAppendLoopMessageGroup,
 			appendLoopMessage: (
-				runId: string,
+				_context: typeof testResultContext, runId: string,
 				message: Record<string, unknown>,
 				origin: string,
 				status?: string,
@@ -3175,7 +3176,7 @@ describe("Provider requests", () => {
 				providerStreamSeq = streamSeq;
 				return providerResponseWithContent("I have finished this round.");
 			},
-			ensureProviderPromptWithinBudget: async () => ({
+			ensureProviderPromptWithinBudget: async () => ({renderContext: testResultContext,
 				allowedPromptTokens: 13_500,
 				providerTools: toolDefinitionsForProviderRound(englishInstructions),
 				promptTokens: 100,
@@ -3644,7 +3645,7 @@ describe("Provider requests", () => {
  notes: { read: () => null },
 			readCommentTreeTokenBudget: async () => 90,
 				appendLoopMessageGroup: testAppendLoopMessageGroup,
-				appendLoopMessage: (_runId: string, message: Record<string, unknown>) => {
+				appendLoopMessage: (_context: typeof testResultContext, _runId: string, message: Record<string, unknown>) => {
 					appendedMessages.push(message);
 					return { seq: appendedMessages.length };
 				},
@@ -3703,7 +3704,7 @@ describe("Provider requests", () => {
  notes: { read: () => null },
 				readCommentTreeTokenBudget: async () => 4_000,
 				appendLoopMessageGroup: testAppendLoopMessageGroup,
-				appendLoopMessage: (_runId: string, message: Record<string, unknown>) => {
+				appendLoopMessage: (_context: typeof testResultContext, _runId: string, message: Record<string, unknown>) => {
 					appendedMessages.push(message);
 					return { seq: appendedMessages.length };
 				},

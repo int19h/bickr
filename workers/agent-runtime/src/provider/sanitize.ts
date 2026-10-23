@@ -3,7 +3,7 @@ import type {
 	BotInferenceSubmissionToolCall,
 	BotLoopMessageOrigin,
 } from '@bickr/shared/model';
-import { loopMessageChatMessageFromRow } from '../compaction/selection';
+import { loopMessageStructureFromRow } from '../compaction/selection';
 import { ToolCallArgumentValidationError } from '../errors';
 import type {
 	DroppedProviderToolCall,
@@ -656,7 +656,7 @@ export function createProviderSanitize(runtime: ProviderSanitizeRuntime) {
 			if (!row) {
 				continue;
 			}
-			const current = { row, message: loopMessageChatMessageFromRow(row) };
+			const current = { row, message: loopMessageStructureFromRow(row) };
 			if (!loopMessageContributesToProviderHistory(row.origin, current.message)) {
 				keepExistingRow(row.seq);
 				continue;
@@ -727,7 +727,7 @@ export function createProviderSanitize(runtime: ProviderSanitizeRuntime) {
 				if (!candidateRow) {
 					break;
 				}
-				const candidateMessage = loopMessageChatMessageFromRow(candidateRow);
+				const candidateMessage = loopMessageStructureFromRow(candidateRow);
 				if (!loopMessageContributesToProviderHistory(candidateRow.origin, candidateMessage) || candidateMessage.role !== 'tool') {
 					break;
 				}
@@ -778,12 +778,12 @@ export function createProviderSanitize(runtime: ProviderSanitizeRuntime) {
 			}
 
 			const assistantMessage = { ...repairedMessage, tool_calls: pairedToolCalls.map((pair) => cloneToolCall(pair.toolCall)) };
-			if (JSON.stringify(loopMessageChatMessageFromRow(current.row)) !== JSON.stringify(assistantMessage)) {
+			if (JSON.stringify(loopMessageStructureFromRow(current.row)) !== JSON.stringify(assistantMessage)) {
 				updateRow(current.row.seq, assistantMessage);
 			}
 			keepExistingRow(current.row.seq);
 			for (const pair of pairedToolCalls) {
-				if (JSON.stringify(loopMessageChatMessageFromRow(pair.toolRow)) !== JSON.stringify(pair.toolMessage)) {
+				if (JSON.stringify(loopMessageStructureFromRow(pair.toolRow)) !== JSON.stringify(pair.toolMessage)) {
 					updateRow(pair.toolRow.seq, pair.toolMessage);
 				}
 				keepExistingRow(pair.toolRow.seq);
@@ -796,7 +796,7 @@ export function createProviderSanitize(runtime: ProviderSanitizeRuntime) {
 
 	function providerToolCallHistoryInvariantViolation(rows: readonly LoopMessageRow[]): string | null {
 		const providerRows = rows
-			.map((row) => ({ row, message: loopMessageChatMessageFromRow(row) }))
+			.map((row) => ({ row, message: loopMessageStructureFromRow(row) }))
 			.filter(({ row, message }) => loopMessageContributesToProviderHistory(row.origin, message));
 		for (let index = 0; index < providerRows.length; index += 1) {
 			const current = providerRows[index]!;

@@ -1,7 +1,7 @@
 import type { D1DatabaseLike } from '@bickr/shared/storage';
 
 export type ResultEntityReference = { kind: 'participant' | 'forum'; entityId: string; handle: string };
-export type CurrentResultHandle = { handle?: string; deleted: boolean };
+export type CurrentResultHandle = Readonly<{ handle?: string; deleted: boolean }>;
 export type ResultHandleMap = ReadonlyMap<string, CurrentResultHandle>;
 
 export function resultHandleKey(ref: Pick<ResultEntityReference, 'kind' | 'entityId'>): string {
@@ -25,8 +25,7 @@ export async function currentResultHandles(db: D1DatabaseLike, refs: readonly Re
 	for (const [index, rows] of queries.entries()) {
 		for (const row of rows) {
 			const deleted = row.deleted_at !== null;
-			// Missing backfill data leaves the write-time handle available to the
-			// renderer. A tombstone must never replace that participant-facing ref.
+			// The backfill fills missing deletion handles before a reader renders these refs.
 			const handle = deleted ? row.handle_at_deletion : row.handle;
 			handles.set(resultHandleKey({ kind: index === 0 ? 'participant' : 'forum', entityId: row.id }), { ...(handle ? { handle } : {}), deleted });
 		}

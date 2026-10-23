@@ -325,6 +325,7 @@ export type ProviderStreamFetchResponse =
 	| ReadableStream<Uint8Array>;
 
 export type ProviderPromptBudgetCheck = {
+	renderContext: import('./runtime/tool-result-views').ResultRenderContext;
 	allowedPromptTokens: number;
 	contextWindowTokens?: number;
 	maxCompletionTokens: number;
@@ -569,6 +570,8 @@ export type PendingSpotlightTick = {
 };
 
 export type RunContext = {
+	/** Finalization receives the latest context from this run. */
+	onResultRenderContext?: (context: import('./runtime/tool-result-views').ResultRenderContext) => void;
 	/** Stable within one provider request and tool call, including transport retries. */
 	toolInvocationId?: string;
 	/** Exact journal identity, separate from the transport idempotency key. */
