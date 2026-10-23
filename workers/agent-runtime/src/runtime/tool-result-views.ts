@@ -419,7 +419,10 @@ export function pruneToolResultView(view: ToolResultView, context: ResultRenderC
 	if ((view.kind === 'read_thread' || view.kind === 'read_comment_by_id') && view.pruning) {
 		const estimate = (): number => {
 			const allBodies = view.facets.map(item => item.facet === 'comment_body' || item.facet === 'thread_body' ? { ...item, state: 'shown' as const, value: item.value ?? '' } : item);
-			return approximateTextTokens(renderToolResultView({ ...view, facets: allBodies }, context));
+			const hiddenReplies = (items: CommentView[]): number => items.reduce((total, item) => total + (typeof item.replies === 'number' ? item.replies : hiddenReplies(item.replies)), 0);
+			// Each candidate needs its own notices before the budget comparison.
+			const pruning = view.pruning ? { tokenBudget: view.pruning.tokenBudget, omittedReplyCount: hiddenReplies(view.content), trimmedBodyCount: allBodies.filter(item => item.shortened).length } : null;
+			return approximateTextTokens(renderToolResultView({ ...view, facets: allBodies, pruning }, context));
 		};
 		const outcome = pruneReadView(view, view.pruning.tokenBudget, estimate);
 		view.pruning = { tokenBudget: view.pruning.tokenBudget, ...outcome };

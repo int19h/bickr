@@ -20,6 +20,7 @@ A reply names its parent ref.
 The renderer walks each stored comment tree in depth-first order.
 Each parent appears before its children.
 A hidden-reply count and a shortening notice appear beside the affected post.
+
 An explicit facet flag records whether pruning shortened a body.
 An authored ellipsis alone does not set that flag.
 
@@ -76,6 +77,7 @@ Separate results use their stored facet states to preserve the active context sc
 Some stored fields do not appear in the final layout.
 The renderer can use their shown facets at the first visible reference to the same value.
 This prevents an omitted thread-author field from hiding the name on its opening post.
+
 Compaction replaces older messages with a summary.
 Hydration restores omitted values after compaction.
 It restores facets on the newest matching kept view.

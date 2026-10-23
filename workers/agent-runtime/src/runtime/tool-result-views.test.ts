@@ -173,6 +173,22 @@ describe('Markdown result views', () => {
 			expect(renderToolResultView(view, testViewRenderContext(view, text))).toContain(`| ${score > 0 ? '+' : ''}${score} |`);
 		}
 	});
+	it('shows a name again when it changes back within one result', async () => {
+		const content = ['Alice', 'New name', 'Alice'].map((name, index) => ({ ...comment, id: `cmt_name_${index}`, authorDisplayName: authored(name) }));
+		const view = (await buildToolResultView({ kind: 'posts_read', items: [], read: { ...read, content } }, context()))!;
+		const output = renderToolResultView(view, testViewRenderContext(view, text));
+		expect(output.match(/Alice u\/alice posted:/g)).toHaveLength(2);
+		expect(output).toContain('New name u/alice posted:');
+	});
+	it('includes shortening notices when it fits a read within its budget', async () => {
+		const tokenBudget = 200;
+		const child = { ...comment, id: 'cmt_budget_child', parentCommentId: comment.id, body: authored('A long reply '.repeat(1000)) };
+		const view = (await buildToolResultView({ kind: 'posts_read', items: [], read: { ...read, content: [{ ...comment, replies: [child] }], contextDecision: { operation: read.operation, tokenBudget, omittedReplyCount: 0, trimmedBodyCount: 0 } } }, context()))!;
+		const output = renderToolResultView(view, testViewRenderContext(view, text));
+		expect(output).toContain('Shortened.');
+		expect(Math.ceil(output.length / 4)).toBeLessThanOrEqual(tokenBudget);
+		expect(output).toContain('> The opening body');
+	});
 	it('uses current and deletion handles without changing authored note content', async () => {
 		const view = (await buildToolResultView({ kind: 'note_read', id: 'PLAN', content: 'u/alice\n---\n# My plan', links }, context()))!;
 		for (const kind of ['current', 'deleted'] as const) {

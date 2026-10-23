@@ -21,7 +21,7 @@ const voteValue = (value: number): 'up' | 'down' | 'cleared' => value > 0 ? 'up'
 
 /** One instance owns the first mentions of one result, including nested batch results. */
 class MarkdownResultRenderer {
-	private readonly mentions = new Set<string>();
+	private readonly mentions = new Map<string, string>();
 	private readonly shownFacets = new WeakMap<ToolResultView, Map<string, ResultFacetValue>>();
 	private readonly context: RenderContext<typeof messageParameters>;
 	private readonly renderContext: ResultRenderContext;
@@ -61,9 +61,9 @@ class MarkdownResultRenderer {
 	private facet(view: ToolResultView, index: number | undefined): FreeText | undefined {
 		const facet = this.facetSource(view, index);
 		if (facet?.state !== 'shown') return undefined;
-		const key = this.facetKey(facet);
-		if (this.mentions.has(key)) return undefined;
-		this.mentions.add(key);
+		const key = JSON.stringify([facet.entityId, facet.facet]);
+		if (this.mentions.get(key) === facet.fingerprint) return undefined;
+		this.mentions.set(key, facet.fingerprint);
 		return free(facet.value);
 	}
 	private author(view: ToolResultView, author?: Author): InlineValue<'author'> {
