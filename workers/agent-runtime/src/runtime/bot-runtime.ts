@@ -2333,6 +2333,11 @@ export class BotRuntime {
 		const messageLogSeq = messageLogsSeqFromPath(url.pathname);
 		if (request.method === 'GET' && messageLogSeq !== null) {
 			await this.requireOwnerOrInternal(request, botId);
+			const row = this.runtimeMessageStore().loopMessageRow(messageLogSeq);
+			if (row?.tool_result_view_json) {
+				const bot = await botById(this.env.BICKR_KV, this.env.BICKR_D1, botId);
+				await this.refreshResultViewRendering(botTextFor(bot), [row], { settings: participantTimeSettingsOf(bot), createdAt: bot.createdAt });
+			}
 			return ok(this.loopMessageLogsForSeq(messageLogSeq));
 		}
 
@@ -3490,6 +3495,7 @@ export class BotRuntime {
 		return this.botWithEffectivePostingSettings({
 			...bot,
 			postingSettings: current.postingSettings,
+			timeSettings: participantTimeSettingsOf(current),
 			tickSettings: {
 				...bot.tickSettings,
 				...(current.tickSettings.contextWindowTokens === undefined
