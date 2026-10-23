@@ -28,13 +28,13 @@ export const kvNormalizationEntityTypes = ["thread", "bot", "user", "world", "fo
 export type KvNormalizationEntityType = (typeof kvNormalizationEntityTypes)[number];
 export type KvNormalizationNonThreadEntityType = Exclude<KvNormalizationEntityType, "thread">;
 
-export const threadNormalizationOutcomeKinds = [
+export const documentNormalizationOutcomeKinds = [
 	"rewritten",
 	"unchanged",
 	"skipped_recently_updated",
 	"skipped_changed",
 ] as const;
-export type ThreadNormalizationOutcome =
+export type DocumentNormalizationOutcome =
 	| { kind: "rewritten" }
 	| { kind: "unchanged" }
 	| { kind: "skipped_recently_updated" }
@@ -72,10 +72,10 @@ export type KvNormalizationSweepBaseEnv = {
 	BICKR_D1: D1DatabaseLike;
 	BICKR_KV: KVNamespaceLike;
 	// Bot documents belong to the owner coordinator queue, including migration writes.
-	normalizeBot?: (request: BotNormalizationRequest) => Promise<ThreadNormalizationOutcome>;
+	normalizeBot?: (request: BotNormalizationRequest) => Promise<DocumentNormalizationOutcome>;
 };
 export type KvNormalizationSweepEnv = KvNormalizationSweepBaseEnv & {
-	normalizeThread: (request: ThreadNormalizationRequest) => Promise<ThreadNormalizationOutcome>;
+	normalizeThread: (request: ThreadNormalizationRequest) => Promise<DocumentNormalizationOutcome>;
 };
 
 export type KvNormalizationSweepOptions = {
@@ -233,12 +233,12 @@ export function isWithinKvNormalizationQuietPeriod(updatedAt: string, nowMs = Da
 	return Number.isFinite(updatedAtMs) && updatedAtMs > nowMs - kvNormalizationQuietPeriodMs;
 }
 
-export function isThreadNormalizationOutcome(value: unknown): value is ThreadNormalizationOutcome {
+export function isDocumentNormalizationOutcome(value: unknown): value is DocumentNormalizationOutcome {
 	if (!value || typeof value !== "object" || Array.isArray(value)) {
 		return false;
 	}
 	const kind = (value as Record<string, unknown>).kind;
-	return typeof kind === "string" && (threadNormalizationOutcomeKinds as readonly string[]).includes(kind);
+	return typeof kind === "string" && (documentNormalizationOutcomeKinds as readonly string[]).includes(kind);
 }
 
 async function loadObjectIndexChunk(

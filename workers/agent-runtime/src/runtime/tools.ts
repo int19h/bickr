@@ -1,4 +1,4 @@
-import { participantTimeSettings } from "@bickr/shared/participant-time";
+import { participantTimeSettingsOf } from "@bickr/shared/participant-time-migration";
 import { isCommittedBotServiceIssue } from '@bickr/shared/bot-service-issues';
 import { isAbortError } from '../provider/sse';
 import { TickStoppedError } from '../errors';
@@ -467,7 +467,7 @@ export class RuntimeTools {
 			canonicalName,
 			result,
 			normalizedArgs,
-			providerSerializationContext(bot.text, { botId: bot.id }, this.runtime.providerContentInActiveContext(), { settings: participantTimeSettings(bot.timeSettings), createdAt: bot.createdAt }),
+			providerSerializationContext(bot.text, { botId: bot.id }, this.runtime.providerContentInActiveContext(), { settings: participantTimeSettingsOf(bot), createdAt: bot.createdAt }),
 			{ tokenBudget: providerResultTokenBudget },
 			envelope,
 		);

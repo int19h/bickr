@@ -26,7 +26,7 @@ export function isParticipantTimezone(value: string): boolean {
 export function participantTimeSettings(current?: Partial<ParticipantTimeSettings>, patch?: Partial<ParticipantTimeSettings>): ParticipantTimeSettings {
 	return {
 		mode: patch?.mode ?? current?.mode ?? defaultParticipantTimeSettings.mode,
-		timezone: patch?.timezone ?? current?.timezone ?? defaultParticipantTimeSettings.timezone,
+		timezone: new Intl.DateTimeFormat("en", { timeZone: patch?.timezone ?? current?.timezone ?? defaultParticipantTimeSettings.timezone }).resolvedOptions().timeZone,
 	};
 }
 

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { formatParticipantTime, isParticipantTimezone, participantTimeSettings } from "./participant-time";
 import { parseParticipantTimeSettings, parseUpdateBotInput, InputError } from "./validation";
-import { migrateParticipantTime } from "./participant-time-migration";
+import { migrateParticipantTime, participantTimeSettingsOf } from "./participant-time-migration";
 import type { BotDocument } from "./model";
 
 const relative = participantTimeSettings();
@@ -33,12 +33,17 @@ describe("participant time", () => {
 	});
 	it("ignores the timezone in relative mode and preserves it on a mode update", () => {
 		expect(formatParticipantTime(60000, { mode: "relative", timezone: "Asia/Kolkata" }, 0)).toBe("0d0h1m");
-		expect(participantTimeSettings({ mode: "absolute", timezone: "Asia/Kolkata" }, { mode: "relative" })).toEqual({ mode: "relative", timezone: "Asia/Kolkata" });
+		expect(participantTimeSettings({ mode: "absolute", timezone: "Asia/Kolkata" }, { mode: "relative" })).toEqual({ mode: "relative", timezone: new Intl.DateTimeFormat("en", { timeZone: "Asia/Kolkata" }).resolvedOptions().timeZone });
 	});
 	it.each(["Mars/Olympus", "", "+02:00"])("rejects invalid named timezone %s", timezone => {
 		expect(isParticipantTimezone(timezone)).toBe(false);
 		expect(() => parseParticipantTimeSettings({ mode: "relative", timezone })).toThrow(InputError);
 	});
+	it.each([["utc", "UTC"], ["america/los_angeles", "America/Los_Angeles"]])("stores the canonical name for %s", (timezone, expected) => {
+		expect(parseParticipantTimeSettings({ timezone })).toEqual({ timezone: expected });
+		expect(participantTimeSettings(undefined, { timezone }).timezone).toBe(expected);
+	});
+
 	it("rejects the removed datetime input with the new setting name", () => {
 		expect(() => parseUpdateBotInput({ toolSettings: { openRouter: { datetime: { enabled: false } } } })).toThrow(/timeSettings/);
 	});
@@ -49,7 +54,7 @@ describe("participant time", () => {
 
 describe("participant datetime migration", () => {
 	it.each([
-		[{ enabled: true, timezone: "Asia/Kolkata" }, { mode: "absolute", timezone: "Asia/Kolkata" }],
+		[{ enabled: true, timezone: "america/los_angeles" }, { mode: "absolute", timezone: "America/Los_Angeles" }],
 		[{ enabled: true }, { mode: "absolute", timezone: "UTC" }],
 		[{ enabled: true, timezone: "" }, { mode: "absolute", timezone: "UTC" }],
 		[{ enabled: false, timezone: "Asia/Kolkata" }, relative],
@@ -62,6 +67,14 @@ describe("participant datetime migration", () => {
 		expect(migrateParticipantTime(migrated)).toEqual(migrated);
 		expect(document.toolSettings.openRouter).toHaveProperty("datetime");
 	});
+	it("reads the legacy preference without changing the document", () => {
+		const document = { toolSettings: { openRouter: { datetime: { enabled: true, timezone: "Europe/Paris" } } } } as unknown as BotDocument;
+		const before = JSON.stringify(document);
+		expect(participantTimeSettingsOf(document)).toEqual({ mode: "absolute", timezone: "Europe/Paris" });
+		expect(JSON.stringify(document)).toBe(before);
+		expect(participantTimeSettingsOf({ ...document, timeSettings: relative })).toEqual(relative);
+	});
+
 	it("keeps an already migrated preference", () => {
 		const document = { timeSettings: { mode: "relative", timezone: "Europe/Paris" }, toolSettings: {} } as BotDocument;
 		expect(migrateParticipantTime(document)).toEqual(document);

@@ -78,12 +78,12 @@ import {
 	kvNormalizationEntityTypes,
 	kvNormalizationSweepMaxRowsPerRun,
 	kvNormalizationSweepMaxWritesPerRun,
-	isThreadNormalizationOutcome,
+	isDocumentNormalizationOutcome,
 	isWithinKvNormalizationQuietPeriod,
 	normalizeKvDocuments,
 	type BotNormalizationRequest,
 	type KvNormalizationEntityType,
-	type ThreadNormalizationOutcome,
+	type DocumentNormalizationOutcome,
 	type ThreadNormalizationRequest,
 } from "@bickr/shared/kv-normalization-sweep";
 import {
@@ -1443,7 +1443,7 @@ function requiredDeletionRequestString(record: Record<string, unknown>, name: "d
 async function requestThreadNormalization(
 	env: Env,
 	input: ThreadNormalizationRequest,
-): Promise<ThreadNormalizationOutcome> {
+): Promise<DocumentNormalizationOutcome> {
 	const objectId = env.FORUM_COORDINATOR.idFromName(input.threadId);
 	const headers = new Headers({ "content-type": "application/json" });
 	addInternalServiceAuthHeader(headers, env.INTERNAL_SERVICE_SECRET);
@@ -1468,7 +1468,7 @@ async function requestThreadNormalization(
 	const normalization = data && typeof data === "object" && !Array.isArray(data) ?
 		(data as Record<string, unknown>).normalization
 	:	null;
-	if (!isThreadNormalizationOutcome(normalization)) {
+	if (!isDocumentNormalizationOutcome(normalization)) {
 		throw new RepositoryError("server_error", "Thread normalization coordinator returned an invalid result.", 500);
 	}
 	return normalization;
@@ -1496,7 +1496,7 @@ async function normalizeThreadThroughCoordinator(
 	env: ForumCoordinatorEnv,
 	coordinator: CoordinatorContext,
 	input: ThreadNormalizationRequest,
-): Promise<ThreadNormalizationOutcome> {
+): Promise<DocumentNormalizationOutcome> {
 	const cached = await readFreshThreadDocument(coordinator, input.threadId);
 	const current = cached ?? await readJson<ThreadDocument>(
 		env.BICKR_KV,
@@ -1955,7 +1955,7 @@ async function recoverThreadMutations(env: Env, now: string): Promise<number> {
 async function requestBotTimeNormalization(
 	env: Env,
 	input: BotNormalizationRequest,
-): Promise<ThreadNormalizationOutcome> {
+): Promise<DocumentNormalizationOutcome> {
 	const headers = new Headers({ "content-type": "application/json", "x-bickr-scheduler": "1", "x-bickr-user-id": input.ownerUserId });
 	addInternalServiceAuthHeader(headers, env.INTERNAL_SERVICE_SECRET);
 	const response = await env.AGENT_RUNTIME_SERVICE.fetch(new Request(internalServiceUrl(`/users/${encodeURIComponent(input.ownerUserId)}/bots/${encodeURIComponent(input.botId)}/normalize-time`), {
@@ -1963,6 +1963,6 @@ async function requestBotTimeNormalization(
 	}));
 	if (!response.ok) throw new RepositoryError("server_error", "Participant time migration failed.", 500);
 	const payload = await response.json() as { data?: { normalization?: unknown } };
-	if (!isThreadNormalizationOutcome(payload.data?.normalization)) throw new RepositoryError("server_error", "Participant time migration returned an invalid outcome.", 500);
+	if (!isDocumentNormalizationOutcome(payload.data?.normalization)) throw new RepositoryError("server_error", "Participant time migration returned an invalid outcome.", 500);
 	return payload.data.normalization;
 }

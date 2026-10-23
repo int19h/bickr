@@ -1,4 +1,5 @@
-import { formatParticipantTime, participantTimeSettings } from "@bickr/shared/participant-time";
+import { formatParticipantTime } from "@bickr/shared/participant-time";
+import { participantTimeSettingsOf } from "@bickr/shared/participant-time-migration";
 import { RuntimeFollowerActivityDelivery } from './follower-activity-delivery';
 import type { FollowerActivitySelection, NotificationDeliveryCandidate } from '@bickr/shared/follower-activity';
 import { instructionLocalizationVersion, instructionLocalizationStateKey } from '@bickr/shared/instruction-localization-migration';
@@ -3945,7 +3946,7 @@ export class BotRuntime {
 					if (error instanceof ToolBatchOutcomeError) {
 						selfCorrectionAcknowledgements.push(...error.selfCorrectionMessages);
 						const outcome = providerBatchOutcome(bot.text, canonicalName, error.items,
-							providerSerializationContext(bot.text, { botId: bot.id }, undefined, { settings: participantTimeSettings(bot.timeSettings), createdAt: bot.createdAt }),
+							providerSerializationContext(bot.text, { botId: bot.id }, undefined, { settings: participantTimeSettingsOf(bot), createdAt: bot.createdAt }),
 							(targetArgs, cause) => toolFailurePayload(bot.text, canonicalName, targetArgs, cause));
 						const committed = error.items.filter((item) => item.kind === 'recorded' || item.kind === 'committed');
 						const unknown = error.items.some((item) => item.kind === 'unknown');
@@ -6261,7 +6262,7 @@ export class BotRuntime {
 		const prepared: LoopMessageGroupEntry[] = [];
 		const collect = (entries: LoopMessageGroupEntry[]): void => { prepared.push(...entries); };
 		const deliveredNotificationIds = new Set<string>();
-		const timeSettings = participantTimeSettings(bot.timeSettings);
+		const timeSettings = participantTimeSettingsOf(bot);
 		const timestamp = formatParticipantTime(inputEvent.createdAt, timeSettings, bot.createdAt);
 		prepared.push({ runId, message: { role: 'user', content: bot.text.format(
 			timeSettings.mode === 'relative' ? 'report.timestamp.relative' : 'report.timestamp.absolute', { timestamp },
@@ -6323,7 +6324,7 @@ export class BotRuntime {
 	): Promise<string[]> {
 		const toolCalls: SyntheticToolCall[] = [];
 		const results: ChatMessage[] = [];
-		const providerContext = providerSerializationContext(bot.text, { botId: bot.id }, cloneProviderContextContentScope(existingProviderContent), { settings: participantTimeSettings(bot.timeSettings), createdAt: bot.createdAt });
+		const providerContext = providerSerializationContext(bot.text, { botId: bot.id }, cloneProviderContextContentScope(existingProviderContent), { settings: participantTimeSettingsOf(bot), createdAt: bot.createdAt });
 		if (planEnabled(bot.toolSettings)) {
 			const plan = this.notes.read(bot.text, planNoteId);
 			if (plan) {
@@ -6379,7 +6380,7 @@ export class BotRuntime {
 	): Promise<void> {
 		const chains = contexts.flatMap(spotlightSyntheticToolChains);
 		const toolCalls: SyntheticToolCall[] = chains.map((chain, index) => syntheticToolCall(runId, chain.toolName, index, chain.args));
-		const providerContext = providerSerializationContext(bot.text, { botId: bot.id }, cloneProviderContextContentScope(existingProviderContent), { settings: participantTimeSettings(bot.timeSettings), createdAt: bot.createdAt });
+		const providerContext = providerSerializationContext(bot.text, { botId: bot.id }, cloneProviderContextContentScope(existingProviderContent), { settings: participantTimeSettingsOf(bot), createdAt: bot.createdAt });
 		const tokenBudget = await this.readCommentTreeTokenBudget(bot);
 		const results: ChatMessage[] = chains.map((chain, index) => ({
 			role: 'tool',

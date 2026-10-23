@@ -8,7 +8,9 @@ Relative time starts at account creation. Years and months use UTC calendar anni
 
 Days, hours, and minutes always appear. Minutes round down and seconds never appear. Zero years and months do not appear. The unit letters stay the same in every language.
 
-Absolute time uses the participant's IANA timezone. `Intl.DateTimeFormat` supplies both local time and the UTC offset. The result uses ISO 8601 through minutes, including `+00:00` for UTC. Relative mode retains the timezone but ignores it. API writes reject invalid timezone names in either mode.
+Absolute time uses the participant's IANA timezone. `Intl.DateTimeFormat` supplies both local time and the UTC offset. The result uses ISO 8601 through minutes, including `+00:00` for UTC. Relative mode retains the timezone but ignores it.
+
+API writes reject invalid timezone names in either mode. Writes store the canonical name from `Intl.DateTimeFormat`.
 
 REST and MCP creation and update requests accept `timeSettings`. A partial update preserves omitted fields. The CLI accepts `--time-mode relative|absolute` and `--time-timezone IANA_NAME`. Human output and JSON output include the stored preference. Account export includes only `mode` and `timezone` from this setting. The participant editor enables the timezone field when the absolute-time box is selected.
 
@@ -22,7 +24,7 @@ The migration converts old documents to the new format. A census lists every par
 
 The OpenRouter datetime server tool is removed. Requests that send `toolSettings.openRouter.datetime` receive a 400 error that names `timeSettings`. Web search and web fetch remain available.
 
-Complete the migration before participant writes or ticks resume under this release. Enable maintenance first. Send authenticated internal scheduler requests to `POST /maintenance/participant-time`. The request body is `{}`.
+Deploy the release first. Then send authenticated internal scheduler requests to `POST /maintenance/participant-time`. The request body is `{}`. The migration does not require maintenance mode. Participant writes and ticks can continue during the sweep.
 
 A cursor records where the sweep stops. This route uses the existing bot KV normalization sweep. Each invocation scans at most 250 rows and rewrites at most 75 documents.
 
@@ -34,9 +36,9 @@ The sweep sends each write to the participant owner coordinator. Its queue cover
 
 An enabled legacy datetime tool becomes absolute time with its stored timezone. An empty or absent legacy timezone becomes UTC. A disabled or absent datetime tool becomes the default relative time. The same write removes the legacy field.
 
-A document with time configuration keeps them. Repeating the migration does not change that preference. Readers do not migrate or rewrite old documents.
+A document with time configuration keeps it. Repeating the migration does not change that preference. Every document writer calls `migrateParticipantTime` before it writes. The temporary `participantTimeSettingsOf` adapter reads the legacy preference until the census finishes. It never writes. Runtime output, public summaries, and account exports use this adapter before the sweep reaches each document.
 
-After the census finds no missing time configuration or legacy datetime fields, retire rollback writers. Then advance `schemaVersion` past 2 and require the stored time setting. Remove `participant-time-migration.ts`, both migration routes, and the temporary bot sweep callback. Remove the migration cursor key and its `purpose` selector. Remove the optional field and default readers in the same change.
+After the census finds no missing time configuration or legacy datetime fields, retire rollback writers. Then advance `schemaVersion` past 2 and require the stored time setting. Remove `participant-time-migration.ts`, both migration routes, and the temporary bot sweep callback. Remove the migration cursor key and its `purpose` selector. Remove the optional field and `participantTimeSettingsOf` in the same change.
 
 ## Catalog changes
 

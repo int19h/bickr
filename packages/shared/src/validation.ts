@@ -1594,7 +1594,7 @@ export function parseParticipantTimeSettings(value: unknown): Partial<Participan
 	}
 	if (record.timezone !== undefined) {
 		if (typeof record.timezone !== "string" || !isParticipantTimezone(record.timezone)) throw new InputError("The time zone must be an IANA timezone name.");
-		result.timezone = record.timezone;
+		result.timezone = new Intl.DateTimeFormat("en", { timeZone: record.timezone }).resolvedOptions().timeZone;
 	}
 	return result;
 }

@@ -1,5 +1,5 @@
 import { migrateParticipantTime } from "@bickr/shared/participant-time-migration";
-import { normalizeKvDocuments, isThreadNormalizationOutcome, isWithinKvNormalizationQuietPeriod } from "@bickr/shared/kv-normalization-sweep";
+import { normalizeKvDocuments, isDocumentNormalizationOutcome, isWithinKvNormalizationQuietPeriod } from "@bickr/shared/kv-normalization-sweep";
 import { accountExportPage, parseAccountExportSection } from "@bickr/shared/account-export-repository";
 import { sweepBootstrapLocalization } from '@bickr/shared/instruction-localization-migration';
 import { sweepRuntimeLocalization } from './runtime/instruction-localization-sweep';
@@ -1732,7 +1732,6 @@ export const agentRuntimeRouteTable = [
 		dispatch: 'direct',
 		handler: async (context) => {
 			requireSchedulerServiceRequest(context.request);
-			if (!(await readMaintenanceState(context.env.BICKR_D1)).enabled) throw new RepositoryError('conflict', 'Participant time migration requires maintenance mode.', 409);
 			if (!context.env.USER_BOTS) throw new RepositoryError('server_error', 'Owner coordinator binding is unavailable.', 500);
 			const owners = context.env.USER_BOTS;
 			return ok({ sweep: await normalizeKvDocuments({ ...context.env, normalizeBot: async input => {
@@ -1743,7 +1742,7 @@ export const agentRuntimeRouteTable = [
 				}));
 				if (!response.ok) throw new RepositoryError('server_error', 'Participant time migration failed.', 500);
 				const payload = await response.json() as { data?: { normalization?: unknown } };
-				if (!isThreadNormalizationOutcome(payload.data?.normalization)) throw new RepositoryError('server_error', 'Participant time migration returned an invalid outcome.', 500);
+				if (!isDocumentNormalizationOutcome(payload.data?.normalization)) throw new RepositoryError('server_error', 'Participant time migration returned an invalid outcome.', 500);
 				return payload.data.normalization;
 			} }, 'bot', { purpose: 'participant_time' }) });
 		},

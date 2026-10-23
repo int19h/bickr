@@ -1,3 +1,4 @@
+import { migrateParticipantTime } from "./participant-time-migration";
 import { addInternalServiceAuthHeader, internalServiceUrl } from "./internal-service";
 import { entityIndexVersions, type IndexedEntityType } from "./index-versions";
 import { type ObjectIndexRepairScope } from "./object-index-scope";
@@ -373,7 +374,7 @@ async function convergeDerivedRouteFields(
 		case "bot": {
 			const homeWorldHandle = row.canonicalWorldHandle ?? document.homeWorldHandle;
 			if (homeWorldHandle !== document.homeWorldHandle) {
-				converged = { ...document, homeWorldHandle, revision: document.revision + 1, updatedAt };
+				converged = { ...migrateParticipantTime(document), homeWorldHandle, revision: document.revision + 1, updatedAt };
 			}
 			break;
 		}

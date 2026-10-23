@@ -1,3 +1,4 @@
+import { migrateParticipantTime, participantTimeSettingsOf } from "./participant-time-migration";
 import { participantTimeSettings } from "./participant-time";
 import { defaultNewBotInstructionLanguage, parseInstructionLanguagePreference, InvalidInstructionLanguagePreferenceError } from './instruction-language';
 import { botServiceIssue } from './bot-service-issues';
@@ -1535,7 +1536,7 @@ async function createBot(
 		? await readJson<BotDocument>(kv, kvKeys.bot(createOptions.botId))
 		: null;
 	if (previouslyMaterialized) {
-		const existing = normalizeBotDefaults(previouslyMaterialized);
+		const existing = normalizeBotDefaults(migrateParticipantTime(previouslyMaterialized));
 		if (
 			existing.id !== bot.id ||
 			existing.homeWorldId !== bot.homeWorldId ||
@@ -1554,6 +1555,7 @@ async function createBot(
 	}
 
 	const lifecyclePrefix = cloneSource ? "clone" : "bot";
+	bot = migrateParticipantTime(bot);
 	await writeJson(kv, kvKeys.bot(bot.id), bot);
 	await createOptions.checkpoint?.(`${lifecyclePrefix}.materialize.kv` as LifecycleFailurePoint);
 	if (cloneSource) {
@@ -1611,7 +1613,7 @@ async function updateBot(
 			throw error;
 		}
 	}
-	const bot = await botForOwner(kv, db, botId, userId);
+	const bot = migrateParticipantTime(await botForOwner(kv, db, botId, userId));
 	const owner = await userById(kv, userId);
 	const worldPostingSettings = await worldPostingSettingsById(db, bot.homeWorldId);
 	const cloneSource = await cloneSourceByBotId(db, bot.id);
@@ -1726,7 +1728,7 @@ async function updateBotAvatar(
 	avatar: AvatarImage,
 	now = new Date().toISOString(),
 ): Promise<BotSummary> {
-	const bot = await botForOwner(kv, db, botId, userId);
+	const bot = migrateParticipantTime(await botForOwner(kv, db, botId, userId));
 	return updateBotAvatarDocument(kv, db, bot, avatar, now);
 }
 
@@ -1761,7 +1763,7 @@ async function materializePendingBotAvatar(
 	if (!bot || bot.deletedAt || bot.ownerUserId !== row.ownerUserId) {
 		throw new RepositoryError("server_error", "Pending participant document is missing.", 500);
 	}
-	return updateBotAvatarDocument(kv, db, normalizeBotDefaults(bot), input.avatar, input.now, {
+	return updateBotAvatarDocument(kv, db, normalizeBotDefaults(migrateParticipantTime(bot)), input.avatar, input.now, {
 		lifecycleState: "pending",
 	});
 }
@@ -1774,6 +1776,7 @@ async function updateBotAvatarDocument(
 	now: string,
 	options: { lifecycleState?: "active" | "pending" } = {},
 ): Promise<BotSummary> {
+	bot = migrateParticipantTime(bot);
 	const userId = bot.ownerUserId;
 	const owner = await userById(kv, userId);
 	const worldPostingSettings = await worldPostingSettingsById(db, bot.homeWorldId);
@@ -1805,7 +1808,7 @@ async function deleteBotAvatar(
 	userId: string,
 	now = new Date().toISOString(),
 ): Promise<BotSummary> {
-	const bot = await botForOwner(kv, db, botId, userId);
+	const bot = migrateParticipantTime(await botForOwner(kv, db, botId, userId));
 	const owner = await userById(kv, userId);
 	const worldPostingSettings = await worldPostingSettingsById(db, bot.homeWorldId);
 	const { avatar: _avatar, ...withoutAvatar } = bot;
@@ -1838,7 +1841,7 @@ async function deleteBot(
 ): Promise<BotSummary> {
 	const deleteOptions = typeof options === "string" ? { now: options } : options;
 	const now = deleteOptions.now ?? new Date().toISOString();
-	const bot = await botDocumentForDeletion(kv, db, botId, userId);
+	const bot = migrateParticipantTime(await botDocumentForDeletion(kv, db, botId, userId));
 	if (!deleteOptions.allowLinkedCloneDelete && await hasLinkedCloneDescendants(db, bot.id)) {
 		throw new RepositoryError(
 			"conflict",
@@ -1954,7 +1957,7 @@ async function unlinkBotClone(
 	copiedInheritedAvatar?: AvatarImage,
 	now = new Date().toISOString(),
 ): Promise<BotSummary> {
-	const bot = await botForOwner(kv, db, botId, userId);
+	const bot = migrateParticipantTime(await botForOwner(kv, db, botId, userId));
 	const cloneSource = await cloneSourceByBotId(db, bot.id);
 	if (!cloneSource) {
 		throw new RepositoryError("bad_request", "This participant is not a clone.", 400);
@@ -2018,7 +2021,7 @@ async function relinkBotClone(
 	userId: string,
 	now = new Date().toISOString(),
 ): Promise<BotSummary> {
-	const bot = await botForOwner(kv, db, botId, userId);
+	const bot = migrateParticipantTime(await botForOwner(kv, db, botId, userId));
 	const cloneSource = await cloneSourceByBotId(db, bot.id);
 	if (!cloneSource) {
 		throw new RepositoryError("bad_request", "This participant is not a clone.", 400);
@@ -4226,7 +4229,7 @@ export function publicBotSummary(
 			source.kind === "document" ?
 				effectivePostingSettings(options.worldPostingSettings, bot.postingSettings)
 			: source.summary.effectivePostingSettings,
-		timeSettings: participantTimeSettings(bot.timeSettings),
+		timeSettings: participantTimeSettingsOf(bot),
 		tickSettings: bot.tickSettings,
 		effectiveTickSettings:
 			source.kind === "document" ? effectiveTickSettings(bot.tickSettings) : source.summary.effectiveTickSettings,
@@ -4591,6 +4594,7 @@ export function normalizeBotDefaults(bot: BotDocument): BotDocument {
 		displayName: localizedTextFromStored(raw.displayName, language),
 		shortBio: localizedTextFromStored(raw.shortBio, language),
 		prompt: localizedTextFromStored(raw.prompt, language),
+		timeSettings: participantTimeSettingsOf(bot),
 		inferenceSettings: mergeInferenceSettings(undefined, bot.inferenceSettings),
 		toolSettings: mergeToolSettings(undefined, bot.toolSettings),
 		...(postingSettingsHasValues(bot.postingSettings) ?

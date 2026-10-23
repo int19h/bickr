@@ -459,10 +459,10 @@ describe("MCP endpoint", () => {
 			const maximumBytes = tool.name === "create_inference_configuration" || tool.name === "update_inference_configuration"
 				? 32 * 1024
 				: 5 * 1024;
-			expect(JSON.stringify(tool.inputSchema).length, `${tool.name} schema bytes`).toBeLessThanOrEqual(maximumBytes);
+			expect(new TextEncoder().encode(JSON.stringify(tool.inputSchema)).length, `${tool.name} schema bytes`).toBeLessThanOrEqual(maximumBytes);
 			if (tool.outputSchema) {
 				assertNoSchemaKeywords(tool.outputSchema, forbiddenKeywords, `${tool.name}.outputSchema`);
-				expect(JSON.stringify(tool.outputSchema).length, `${tool.name} output schema bytes`).toBeLessThanOrEqual(maximumBytes);
+				expect(new TextEncoder().encode(JSON.stringify(tool.outputSchema)).length, `${tool.name} output schema bytes`).toBeLessThanOrEqual(maximumBytes);
 			}
 			if (tool.annotations.readOnlyHint === true) {
 				continue;

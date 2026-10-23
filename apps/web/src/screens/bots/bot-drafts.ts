@@ -1,4 +1,4 @@
-import { participantTimeSettings } from "@bickr/shared/participant-time";
+import { participantTimeSettingsOf } from "@bickr/shared/participant-time-migration";
 import type { ParticipantTimeSettings } from "@bickr/shared/model";
 import { defaultNewBotInstructionLanguage, type InstructionLanguagePreference, type InstructionLocale } from "@bickr/shared/instruction-language";
 import {
@@ -244,7 +244,7 @@ export function botEditDraftFromBot(bot: BotSummary): BotEditDraft {
 		prompt: textValue(profileOverrides?.prompt ?? bot.prompt ?? ""),
 		recurringPromptEnabled: inferenceSettings.recurringPromptEnabled !== false,
 		recurringPrompt: textValue(inferenceSettings.recurringPrompt ?? ""),
-		timeSettings: participantTimeSettings(bot.timeSettings),
+		timeSettings: participantTimeSettingsOf(bot),
 		tools: toolDraftFromSettings(bot.toolSettings),
 		threadBodyCharacters: optionalNumberDraftValue(bot.postingSettings.threadBodyCharacters),
 		commentBodyCharacters: optionalNumberDraftValue(bot.postingSettings.commentBodyCharacters),
