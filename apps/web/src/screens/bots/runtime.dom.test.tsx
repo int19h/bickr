@@ -689,6 +689,32 @@ it.each([false, true])('keeps the watched generation after compaction with pinne
 });
 
 
+it('keeps watched content after compaction while the monitor is disconnected', async () => {
+	const original = loopMessage(41, 'Watched while disconnected');
+	await answerMessages(0, [original]);
+	const socket = MonitorSocket.instances[0]!;
+	await act(async () => socket.open());
+	await answerMessages(1, [original]);
+	vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+	vi.useFakeTimers();
+	try {
+		await act(async () => socket.close());
+		await answerMessages(2, [original]);
+		await act(async () => vi.advanceTimersByTimeAsync(5_000));
+		expect(pendingMessages).toHaveLength(4);
+		const pages = [{ page: 1, isNewest: true, messageCount: 1 }, { page: 2, isNewest: false, sourceCompactionSeq: 80, messageCount: 1 }];
+		await answerMessages(3, [loopMessage(80, 'New summary')], page(1, { 80: 2 }, pages));
+		expect(pendingLogs[0]?.path).toContain('/messages/41/logs');
+		await act(async () => pendingLogs[0]!.resolve(json({ ok: true, data: { message: { ...original, compactedBy: 80 }, logs: [] } })));
+		expect(pendingMessages[4]?.path).toContain('page=2');
+		await answerMessages(4, [{ ...original, compactedBy: 80 }], page(2, { 80: 2 }, pages));
+		expect(container.querySelector('.agent-log-archive')?.textContent).toContain('Watched while disconnected');
+		expect([...container.querySelectorAll('button')].find(button => button.textContent === 'Compact chat')?.disabled).toBe(true);
+	} finally {
+		vi.useRealTimers();
+	}
+});
+
 it('refreshes the page map when the watched row moves again during lookup', async () => {
 	const original = loopMessage(41, 'Watched row');
 	await answerMessages(0, [original]);
@@ -719,7 +745,7 @@ it('ignores a watched row lookup after a newer snapshot', async () => {
 	]));
 	const refresh = [...container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Refresh log')!;
 	await act(async () => refresh.click());
-	await answerMessages(2, [loopMessage(81, 'Owner selected current context')]);
+	await answerMessages(2, [original, loopMessage(81, 'Owner selected current context')]);
 	await act(async () => pendingLogs[0]!.resolve(json({ ok: true, data: { message: { ...original, compactedBy: 80 }, logs: [] } })));
 	expect(container.textContent).toContain('Owner selected current context');
 	expect(pendingMessages).toHaveLength(3);

@@ -439,7 +439,7 @@ export function BotRuntimePanel({
 		}
 		const interval = window.setInterval(() => {
 			if (document.visibilityState === "visible" && currentLoopPageRef.current === 1) {
-				void refresh();
+				void refreshAuthoritativeCurrentPage();
 			}
 		}, status?.status === "running" ? 5_000 : 15_000);
 		return () => window.clearInterval(interval);
@@ -763,7 +763,7 @@ export function BotRuntimePanel({
 		setTogglingEnabled(false);
 		if (!saved) {
 			setMessage("Failed to update the loop state.");
-			await refresh();
+			await refreshAuthoritativeCurrentPage();
 			return;
 		}
 		setMessage(
@@ -771,7 +771,7 @@ export function BotRuntimePanel({
 				"Loop unpaused. If nothing is scheduled yet, the next tick will be scheduled ASAP."
 			:	"Loop paused. New loop runs are blocked until it is unpaused.",
 		);
-		await refresh();
+		await refreshAuthoritativeCurrentPage();
 	}
 
 	async function stopTick(): Promise<void> {
@@ -795,7 +795,7 @@ export function BotRuntimePanel({
 					break;
 			}
 		}
-		await refresh();
+		await refreshAuthoritativeCurrentPage();
 	}
 
 	async function inject(): Promise<void> {
@@ -1012,7 +1012,7 @@ export function BotRuntimePanel({
 					>
 						Stop current visit
 					</button>
-					<button className="btn ghost" onClick={() => void refresh()} type="button">
+					<button className="btn ghost" onClick={() => void refreshAuthoritativeCurrentPage()} type="button">
 						Refresh log
 					</button>
 					<button
