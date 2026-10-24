@@ -78,11 +78,9 @@ let root: Root;
 let pendingMessages: PendingMessages[];
 let pendingEvents: PendingEvents[];
 let holdEventSnapshots: boolean;
-let runtimeStatus: 'running' | 'idle';
 let pendingInference: Array<{ path: string; resolve: (response: Response) => void }>;
 let pendingRequests: Array<{ path: string; resolve: (response: Response) => void }>;
 let pendingLogs: Array<{ path: string; resolve: (response: Response) => void }>;
-let pendingCompactions: Array<(response: Response) => void>;
 
 beforeEach(async () => {
 	(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -94,8 +92,6 @@ beforeEach(async () => {
 	pendingLogs = [];
 	pendingCompactions = [];
 	pendingRequests = [];
-	pendingCompactions = [];
-	runtimeStatus = 'running';
 	MonitorSocket.instances = [];
 	vi.stubGlobal('WebSocket', MonitorSocket);
 	vi.stubGlobal('fetch', (input: RequestInfo | URL, init?: RequestInit) => {
@@ -120,7 +116,6 @@ beforeEach(async () => {
 		if (path.endsWith('/runtime/token-usage')) {
 			return Promise.resolve(json({ ok: false, error: 'unavailable', message: 'usage unavailable' }, 503));
 		}
-		if (path.endsWith('/runtime/compact')) return new Promise<Response>(resolve => pendingCompactions.push(resolve));
 		if (path.includes('/runtime/requests/')) {
 			return new Promise<Response>(resolve => pendingRequests.push({ path, resolve }));
 		}
@@ -681,7 +676,7 @@ it('keeps watched content when the owner starts compaction', async () => {
 	await act(async () => compact.click());
 	const confirm = [...document.querySelectorAll<HTMLButtonElement>('.modal button')].find(button => button.textContent === 'Compact chat')!;
 	await act(async () => confirm.click());
-	await act(async () => pendingCompactions[0]!(json({ ok: true, data: { compacted: { messageCount: 1, fromSeq: 41, toSeq: 41 } } })));
+	await act(async () => pendingCompactions[0]!.resolve(json({ ok: true, data: { compacted: { messageCount: 1, fromSeq: 41, toSeq: 41 } } })));
 	const pages = [{ page: 1, isNewest: true, messageCount: 1, fromSeq: 80, toSeq: 80, olderPage: 2 }, { page: 2, isNewest: false, messageCount: 1, fromSeq: 41, toSeq: 41, sourceCompactionSeq: 80, newerPage: 1 }];
 	await answerMessages(2, [loopMessage(80, 'New summary')], page(1, { 80: 2 }, pages));
 	await act(async () => pendingLogs[0]!.resolve(json({ ok: true, data: { message: { ...original, compactedBy: 80 }, logs: [] } })));
