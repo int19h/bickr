@@ -158,10 +158,10 @@ export function pageFixture(archive = false): BotLoopMessagePage {
 		currentPage: archive ? 2 : 1,
 		pageCount: 2,
 		pages: [
-			{ page: 1, isNewest: true, messageCount: 5, sourceCompactionSeq: 10, compactionSessionId: 'session-example' },
-			{ page: 2, isNewest: false, messageCount: 8 },
+			{ page: 1, isNewest: true, messageCount: 6, fromSeq: 1, toSeq: 10, olderPage: 2, compactionSessionId: 'session-example' },
+			{ page: 2, isNewest: false, messageCount: 8, sourceCompactionSeq: 10, newerPage: 1, compactionSessionId: null },
 		],
-		compactionPageBySeq: { '10': 1 },
+		compactionPageBySeq: { '10': 2 },
 		...(archive ? { newerPage: 1 } : { olderPage: 2 }),
 	};
 }

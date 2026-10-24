@@ -129,6 +129,20 @@ describe('Loop cards', () => {
 		act(() => container.querySelector<HTMLButtonElement>('.agent-log-info')!.click());
 		expect(actions.onLogs).toHaveBeenLastCalledWith(tool.message);
 	});
+	it('opens the matching archive for each summary on one page', () => {
+		const first = messageFixture(10, { kind: 'compaction_summary' });
+		first.sessionId = 'session-first';
+		const second = messageFixture(20, { kind: 'compaction_summary' });
+		second.sessionId = 'session-second';
+		const page = pageFixture();
+		page.pageCount = 3;
+		page.pages.push({ page: 3, isNewest: false, sourceCompactionSeq: 20, newerPage: 1, messageCount: 2 });
+		page.compactionPageBySeq = { '10': 2, '20': 3 };
+		render([first, second], { page });
+		const links = [...container.querySelectorAll<HTMLButtonElement>('button')].filter(button => button.textContent === 'Open the compaction notice');
+		act(() => { links[0]!.click(); links[1]!.click(); });
+		expect(actions.onPage.mock.calls).toEqual([[2, 'session-first'], [3, 'session-second']]);
+	});
 	it.each([false, true])('uses the delete label and action for archive=%s', (archive) => {
 		const entry = messageFixture(1);
 		render([entry], { page: pageFixture(archive) });

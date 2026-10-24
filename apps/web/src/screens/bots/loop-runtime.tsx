@@ -144,6 +144,8 @@ export function BotRuntimePanel({
 	const latestPersistentEventSeqRef = useRef(0);
 	const latestLoopMessageSeqRef = useRef(0);
 	const currentLoopPageRef = useRef(1);
+	const watchedMessageSeqRef = useRef<number | undefined>(undefined);
+	const compactionSourcesRef = useRef(new Set<string>());
 	const currentLoopSourceCompactionSeqRef = useRef<number | null>(null);
 	const statusRequestGenerationRef = useRef(0);
 	const eventsRequestGenerationRef = useRef(0);
@@ -178,6 +180,8 @@ export function BotRuntimePanel({
 		latestLoopMessageSeqRef.current = 0;
 		currentLoopPageRef.current = 1;
 		currentLoopSourceCompactionSeqRef.current = null;
+		watchedMessageSeqRef.current = undefined;
+		compactionSourcesRef.current.clear();
 		statusRequestGenerationRef.current += 1;
 		eventsRequestGenerationRef.current += 1;
 		messagesRequestGenerationRef.current += 1;
@@ -537,7 +541,7 @@ export function BotRuntimePanel({
 
 	function refreshAuthoritativeCurrentPage(): Promise<void> {
 		const sourceCompactionSeq = currentLoopSourceCompactionSeqRef.current;
-		return refresh({ sourceCompactionSeq });
+		return refresh({ sourceCompactionSeq, watchedMessageSeq: sourceCompactionSeq === null ? watchedMessageSeqRef.current : undefined });
 	}
 
 	function scheduleTrailingRefresh(options?: { page?: number }): void {
@@ -553,6 +557,7 @@ export function BotRuntimePanel({
 	async function refresh(options: {
 		page?: number;
 		sourceCompactionSeq?: number | null;
+		watchedMessageSeq?: number;
 		expectedSourceCompactionSeq?: number | null;
 		resolverAttempt?: number;
 	} = {}): Promise<void> {
@@ -606,6 +611,22 @@ export function BotRuntimePanel({
 				}
 				return;
 			}
+			const hasNewArchive = Object.keys(page.compactionPageBySeq).some(seq => !compactionSourcesRef.current.has(seq));
+			if (anchoredSource === null && options.watchedMessageSeq !== undefined && hasNewArchive && !messagesResult.data.messages.some(message => message.seq === options.watchedMessageSeq)) {
+				// Active context has no stable page source. Follow a retained row when compaction moves it.
+				const retained = await api<BotLoopMessageLogsResponse>(`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/messages/${options.watchedMessageSeq}/logs`);
+				if (messagesGeneration !== messagesRequestGenerationRef.current) return;
+				const compactedBy = retained.ok ? retained.data.message.compactedBy : undefined;
+				const archivePage = compactedBy === undefined ? undefined : page.compactionPageBySeq[String(compactedBy)];
+				if (compactedBy !== undefined && archivePage === undefined && (options.resolverAttempt ?? 0) < 1) {
+					void refresh({ sourceCompactionSeq: null, watchedMessageSeq: options.watchedMessageSeq, resolverAttempt: 1 });
+					return;
+				}
+				if (archivePage !== undefined) {
+					void refresh({ page: archivePage, expectedSourceCompactionSeq: compactedBy });
+					return;
+				}
+			}
 			if (anchoredSource !== undefined) {
 				const anchoredPage = anchoredSource === null
 					? page.pages.find(item => (item.sourceCompactionSeq ?? null) === null)?.page
@@ -617,6 +638,8 @@ export function BotRuntimePanel({
 			}
 			currentLoopPageRef.current = page.currentPage;
 			currentLoopSourceCompactionSeqRef.current = returnedSource;
+			watchedMessageSeqRef.current = messagesResult.data.messages.find(message => !isLiveProviderLoopMessage(message))?.seq;
+			compactionSourcesRef.current = new Set(Object.keys(page.compactionPageBySeq));
 			setLoopMessagePage(page);
 			// The snapshot replaces older live entries. Only newer stream updates
 			// can fill gaps or supersede a live value returned by this snapshot.

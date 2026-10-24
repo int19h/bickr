@@ -97,6 +97,7 @@ export function AgentLogView(props: AgentLogViewProps) {
 				const source = messageEntry ? sourceFor(messageEntry.author) : null;
 				const tool = message.role === 'tool';
 				const isSummary = messageEntry?.author.kind === 'compaction_summary' || messageEntry?.author.kind === 'legacy_summary';
+				const noticePage = isSummary && row ? page?.compactionPageBySeq[String(row.seq)] : undefined;
 				const right =
 					source && messageEntry?.author.kind !== 'unknown' && sources[messageEntry!.author.kind] ? false : message.role === 'user' || tool;
 				const faded =
@@ -216,8 +217,8 @@ export function AgentLogView(props: AgentLogViewProps) {
 										Open the call
 									</button>
 								)}
-								{isSummary && page?.olderPage && (
-									<button type="button" onClick={() => props.onPage(page.olderPage!, messageEntry?.sessionId ?? undefined)}>
+								{isSummary && noticePage !== undefined && (
+									<button type="button" onClick={() => props.onPage(noticePage!, messageEntry?.sessionId ?? undefined)}>
 										Open the compaction notice
 									</button>
 								)}
