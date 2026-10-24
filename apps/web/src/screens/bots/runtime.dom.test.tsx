@@ -684,7 +684,7 @@ it('keeps watched content when the owner starts compaction', async () => {
 	expect([...container.querySelectorAll('button')].find(button => button.textContent === 'Compact chat')?.disabled).toBe(true);
 });
 
-it('polls the current partial response in a live request modal', async () => {
+it('keeps live request details current through completion', async () => {
 	await act(async () => pendingMessages[0]!.resolve({ messages: [], entries: [liveEntry('streaming-modal', 'Text on the card')], page: page(1, {}, [{ page: 1, messageCount: 0 }]) }));
 	await act(async () => container.querySelector<HTMLButtonElement>('.is-live .agent-log-info')!.click());
 	const pending: typeof requestFixture = { ...requestFixture, state: 'pending', attempts: [{ ...requestFixture.attempts[0]!, usage: null, attribution: null, outcome: null, partialResponse: null }] };
@@ -697,6 +697,16 @@ it('polls the current partial response in a live request modal', async () => {
 		expect(container.querySelector('.modal')?.textContent).toContain('Partial response');
 		expect(container.querySelector('.modal')?.textContent).toContain('Text in the modal');
 		expect(container.querySelector('.is-live')?.textContent).toContain('Text on the card');
+		await act(async () => vi.advanceTimersByTimeAsync(500));
+		await act(async () => pendingRequests[2]!.resolve(json({ ok: true, data: { request: { ...pending, attempts: [{ ...pending.attempts[0], partialResponse: JSON.stringify({ content: 'Longer text in the modal' }) }] } } })));
+		expect(container.querySelector('.modal')?.textContent).toContain('Longer text in the modal');
+		await act(async () => vi.advanceTimersByTimeAsync(500));
+		await act(async () => pendingRequests[3]!.resolve(json({ ok: true, data: { request: { ...pending, state: 'succeeded', attempts: [{ ...pending.attempts[0], outcome: { kind: 'success', response: JSON.stringify({ content: 'Completed response in the modal' }) } }] } } })));
+		expect(container.querySelector('.modal')?.textContent).toContain('Completed response in the modal');
+		expect(container.querySelector('.modal')?.textContent).not.toContain('Partial response');
+		expect(container.querySelector('.modal')?.textContent).not.toContain('Longer text in the modal');
+		await act(async () => vi.advanceTimersByTimeAsync(1000));
+		expect(pendingRequests).toHaveLength(4);
 	} finally { vi.useRealTimers(); }
 });
 
