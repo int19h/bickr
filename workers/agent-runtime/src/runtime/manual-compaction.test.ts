@@ -10,6 +10,7 @@ import { createRuntimeTestStorage, type RuntimeTestStorage } from './sqlite-test
 import { testResultContext } from './result-render-context.test-support';
 import { CompactionSummaryMissingError, PersistentCompactionReductionFailureError, ProviderStructuredOutputValidationError, ProviderCompactionRequestError, ProviderRequestError, ProviderRequestTimeoutError, TickStoppedError, type CompactionReasoningDiagnostic } from '../errors';
 import { botText } from '../localization';
+import { providerBodyReadTimeoutMs } from '../constants';
 
 vi.mock('@bickr/shared/repository', async original => ({ ...await original<object>(), botById: vi.fn(), userById: vi.fn() }));
 vi.mock('@bickr/shared/maintenance', async original => ({ ...await original<object>(), mutationMaintenanceResponse: async () => null }));
@@ -28,7 +29,7 @@ beforeEach(() => {
 	vi.mocked(botById).mockResolvedValue({ id: 'participant', ownerUserId: 'owner', text: botText('en'), tickSettings: {} } as never);
 	vi.mocked(userById).mockResolvedValue({ id: 'owner' } as never);
 });
-afterEach(() => { storage.database.close(); vi.clearAllMocks(); vi.unstubAllGlobals(); });
+afterEach(() => { storage.database.close(); vi.clearAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 function runtime() {
 	return Object.assign(Object.create(BotRuntime.prototype), {
 		state: { storage }, env: { INTERNAL_SERVICE_SECRET: 'test' }, agentLogs: logs,
@@ -205,6 +206,45 @@ it.each([
 	expect(JSON.stringify(payload)).not.toContain(diagnosticError.message);
 	const failure = { kind: 'provider_error', status: null, errorType: 'connection', message: diagnosticError.message };
 	expect(logs.session(sessionId())).toMatchObject({ outcome: { kind: 'failed', error: failure }, requests: [{ attempts: [{ outcome: failure }] }] });
+});
+
+it.each([
+	{ wrapped: false, kind: 'timeout', status: 408 }, { wrapped: true, kind: 'timeout', status: 408 },
+	{ wrapped: false, kind: 'interrupted', status: 409 }, { wrapped: true, kind: 'interrupted', status: 409 },
+])('retains $kind while reading an HTTP 503 body (wrapped: $wrapped)', async ({ wrapped, kind, status }) => {
+	vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+	append();
+	const instance = runtime();
+	const controller = new AbortController();
+	const cancel = vi.fn();
+	let bodyReadStarted!: () => void;
+	const bodyRead = new Promise<void>(resolve => { bodyReadStarted = resolve; });
+	vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(new ReadableStream({
+		pull() { bodyReadStarted(); }, cancel,
+	}, { highWaterMark: 0 }), { status: 503 })));
+	instance.compactLoopMessageBatchesForSession.mockImplementation(async (_context: unknown, _bot: unknown, settings: unknown, runId: string) => {
+		const request = logs.begin({ runId, eventSeq: 1, purpose: 'compaction', sessionId: sessionId() });
+		const attempt = logs.startAttempt(request, '{}');
+		try {
+			await instance.fetchProviderCompactionResponse(settings, 'https://provider.test/v1', '{}', controller.signal);
+		} catch (error) {
+			logs.settle(attempt, agentLogFailure(error));
+			logs.finish(request, 'failed');
+			throw wrapped ? new ProviderCompactionRequestError(error, '{}', diagnostic) : error;
+		}
+	});
+	let settled = false;
+	const pending = post(instance).then(response => { settled = true; return response; });
+	await bodyRead;
+	await vi.advanceTimersByTimeAsync(providerBodyReadTimeoutMs - 1);
+	expect(settled).toBe(false);
+	if (kind === 'timeout') await vi.advanceTimersByTimeAsync(1);
+	else controller.abort();
+	const response = await pending;
+	expect(response.status).toBe(status);
+	expect(await response.json()).toMatchObject({ ok: false, details: { compactionFailure: { kind } } });
+	expect(logs.session(sessionId())).toMatchObject({ outcome: { kind: 'failed', error: { kind } }, requests: [{ attempts: [{ outcome: { kind } }] }] });
+	expect(cancel).toHaveBeenCalledOnce();
 });
 
 it.each([

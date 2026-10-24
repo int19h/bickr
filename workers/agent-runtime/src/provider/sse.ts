@@ -77,11 +77,8 @@ export async function readProviderErrorBody(response: Response, signal: AbortSig
 			timeoutError: () => new ProviderResponseBodyTimeoutError(providerBodyReadTimeoutMs),
 		});
 	} catch (error) {
-		if (error instanceof TickStoppedError || isAbortError(error) || error instanceof ProviderTransportError) {
+		if (error instanceof TickStoppedError || isAbortError(error) || error instanceof ProviderTransportError || error instanceof ProviderResponseBodyTimeoutError) {
 			throw error;
-		}
-		if (error instanceof ProviderResponseBodyTimeoutError) {
-			return 'Timed out while reading provider error response.';
 		}
 		return 'Failed to read the provider error response.';
 	}
