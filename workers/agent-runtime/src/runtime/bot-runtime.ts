@@ -1860,7 +1860,7 @@ function pendingToolFromStoredRow(row: { key: string; value_json: string }): Pen
 	return { ...value, ...(row.key === 'pending_tool_v1' ? { kind: 'legacy_single_call' as const } : {}), instructionLocale: 'en', stage: 'dispatched' };
 }
 
-type CompactionSessionContext = { id: string; commits: Array<() => void> | null; facets: import('./result-context-scope').ResultFacetValue[] };
+type CompactionSessionContext = { id: string };
 // Each async session keeps its own identity when an older call outlives Stop.
 const compactionSessionScope = new AsyncLocalStorage<CompactionSessionContext>();
 
@@ -4856,7 +4856,8 @@ export class BotRuntime {
 		]);
 	}
 
-	private agentLogStore(): AgentLogStore { return new AgentLogStore(this.state.storage, () => this.requireWritableRuntimeStorage()); }
+	private agentLogs?: AgentLogStore;
+	private agentLogStore(): AgentLogStore { return this.agentLogs ??= new AgentLogStore(this.state.storage, () => this.requireWritableRuntimeStorage()); }
 
 	private migrateAgentLog(): void {
 		this.agentLogStore().migrate(this.runtimeMessageStore());
@@ -7466,11 +7467,9 @@ export class BotRuntime {
 		legacyCost?: LegacyHistoryCost,
 	): Promise<void> {
 		const sessionId = this.agentLogStore().startSession(runId, { kind: legacyCost ? 'legacy_forced' : mode === 'manual' ? 'manual' : 'visit' });
-		return compactionSessionScope.run({ id: sessionId, commits: [], facets: [] }, async () => {
+		return compactionSessionScope.run({ id: sessionId }, async () => {
 			try {
 				await this.compactLoopMessageBatchesForSession(context, bot, settings, runId, signal, rows, mode, metrics, legacyCost);
-				this.runStorageTransactionSync(() => { for (const commit of compactionSessionScope.getStore()?.commits ?? []) commit(); });
-				this.broadcastControl({ type: 'loop_messages_reset' });
 				const summary = this.state.storage.sql.exec<{ seq: number }>("SELECT seq FROM loop_messages WHERE session_id = ? AND origin = 'compaction' ORDER BY seq DESC LIMIT 1", sessionId).toArray()[0];
 				if (summary) this.agentLogStore().settleSession(sessionId, { kind: 'succeeded', summarySeq: summary.seq });
 			} catch (error) {
@@ -7535,7 +7534,8 @@ export class BotRuntime {
 				...(selection.overBudgetFallback ? { compactionOverBudgetFallback: true } : {}),
 			}, legacyCost);
 			const selectedSeqs = new Set((compactedRows.length > 0 ? compactedRows : selected).map((row) => row.seq));
-			remaining = remaining.filter((row) => !selectedSeqs.has(row.seq));
+			// A committed batch can hydrate tool results in the remaining rows.
+			remaining = remaining.filter((row) => !selectedSeqs.has(row.seq)).map(row => this.runtimeMessageStore().loopMessageRow(row.seq) ?? row);
 			batchIndex += 1;
 		}
 	}
@@ -7568,7 +7568,7 @@ export class BotRuntime {
 		const store = this.agentLogStore();
 		const trigger: AgentLogCompactionTrigger = { kind: legacyCost ? 'legacy_forced' : mode === 'manual' ? 'manual' : metrics.allowedPromptTokens !== undefined ? 'admission' : 'visit' };
 		const sessionId = store.startSession(runId, trigger);
-		return compactionSessionScope.run({ id: sessionId, commits: null, facets: [] }, async () => {
+		return compactionSessionScope.run({ id: sessionId }, async () => {
 			try {
 				const result = await this.compactLoopMessageRowsForSession(context, bot, settings, runId, signal, compacted, mode, metrics, legacyCost);
 				const summary = this.state.storage.sql.exec<{ seq: number }>("SELECT seq FROM loop_messages WHERE session_id = ? AND origin = 'compaction' ORDER BY seq DESC LIMIT 1", sessionId).toArray()[0];
@@ -7587,12 +7587,7 @@ export class BotRuntime {
 	): Promise<LoopMessageRow[]> {
 		await this.renewProgressLease(bot.id, runId, signal);
 		const session = compactionSessionScope.getStore();
-		let providerRows = compacted.map(row => {
-			if (!session?.commits || session.facets.length === 0) return row;
-			const view = toolResultViewFromRow(row);
-			if (!view || hydrateResultFacets(session.facets, resultViewFacetArrays(view)) === 0) return row;
-			return { ...row, tool_result_view_json: JSON.stringify(view) };
-		}).filter((row) => loopMessageContributesToCompactionProviderInput(row));
+		let providerRows = compacted.filter((row) => loopMessageContributesToCompactionProviderInput(row));
 		if (providerRows.length === 0) {
 			return [];
 		}
@@ -7802,20 +7797,9 @@ export class BotRuntime {
 				compactedCommentBodies,
 			);
 		};
-		if (session?.commits) this.stageCompactionCommit(commit, compactedFacets);
-		else {
-			this.runStorageTransactionSync(commit);
-			this.broadcastControl({ type: 'loop_messages_reset' });
-		}
+		this.runStorageTransactionSync(commit);
+		this.broadcastControl({ type: 'loop_messages_reset' });
 		return providerRows;
-	}
-
-	private stageCompactionCommit(commit: () => void, facets: import('./result-context-scope').ResultFacetValue[] = []): void {
-		assertExecutionPublication();
-		const session = compactionSessionScope.getStore();
-		if (!session?.commits) throw new Error('A staged compaction requires a batch session.');
-		session.commits.push(commit);
-		session.facets.push(...facets);
 	}
 
 	private compactionLedgerRows(providerRows: readonly LoopMessageRow[]): LoopMessageRow[] {

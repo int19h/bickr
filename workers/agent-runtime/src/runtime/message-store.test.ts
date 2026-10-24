@@ -59,6 +59,21 @@ describe('RuntimeMessageStore', () => {
 		expect(store.loopMessagesPage(testResultContext, { page: 2 }).messages.map((message) => message.seq)).toEqual([1, 2]);
 	});
 
+	it('names the session of the starting summary after a later compaction replaces only that summary', () => {
+		insertMessage(storage, 1, 1, { compactedBy: 10 });
+		insertMessage(storage, 2, 2, { compactedBy: 20 });
+		insertMessage(storage, 10, 1, { origin: 'compaction' });
+		insertMessage(storage, 20, 2, { origin: 'compaction' });
+		storage.sql.exec('UPDATE loop_messages SET session_id = ? WHERE seq IN (10, 20)', 'older-batch-session');
+		expect(store.loopMessagesPage(testResultContext, { page: 1 }).page.pages[0]?.compactionSessionId).toBe('older-batch-session');
+		insertMessage(storage, 30, 1, { origin: 'compaction' });
+		storage.sql.exec('UPDATE loop_messages SET compacted_by = ? WHERE seq = ?', 30, 10);
+		storage.sql.exec('UPDATE loop_messages SET session_id = ? WHERE seq = ?', 'new-partial-session', 30);
+		const current = store.loopMessagesPage(testResultContext, { page: 1 });
+		expect(current.messages.map(message => message.seq)).toEqual([30, 20]);
+		expect(current.page.pages[0]?.compactionSessionId).toBe('new-partial-session');
+	});
+
 	it('restores compacted children before soft-deleting their summary', () => {
 		insertMessage(storage, 1, 1, { compactedBy: 10 });
 		insertMessage(storage, 2, 2, { compactedBy: 10, origin: 'compaction' });

@@ -1,18 +1,18 @@
 # Agent log storage
 
-The runtime stores each inference attempt before it sends the request. Each attempt holds the exact outgoing body after provider sanitization. A request groups transport retries and retries after invalid output. The details endpoint reads stored bodies. It never builds them from current history. Each writer rejects stopped visits and erased storage. Finalization settles pending requests and sessions before it releases the visit.
+The runtime stores each inference attempt before it sends the request. Each attempt holds the exact outgoing body after provider sanitization. Live partial text stays in memory and flushes after one second or 4 KB of new text. Settlement flushes the remaining text. A request groups transport retries and retries after invalid output. The details endpoint reads stored bodies. It never builds them from current history. Each writer rejects stopped visits and erased storage. Finalization settles pending requests and sessions before it releases the visit.
 
 ## Tables and retention
 
-`inference_requests` holds request identity, state, purpose, and references to history. `inference_attempts` holds attempt times, outcomes, and the partial response. `inference_body_chunks` holds the encoded bodies and chunks for responses and partial text. The encoding saves the common prefix from the previous attempt. Before retention removes a base, the runtime writes each surviving dependent as a full body.
+`inference_requests` holds request identity, state, purpose, and references to history. `inference_attempts` holds attempt times, outcomes, and the partial response. `inference_body_chunks` holds the encoded bodies and chunks for responses and partial text. The encoding saves the common prefix from the previous attempt. A full body starts a new chain after 16 delta links. Text cuts keep surrogate pairs together. Before retention removes a base, the runtime writes each surviving dependent as a full body.
 
 These three tables stay for the newest three pages. Beyond those pages, the retention alarm removes records after seven days. The same rule applies to raw logs and their chunks. Pending requests stay until completion or recovery. On restart, the runtime marks interrupted requests as failed.
 
-`compaction_sessions` holds the trigger, starting position, and outcome. Successful sessions stay while their summary rows exist. Failed sessions stay on the newest three pages. Beyond those pages, failed sessions expire after 14 days. Request records and bodies follow the separate seven-day rule.
+`compaction_sessions` holds the trigger, starting position, and outcome. Successful and partly successful sessions stay while their summary rows exist. Failed sessions stay on the newest three pages. Beyond those pages, failed sessions expire after 14 days. Request records and bodies follow the separate seven-day rule.
 
 The `author_json`, `request_id`, and `session_id` columns belong to `loop_messages`. Each column follows its row's retention. New synthetic assistant rows require an explicit source. Retention keeps compacted ordinary rows on the newest three pages. Outside those pages, compacted ordinary rows expire after 14 days, summaries after 180 days, and deleted rows after 14 days.
 
-The runtime stages batch changes until every compaction batch succeeds. A failed session creates no page. Provider attempts and their errors remain available after failure. Deleting an archived summary moves its children into the parent archive. It does not restore them to the model context.
+Each successful compaction batch commits its summary at once. If a later batch fails, the session records partial success, its summary rows, the failed batch count, and the typed error. A fully failed session creates no page. Provider attempts and their errors remain available after failure. Deleting an archived summary moves its children into the parent archive. It does not restore them to the model context.
 
 ## Migrations and removal
 

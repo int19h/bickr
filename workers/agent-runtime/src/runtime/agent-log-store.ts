@@ -1,3 +1,4 @@
+import { logAttemptOutcome, logAttemptKind, logAuthor, logCompactionOutcome, logToolDelta, logTrigger, logPartial, storedLogValue } from './agent-log-codecs';
 import { runtimeStorageClearedStateKey } from '../constants';
 import { assertExecutionPublication } from './execution-scope';
 import { agentLogAuthor, type AgentLogAttempt, type AgentLogAttemptOutcome, type AgentLogAttemptSummary, type AgentLogCompactionOutcome, type AgentLogCompactionSession, type AgentLogCompactionTrigger, type AgentLogEntry, type AgentLogFailure, type AgentLogRequest, type AgentLogSource, type AgentLogRequestSummary, type BotLoopMessage } from '@bickr/shared/model';
@@ -8,7 +9,8 @@ import type { RuntimeStorage, RuntimeMessageStore } from './message-store';
 
 // Requests, attempts, and body chunks stay for the newest three pages.
 // Beyond those pages, a bounded alarm sweep removes them after seven days.
-// Successful sessions share their summary's lifetime. Failed sessions share their page's lifetime.
+// Successful and partly successful sessions share their summaries' lifetime.
+// Failed sessions share their page's lifetime.
 export const agentLogSchema = `
 CREATE TABLE IF NOT EXISTS inference_requests (
  id TEXT PRIMARY KEY, run_id TEXT NOT NULL, event_seq INTEGER NOT NULL,
@@ -43,6 +45,18 @@ type RequestRow = { id: string; run_id: string; event_seq: number; purpose: Agen
 type AttemptRow = { id: number; request_id: string; started_at: string; outcome_json: string | null; partial_response: string | null; base_id: number | null; prefix_length: number };
 type SessionRow = { id: string; run_id: string; trigger_json: string; position: number; anchor_seq: number | null; outcome_json: string; created_at: string };
 const chunkLength = 64_000;
+export const agentLogDeltaDepthLimit = 16;
+const partialFlushBytes = 4_096;
+const partialFlushMs = 1_000;
+type PartialText = { content: string; reasoning: string; toolCalls: ReturnType<typeof logToolDelta>[] };
+type LiveAttempt = { requestId: string; attemptId: number; text: PartialText; unflushedBytes: number; flushedAt: number };
+
+// SQLite encodes strings as UTF-8. Keep both halves of each surrogate pair together.
+function textBoundary(text: string, offset: number): number {
+	const previous = text.charCodeAt(offset - 1);
+	const next = text.charCodeAt(offset);
+	return previous >= 0xd800 && previous <= 0xdbff && next >= 0xdc00 && next <= 0xdfff ? offset - 1 : offset;
+}
 
 export function agentLogFailure(error: unknown): AgentLogFailure {
 	if (error instanceof ProviderCompactionRequestError || error instanceof ProviderLoopRequestError) return agentLogFailure(error.originalError);
@@ -54,6 +68,7 @@ export function agentLogFailure(error: unknown): AgentLogFailure {
 
 export class AgentLogStore {
 	private readonly storage: RuntimeStorage;
+	private readonly liveAttempts = new Map<string, LiveAttempt>();
 	private readonly assertWritable: () => void;
 	constructor(storage: RuntimeStorage, assertWritable: () => void = () => {}) { this.storage = storage; this.assertWritable = assertWritable; }
 
@@ -96,20 +111,39 @@ export class AgentLogStore {
 		this.assertCanWrite();
 		return this.storage.transactionSync(() => {
 			const base = this.storage.sql.exec<AttemptRow>('SELECT * FROM inference_attempts ORDER BY id DESC LIMIT 1').toArray()[0];
-			const baseText = base ? this.body(base.id) : null;
+			const baseText = base && this.deltaDepth(base.id) < agentLogDeltaDepthLimit ? this.body(base.id) : null;
 			let prefix = 0;
 			if (baseText !== null) while (prefix < body.length && prefix < baseText.length && body[prefix] === baseText[prefix]) prefix++;
+			prefix = textBoundary(body, prefix);
 			const useBase = base && baseText !== null && prefix > 64;
 			const attempt = this.storage.sql.exec<{ id: number }>(`INSERT INTO inference_attempts(request_id, event_seq, started_at, base_id, prefix_length) VALUES (?, (SELECT event_seq FROM inference_requests WHERE id = ?), ?, ?, ?) RETURNING id`, requestId, requestId, startedAt, useBase ? base.id : null, useBase ? prefix : 0).one().id;
 			this.writeChunks(attempt, useBase ? body.slice(prefix) : body);
 			this.storage.sql.exec("UPDATE inference_requests SET state = 'pending' WHERE id = ?", requestId);
+			const request = this.storage.sql.exec<RequestRow>('SELECT * FROM inference_requests WHERE id = ? LIMIT 1', requestId).one();
+			this.liveAttempts.set(JSON.stringify([request.run_id, request.event_seq]), { requestId, attemptId: attempt, text: { content: '', reasoning: '', toolCalls: [] }, unflushedBytes: 0, flushedAt: Date.now() });
 			return attempt;
 		});
 	}
 
 	private writeChunks(attemptId: number, text: string, kind: 'body' | 'outcome' | 'partial' = 'body'): void {
 		this.storage.sql.exec('DELETE FROM inference_body_chunks WHERE attempt_id = ? AND kind = ?', attemptId, kind);
-		for (let offset = 0; offset < text.length; offset += chunkLength) this.storage.sql.exec('INSERT INTO inference_body_chunks(attempt_id, kind, chunk_index, text) VALUES (?, ?, ?, ?)', attemptId, kind, offset / chunkLength, text.slice(offset, offset + chunkLength));
+		let index = 0;
+		for (let offset = 0; offset < text.length;) {
+			const end = textBoundary(text, Math.min(text.length, offset + chunkLength));
+			this.storage.sql.exec('INSERT INTO inference_body_chunks(attempt_id, kind, chunk_index, text) VALUES (?, ?, ?, ?)', attemptId, kind, index++, text.slice(offset, end));
+			offset = end;
+		}
+	}
+
+	private deltaDepth(id: number): number {
+		let next: number | null = id;
+		let depth = 0;
+		while (next !== null && depth < agentLogDeltaDepthLimit) {
+			const row: { base_id: number | null } | undefined = this.storage.sql.exec<{ base_id: number | null }>('SELECT base_id FROM inference_attempts WHERE id = ? LIMIT 1', next).toArray()[0];
+			next = row?.base_id ?? null;
+			if (next !== null) depth++;
+		}
+		return depth;
 	}
 
 	body(id: number): string | null {
@@ -134,9 +168,10 @@ export class AgentLogStore {
 		this.assertCanWrite();
 		this.storage.transactionSync(() => {
 			if (!this.storage.sql.exec('SELECT id FROM inference_attempts WHERE id = ? LIMIT 1', attemptId).toArray().length) throw new RepositoryError('not_found', 'The inference attempt is not retained.', 404);
-			this.writeChunks(attemptId, JSON.stringify(outcome), 'outcome');
-			this.writeChunks(attemptId, '', 'partial');
-			this.storage.sql.exec('UPDATE inference_attempts SET outcome_json = ?, partial_response = NULL WHERE id = ?', JSON.stringify({ kind: outcome.kind }), attemptId);
+			this.flushAttempt(attemptId);
+			this.writeChunks(attemptId, JSON.stringify(logAttemptOutcome(outcome)), 'outcome');
+			this.storage.sql.exec('UPDATE inference_attempts SET outcome_json = ? WHERE id = ?', JSON.stringify({ kind: outcome.kind }), attemptId);
+			this.forgetAttempt(attemptId);
 		});
 	}
 
@@ -151,27 +186,52 @@ export class AgentLogStore {
 
 	partial(runId: string, eventSeq: number, payload: Record<string, unknown>): string | null {
 		this.assertCanWrite();
-		const request = this.byEvent(runId, eventSeq);
-		if (!request) return null;
-		const id = this.latestAttempt(request.id);
-		if (id !== null) {
-			const row = this.storage.sql.exec<{ partial_response: string | null }>('SELECT partial_response FROM inference_attempts WHERE id = ? LIMIT 1', id).one();
-			const partial = row.partial_response ? JSON.parse(this.readChunks(id, 'partial')) as { content: string; reasoning: string; toolCalls: unknown[] } : { content: '', reasoning: '', toolCalls: [] };
-			if (payload.kind === 'content' && typeof payload.text === 'string') partial.content += payload.text;
-			if (payload.kind === 'reasoning' && typeof payload.text === 'string') partial.reasoning += payload.text;
-			if (payload.kind === 'tool_call') partial.toolCalls.push(payload.part);
-			this.storage.transactionSync(() => {
-				this.writeChunks(id, JSON.stringify(partial), 'partial');
-				this.storage.sql.exec("UPDATE inference_attempts SET partial_response = 'retained' WHERE id = ? AND outcome_json IS NULL", id);
-			});
+		const live = this.liveAttempts.get(JSON.stringify([runId, eventSeq]));
+		if (!live) return null;
+		let added = '';
+		if (payload.kind === 'content' && typeof payload.text === 'string') {
+			live.text.content += payload.text;
+			added = payload.text;
 		}
-		return request.id;
+		if (payload.kind === 'reasoning' && typeof payload.text === 'string') {
+			live.text.reasoning += payload.text;
+			added = payload.text;
+		}
+		if (payload.kind === 'tool_call') {
+			const part = logToolDelta(payload.part);
+			live.text.toolCalls.push(part);
+			added = JSON.stringify(part);
+		}
+		live.unflushedBytes += new TextEncoder().encode(added).byteLength;
+		if (live.unflushedBytes >= partialFlushBytes || Date.now() - live.flushedAt >= partialFlushMs) this.flushAttempt(live.attemptId);
+		return live.requestId;
+	}
+
+	private flushAttempt(id: number): void {
+		const live = [...this.liveAttempts.values()].find(attempt => attempt.attemptId === id);
+		if (!live || !live.unflushedBytes) return;
+		this.storage.transactionSync(() => {
+			this.writeChunks(id, JSON.stringify(live.text), 'partial');
+			this.storage.sql.exec("UPDATE inference_attempts SET partial_response = 'retained' WHERE id = ? AND outcome_json IS NULL", id);
+		});
+		live.unflushedBytes = 0;
+		live.flushedAt = Date.now();
+	}
+
+	private forgetAttempt(id: number): void {
+		for (const [key, live] of this.liveAttempts) if (live.attemptId === id) this.liveAttempts.delete(key);
+	}
+
+	private partialText(id: number, retained: string | null): string | null {
+		const live = [...this.liveAttempts.values()].find(attempt => attempt.attemptId === id);
+		if (live && (live.unflushedBytes || retained)) return JSON.stringify(live.text);
+		return retained ? JSON.stringify(logPartial(storedLogValue(this.readChunks(id, 'partial')))) : null;
 	}
 
 	request(id: string): AgentLogRequest {
 		const row = this.storage.sql.exec<RequestRow>('SELECT * FROM inference_requests WHERE id = ? LIMIT 1', id).toArray()[0];
 		if (!row) throw new RepositoryError('not_found', 'The inference request is not retained.', 404);
-		const attempts = this.storage.sql.exec<AttemptRow>('SELECT * FROM inference_attempts WHERE request_id = ? ORDER BY id LIMIT 1000', id).toArray().map((attempt): AgentLogAttempt => ({ id: attempt.id, startedAt: attempt.started_at, body: this.body(attempt.id), partialResponse: attempt.partial_response ? this.readChunks(attempt.id, 'partial') : null, outcome: attempt.outcome_json ? this.outcome(attempt.id, attempt.outcome_json) : null }));
+		const attempts = this.storage.sql.exec<AttemptRow>('SELECT * FROM inference_attempts WHERE request_id = ? ORDER BY id LIMIT 1000', id).toArray().map((attempt): AgentLogAttempt => ({ id: attempt.id, startedAt: attempt.started_at, body: this.body(attempt.id), partialResponse: this.partialText(attempt.id, attempt.partial_response), outcome: attempt.outcome_json ? this.outcome(attempt.id, attempt.outcome_json) : null }));
 		return { id: row.id, runId: row.run_id, purpose: row.purpose, state: row.state, createdAt: row.created_at, messageSeq: row.message_seq, sessionId: row.session_id, attempts };
 	}
 
@@ -187,6 +247,7 @@ export class AgentLogStore {
 	clear(): void {
 		this.assertCanWrite();
 		this.storage.transactionSync(() => {
+			this.liveAttempts.clear();
 			for (const table of ['inference_body_chunks', 'inference_attempts', 'inference_requests', 'compaction_sessions']) this.storage.sql.exec(`DELETE FROM ${table}`);
 		});
 	}
@@ -214,13 +275,13 @@ export class AgentLogStore {
 	}
 
 	private outcome(id: number, metadata: string): AgentLogAttemptOutcome {
-		return JSON.parse(this.readChunks(id, 'outcome') || metadata) as AgentLogAttemptOutcome;
+		return logAttemptOutcome(storedLogValue(this.readChunks(id, 'outcome') || metadata));
 	}
 
 	summary(requestId: string): AgentLogAttemptSummary {
 		const attempts = this.storage.sql.exec<Pick<AttemptRow, 'id' | 'outcome_json'>>('SELECT id, outcome_json FROM inference_attempts WHERE request_id = ? ORDER BY id LIMIT 1000', requestId).toArray();
 		return { count: attempts.length, failures: attempts.flatMap(row => {
-			if (!row.outcome_json || JSON.parse(row.outcome_json).kind === 'success') return [];
+			if (!row.outcome_json || logAttemptKind(storedLogValue(row.outcome_json)) === 'success') return [];
 			const outcome = this.outcome(row.id, row.outcome_json);
 			return outcome && outcome.kind !== 'success' ? [{ attemptId: row.id, outcome }] : [];
 		}) };
@@ -239,7 +300,11 @@ export class AgentLogStore {
 		this.assertCanWrite();
 		for (const row of this.storage.sql.exec<{ id: string }>("SELECT id FROM inference_requests WHERE run_id = ? AND state = 'pending' ORDER BY created_at LIMIT 100", runId).toArray()) {
 			const attempt = this.latestAttempt(row.id);
-			if (attempt !== null) this.storage.sql.exec('UPDATE inference_attempts SET outcome_json = ? WHERE id = ? AND outcome_json IS NULL', JSON.stringify(failure), attempt);
+			if (attempt !== null) {
+				this.flushAttempt(attempt);
+				this.storage.sql.exec('UPDATE inference_attempts SET outcome_json = ? WHERE id = ? AND outcome_json IS NULL', JSON.stringify(logAttemptOutcome(failure)), attempt);
+				this.forgetAttempt(attempt);
+			}
 			this.finish(row.id, 'failed');
 		}
 		for (const row of this.storage.sql.exec<{ id: string }>("SELECT id FROM compaction_sessions WHERE run_id = ? AND json_extract(outcome_json, '$.kind') = 'pending' ORDER BY created_at LIMIT 100", runId).toArray()) this.settleSession(row.id, { kind: 'failed', error: failure });
@@ -258,20 +323,24 @@ export class AgentLogStore {
 		this.assertCanWrite();
 		const id = crypto.randomUUID();
 		const anchor = this.anchor();
-		this.storage.sql.exec('INSERT INTO compaction_sessions(id, run_id, trigger_json, position, anchor_seq, outcome_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)', id, runId, JSON.stringify(trigger), anchor.position + 0.5, anchor.seq, JSON.stringify({ kind: 'pending' }), new Date().toISOString());
+		this.storage.sql.exec('INSERT INTO compaction_sessions(id, run_id, trigger_json, position, anchor_seq, outcome_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)', id, runId, JSON.stringify(logTrigger(trigger)), anchor.position + 0.5, anchor.seq, JSON.stringify({ kind: 'pending' }), new Date().toISOString());
 		return id;
 	}
 
 	settleSession(id: string, outcome: AgentLogCompactionOutcome): void {
 		this.assertCanWrite();
-		this.storage.sql.exec('UPDATE compaction_sessions SET outcome_json = ? WHERE id = ?', JSON.stringify(outcome), id);
+		if (outcome.kind === 'failed') {
+			const summaries = this.storage.sql.exec<{ seq: number }>("SELECT seq FROM loop_messages WHERE session_id = ? AND origin = 'compaction' ORDER BY position, seq LIMIT 1000", id).toArray();
+			if (summaries.length) outcome = { kind: 'partial', summarySeqs: summaries.map(row => row.seq), failedBatchCount: 1, error: outcome.error };
+		}
+		this.storage.sql.exec('UPDATE compaction_sessions SET outcome_json = ? WHERE id = ?', JSON.stringify(logCompactionOutcome(outcome)), id);
 		if (outcome.kind === 'succeeded') this.storage.sql.exec('UPDATE loop_messages SET session_id = ? WHERE seq = ?', id, outcome.summarySeq);
 	}
 
 	session(id: string): AgentLogCompactionSession {
 		const row = this.storage.sql.exec<SessionRow>('SELECT * FROM compaction_sessions WHERE id = ? LIMIT 1', id).toArray()[0];
 		if (!row) throw new RepositoryError('not_found', 'The compaction session is not retained.', 404);
-		return { id: row.id, trigger: JSON.parse(row.trigger_json) as AgentLogCompactionTrigger, position: row.position, createdAt: row.created_at, outcome: JSON.parse(row.outcome_json) as AgentLogCompactionOutcome, requests: this.storage.sql.exec<{ id: string }>('SELECT id FROM inference_requests WHERE session_id = ? ORDER BY event_seq LIMIT 1000', id).toArray().map(request => this.request(request.id)) };
+		return { id: row.id, trigger: logTrigger(storedLogValue(row.trigger_json)), position: row.position, createdAt: row.created_at, outcome: logCompactionOutcome(storedLogValue(row.outcome_json)), requests: this.storage.sql.exec<{ id: string }>('SELECT id FROM inference_requests WHERE session_id = ? ORDER BY event_seq LIMIT 1000', id).toArray().map(request => this.request(request.id)) };
 	}
 
 	entries(messages: BotLoopMessage[], source: number | null): AgentLogEntry[] {
@@ -282,7 +351,7 @@ export class AgentLogStore {
 				return [{ kind: 'notice', position: message.position ?? message.seq, notice: { kind: message.origin === 'runtime_error' ? 'runtime_error' : 'dropped_output', message: message.message.content ?? '', messageSeq: message.seq } }];
 			}
 			if (!loopMessageContributesToProviderHistory(message.origin, message.message)) return [];
-			return [{ kind: 'message', position: message.position ?? message.seq, message, author: (refs.author_json ? JSON.parse(refs.author_json) : agentLogAuthor(message.origin, message.role)) as ReturnType<typeof agentLogAuthor>, requestId: refs.request_id, sessionId: refs.session_id, attempts: refs.request_id ? this.summary(refs.request_id) : null }];
+			return [{ kind: 'message', position: message.position ?? message.seq, message, author: logAuthor(refs.author_json ? storedLogValue(refs.author_json) : agentLogAuthor(message.origin, message.role)), requestId: refs.request_id, sessionId: refs.session_id, attempts: refs.request_id ? this.summary(refs.request_id) : null }];
 		});
 		const pagePredicate = source === null ? 'm.compacted_by IS NULL' : 'm.compacted_by = ?';
 		const bindings = source === null ? [] : [source];
@@ -290,11 +359,11 @@ export class AgentLogStore {
 			if (row.state === 'pending' && source === null) {
 				const attempt = this.latestAttempt(row.id);
 				const partial = attempt === null ? null : this.storage.sql.exec<{ partial_response: string | null }>('SELECT partial_response FROM inference_attempts WHERE id = ? LIMIT 1', attempt).one().partial_response;
-				const partialText = partial && attempt !== null ? this.readChunks(attempt, 'partial') : null;
+				const partialText = attempt !== null ? this.partialText(attempt, partial) : null;
 				entries.push({ kind: 'live', position: Number.MAX_SAFE_INTEGER, requestId: row.id, runId: row.run_id, attempts: this.summary(row.id), partialResponse: partialText });
 			} else if (row.state === 'failed') entries.push({ kind: 'notice', position: row.position, notice: { kind: 'request_failed', requestId: row.id, attempts: this.summary(row.id) } });
 		}
-		for (const row of this.storage.sql.exec<SessionRow>(`SELECT s.* FROM compaction_sessions s LEFT JOIN loop_messages m ON m.seq = s.anchor_seq WHERE ${pagePredicate} ORDER BY s.position, s.created_at LIMIT 2000`, ...bindings).toArray()) entries.push({ kind: 'notice', position: row.position, notice: { kind: 'compaction_started', sessionId: row.id, outcome: JSON.parse(row.outcome_json) as AgentLogCompactionOutcome } });
+		for (const row of this.storage.sql.exec<SessionRow>(`SELECT s.* FROM compaction_sessions s LEFT JOIN loop_messages m ON m.seq = s.anchor_seq WHERE ${pagePredicate} ORDER BY s.position, s.created_at LIMIT 2000`, ...bindings).toArray()) entries.push({ kind: 'notice', position: row.position, notice: { kind: 'compaction_started', sessionId: row.id, outcome: logCompactionOutcome(storedLogValue(row.outcome_json)) } });
 		return entries.sort((a, b) => a.position - b.position);
 	}
 
@@ -358,7 +427,7 @@ export class AgentLogStore {
 				this.storage.sql.exec('DELETE FROM inference_requests WHERE id = ?', request.id);
 			}
 			const sessions = this.storage.sql.exec<{ id: string }>(`SELECT s.id FROM compaction_sessions s LEFT JOIN loop_messages m ON m.seq = s.anchor_seq
-			 WHERE (json_extract(s.outcome_json, '$.kind') = 'succeeded' AND NOT EXISTS (SELECT 1 FROM loop_messages summary WHERE summary.session_id = s.id AND summary.origin = 'compaction'))
+			 WHERE (json_extract(s.outcome_json, '$.kind') IN ('succeeded', 'partial') AND NOT EXISTS (SELECT 1 FROM loop_messages summary WHERE summary.session_id = s.id AND summary.origin = 'compaction'))
 			 OR (json_extract(s.outcome_json, '$.kind') = 'failed' AND s.created_at < ? AND NOT (s.anchor_seq IS NULL OR (${protectedPage})))
 			 ORDER BY s.created_at, s.id LIMIT 100`, new Date(now.getTime() - 14 * 86400000).toISOString(), ...pages).toArray();
 			for (const session of sessions) this.storage.sql.exec('DELETE FROM compaction_sessions WHERE id = ?', session.id);

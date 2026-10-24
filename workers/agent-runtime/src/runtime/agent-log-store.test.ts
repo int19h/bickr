@@ -5,7 +5,7 @@ import { resultHandleKey } from './result-handles';
 import { withRunExecution, settleOutsideExecution } from './execution-scope';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { agentLogAuthor, type AgentLogSource, type BotLoopMessageOrigin } from '@bickr/shared/model';
-import { AgentLogStore, agentLogFailure } from './agent-log-store';
+import { AgentLogStore, agentLogFailure, agentLogDeltaDepthLimit } from './agent-log-store';
 import { RuntimeMessageStore } from './message-store';
 import { createRuntimeTestStorage, type RuntimeTestStorage } from './sqlite-test-helper';
 import { testResultContext } from './result-render-context.test-support';
@@ -33,7 +33,7 @@ describe('agent log storage', () => {
 		const toolRow = messages.appendLoopMessage(testResultContext, 'earlier', attachToolResultView({ role: 'tool', tool_call_id: 'profile-call', content: '' }, view), 'tool_result');
 		const history = messages.loopMessagesAfter(testResultContext, 0).map(row => row.message);
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
-			state: { storage }, env: {}, renewProgressLease: vi.fn(), throwIfStopped: vi.fn(),
+			state: { storage }, agentLogs: store, env: {}, renewProgressLease: vi.fn(), throwIfStopped: vi.fn(),
 			requireOwnerOrInternal: vi.fn(), recordProviderTokenCalibrationSampleFromError: vi.fn(),
 			fetchProviderResponse: vi.fn(async (_settings, _endpoint, body: string) => { sent = body; await gate; return new ReadableStream(); }),
 			consumeProviderResponse: vi.fn(async () => response),
@@ -164,18 +164,33 @@ describe('agent log storage', () => {
 		expect(messages.loopMessageRow(child.seq)?.compacted_by).toBe(second.seq);
 	});
 
-	it('commits no batch when a later compaction batch fails', async () => {
-		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
-			state: { storage }, broadcastControl: vi.fn(),
-			compactLoopMessageBatchesForSession: vi.fn(async () => {
-				runtime.stageCompactionCommit(() => messages.appendLoopMessage(testResultContext, 'run', { role: 'assistant', content: 'Uncommitted summary' }, 'compaction'));
-				throw new Error('The second batch failed.');
-			}),
+	it('keeps batch one when batch two of three fails and reports partial success', async () => {
+		for (let index = 0; index < 3; index++) messages.appendLoopMessage(testResultContext, 'run', { role: 'assistant', content: `Batch ${index}` }, 'provider_response');
+		const rows = messages.activeLoopMessageRows();
+		const compact = vi.fn(async (_context, _bot, _settings, _runId, _signal, selected) => {
+			if (compact.mock.calls.length === 2) {
+				expect(JSON.parse(selected[0].message_json).content).toBe('Updated by batch one');
+				throw new ProviderStructuredOutputValidationError(botText('en'), 'compaction', { message: 'Invalid', ownerMessage: 'The second batch failed.' } as never, { validationIssue: 'transcript_like_compaction' });
+			}
+			const sessionId = storage.sql.exec<{ id: string }>('SELECT id FROM compaction_sessions LIMIT 1').one().id;
+			const summary = messages.insertLoopMessage(testResultContext, { runId: 'run', message: { role: 'assistant', content: 'Kept summary' }, origin: 'compaction', status: 'complete', position: selected[0].position, broadcast: false });
+			storage.sql.exec('UPDATE loop_messages SET session_id = ? WHERE seq = ?', sessionId, summary.seq);
+			storage.sql.exec('UPDATE loop_messages SET compacted_by = ? WHERE seq = ?', summary.seq, selected[0].seq);
+			storage.sql.exec('UPDATE loop_messages SET message_json = ? WHERE seq = ?', JSON.stringify({ role: 'assistant', content: 'Updated by batch one' }), rows[1]!.seq);
+			return selected;
 		});
-		await expect(runtime.compactLoopMessageRowsInBatches(testResultContext, {}, {}, 'run', new AbortController().signal, [], 'manual', {})).rejects.toThrow('second batch');
-		expect(messages.activeLoopMessageRows()).toEqual([]);
-		const session = storage.sql.exec<{ id: string }>('SELECT id FROM compaction_sessions LIMIT 1').one();
-		expect(store.session(session.id).outcome).toMatchObject({ kind: 'failed' });
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			state: { storage }, broadcastControl: vi.fn(), compactLoopMessageRowsForSession: compact,
+			textTokenCalibration: () => ({ tokensPerCharacter: 1 }), renderLoopMessageRow: (_context: unknown, row: { message_json: string }) => JSON.parse(row.message_json),
+			compactionPromptTokenLimit: () => 1, compactionRowsLeaveOutputBudget: () => true,
+		});
+		await expect(runtime.compactLoopMessageRowsInBatches(testResultContext, { text: botText('en') }, { model: 'test', text: botText('en') }, 'run', new AbortController().signal, rows, 'manual', {})).rejects.toThrow('second batch');
+		expect(compact).toHaveBeenCalledTimes(2);
+		const active = messages.activeLoopMessageRows();
+		expect(active.map(row => JSON.parse(row.message_json).content)).toEqual(['Kept summary', 'Updated by batch one', 'Batch 2']);
+		const sessionId = storage.sql.exec<{ id: string }>('SELECT id FROM compaction_sessions LIMIT 1').one().id;
+		expect(store.session(sessionId).outcome).toEqual({ kind: 'partial', summarySeqs: [active[0]!.seq], failedBatchCount: 1, error: { kind: 'validation', issue: 'transcript_like_compaction', message: expect.stringContaining('The second batch failed.') } });
+		expect(messages.loopMessagesPage(testResultContext, { page: 1 }).page.pages[0]?.compactionSessionId).toBe(sessionId);
 	});
 
 	it('rejects synthetic assistant writes that do not name their source', () => {
@@ -271,6 +286,102 @@ describe('agent log storage', () => {
 		messages.recordLoopMessageLog(row.seq, 'provider_response', JSON.stringify({ droppedToolCalls: [{ id: 'bad', name: 'action', reason: 'invalid_arguments_json' }] }));
 		store.migrate(messages);
 		expect(store.requestForMessage(row.seq)).toMatchObject({ state: 'failed', attempts: [{ outcome: { kind: 'dropped_invalid_output', droppedCalls: [{ id: 'bad' }] } }] });
+	});
+
+	it('caps delta depth and reconstructs the body at the limit exactly', () => {
+		const id = request();
+		let atLimit = '';
+		let atLimitId = 0;
+		let last = 0;
+		for (let index = 0; index < 300; index++) {
+			const body = 'shared system prompt '.repeat(40) + index;
+			last = store.startAttempt(id, body);
+			let depth = 0;
+			let next = storage.sql.exec<{ base_id: number | null }>('SELECT base_id FROM inference_attempts WHERE id = ?', last).one().base_id;
+			while (next !== null) { depth++; next = storage.sql.exec<{ base_id: number | null }>('SELECT base_id FROM inference_attempts WHERE id = ?', next).one().base_id; }
+			expect(depth).toBeLessThanOrEqual(agentLogDeltaDepthLimit);
+			if (depth === agentLogDeltaDepthLimit) { atLimit = body; atLimitId = last; }
+		}
+		expect(atLimitId).toBeGreaterThan(0);
+		expect(store.body(atLimitId)).toBe(atLimit);
+		const sql = vi.spyOn(storage.sql, 'exec');
+		store.startAttempt(id, 'shared system prompt '.repeat(40) + 'next');
+		expect(sql.mock.calls.length).toBeLessThan(80);
+	});
+
+	it('keeps an emoji intact at a common-prefix cut', () => {
+		const id = request();
+		store.startAttempt(id, 'a'.repeat(100) + '😀 first');
+		const body = 'a'.repeat(100) + '😁 next';
+		const attempt = store.startAttempt(id, body);
+		expect(store.body(attempt)).toBe(body);
+		expect(storage.sql.exec<{ prefix_length: number }>('SELECT prefix_length FROM inference_attempts WHERE id = ?', attempt).one().prefix_length).toBe(100);
+	});
+
+	it('keeps an emoji intact at a fixed chunk cut', () => {
+		const body = 'a'.repeat(63_999) + '😀 tail';
+		const attempt = store.startAttempt(request(), body);
+		expect(store.body(attempt)).toBe(body);
+		expect(storage.sql.exec<{ text: string }>('SELECT text FROM inference_body_chunks WHERE attempt_id = ? ORDER BY chunk_index', attempt).toArray().map(row => row.text)).toEqual(['a'.repeat(63_999), '😀 tail']);
+	});
+
+	it('serves live text from memory and bounds stream flushes by bytes and time', () => {
+		const id = request();
+		const attempt = store.startAttempt(id, '{}');
+		let now = 1_000;
+		vi.spyOn(Date, 'now').mockImplementation(() => now);
+		const writes = vi.spyOn(storage, 'transactionSync');
+		for (let index = 0; index < 10_000; index++) store.partial('run', 1, { kind: 'content', text: 'x'.repeat(20) });
+		expect(writes.mock.calls.length).toBeLessThanOrEqual(Math.floor(200_000 / 4_096));
+		expect(JSON.parse(store.request(id).attempts[0]!.partialResponse!).content).toBe('x'.repeat(200_000));
+		expect(store.entries([], null)).toMatchObject([{ kind: 'live', partialResponse: store.request(id).attempts[0]!.partialResponse }]);
+		now = Date.now() + 1_000_000;
+		store.partial('run', 1, { kind: 'reasoning', text: 'Timed flush' });
+		const recovered = new AgentLogStore(storage);
+		recovered.recoverInterrupted();
+		expect(recovered.request(id).attempts[0]).toMatchObject({ outcome: { kind: 'interrupted' } });
+		expect(JSON.parse(recovered.request(id).attempts[0]!.partialResponse!).reasoning).toBe('Timed flush');
+		store.settle(attempt, { kind: 'timeout' });
+		expect(JSON.parse(new AgentLogStore(storage).request(id).attempts[0]!.partialResponse!).content).toHaveLength(200_000);
+	});
+
+	it('flushes the last partial text at settlement', () => {
+		const id = request();
+		const attempt = store.startAttempt(id, '{}');
+		store.partial('run', 1, { kind: 'content', text: 'Last text' });
+		expect(new AgentLogStore(storage).request(id).attempts[0]!.partialResponse).toBeNull();
+		store.settle(attempt, { kind: 'interrupted' });
+		expect(JSON.parse(new AgentLogStore(storage).request(id).attempts[0]!.partialResponse!).content).toBe('Last text');
+	});
+
+	it('selects nested fields from stored records through the public store methods', () => {
+		const id = request();
+		const attempt = store.startAttempt(id, '{}');
+		store.settle(attempt, { kind: 'dropped_invalid_output', droppedCalls: [{ id: 'call', name: 'action', reason: 'invalid', argumentsPreview: '{}' }] });
+		const leaked = { kind: 'dropped_invalid_output', internalSecret: 'private', droppedCalls: [{ id: 'call', name: 'action', reason: 'invalid', argumentsPreview: '{}', internalSecret: 'private' }] };
+		storage.sql.exec("UPDATE inference_body_chunks SET text = ? WHERE attempt_id = ? AND kind = 'outcome'", JSON.stringify(leaked), attempt);
+		const row = append();
+		storage.sql.exec('UPDATE loop_messages SET author_json = ? WHERE seq = ?', JSON.stringify({ kind: 'model', internalSecret: 'private' }), row.seq);
+		const sessionId = store.startSession('run', { kind: 'manual' });
+		storage.sql.exec('UPDATE compaction_sessions SET trigger_json = ?, outcome_json = ? WHERE id = ?', JSON.stringify({ kind: 'manual', internalSecret: 'private' }), JSON.stringify({ kind: 'failed', error: leaked, internalSecret: 'private' }), sessionId);
+		for (const value of [store.request(id), store.summary(id), store.entries([row], null), store.session(sessionId)]) expect(JSON.stringify(value)).not.toContain('internalSecret');
+	});
+
+	it('rejects unknown stored kinds through the public store methods', () => {
+		const id = request();
+		const attempt = store.startAttempt(id, '{}');
+		store.settle(attempt, { kind: 'timeout' });
+		storage.sql.exec("UPDATE inference_body_chunks SET text = ? WHERE attempt_id = ? AND kind = 'outcome'", '{"kind":"unknown","internalSecret":"private"}', attempt);
+		expect(() => store.request(id)).toThrow('The stored agent log has an unsupported shape.');
+		expect(() => store.summary(id)).toThrow('The stored agent log has an unsupported shape.');
+		const row = append();
+		storage.sql.exec('UPDATE loop_messages SET author_json = ? WHERE seq = ?', '{"kind":"unknown"}', row.seq);
+		expect(() => store.entries([row], null)).toThrow('The stored agent log has an unsupported shape.');
+		const sessionId = store.startSession('other', { kind: 'manual' });
+		storage.sql.exec('UPDATE compaction_sessions SET outcome_json = ? WHERE id = ?', '{"kind":"unknown"}', sessionId);
+		expect(() => store.session(sessionId)).toThrow('The stored agent log has an unsupported shape.');
+		storage.sql.exec('UPDATE compaction_sessions SET outcome_json = ?, trigger_json = ? WHERE id = ?', '{"kind":"pending"}', '{"kind":"unknown"}', sessionId);
+		expect(() => store.session(sessionId)).toThrow('The stored agent log has an unsupported shape.');
 	});
 
 	it('keeps structured provider status and error type', () => {

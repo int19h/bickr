@@ -962,7 +962,7 @@ export function BotRuntimePanel({
 							switch (notice.kind) {
 								case 'runtime_error': case 'dropped_output': return <p key={`notice-${index}`}>{notice.message}</p>;
 								case 'request_failed': return <p key={notice.requestId}><button className="btn" onClick={() => void viewRequest(notice.requestId)}>No response after {notice.attempts.count} attempts</button></p>;
-								case 'compaction_started': return <p key={notice.sessionId}><button className="btn" onClick={() => void viewSession(notice.sessionId)}>Compaction: {notice.outcome.kind}</button></p>;
+								case 'compaction_started': return <p key={notice.sessionId}><button className="btn" onClick={() => void viewSession(notice.sessionId)}>Compaction: {notice.outcome.kind}{notice.outcome.kind === 'partial' ? ` (${notice.outcome.failedBatchCount} ${notice.outcome.failedBatchCount === 1 ? 'batch' : 'batches'} failed)` : ''}</button></p>;
 								default: return <p key={`unknown-notice-${index}`}>Unknown runtime notice.</p>;
 							}
 						}

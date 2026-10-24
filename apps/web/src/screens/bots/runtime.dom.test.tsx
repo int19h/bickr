@@ -454,6 +454,12 @@ it('renders an unknown entry as a plain notice', async () => {
 	expect(container.textContent).toContain('Unknown log entry.');
 });
 
+it('names the failed batch count for a partly successful compaction', async () => {
+	const entry: AgentLogEntry = { kind: 'notice', position: 2, notice: { kind: 'compaction_started', sessionId: 'partial-session', outcome: { kind: 'partial', summarySeqs: [3], failedBatchCount: 1, error: { kind: 'timeout' } } } };
+	await act(async () => pendingMessages[0]?.resolve({ messages: [], entries: [entry], page: page(1, {}, [{ page: 1, messageCount: 0 }]) }));
+	expect(container.textContent).toContain('Compaction: partial (1 batch failed)');
+});
+
 async function answerMessages(index: number, messages: BotLoopMessage[], responsePage = page(1, {}, [
 	{ page: 1, messageCount: messages.length },
 ])): Promise<void> {

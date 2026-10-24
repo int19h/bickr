@@ -615,7 +615,7 @@ export class RuntimeMessageStore {
 			return {
 				page: descriptor.page,
 				isNewest: descriptor.page === 1,
-				compactionSessionId: this.storage.sql.exec<{ session_id: string | null }>("SELECT session_id FROM loop_messages WHERE compacted_by IS ? AND origin = 'compaction' AND deleted_at IS NULL ORDER BY position DESC, seq DESC LIMIT 1", descriptor.sourceCompactionSeq).toArray()[0]?.session_id ?? null,
+				compactionSessionId: this.storage.sql.exec<{ session_id: string | null }>("SELECT session_id FROM loop_messages WHERE compacted_by IS ? AND origin = 'compaction' AND deleted_at IS NULL ORDER BY position, seq LIMIT 1", descriptor.sourceCompactionSeq).toArray()[0]?.session_id ?? null,
 				messageCount: summary.messageCount,
 				...(summary.fromSeq !== null ? { fromSeq: summary.fromSeq } : {}),
 				...(summary.toSeq !== null ? { toSeq: summary.toSeq } : {}),

@@ -31,7 +31,7 @@ export type AgentLogRequest = {
 export type AgentLogAttemptSummary = { count: number; failures: Array<{ attemptId: number; outcome: AgentLogFailure }> };
 export type AgentLogRequestSummary = Omit<AgentLogRequest, 'attempts'> & { attempts: AgentLogAttemptSummary };
 export type AgentLogCompactionTrigger = { kind: 'visit' | 'admission' | 'manual' | 'legacy_forced' };
-export type AgentLogCompactionOutcome = { kind: 'pending' } | { kind: 'succeeded'; summarySeq: number } | { kind: 'failed'; error: AgentLogFailure };
+export type AgentLogCompactionOutcome = { kind: 'pending' } | { kind: 'succeeded'; summarySeq: number } | { kind: 'failed'; error: AgentLogFailure } | { kind: 'partial'; summarySeqs: number[]; failedBatchCount: number; error: AgentLogFailure };
 export type AgentLogCompactionSession = {
 	id: string;
 	trigger: AgentLogCompactionTrigger;
