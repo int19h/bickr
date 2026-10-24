@@ -110,10 +110,10 @@ describe('context-budget-minimum-v1 migration', () => {
 		const input = parseCreateBotInput({ handle: 'cleanup-budget', language: 'en', displayName: 'Pending participant', shortBio: 'A participant.', prompt: 'Keep useful memories.', tickSettings: { contextWindowTokens: contextWindowTokensMin } });
 		const operation = await queue.run(() => reserveBotCreate(context, owner, source.homeWorldHandle, input));
 		const request = parseBotCreateLifecycleRequest(operation.requestJson!);
-		await expect(userCoordinatorRepositoryMutations.createBot(env.BICKR_KV, env.BICKR_D1, source.homeWorldHandle, input, owner, {
+		await expect(queue.run(() => userCoordinatorRepositoryMutations.createBot(env.BICKR_KV, env.BICKR_D1, source.homeWorldHandle, input, owner, {
 			now: request.createdAt, botId: request.botId, personalForumId: request.personalForumId, lifecycleState: 'pending',
 			checkpoint: async point => { if (point === 'bot.materialize.indexes.d1') throw new Error('Hard interruption.'); },
-		})).rejects.toThrow('Hard interruption.');
+		}))).rejects.toThrow('Hard interruption.');
 		const compensating = await beginLifecycleCompensation(env.BICKR_D1, operation, { category: 'external_terminal', code: 'test', retryable: false }, new Date().toISOString());
 		const interruptedKv = {
 			get: env.BICKR_KV.get.bind(env.BICKR_KV),

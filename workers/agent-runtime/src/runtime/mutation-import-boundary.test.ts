@@ -64,6 +64,8 @@ const retiredRepositoryMutationNames = [
 ] as const;
 
 const userCoordinatorModules = new Set([
+	// This migration test interrupts the real writer inside its owner queue.
+	"test/context-budget-migration.spec.ts",
 	"workers/agent-runtime/src/routes.ts",
 	"workers/agent-runtime/src/lifecycle/account.ts",
 	"workers/agent-runtime/src/lifecycle/bot.ts",
