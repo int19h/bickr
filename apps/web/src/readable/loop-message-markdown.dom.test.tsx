@@ -83,6 +83,28 @@ describe('Loop Markdown', () => {
 		} finally { view.close(); }
 	});
 
+	it('keeps the card for a legacy synthetic JSON tool row', () => {
+		const legacy: BotLoopMessage = {
+			...row, contentFormat: 'json', display: fixture.display,
+			message: { role: 'tool', tool_call_id: 'old', content: JSON.stringify(fixture.display.result) },
+		};
+		const view = render(<LoopMessageRow message={legacy} deleting={false} loadingLogs={false} onDelete={() => {}} onViewLogs={() => {}} toolCallsById={new Map()} />);
+		try {
+			expect(view.container.querySelector('.readable-thread-card')).not.toBeNull();
+			expect(view.container.textContent).toContain('Full event data');
+			expect(view.container.textContent).toContain(fixture.hiddenBody);
+		} finally { view.close(); }
+	});
+
+	it('uses the JSON fallback when a newer server sends an unknown format', () => {
+		const contentFormat = 'future-format' as BotLoopMessage['contentFormat'];
+		const view = render(<LoopMessageReadableView contentFormat={contentFormat} message={{ role: 'tool', content: '{"unrecognized":true}' }} />);
+		try {
+			expect(view.container.querySelector('pre')?.textContent).toContain('"unrecognized"');
+			expect(view.container.querySelector('.markdown-body')).toBeNull();
+		} finally { view.close(); }
+	});
+
 	it('uses the existing reference links and navigation in Markdown text', () => {
 		const destinations: unknown[] = [];
 		const view = render(<NavigationContext.Provider value={{ navigate: route => { destinations.push(route); }, openContentRef: async () => {} }}><ReferenceDataContext.Provider value={{ activeWorldHandle: 'primary', bots: [], botsByWorld: {}, forumsByWorld: {}, humans: [], worlds: [] }}><LoopMessageReadableView contentFormat="markdown" message={{ role: 'user', content: 'u/alice f/general t/abcdefgh c/abcdefgh' }} /></ReferenceDataContext.Provider></NavigationContext.Provider>);

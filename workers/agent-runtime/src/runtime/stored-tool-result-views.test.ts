@@ -37,9 +37,27 @@ describe('stored tool result views', () => {
 			{ runId: 'formats', origin: 'runtime_error', message: { role: 'user', content: '## Unknown old row' } },
 		]);
 		const response = store.loopMessagesPage(testResultContext, { page: 1 });
-		expect(response.messages.map(row => row.contentFormat)).toEqual(['text', 'markdown', 'json', 'markdown', 'markdown', 'json']);
+		expect(response.messages.map(row => row.contentFormat)).toEqual(['text', 'markdown', 'json', 'text', 'markdown', 'json']);
 		expect(store.loopMessagesAfter(testResultContext, 0).map(row => row.contentFormat)).toEqual(response.messages.map(row => row.contentFormat));
 		expect(response.messages[1]?.message.content).toContain('PLAN');
+	});
+
+	it('keeps legacy synthetic tool rows as JSON and synthetic assistant rows as text', () => {
+		const { storage, store } = fixture();
+		const legacyJson = '{"threadId":"thr_old","content":[]}';
+		store.appendLoopMessage(testResultContext, 'legacy', { role: 'tool', tool_call_id: 'old', content: legacyJson }, 'synthetic_context');
+		store.appendLoopMessage(testResultContext, 'legacy', { role: 'assistant', content: legacyJson }, 'synthetic_context');
+		store.appendLoopMessage(testResultContext, 'legacy', { role: 'assistant', content: '## Focus text' }, 'synthetic_context');
+		const view: ToolResultView = { ...resultViewBase(text), kind: 'read_note', id: 'PLAN', content: '- Keep the plan current.', links: [] };
+		store.appendLoopMessage(testResultContext, 'current', attachToolResultView({ role: 'tool', tool_call_id: 'new', content: '' }, view), 'synthetic_context');
+		const response = store.loopMessagesPage(testResultContext, { page: 1 });
+		expect(response.messages.map(row => row.contentFormat)).toEqual(['json', 'text', 'text', 'markdown']);
+		expect(response.messages[0]?.message.content).toBe(legacyJson);
+		expect(response.messages[1]?.message.content).toBe(legacyJson);
+		expect(store.loopMessagesAfter(testResultContext, 0).map(row => row.contentFormat)).toEqual(['json', 'text', 'text', 'markdown']);
+		const summary = store.appendLoopMessage(testResultContext, 'compaction', { role: 'assistant', content: 'Older history summary' }, 'compaction');
+		storage.sql.exec('UPDATE loop_messages SET compacted_by = ? WHERE seq <= ?', summary.seq, response.messages[2]!.seq);
+		expect(store.loopMessagesPage(testResultContext, { page: 2 }).messages.map(row => row.contentFormat)).toEqual(['json', 'text', 'text']);
 	});
 
 	it('keeps the browser fixture equal to the stored render', async () => {

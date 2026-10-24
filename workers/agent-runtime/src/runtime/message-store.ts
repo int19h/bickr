@@ -1155,10 +1155,9 @@ function isRuntimeDiagnosticLoopMessageOrigin(
 }
 
 function loopMessageContentFormat(row: LoopMessageRow): BotLoopMessage['contentFormat'] {
-	if (row.tool_result_view_json || row.origin === 'synthetic_context' || (row.role === 'user' && row.origin === 'input')) {
-		return 'markdown';
-	}
+	if (row.role === 'tool') return row.tool_result_view_json ? 'markdown' : 'json';
 	if (row.role === 'assistant') return 'text';
+	if (row.role === 'user' && row.origin === 'input') return 'markdown';
 	// Old rows without format evidence retain the JSON fallback.
 	return 'json';
 }

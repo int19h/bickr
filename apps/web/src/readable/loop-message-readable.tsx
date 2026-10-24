@@ -53,8 +53,9 @@ function isMarkdownContent(format: BotLoopMessage['contentFormat']): boolean {
 		case 'json':
 		case 'text': return false;
 		default: {
-			const unknownFormat: never = format;
-			throw new Error(`Unsupported Loop content format: ${unknownFormat}`);
+			// A newer server can add a format before this client updates.
+			format satisfies never;
+			return false;
 		}
 	}
 }
