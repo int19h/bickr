@@ -1,3 +1,5 @@
+import { migrateOwnedContextBudget } from '../context-budget-migration';
+import { parseBotCreateLifecycleRequest, type BotCreateLifecycleRequest } from './bot-create-request';
 import {
 	fetchRemoteAvatarBytes,
 	normalizeAvatarPublicBaseUrl,
@@ -54,21 +56,6 @@ import { scheduleUserLifecycleAlarm } from "./common";
 import type { AgentRuntimeRouteEnv, LifecycleReservationContext, LifecycleRuntimeContext } from "./types";
 
 const { createBot, deleteBot, materializePendingBotAvatar } = userCoordinatorRepositoryMutations;
-
-type CredentialFreeCreateBotInput = Omit<CreateBotInput, "inferenceSettings"> & {
-	inferenceSettings?: Omit<NonNullable<CreateBotInput["inferenceSettings"]>, "openRouterApiKey">;
-};
-
-export type BotCreateLifecycleRequest = {
-	kind: "bot_create" | "clone_create";
-	userId: string;
-	worldId: string;
-	worldHandle: string;
-	botId: string;
-	personalForumId: string;
-	createdAt: string;
-	input: CredentialFreeCreateBotInput;
-};
 
 type BotDeleteLifecycleRequest = {
 	kind: "bot_delete" | "clone_delete";
@@ -142,11 +129,21 @@ export async function runBotCreateOperation(
 	if (operation.phase === "terminal") return;
 	if (operation.phase === "terminal_failed") throw new RepositoryError("conflict", "Participant creation previously failed terminally.", 409);
 	if (!operation.requestJson) throw new RepositoryError("server_error", "Participant lifecycle request is missing.", 500);
-	const request = parseBotCreateLifecycleRequest(operation.requestJson);
+	let request = parseBotCreateLifecycleRequest(operation.requestJson);
 	if (operation.phase === "compensating") {
+		// Cleanup never materializes or validates the saved creation budget.
 		await compensateBotCreate(context, operation, request);
 		return;
 	}
+	// context-budget-minimum-v1: migrate executable state in this owner queue
+	// step before any replay. Remove with the sweep after schemaVersion > 2.
+	// Keep migration errors outside the creation catch: they must not delete
+	// a participant whose saved request has not yet migrated.
+	const migration = await migrateOwnedContextBudget(context.env.BICKR_KV, context.env.BICKR_D1, request.botId, request.userId);
+	if (migration.kind === 'missing') throw new RepositoryError('server_error', 'Participant creation migration could not find its lifecycle state.', 500);
+	operation = await lifecycleOperationById(context.env.BICKR_D1, operation.operationId) ?? operation;
+	if (!operation.requestJson) throw new RepositoryError("server_error", "Participant lifecycle request is missing.", 500);
+	request = parseBotCreateLifecycleRequest(operation.requestJson);
 	try {
 		operation = await markLifecycleMaterializing(context.env.BICKR_D1, operation, new Date().toISOString());
 		const materializationInput = await botCreateInputWithLifecycleSecret(context, operation, request.input);
@@ -486,7 +483,7 @@ async function botDeletionHasStarted(
 	return Boolean(row?.deletedAt);
 }
 
-function credentialFreeCreateBotInput(input: CreateBotInput): CredentialFreeCreateBotInput {
+function credentialFreeCreateBotInput(input: CreateBotInput): BotCreateLifecycleRequest["input"] {
 	if (!input.inferenceSettings) return input;
 	const { openRouterApiKey: _credential, ...inferenceSettings } = input.inferenceSettings;
 	return { ...input, inferenceSettings };
@@ -495,23 +492,13 @@ function credentialFreeCreateBotInput(input: CreateBotInput): CredentialFreeCrea
 async function botCreateInputWithLifecycleSecret(
 	context: LifecycleRuntimeContext,
 	operation: LifecycleOperation,
-	input: CredentialFreeCreateBotInput,
+	input: BotCreateLifecycleRequest["input"],
 ): Promise<CreateBotInput> {
 	const credential = await lifecycleSecretValue(context.env.BICKR_D1, operation.operationId, "bot_openrouter_api_key");
 	return credential === null ? input : {
 		...input,
 		inferenceSettings: { ...input.inferenceSettings, openRouterApiKey: credential },
 	};
-}
-
-export function parseBotCreateLifecycleRequest(serialized: string): BotCreateLifecycleRequest {
-	const value: unknown = JSON.parse(serialized);
-	if (!value || typeof value !== "object" || Array.isArray(value)) throw new RepositoryError("server_error", "Participant lifecycle request is invalid.", 500);
-	const request = value as Partial<BotCreateLifecycleRequest>;
-	if ((request.kind !== "bot_create" && request.kind !== "clone_create") || typeof request.userId !== "string" || typeof request.worldId !== "string" || typeof request.worldHandle !== "string" || typeof request.botId !== "string" || typeof request.personalForumId !== "string" || typeof request.createdAt !== "string" || !request.input) {
-		throw new RepositoryError("server_error", "Participant lifecycle request is invalid.", 500);
-	}
-	return request as BotCreateLifecycleRequest;
 }
 
 function parseBotDeleteLifecycleRequest(serialized: string): BotDeleteLifecycleRequest {

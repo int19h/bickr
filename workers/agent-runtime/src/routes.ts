@@ -1775,7 +1775,6 @@ export const agentRuntimeRouteTable = [
 		handler: async context => {
 			if (!isTrustedInternalServiceRequest(context.request, context.env.INTERNAL_SERVICE_SECRET)) throw new RepositoryError('unauthorized', 'Authentication is required.', 401);
 			requireSchedulerServiceRequest(context.request);
-			if (!(await readMaintenanceState(context.env.BICKR_D1)).enabled) throw new RepositoryError('conflict', 'Context budget migration requires maintenance mode.', 409);
 			const body = requiredRecord(await readOptionalJsonBody(context.request));
 			if (!context.env.USER_BOTS) throw new RepositoryError('server_error', 'Owner coordinator binding is unavailable.', 500);
 			return ok({ page: await migrateContextBudgetPage({ ...context.env, USER_BOTS: context.env.USER_BOTS }, contextBudgetMigrationCursor(body.cursor)) });
@@ -1791,7 +1790,6 @@ export const agentRuntimeRouteTable = [
 			requireSchedulerServiceRequest(context.request);
 			const userId = requireUserMatch(context.request, decodeURIComponent(context.match[1] ?? ''));
 			if (context.coordinator.ownerUserId !== userId || !context.coordinator.queue) throw new RepositoryError('forbidden', 'The owner coordinator must run this migration.', 403);
-			if (!(await readMaintenanceState(context.env.BICKR_D1)).enabled) throw new RepositoryError('conflict', 'Context budget migration requires maintenance mode.', 409);
 			return ok({ migration: await migrateOwnedContextBudget(context.env.BICKR_KV, context.env.BICKR_D1, decodeURIComponent(context.match[2] ?? ''), userId) });
 		},
 	},

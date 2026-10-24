@@ -2,7 +2,7 @@ import { contextWindowTokensMin, type BotDocument } from '@bickr/shared/model';
 import { assertContextWindowTokens, RepositoryError } from '@bickr/shared/repository';
 import { kvKeys, readJson, writeJson, type D1DatabaseLike, type KVNamespaceLike } from '@bickr/shared/storage';
 import { InputError } from '@bickr/shared/validation';
-import { parseBotCreateLifecycleRequest } from './lifecycle/bot';
+import { parseBotCreateLifecycleRequest } from './lifecycle/bot-create-request';
 import { addInternalServiceAuthHeader, internalServiceUrl } from '@bickr/shared/internal-service';
 import { withStandaloneTimeout } from './provider/sse';
 import { runtimeMaintenanceDispatchTimeoutMs } from './constants';
@@ -30,7 +30,8 @@ export function contextBudgetMigrationCursor(value: unknown): ContextBudgetMigra
 
 // Run only under the owner's coordinator queue. Reads never call this writer.
 // After both fleet passes report no changes or missing documents, advance the
-// document schemaVersion past 2 and remove this module and its two routes.
+// document schemaVersion past 2 and remove this module, its two routes,
+// and the execution safeguard in runBotCreateOperation.
 // The operator retains the cursor and page evidence. No sweep state is stored.
 export async function migrateOwnedContextBudget(
 	kv: KVNamespaceLike, db: D1DatabaseLike, botId: string, ownerUserId: string,

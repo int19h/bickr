@@ -267,7 +267,7 @@ The editor help text derives both numbers from those sources.
 Participant documents in KV store the current configurable override.
 The `bot_runtime_index.context_window_tokens` projection stores that override or `NULL`.
 Pending creation requests also store an executable budget in `entity_lifecycle_operations.request_json`.
-The migration raises that saved budget before recovery resumes.
+The migration raises that saved budget before recovery executes it.
 It preserves the original request hash, which identifies the submitted request.
 
 Inference configurations, account defaults, worlds, and linked clone sources do not supply this setting.
@@ -282,12 +282,25 @@ The probe cache stores prompt token counts, rather than the effective budget.
 The runtime calculates the budget from current settings when it reads those counts.
 No default cache needs a data rewrite.
 
+Global maintenance mode is not needed for this migration.
+After deployment, every configuration writer rejects budgets below the minimum.
+Each migration write uses the owner's `UserBotsCoordinator` queue, which also serializes owner edits.
+The `context-budget-minimum-v1` execution safeguard runs in `runBotCreateOperation` before a saved request executes.
+It applies the same migration writer within that queue step and preserves the original request hash.
+
+The safeguard covers ordinary creation, clone creation, retries, and lifecycle recovery.
+It migrates both the saved request and any existing participant document before materialization.
+Migration errors escape before creation cleanup can delete the participant.
+Compensating cleanup only deletes data and does not execute or validate the saved budget.
+Terminal operations do not replay the saved request.
+This safeguard changes executable state at its writer, rather than repairing data on reads.
+
 Complete these steps in test before an authorized production release:
 
-1. Enable maintenance mode through the normal operator channel and stop active visits.
-   Deploy the reviewed commit while maintenance mode stays enabled.
-   New configuration writes reject budgets below the shared minimum.
-2. Send the first page through the test proxy:
+1. Deploy the reviewed commit.
+   Keep normal site writes and visits enabled.
+2. Run the first full sweep through the test proxy.
+   Send the first page:
 
    ```sh
    curl --fail-with-body -sS 'https://test.bickr.social/api/__test__/service-proxy' \
@@ -301,27 +314,31 @@ Complete these steps in test before an authorized production release:
    The `indexed` pass also includes canonical lifecycle records before index creation.
    The `creations` pass reads saved creation requests, including requests without a KV document yet.
    The `documents` pass lists KV participant keys, including documents without any index or lifecycle row.
+
    Each write runs through the participant owner's `UserBotsCoordinator` queue.
    The queue serializes the document and projection writes with other configuration writes.
-3. Save each page response and resume with `body.cursor` set to the complete object in `data.page.nextCursor`.
+
+   Save each page response and resume with `body.cursor` set to the complete object in `data.page.nextCursor`.
    Keep its `kind` and position fields unchanged when moving between passes.
    Continue until `data.page.done` is true and `data.page.nextCursor` is `null`.
    A `missing` result stops the cursor before that participant.
    Resolve the missing document before resuming that cursor.
+
    A matching pending creation can lack KV before materialization.
    A matching compensating creation can lack KV after cleanup deletes it.
    The sweep accepts these lifecycle states without restoring a document.
+
    If a request fails or its response is lost, repeat the same input cursor.
    A replay finishes pending projection writes without raising a document revision twice.
-4. Before the second full pass, wait at least 60 seconds after the final write.
+3. Wait at least 60 seconds after the final write in the first full sweep.
    KV can return cached values during [propagation](https://developers.cloudflare.com/kv/api/list-keys/).
    If an operator set a longer KV cache lifetime, wait for that lifetime too.
-   Repeat all three passes from the empty cursor.
+4. Run the second full sweep through all three passes from the empty cursor.
+   This sweep also catches old values from workers that finished during deployment.
    Require `data.page.changes.documents`, `indexes`, and `creationRequests` to be zero on every page.
    Require every result to be `unchanged`, with no missing documents, including pending creations.
    If any counter is nonzero, repeat the wait and all three passes.
    Keep both passes and the release record as evidence.
-   Then disable maintenance mode.
 
 For production, complete the same steps through the approved operator service channel after separate production authorization.
 Send `POST /maintenance/context-budget` to the production agent runtime binding.
@@ -335,5 +352,6 @@ The operator owns the resumable cursor and saves page evidence in release artifa
 Existing document, index, and historical data retention rules stay in force.
 After both environments complete a second pass with no changes, retire rollback writers that accept the old minimum.
 Then advance the document `schemaVersion` past 2.
-Remove `context-budget-migration.ts`, both migration routes, their maintenance exemptions, and these operator steps together.
+Remove `context-budget-migration.ts`, both migration routes, their maintenance exemptions, and the execution safeguard together.
+Remove these operator steps in the same change.
 Keep the permanent writer validation and shared constants.

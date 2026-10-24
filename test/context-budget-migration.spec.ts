@@ -1,9 +1,11 @@
+import { resumeDueUserLifecycleOperation } from '../workers/agent-runtime/src/lifecycle/recovery';
+import { parseBotCreateLifecycleRequest } from '../workers/agent-runtime/src/lifecycle/bot-create-request';
 import { authCookie, createBotForTest, describe, expect, it, kvKeys, seedWorld, testEnv, testCoordinatorEnv } from './helpers/index-harness';
 import { contextWindowTokensMin, type BotDocument } from '@bickr/shared/model';
 import { defaultTickSettings, userCoordinatorRepositoryMutations } from '@bickr/shared/repository';
-import { beginLifecycleCompensation, lifecycleOperationById } from '@bickr/shared/entity-lifecycle';
+import { beginLifecycleCompensation, lifecycleOperationById, markLifecycleMaterializing } from '@bickr/shared/entity-lifecycle';
 import { parseCreateBotInput } from '@bickr/shared/validation';
-import { reserveBotCreate, runBotCreateOperation, parseBotCreateLifecycleRequest } from '../workers/agent-runtime/src/lifecycle/bot';
+import { reserveBotCreate, runBotCreateOperation } from '../workers/agent-runtime/src/lifecycle/bot';
 import { handleAgentRuntimeRequest, handleAgentRuntimeWorkerRequest } from '../workers/agent-runtime/src/routes';
 import { ExclusiveOperationQueue } from '@bickr/shared/exclusive-operation-queue';
 import { contextBudgetMigrationBatchSize, type ContextBudgetMigrationCursor, type migrateContextBudgetPage } from '../workers/agent-runtime/src/context-budget-migration';
@@ -29,7 +31,6 @@ async function legacyBot() {
 	const document = await stored(bot.id);
 	await testEnv.BICKR_KV.put(kvKeys.bot(bot.id), JSON.stringify({ ...document, tickSettings: { ...document.tickSettings, contextWindowTokens: contextWindowTokensMin - 1 } }));
 	await testEnv.BICKR_D1.prepare('UPDATE bot_runtime_index SET context_window_tokens = ? WHERE bot_id = ?').bind(contextWindowTokensMin - 1, bot.id).run();
-	await testEnv.BICKR_D1.prepare("UPDATE maintenance_control SET enabled = 1, activated_at = '2026-10-24T00:00:00Z' WHERE id = 1").run();
 	return { ...bot, ownerUserId: document.ownerUserId };
 }
 function ownerRequest(bot: { ownerUserId: string; id: string }) {
@@ -84,7 +85,6 @@ describe('context-budget-minimum-v1 migration', () => {
 			expect(beforeIndex).toBeNull();
 			expect(await testEnv.BICKR_D1.prepare('SELECT bot_id FROM bots_index WHERE bot_id = ?').bind(request.botId).first()).toBeNull();
 		}
-		await testEnv.BICKR_D1.prepare("UPDATE maintenance_control SET enabled = 1, activated_at = '2026-10-24T00:00:00Z' WHERE id = 1").run();
 		const first = await fullPass();
 		expect(first.changes.creationRequests).toBe(1);
 		expect(first.changes.documents).toBe(stage === 'reserved' ? 0 : 1);
@@ -93,11 +93,65 @@ describe('context-budget-minimum-v1 migration', () => {
 		expect(migrated.phase).toBe('pending');
 		expect(parseBotCreateLifecycleRequest(migrated.requestJson!).input.tickSettings?.contextWindowTokens).toBe(contextWindowTokensMin);
 		expect((await fullPass()).changes).toEqual({ documents: 0, indexes: 0, creationRequests: 0 });
-		await testEnv.BICKR_D1.prepare('UPDATE maintenance_control SET enabled = 0, activated_at = NULL WHERE id = 1').run();
 		await queue.run(() => runBotCreateOperation(context, operation));
 		expect((await lifecycleOperationById(testEnv.BICKR_D1, operation.operationId))?.phase).toBe('terminal');
 		expect((await stored(request.botId)).tickSettings.contextWindowTokens).toBe(contextWindowTokensMin);
 		expect((await stored(request.botId)).deletedAt).toBeUndefined();
+	});
+	it.each([
+		{ clone: false, stage: 'reserved' }, { clone: true, stage: 'reserved' },
+		{ clone: false, stage: 'kv' }, { clone: true, stage: 'kv' },
+		{ clone: false, stage: 'indexed' }, { clone: true, stage: 'indexed' },
+	])('migrates a saved creation before recovery: clone=$clone stage=$stage', async ({ clone, stage }) => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const source = await createBotForTest(cookie, 'recovery-source', { enabled: false });
+		const owner = (await stored(source.id)).ownerUserId;
+		const env = { ...testEnv, ...testCoordinatorEnv() };
+		const queue = new ExclusiveOperationQueue();
+		const context = { env, coordinator: { objectId: owner, ownerUserId: owner, queue }, request: new Request('https://internal.bickr/create', { headers: { 'idempotency-key': 'recovery-budget' } }) };
+		const validInput = parseCreateBotInput({ handle: 'recovered-budget', language: 'en', displayName: 'Recovered participant', shortBio: 'A participant.', prompt: 'Keep useful memories.',
+			tickSettings: { contextWindowTokens: contextWindowTokensMin }, ...(clone ? { cloneSourceBotId: source.id } : {}) });
+		// Model the former minimum without copying the current policy value.
+		const input = { ...validInput, tickSettings: { ...validInput.tickSettings, contextWindowTokens: contextWindowTokensMin - 5_000 } };
+		const operation = await queue.run(() => reserveBotCreate(context, owner, source.homeWorldHandle, input));
+		const request = parseBotCreateLifecycleRequest(operation.requestJson!);
+		expect(request.kind).toBe(clone ? 'clone_create' : 'bot_create');
+		if (stage !== 'reserved') {
+			await queue.run(() => markLifecycleMaterializing(env.BICKR_D1, operation, new Date().toISOString()));
+			await expect(queue.run(() => userCoordinatorRepositoryMutations.createBot(env.BICKR_KV, env.BICKR_D1, source.homeWorldHandle, validInput, owner, {
+				now: request.createdAt, botId: request.botId, personalForumId: request.personalForumId, lifecycleState: 'pending',
+				checkpoint: async point => { if (point === `${clone ? 'clone' : 'bot'}.materialize.${stage === 'kv' ? 'kv' : 'indexes.d1'}`) throw new Error('Hard interruption.'); },
+			}))).rejects.toThrow('Hard interruption.');
+			const document = await stored(request.botId);
+			await env.BICKR_KV.put(kvKeys.bot(request.botId), JSON.stringify({ ...document, tickSettings: input.tickSettings }));
+		}
+		if (stage === 'kv' && !clone) {
+			const interruptedKv: KVNamespace = {
+				get: env.BICKR_KV.get.bind(env.BICKR_KV),
+				getWithMetadata: env.BICKR_KV.getWithMetadata.bind(env.BICKR_KV),
+				list: env.BICKR_KV.list.bind(env.BICKR_KV),
+				delete: env.BICKR_KV.delete.bind(env.BICKR_KV),
+				put: async () => { throw new Error('Migration interruption.'); },
+			};
+			await expect(queue.run(() => resumeDueUserLifecycleOperation({ ...context, env: { ...env, BICKR_KV: interruptedKv } }, new Date(Date.now() + 60_000).toISOString()))).rejects.toThrow('Migration interruption.');
+			const interrupted = (await lifecycleOperationById(env.BICKR_D1, operation.operationId))!;
+			expect(interrupted.phase).toBe('materializing');
+			expect(interrupted.requestHash).toBe(operation.requestHash);
+			expect(parseBotCreateLifecycleRequest(interrupted.requestJson!).input.tickSettings?.contextWindowTokens).toBe(contextWindowTokensMin);
+			expect((await stored(request.botId)).tickSettings.contextWindowTokens).toBe(contextWindowTokensMin - 5_000);
+		}
+		// The real recovery dispatcher reaches this operation before any sweep.
+		const recovered = await queue.run(() => resumeDueUserLifecycleOperation(context, new Date(Date.now() + 60_000).toISOString()));
+		expect(recovered.operationId).toBe(operation.operationId);
+		const completed = (await lifecycleOperationById(env.BICKR_D1, operation.operationId))!;
+		expect(completed.phase).toBe('terminal');
+		expect(completed.requestHash).toBe(operation.requestHash);
+		expect((await stored(request.botId)).tickSettings.contextWindowTokens).toBe(contextWindowTokensMin);
+		expect((await stored(request.botId)).deletedAt).toBeUndefined();
+		// Replaying the stale operation object also loads the completed state.
+		await queue.run(() => runBotCreateOperation(context, operation));
+		expect((await fullPass()).changes).toEqual({ documents: 0, indexes: 0, creationRequests: 0 });
 	});
 	it('passes cleanup interrupted after KV deletion without restoring the participant', async () => {
 		const cookie = await authCookie();
@@ -108,7 +162,7 @@ describe('context-budget-minimum-v1 migration', () => {
 		const queue = new ExclusiveOperationQueue();
 		const context = { env, coordinator: { objectId: owner, ownerUserId: owner, queue }, request: new Request('https://internal.bickr/create') };
 		const input = parseCreateBotInput({ handle: 'cleanup-budget', language: 'en', displayName: 'Pending participant', shortBio: 'A participant.', prompt: 'Keep useful memories.', tickSettings: { contextWindowTokens: contextWindowTokensMin } });
-		const operation = await queue.run(() => reserveBotCreate(context, owner, source.homeWorldHandle, input));
+		const operation = await queue.run(() => reserveBotCreate(context, owner, source.homeWorldHandle, { ...input, tickSettings: { ...input.tickSettings, contextWindowTokens: contextWindowTokensMin - 5_000 } }));
 		const request = parseBotCreateLifecycleRequest(operation.requestJson!);
 		await expect(queue.run(() => userCoordinatorRepositoryMutations.createBot(env.BICKR_KV, env.BICKR_D1, source.homeWorldHandle, input, owner, {
 			now: request.createdAt, botId: request.botId, personalForumId: request.personalForumId, lifecycleState: 'pending',
@@ -121,9 +175,8 @@ describe('context-budget-minimum-v1 migration', () => {
 		} as KVNamespace;
 		await expect(queue.run(() => runBotCreateOperation({ ...context, env: { ...env, BICKR_KV: interruptedKv } }, compensating))).rejects.toThrow('Cleanup interruption.');
 		expect(await stored(request.botId)).toBeNull();
-		await env.BICKR_D1.prepare("UPDATE maintenance_control SET enabled = 1, activated_at = '2026-10-24T00:00:00Z' WHERE id = 1").run();
+		expect((await fullPass()).changes).toEqual({ documents: 0, indexes: 0, creationRequests: 1 });
 		expect((await fullPass()).changes).toEqual({ documents: 0, indexes: 0, creationRequests: 0 });
-		await env.BICKR_D1.prepare('UPDATE maintenance_control SET enabled = 0, activated_at = NULL WHERE id = 1').run();
 		await queue.run(() => runBotCreateOperation(context, compensating));
 		expect((await lifecycleOperationById(env.BICKR_D1, operation.operationId))?.phase).toBe('terminal_failed');
 		expect(await stored(request.botId)).toBeNull();
@@ -216,11 +269,20 @@ describe('context-budget-minimum-v1 migration', () => {
 		expect(resumed.status).toBe(200);
 		expect((await migrationPage(resumed)).results).toContainEqual({ botId: bot.id, result: { kind: 'migrated', documentChanged: true, indexChanged: true, creationRequestsChanged: 0 } });
 	});
-	it('requires internal authentication, scheduler authority, and maintenance mode', async () => {
+	it('requires internal authentication and scheduler authority without maintenance mode', async () => {
 		expect((await sweep('', {})).status).toBe(404);
-		expect((await sweep()).status).toBe(409);
+		expect((await sweep()).status).toBe(200);
 		const response = await handleAgentRuntimeWorkerRequest(new Request('https://internal.bickr/maintenance/context-budget', { method: 'POST', headers: internalServiceTestHeaders }), { ...testEnv, ...testCoordinatorEnv() });
 		expect(response.status).toBe(401);
+		const bot = await legacyBot();
+		const coordinator = { ownerUserId: bot.ownerUserId, objectId: 'test', queue: new ExclusiveOperationQueue() };
+		const owned = ownerRequest(bot);
+		const unauthenticated = new Request(owned, { headers: { 'x-bickr-user-id': bot.ownerUserId, 'x-bickr-scheduler': '1' } });
+		expect((await handleAgentRuntimeRequest(unauthenticated, testEnv, coordinator)).status).toBe(401);
+		const unscheduled = new Request(owned);
+		unscheduled.headers.delete('x-bickr-scheduler');
+		expect((await handleAgentRuntimeRequest(unscheduled, testEnv, coordinator)).status).toBe(401);
+		expect((await handleAgentRuntimeRequest(owned, testEnv, coordinator)).status).toBe(200);
 	});
 	it('resumes bounded pages, raises only low overrides, restores NULL defaults, and is idempotent', async () => {
 		const cookie = await authCookie();
@@ -237,7 +299,6 @@ describe('context-budget-minimum-v1 migration', () => {
 		// A stale projection must not turn the old effective default into an override.
 		await testEnv.BICKR_D1.prepare('UPDATE bot_runtime_index SET context_window_tokens = ? WHERE bot_id = ?').bind(contextWindowTokensMin - 1, inherited!.id).run();
 		const before = new Map(await Promise.all(bots.map(async bot => [bot.id, { document: await stored(bot.id), index: await contextIndex(bot.id) }] as const)));
-		await testEnv.BICKR_D1.prepare("UPDATE maintenance_control SET enabled = 1, activated_at = '2026-10-24T00:00:00Z' WHERE id = 1").run();
 		const firstResponse = await sweep();
 		expect(firstResponse.status).toBe(200);
 		const first = await migrationPage(firstResponse);
