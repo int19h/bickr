@@ -1,3 +1,4 @@
+import { manualCompactionError } from './manual-compaction-errors';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { AgentLogStore, agentLogSchema, agentLogFailure } from './agent-log-store';
 import type { AgentLogSource, AgentLogCompactionTrigger } from '@bickr/shared/model';
@@ -366,6 +367,7 @@ import {
 	ProviderEmptyResponseError,
 	PromptContextBudgetExceededError,
 	PromptContextCompactionLimitError,
+	CompactionSummaryMissingError,
 	PersistentCompactionReductionFailureError,
 	TickStoppedError,
 	ProviderResponseInterruptedError,
@@ -7434,12 +7436,12 @@ export class BotRuntime {
 			const bot = await this.botWithEffectivePostingSettings(await botById(this.env.BICKR_KV, this.env.BICKR_D1, botId));
 			const owner = await userById(this.env.BICKR_KV, bot.ownerUserId);
 			const settings = withProviderText(await this.effectiveProviderSettings(bot, owner), bot.text);
-			const runId = crypto.randomUUID();
 			const rows = this.compactionCandidateRows();
+			// A lone summary has no new history to combine. Automatic admission can
+			// still shorten it when a changed context budget requires that work.
+			if (rows.length === 0 || (rows.length === 1 && rows[0]!.origin === 'compaction')) return { messageCount: 0 };
+			const runId = crypto.randomUUID();
 			const context = await buildResultRenderContext(this.env.BICKR_D1, bot, resultViewsFromRows(this.activeLoopMessageRows()));
-			if (rows.length === 0) {
-				return { messageCount: 0 };
-			}
 			await this.compactLoopMessageRowsInBatches(context, bot, settings, runId, new AbortController().signal, rows, 'manual', {});
 			try {
 				await boundedCleanup('Provider usage export', (signal) => this.exportRecentProviderUsage(bot, new Date(), signal));
@@ -7447,6 +7449,8 @@ export class BotRuntime {
 				this.recordCleanupFailure(runId, 'provider_usage_export', error);
 			}
 			return { fromSeq: rows[0]?.seq, toSeq: rows[rows.length - 1]?.seq, messageCount: rows.length };
+		} catch (error) {
+			throw manualCompactionError(error) ?? error;
 		} finally {
 			this.finishMaintenanceOperation('manual_compaction');
 		}
@@ -7468,6 +7472,9 @@ export class BotRuntime {
 			try {
 				await this.compactLoopMessageBatchesForSession(context, bot, settings, runId, signal, rows, mode, metrics, legacyCost);
 				const summary = this.state.storage.sql.exec<{ seq: number }>("SELECT seq FROM loop_messages WHERE session_id = ? AND origin = 'compaction' ORDER BY seq DESC LIMIT 1", sessionId).toArray()[0];
+				if (!summary && mode === 'manual') {
+					throw new CompactionSummaryMissingError();
+				}
 				if (summary) this.agentLogStore().settleSession(sessionId, { kind: 'succeeded', summarySeq: summary.seq });
 			} catch (error) {
 				this.agentLogStore().settleSession(sessionId, { kind: 'failed', error: agentLogFailure(error) });

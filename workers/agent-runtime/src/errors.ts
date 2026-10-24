@@ -414,6 +414,14 @@ export class PromptContextCompactionLimitError extends Error {
 	}
 }
 
+export class CompactionSummaryMissingError extends Error {
+	readonly kind = 'missing_compaction_summary';
+	constructor() {
+		super('Compaction did not produce a summary.');
+		this.name = 'CompactionSummaryMissingError';
+	}
+}
+
 export class PersistentCompactionReductionFailureError extends Error {
 	readonly kind = 'persistent_compaction_reduction_failure';
 	readonly attempts: number;

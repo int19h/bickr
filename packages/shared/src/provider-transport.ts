@@ -1,9 +1,9 @@
-export type ProviderTransportErrorKind = "invalid_url" | "insecure_url" | "embedded_credentials" | "redirect";
+export type ProviderTransportErrorKind = "invalid_url" | "insecure_url" | "embedded_credentials" | "redirect" | "connection";
 
 export class ProviderTransportError extends Error {
 	readonly kind: ProviderTransportErrorKind;
-	constructor(kind: ProviderTransportErrorKind, message: string) {
-		super(message);
+	constructor(kind: ProviderTransportErrorKind, message: string, options?: ErrorOptions) {
+		super(message, options);
 		this.name = "ProviderTransportError";
 		this.kind = kind;
 	}
@@ -27,13 +27,52 @@ export function providerUrl(value: string | URL): URL {
 	return url;
 }
 
+function connectionFailure(error: unknown, signal?: AbortSignal | null): unknown {
+	// Abort reasons and existing typed causes belong to the caller.
+	if (signal?.aborted || error instanceof ProviderTransportError ||
+		(error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError"))) return error;
+	return new ProviderTransportError("connection", error instanceof Error ? error.message : String(error), { cause: error });
+}
+
+function providerResponseBody(body: ReadableStream<Uint8Array>, signal?: AbortSignal | null): ReadableStream<Uint8Array> {
+	const reader = body.getReader();
+	return new ReadableStream<Uint8Array>({
+		async pull(controller) {
+			let chunk: ReadableStreamReadResult<Uint8Array>;
+			try {
+				chunk = await reader.read();
+			} catch (error) {
+				reader.releaseLock();
+				controller.error(connectionFailure(error, signal));
+				return;
+			}
+			if (chunk.done) {
+				reader.releaseLock();
+				controller.close();
+			} else controller.enqueue(chunk.value);
+		},
+		async cancel(reason) {
+			try { await reader.cancel(reason); }
+			finally { reader.releaseLock(); }
+		},
+	}, { highWaterMark: 0 });
+}
+
 export async function fetchProviderResponse(input: string | URL, init?: RequestInit): Promise<Response> {
 	// Workers forward Authorization on cross-origin redirects. Refuse redirects
 	// rather than let an endpoint send a provider credential to another origin.
-	const response = await fetch(providerUrl(input).href, { ...init, redirect: "manual" });
+	const url = providerUrl(input);
+	let response: Response;
+	try {
+		response = await fetch(url.href, { ...init, redirect: "manual" });
+	} catch (error) {
+		throw connectionFailure(error, init?.signal);
+	}
 	if (response.status >= 300 && response.status < 400) {
 		void response.body?.cancel().catch(() => {});
 		throw new ProviderTransportError("redirect", "Provider endpoint redirected the request. Configure its final HTTPS URL.");
 	}
-	return response;
+	// Headers can arrive before the connection fails. Type failures at the source
+	// so text, JSON, and streaming consumers receive the same cause.
+	return response.body ? new Response(providerResponseBody(response.body, init?.signal), response) : response;
 }

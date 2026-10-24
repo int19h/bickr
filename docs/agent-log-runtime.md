@@ -71,3 +71,13 @@ Version `1f1bf34d` cannot read stored `runtime_error` outcomes. Test ran that ve
 Production must receive the agent log runtime, the web redesign, and this change in one release. This keeps every production reader able to read `runtime_error`.
 
 Readers from this change on return an explicit `unknown` failure for unsupported or invalid stored outcomes. Other attempts, sessions, and history entries remain readable. The client shows “Unknown failure”. Writers still reject unknown or invalid outcomes. Reads do not rewrite stored data.
+
+## Manual compaction
+
+Manual compaction returns HTTP 422 with a typed `compactionFailure` for known validation failures. The response for `non_reducing_compaction` says that compaction cannot produce a shorter summary. It does not claim that the participant is paused. A failed batch can retain earlier summaries, but the POST still returns an error. Timeouts return HTTP 408, interruptions return HTTP 409, and upstream provider failures return HTTP 502.
+
+A manual request with no active history or only one previous summary returns a zero count without a provider call or a new session. New history after a summary remains eligible. Automatic context admission can still shorten a summary when the context budget requires it. A batch run that produces no summary returns an error.
+
+Owner messages use structured failure kinds, validation issues, and HTTP statuses. Session logs keep diagnostic text. Connection failures and refused redirects carry typed upstream causes. A missing summary keeps `missing_compaction_summary` in both the session and the HTTP response.
+
+Connection failures during response body reads keep the same typed cause as failures before the headers arrive. This rule covers JSON and streaming responses. Body readers retain their timeout and stop causes before they cancel the underlying stream.

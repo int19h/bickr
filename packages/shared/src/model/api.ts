@@ -925,6 +925,7 @@ export type ApiErrorCode =
 	| "unauthorized";
 
 export type ApiErrorDetails = {
+	compactionFailure?: import('./agent-log.ts').AgentLogFailure;
 	botIssue?: BotServiceIssue;
 	instructionLanguageCause?: 'source_not_linked';
 	existingThread?: {

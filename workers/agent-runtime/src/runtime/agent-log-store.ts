@@ -7,8 +7,9 @@ import { agentLogAuthor, type AgentLogAuthor, type AgentLogAttempt, type AgentLo
 import { loopMessageContributesToProviderHistory } from '../provider/sanitize';
 import { RepositoryError } from '@bickr/shared/repository';
 import { InputError } from '@bickr/shared/validation';
+import { ProviderTransportError } from '@bickr/shared/provider-transport';
 import {
-	CompactionReasoningRefusalError, PersistentCompactionReductionFailureError,
+	CompactionReasoningRefusalError, CompactionSummaryMissingError, PersistentCompactionReductionFailureError,
 	PromptContextBudgetExceededError, PromptContextCompactionLimitError,
 	ProviderCompactionOutputLimitError, ProviderCompactionRequestError, ProviderEmptyResponseError,
 	ProviderLoopRequestError, ProviderRequestError, ProviderRequestTimeoutError,
@@ -73,6 +74,12 @@ function textBoundary(text: string, offset: number): number {
 
 export function agentLogFailure(error: unknown): AgentLogFailure {
 	if (error instanceof ProviderCompactionRequestError || error instanceof ProviderLoopRequestError) return agentLogFailure(error.originalError);
+	if (error instanceof ProviderTransportError) {
+		return error.kind === 'connection' || error.kind === 'redirect'
+			? { kind: 'provider_error', status: null, errorType: error.kind, message: error.message }
+			: { kind: 'validation', issue: error.kind, message: error.message };
+	}
+	if (error instanceof CompactionSummaryMissingError) return { kind: 'validation', issue: error.kind, message: error.message };
 	if (error instanceof PersistentCompactionReductionFailureError) return { kind: 'validation', issue: 'non_reducing_compaction', message: error.message };
 	if (error instanceof ProviderStructuredOutputValidationError) return { kind: 'validation', issue: error.validationIssue ?? null, message: error.message };
 	if (error instanceof CompactionReasoningRefusalError) return { kind: 'validation', issue: error.refusal.kind, message: error.message };
