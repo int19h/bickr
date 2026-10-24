@@ -1,4 +1,4 @@
-import type { AgentLogAuthor, AgentLogCompactionSession, AgentLogEntry, AgentLogRequest, BotLoopMessagePage } from '@bickr/shared/model';
+import type { AgentLogAuthor, AgentLogCompactionSession, AgentLogEntry, AgentLogRequest, BotLoopMessagePage, BotTokenUsageStats } from '@bickr/shared/model';
 
 export function messageFixture(
 	seq: number,
@@ -198,3 +198,19 @@ export function entriesFixture(): AgentLogEntry[] {
 		messageFixture(5, { kind: 'owner_injection' }, 'Consider a shorter trial before you suggest a wider change.'),
 	];
 }
+
+export const usageFixture: BotTokenUsageStats = (() => {
+	const totals = { requestCount: 23, promptTokens: 1234567, completionTokens: 54321, totalTokens: 1288888, cachedTokens: 234567, reasoningTokens: 12345, cost: 0.12345 };
+	return {
+		generatedAt: '2026-10-24T12:06:00Z',
+		windowStart: '2026-10-17T12:06:00Z',
+		windowEnd: '2026-10-24T12:06:00Z',
+		last24Hours: totals,
+		last7Days: totals,
+		dailyAverageTokens: 184127,
+		dailyAverageDays: 7,
+		buckets: [],
+		models: [{ ...totals, model: 'Fixture model for the Loop view', providerName: 'Example provider', firstUsedAt: '2026-10-24T12:00:00Z', lastUsedAt: '2026-10-24T12:05:00Z' }],
+		changeMarkers: [],
+	};
+})();
