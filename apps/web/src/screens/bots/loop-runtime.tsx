@@ -708,6 +708,9 @@ export function BotRuntimePanel({
 		sourceNavigationGenerationRef.current += 1;
 		setSourceMessage(null);
 		currentLoopPageRef.current = targetPage;
+		// Background refreshes must follow the selection before its first response arrives.
+		currentLoopSourceCompactionSeqRef.current = loopMessagePage?.pages.find(item => item.page === targetPage)?.sourceCompactionSeq ?? null;
+		watchedMessageSeqRef.current = undefined;
 		shouldStickToBottomRef.current = targetPage === 1;
 		setLoopMessages([]);
 		streamSnapshotEntriesRef.current.clear();
@@ -715,7 +718,7 @@ export function BotRuntimePanel({
 		setOpenLoopMessageLogs(null);
 		setLoopMessageLogError("");
 		setMessage(`Loading loop page ${targetPage}...`);
-		await refresh({ page: targetPage });
+		await refresh({ page: targetPage, expectedSourceCompactionSeq: currentLoopSourceCompactionSeqRef.current });
 		setMessage("");
 	}
 

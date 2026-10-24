@@ -571,15 +571,16 @@ it('applies a delta once when it arrives just after the snapshot resolves', asyn
 
 it('removes ended runs even when their last delta arrives after snapshot start', async () => {
 	await act(async () => pendingMessages[0]?.resolve({ messages: [], entries: [liveEntry('ended', 'Old live response', 1)], page: page(1, {}, [{ page: 1, messageCount: 0 }]) }));
+	expect(container.querySelector('.agent-log-card.is-live')?.textContent).toContain('Old live response');
 	holdEventSnapshots = true;
 	const socket = MonitorSocket.instances[0]!;
 	await act(async () => socket.open());
 	await act(async () => streamDelta(socket, 'ended', 'Late text', 2));
 	await answerEvents(0, [runtimeEvent(10, 'run-ended', 'tick_completed')]);
 	await act(async () => pendingMessages[1]?.resolve({ messages: [], entries: [liveEntry('ended', 'Old live response', 1)], page: page(1, {}, [{ page: 1, messageCount: 0 }]) }));
-	expect(container.textContent).not.toContain('Live request');
+	expect(container.querySelector('.agent-log-card.is-live')).toBeNull();
 	await act(async () => streamDelta(socket, 'ended', 'Later stale text', 3));
-	expect(container.textContent).not.toContain('Live request');
+	expect(container.querySelector('.agent-log-card.is-live')).toBeNull();
 });
 
 it('renders an unknown entry as a plain notice', async () => {
@@ -657,6 +658,35 @@ function runtimeEvent(seq: number, runId: string, type: BotRuntimeEvent['type'])
 function json(body: unknown, status = 200): Response {
 	return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 }
+
+it.each([2, 3])('keeps the selected archive when a monitor refresh moves it to page %s', async archivePage => {
+	const pages = [
+		{ page: 1, isNewest: true, messageCount: 1, fromSeq: 40, toSeq: 40, olderPage: 2 },
+		{ page: 2, isNewest: false, messageCount: 1, fromSeq: 12, toSeq: 12, sourceCompactionSeq: 40, newerPage: 1 },
+	];
+	const active = loopMessage(40, 'Current context');
+	await answerMessages(0, [active], page(1, { 40: 2 }, pages));
+	const pageTwo = container.querySelector<HTMLAnchorElement>('a[title^="Open loop page 2"]')!;
+	await act(async () => pageTwo.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true })));
+	expect(pendingMessages[1]?.path).toContain('page=2');
+	await act(async () => MonitorSocket.instances[0]!.emit({ type: 'event', event: runtimeEvent(99, 'monitor-run', 'tick_completed') }));
+	await waitForPendingMessages(3);
+	const refreshedPages = archivePage === 2 ? pages : [
+		{ page: 1, isNewest: true, messageCount: 1, fromSeq: 80, toSeq: 80, olderPage: 2 },
+		{ page: 2, isNewest: false, messageCount: 1, fromSeq: 40, toSeq: 40, sourceCompactionSeq: 80, newerPage: 1, olderPage: 3 },
+		{ page: 3, isNewest: false, messageCount: 1, fromSeq: 12, toSeq: 12, sourceCompactionSeq: 40, newerPage: 2 },
+	];
+	const map: Record<number, number> = archivePage === 2 ? { 40: 2 } : { 80: 2, 40: 3 };
+	await answerMessages(2, [archivePage === 2 ? active : loopMessage(80, 'New context')], page(1, map, refreshedPages));
+	expect(pendingMessages[3]?.path).toContain(`page=${archivePage}`);
+	await answerMessages(3, [{ ...loopMessage(12, 'Selected archive'), compactedBy: 40 }], page(archivePage, map, refreshedPages));
+	await answerMessages(1, [{ ...loopMessage(12, 'Stale archive response'), compactedBy: 40 }], page(2, { 40: 2 }, pages));
+	expect(container.querySelector('.agent-log-archive')?.textContent).toContain('Selected archive');
+	expect(container.textContent).not.toContain('Current context');
+	expect(container.textContent).not.toContain('Stale archive response');
+	expect(container.querySelector('[aria-current="page"]')?.textContent).toBe(String(archivePage));
+	expect([...container.querySelectorAll('button')].find(button => button.textContent === 'Compact chat')?.disabled).toBe(true);
+});
 
 it.each([false, true])('keeps the watched generation after compaction with pinned=%s', async pinned => {
 	const bottom = vi.spyOn(runtimeUtils, 'scrollLogToBottom');
