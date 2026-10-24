@@ -1,3 +1,4 @@
+import { agentLogStoreStub } from "../workers/agent-runtime/src/runtime/agent-log-store.test-support";
 import { describe, expect, it } from "vitest";
 import { botInferenceUsageRetentionDays } from "@bickr/shared/token-spend";
 import { BotRuntime } from "../workers/agent-runtime/src/runtime/bot-runtime";
@@ -161,7 +162,7 @@ function rows<T>(items: unknown[]) {
 }
 
 function runtimeForSql(sql: RuntimeHousekeepingSql): RuntimeInternals {
-	return Object.assign(Object.create(BotRuntime.prototype), {
+	return Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub,
 		state: {
 			storage: { sql },
 		},

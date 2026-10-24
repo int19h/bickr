@@ -1,3 +1,5 @@
+import { AgentLogStore } from './agent-log-store';
+import type { AgentLogSource } from '@bickr/shared/model';
 import { renderToolResultView, type ResultRenderContext } from './tool-result-views';
 import { renderStoredLoopMessage, toolResultViewForMessage } from './result-messages';
 import { approximateTextTokens } from '@bickr/shared/text-token-estimate';
@@ -22,7 +24,6 @@ import {
 	dayMs,
 	deletedLoopMessageRetentionDays,
 	loopMessageLogChunkLength,
-	loopMessageLogRetentionCount,
 	loopMessagePageIndexLimit,
 	loopMessageRetentionBatchSize,
 	runtimeDiagnosticLoopMessageOrigins,
@@ -88,7 +89,7 @@ export class RuntimeMessageStore {
 		message: ChatMessage,
 		origin: LoopMessageGroupEntry['origin'],
 		status: BotLoopMessageStatus = 'complete',
-		options: { streamSeq?: number; displayEventSeq?: number } = {},
+		options: { streamSeq?: number; displayEventSeq?: number; source?: AgentLogSource } = {},
 	): BotLoopMessage {
 		const inserted = this.appendLoopMessageGroup(context, [{
 			runId,
@@ -140,6 +141,7 @@ export class RuntimeMessageStore {
 					status: entry.status,
 					streamSeq: entry.options?.streamSeq,
 					displayEventSeq: entry.options?.displayEventSeq,
+					source: entry.options?.source,
 					broadcast: false,
 				});
 				this.recordLoopMessageLog(loopMessage.seq, 'message', JSON.stringify(entry.message));
@@ -203,7 +205,9 @@ export class RuntimeMessageStore {
 		position?: number;
 		createdAt?: string;
 		broadcast: boolean;
+		source?: AgentLogSource;
 	}): BotLoopMessage {
+		if (input.origin === 'synthetic_context' && input.message.role === 'assistant' && !input.source) throw new Error('Synthetic assistant content requires a source.');
 		const now = input.createdAt ?? new Date().toISOString();
 		const view = toolResultViewForMessage(input.message);
 		const viewJson = view ? JSON.stringify(view) : null;
@@ -228,6 +232,9 @@ export class RuntimeMessageStore {
 			now,
 		);
 		const seq = this.storage.sql.exec<{ seq: number }>(`SELECT last_insert_rowid() AS seq`).one().seq;
+		const log = new AgentLogStore(this.storage);
+		log.writeAuthor(seq, input.origin, input.message.role, input.source);
+		log.link(seq, input.runId, input.streamSeq, input.origin);
 		const message = loopMessageFromRow({
 			seq,
 			position,
@@ -294,7 +301,7 @@ export class RuntimeMessageStore {
 				if (row.origin === 'compaction') {
 					// Compaction summaries are page-index anchors. Restore their children
 					// so deleting an anchor cannot make otherwise-live history unreachable.
-					this.storage.sql.exec(`UPDATE loop_messages SET compacted_by = NULL WHERE compacted_by = ?`, seq);
+					this.storage.sql.exec(`UPDATE loop_messages SET compacted_by = ? WHERE compacted_by = ?`, row.compacted_by, seq);
 				}
 				this.storage.sql.exec(
 					`UPDATE loop_messages
@@ -346,7 +353,9 @@ export class RuntimeMessageStore {
 
 	loopMessagesPage(context: ResultRenderContext, input: { page: number; after?: number }): BotLoopMessagesResponse {
 		const { rows, page } = this.loopMessagePageRows(input);
-		return { messages: rows.map(row => loopMessageFromRow(row, context)), page };
+		const messages = rows.map(row => loopMessageFromRow(row, context));
+		const source = page.pages.find(item => item.page === page.currentPage)?.sourceCompactionSeq ?? null;
+		return { messages, entries: new AgentLogStore(this.storage).entries(messages, source), page };
 	}
 
 	loopMessagePageRows(input: { page: number; after?: number }): { rows: LoopMessageRow[]; page: BotLoopMessagesResponse['page'] } {
@@ -551,48 +560,23 @@ export class RuntimeMessageStore {
 				chunks[index] ?? '',
 			);
 		}
-		this.pruneLoopMessageLogs();
 	}
 
-	reconstructLoopMessageLogText(logId: number, seen = new Set<number>()): string {
-		if (seen.has(logId)) {
-			throw new RepositoryError('server_error', 'Loop message log chain is cyclic.', 500);
+	reconstructLoopMessageLogText(logId: number): string {
+		const chain: Array<{ row: LoopMessageLogRow; suffix: string }> = [];
+		let id = logId;
+		for (;;) {
+			const row = this.storage.sql.exec<LoopMessageLogRow>('SELECT * FROM loop_message_logs WHERE id = ? LIMIT 1', id).toArray()[0];
+			if (!row) throw new RepositoryError('not_found', 'Loop message log was not found.', 404);
+			const suffix = this.storage.sql.exec<LoopMessageLogChunkRow>('SELECT * FROM loop_message_log_chunks WHERE log_id = ? ORDER BY chunk_index LIMIT 10000', id).toArray().map(chunk => chunk.text).join('');
+			chain.push({ row, suffix });
+			if (row.encoding === 'full') break;
+			if (!row.base_log_id || row.base_log_id >= row.id) throw new RepositoryError('server_error', 'The log chain is invalid.', 500);
+			id = row.base_log_id;
 		}
-		seen.add(logId);
-		const row = this.storage.sql
-			.exec<LoopMessageLogRow>(
-				`SELECT id, message_seq, kind, encoding, base_log_id, prefix_length, text_length, chunk_count, created_at
-				 FROM loop_message_logs
-				 WHERE id = ?
-				 LIMIT 1`,
-				logId,
-			)
-			.toArray()[0];
-		if (!row) {
-			throw new RepositoryError('not_found', 'Loop message log was not found.', 404);
-		}
-		const encoded = this.storage.sql
-			.exec<LoopMessageLogChunkRow>(
-				`SELECT log_id, chunk_index, text
-				 FROM loop_message_log_chunks
-				 WHERE log_id = ?
-				 ORDER BY chunk_index ASC`,
-				logId,
-			)
-			.toArray()
-			.map((chunk) => chunk.text)
-			.join('');
-		if (row.encoding === 'full') {
-			return encoded;
-		}
-		if (!row.base_log_id) {
-			throw new RepositoryError('server_error', 'Delta log is missing its base.', 500);
-		}
-		const base = this.reconstructLoopMessageLogText(row.base_log_id, seen);
-		if (row.encoding === 'append') {
-			return `${base}${encoded}`;
-		}
-		return `${base.slice(0, row.prefix_length ?? 0)}${encoded}`;
+		let text = '';
+		for (const { row, suffix } of chain.reverse()) text = row.encoding === 'full' ? suffix : row.encoding === 'append' ? text + suffix : text.slice(0, row.prefix_length ?? 0) + suffix;
+		return text;
 	}
 
 	private loopMessageDisplayEventRow(
@@ -629,6 +613,8 @@ export class RuntimeMessageStore {
 			const olderPage = pageIndex.descriptors.find((item) => item.newerPage === descriptor.page)?.page;
 			return {
 				page: descriptor.page,
+				isNewest: descriptor.page === 1,
+				compactionSessionId: this.storage.sql.exec<{ session_id: string | null }>("SELECT session_id FROM loop_messages WHERE compacted_by IS ? AND origin = 'compaction' AND deleted_at IS NULL ORDER BY position DESC, seq DESC LIMIT 1", descriptor.sourceCompactionSeq).toArray()[0]?.session_id ?? null,
 				messageCount: summary.messageCount,
 				...(summary.fromSeq !== null ? { fromSeq: summary.fromSeq } : {}),
 				...(summary.toSeq !== null ? { toSeq: summary.toSeq } : {}),
@@ -676,38 +662,17 @@ export class RuntimeMessageStore {
 		return row ? { id: row.id, text: this.reconstructLoopMessageLogText(row.id) } : null;
 	}
 
-	private pruneLoopMessageLogs(): void {
-		const retainedMessageSeqs = new Set(
-			this.storage.sql
-				.exec<{ seq: number }>(
-					`SELECT seq FROM loop_messages WHERE compacted_by IS NULL ORDER BY position DESC, seq DESC LIMIT ?`,
-					loopMessageLogRetentionCount,
-				)
-				.toArray()
-				.map((row) => row.seq),
-		);
-		if (retainedMessageSeqs.size === 0) {
-			this.storage.sql.exec(`DELETE FROM loop_message_log_chunks`);
-			this.storage.sql.exec(`DELETE FROM loop_message_logs`);
-			return;
-		}
-		const retainedLogRows = this.storage.sql
-			.exec<LoopMessageLogRow>(
-				`SELECT id, message_seq, kind, encoding, base_log_id, prefix_length, text_length, chunk_count, created_at
-				 FROM loop_message_logs ORDER BY id ASC`,
-			)
-			.toArray();
-		const deleteIds = new Set(retainedLogRows.filter((row) => !retainedMessageSeqs.has(row.message_seq)).map((row) => row.id));
-		for (const row of retainedLogRows) {
-			if (!retainedMessageSeqs.has(row.message_seq) || !row.base_log_id || !deleteIds.has(row.base_log_id)) {
-				continue;
-			}
-			this.materializeLoopMessageLog(row.id);
-		}
-		for (const id of deleteIds) {
-			this.storage.sql.exec(`DELETE FROM loop_message_log_chunks WHERE log_id = ?`, id);
-			this.storage.sql.exec(`DELETE FROM loop_message_logs WHERE id = ?`, id);
-		}
+	removeLog(id: number): void {
+		const dependents = this.storage.sql.exec<{ id: number }>('SELECT id FROM loop_message_logs WHERE base_log_id = ? ORDER BY id LIMIT 1000', id).toArray();
+		for (const row of dependents) this.materializeLoopMessageLog(row.id);
+		this.storage.sql.exec('DELETE FROM loop_message_log_chunks WHERE log_id = ?', id);
+		this.storage.sql.exec('DELETE FROM loop_message_logs WHERE id = ?', id);
+	}
+
+	pruneExpiredRawLogs(cutoff: string, pages: number[]): void {
+		const protectedPage = `m.compacted_by IS NULL${pages.length ? ` OR m.compacted_by IN (${pages.map(() => '?').join(',')})` : ''}`;
+		const rows = this.storage.sql.exec<{ id: number }>(`SELECT l.id FROM loop_message_logs l JOIN loop_messages m ON m.seq = l.message_seq WHERE l.created_at < ? AND NOT (${protectedPage}) ORDER BY l.id LIMIT 100`, cutoff, ...pages).toArray();
+		this.storage.transactionSync(() => { for (const row of rows) this.removeLog(row.id); });
 	}
 
 	/**
@@ -747,6 +712,8 @@ export class RuntimeMessageStore {
 		// No continuation means starting at the bottom of the index. The empty
 		// string sorts below every ISO timestamp, so the sentinel needs no separate
 		// branch in the statement.
+		const protectedPages = this.loopMessagePageIndex().descriptors.slice(0, 3).flatMap(page => page.sourceCompactionSeq === null ? [] : [page.sourceCompactionSeq]);
+		const exemption = protectedPages.length ? ` AND compacted_by NOT IN (${protectedPages.map(() => '?').join(',')})` : '';
 		const afterCreatedAt = options.after?.createdAt ?? '';
 		const afterSeq = options.after?.seq ?? 0;
 		const selected = this.storage.sql
@@ -762,7 +729,7 @@ export class RuntimeMessageStore {
 				   AND created_at >= ?
 				   AND (created_at > ? OR (created_at = ? AND seq > ?))
 				   AND (
-					(compacted_by IS NOT NULL AND origin != 'compaction' AND created_at < ?)
+					(compacted_by IS NOT NULL AND origin != 'compaction' AND created_at < ?${exemption})
 					OR (compacted_by IS NOT NULL AND origin = 'compaction' AND created_at < ?)
 					OR (deleted_at IS NOT NULL AND created_at < ?)
 				   )
@@ -774,6 +741,7 @@ export class RuntimeMessageStore {
 				afterCreatedAt,
 				afterSeq,
 				compactedCutoff,
+				...protectedPages,
 				summaryCutoff,
 				deletedCutoff,
 				limit,
@@ -1091,38 +1059,13 @@ export class RuntimeMessageStore {
 	}
 
 	private deleteLoopMessageLogs(deletedSeqs: readonly number[]): number {
-		// The materialization pass below has to read every log row, because a
-		// surviving delta can be based on any log that came before it. That whole
-		// scan is wasted when this batch's messages own no logs at all, which is the
-		// common case for a text-only backlog — and a sweep visit runs it once per
-		// batch, up to the full allowance, against a table that only grows.
-		if (!this.hasLoopMessageLogsFor(deletedSeqs)) {
-			return 0;
+		if (!this.hasLoopMessageLogsFor(deletedSeqs)) return 0;
+		let count = 0;
+		for (const seq of deletedSeqs) {
+			const rows = this.storage.sql.exec<{ id: number }>('SELECT id FROM loop_message_logs WHERE message_seq = ? ORDER BY id LIMIT 10000', seq).toArray();
+			for (const row of rows) { this.removeLog(row.id); count++; }
 		}
-		const deleting = new Set(deletedSeqs);
-		const logRows = this.storage.sql
-			.exec<LoopMessageLogRow>(
-				`SELECT id, message_seq, kind, encoding, base_log_id, prefix_length, text_length, chunk_count, created_at
-				 FROM loop_message_logs ORDER BY id ASC`,
-			)
-			.toArray();
-		const deleteIds = new Set(logRows.filter((row) => deleting.has(row.message_seq)).map((row) => row.id));
-		for (const row of logRows) {
-			// Delta logs may cross message ownership. Materialize every surviving
-			// direct dependent before its expired base and chunks are removed. Log id
-			// order guarantees a base is materialized before anything built on it.
-			if (deleteIds.has(row.id) || !row.base_log_id || !deleteIds.has(row.base_log_id)) {
-				continue;
-			}
-			this.materializeLoopMessageLog(row.id);
-		}
-		const ids = [...deleteIds];
-		for (const chunk of chunked(ids, loopMessageDeleteStatementWidth)) {
-			const placeholders = sqlPlaceholders(chunk.length);
-			this.storage.sql.exec(`DELETE FROM loop_message_log_chunks WHERE log_id IN (${placeholders})`, ...chunk);
-			this.storage.sql.exec(`DELETE FROM loop_message_logs WHERE id IN (${placeholders})`, ...chunk);
-		}
-		return ids.length;
+		return count;
 	}
 
 	private materializeLoopMessageLog(logId: number): void {

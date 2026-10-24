@@ -82,7 +82,7 @@ describe('RuntimeMessageStore', () => {
 			.flatMap((descriptor) => store.loopMessagesPage(testResultContext, { page: descriptor.page }).messages.map((message) => message.seq))
 			.sort((left, right) => left - right);
 		const liveSeqs = storage.database
-			.prepare(`SELECT seq FROM loop_messages WHERE deleted_at IS NULL ORDER BY seq ASC`)
+			.prepare(`SELECT seq FROM loop_messages WHERE deleted_at IS NULL AND seq < 10000 ORDER BY seq ASC`)
 			.all()
 			.map((row) => row.seq as number);
 		expect(reachableSeqs).toEqual(liveSeqs);
@@ -116,6 +116,7 @@ describe('RuntimeMessageStore', () => {
 			insertMessage(storage, 7, 7, { createdAt: daysAgo(13), deletedAt: daysAgo(1) });
 			insertMessage(storage, 30, 30, { createdAt: daysAgo(10), origin: 'compaction' });
 
+			archiveRecentPages(storage);
 			const result = store.pruneExpiredLoopMessages({ now });
 
 			// 3 goes with its own child 1; 4 is a summary inside its retention window;
@@ -129,6 +130,7 @@ describe('RuntimeMessageStore', () => {
 			insertMessage(storage, 2, 2, { createdAt: daysAgo(20), compactedBy: 10 });
 			insertMessage(storage, 10, 10, { createdAt: daysAgo(20), origin: 'compaction' });
 
+			archiveRecentPages(storage);
 			expect(store.pruneExpiredLoopMessages({ now })).toMatchObject({ deletedMessages: 2, stampedSummaries: 1 });
 			expect(ledgerPrunedAt(storage, 10)).toBe(now.toISOString());
 
@@ -137,7 +139,7 @@ describe('RuntimeMessageStore', () => {
 			// A stamped summary stays reactivatable: only deleting it is refused.
 			storage.database.prepare(`UPDATE loop_messages SET compacted_by = 99 WHERE seq = 10`).run();
 			storage.database.prepare(`UPDATE loop_messages SET compacted_by = NULL WHERE seq = 10`).run();
-			expect(store.activeLoopMessageRows().map((row) => row.seq)).toEqual([10]);
+			expect(store.loopMessageRow(10)?.compacted_by).toBeNull();
 		});
 
 		it('keeps the first prune stamp and still allows deleting an intact summary', () => {
@@ -162,6 +164,7 @@ describe('RuntimeMessageStore', () => {
 			insertMessage(storage, 2, 2, { createdAt: daysAgo(150), compactedBy: 10 });
 			insertMessage(storage, 20, 20, { createdAt: daysAgo(1), origin: 'compaction' });
 
+			archiveRecentPages(storage);
 			const first = store.pruneExpiredLoopMessages({ now, limit: 2 });
 
 			// The batch stopped below the summary, so the summary is held back rather
@@ -730,7 +733,7 @@ function countingStore(storage: RuntimeTestStorage): { store: RuntimeMessageStor
 }
 
 function liveSeqs(storage: RuntimeTestStorage): number[] {
-	return storage.database.prepare(`SELECT seq FROM loop_messages ORDER BY seq ASC`).all().map((row) => row.seq as number);
+	return storage.database.prepare(`SELECT seq FROM loop_messages WHERE seq < 10000 ORDER BY seq ASC`).all().map((row) => row.seq as number);
 }
 
 function ledgerPrunedAt(storage: RuntimeTestStorage, seq: number): string | null {
@@ -754,4 +757,11 @@ function messageCompactedBy(storage: RuntimeTestStorage, seq: number): number | 
 
 function range(start: number, end: number): number[] {
 	return Array.from({ length: Math.max(0, end - start + 1) }, (_, index) => start + index);
+}
+
+function archiveRecentPages(storage: RuntimeTestStorage): void {
+	for (const seq of [10000, 10001, 10002]) {
+		insertMessage(storage, seq, seq, { origin: 'compaction' });
+		storage.sql.exec('UPDATE loop_messages SET compacted_by = ? WHERE compacted_by IS NULL AND seq != ?', seq, seq);
+	}
 }

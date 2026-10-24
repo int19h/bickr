@@ -32,7 +32,7 @@ describe('stored tool result views', () => {
 			{ runId: 'formats', origin: 'provider_response', message: { role: 'assistant', content: '## My narration', tool_calls: [{ id: 'stored', type: 'function', function: { name: 'read_note', arguments: '{}' } }, { id: 'legacy', type: 'function', function: { name: 'old_tool', arguments: '{}' } }] } },
 			{ runId: 'formats', origin: 'tool_result', message: attachToolResultView({ role: 'tool', tool_call_id: 'stored', content: '' }, view) },
 			{ runId: 'formats', origin: 'tool_result', message: { role: 'tool', tool_call_id: 'legacy', content: '{"old":true}' } },
-			{ runId: 'formats', origin: 'synthetic_context', message: { role: 'assistant', content: '## Context' } },
+			{ runId: 'formats', origin: 'synthetic_context', options: { source: 'recurring_prompt' }, message: { role: 'assistant', content: '## Context' } },
 			{ runId: 'formats', origin: 'input', message: { role: 'user', content: '## Bickr report' } },
 			{ runId: 'formats', origin: 'runtime_error', message: { role: 'user', content: '## Unknown old row' } },
 		]);
@@ -46,8 +46,8 @@ describe('stored tool result views', () => {
 		const { storage, store } = fixture();
 		const legacyJson = '{"threadId":"thr_old","content":[]}';
 		store.appendLoopMessage(testResultContext, 'legacy', { role: 'tool', tool_call_id: 'old', content: legacyJson }, 'synthetic_context');
-		store.appendLoopMessage(testResultContext, 'legacy', { role: 'assistant', content: legacyJson }, 'synthetic_context');
-		store.appendLoopMessage(testResultContext, 'legacy', { role: 'assistant', content: '## Focus text' }, 'synthetic_context');
+		store.appendLoopMessage(testResultContext, 'legacy', { role: 'assistant', content: legacyJson }, 'synthetic_context', 'complete', { source: 'recurring_prompt' });
+		store.appendLoopMessage(testResultContext, 'legacy', { role: 'assistant', content: '## Focus text' }, 'synthetic_context', 'complete', { source: 'spotlight_focus' });
 		const view: ToolResultView = { ...resultViewBase(text), kind: 'read_note', id: 'PLAN', content: '- Keep the plan current.', links: [] };
 		store.appendLoopMessage(testResultContext, 'current', attachToolResultView({ role: 'tool', tool_call_id: 'new', content: '' }, view), 'synthetic_context');
 		const response = store.loopMessagesPage(testResultContext, { page: 1 });

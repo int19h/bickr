@@ -1,3 +1,4 @@
+import { agentLogStoreStub } from "../runtime/agent-log-store.test-support";
 import { botText } from '../localization';
 const text = botText('en');
 import { describe, expect, it, vi } from 'vitest';
@@ -21,7 +22,7 @@ describe('Structured output', () => {
 		const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => Response.json(validResponse));
 		vi.stubGlobal("fetch", fetchMock);
 		try {
-			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub,
 				appendEvent: vi.fn(),
 				throwIfStopped: vi.fn(),
 			});
@@ -58,7 +59,7 @@ describe('Structured output', () => {
 		const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => Response.json(validResponse));
 		vi.stubGlobal("fetch", fetchMock);
 		try {
-			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub,
 				appendEvent: vi.fn(),
 				throwIfStopped: vi.fn(),
 			});
@@ -95,7 +96,7 @@ describe('Structured output', () => {
 		const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => Response.json(invalidButRepairableResponse));
 		vi.stubGlobal("fetch", fetchMock);
 		try {
-			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub,
 				appendEvent: vi.fn(),
 				throwIfStopped: vi.fn(),
 			});
@@ -142,7 +143,7 @@ describe('Structured output', () => {
 			.mockResolvedValueOnce(Response.json(validResponse));
 		vi.stubGlobal("fetch", fetchMock);
 		try {
-			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub,
 				appendEvent: vi.fn(),
 				throwIfStopped: vi.fn(),
 			});
@@ -179,7 +180,7 @@ describe('Structured output', () => {
 		const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => Response.json(validResponse));
 		vi.stubGlobal("fetch", fetchMock);
 		try {
-			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub,
 				appendEvent: vi.fn(),
 				throwIfStopped: vi.fn(),
 			});
@@ -215,7 +216,7 @@ describe('Structured output', () => {
 			}));
 		vi.stubGlobal("fetch", fetchMock);
 		try {
-			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub,
 				appendEvent: vi.fn(),
 				throwIfStopped: vi.fn(),
 			});
