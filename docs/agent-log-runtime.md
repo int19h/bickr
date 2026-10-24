@@ -52,8 +52,10 @@ Live entries and stream events carry an attempt ID and a delta revision. The rev
 
 ## Attempt details
 
-The nullable `usage_id` and `attribution_json` columns share the retention of their attempt. The runtime writes attribution when it receives a response or settles a failure. It writes the exact usage reference in the same transaction that inserts that usage row. A usage row belongs to at most one attempt. Reads load usage for all attempts in a request together.
+The nullable `usage_id` and `attribution_json` columns share the retention of their attempt. The runtime writes attribution when it receives a response or settles a failure. It writes the exact usage reference and final request state in the same transaction that inserts that usage row. A usage row belongs to at most one attempt. Reads load usage for all attempts in a request together.
 
 Old attempts keep null references. The runtime does not infer ownership from an event sequence or repair references on read. If a usage row expires, its attempt returns null usage and no cache chips. Attribution stays with its attempt until request retention removes it.
 
 The attempt API returns usage, attribution, and request messages from this store. Each message has its provider position and an optional cache status. The modal uses these attempt fields. It does not read request messages, usage, or attribution from raw logs. The exact body stays unchanged.
+
+The runtime stores response usage before any lookup for a provider name. That lookup updates only the provider name on the same usage row. It cannot delay usage or change the usage returned for a final request. The store rejects new usage links after request completion.

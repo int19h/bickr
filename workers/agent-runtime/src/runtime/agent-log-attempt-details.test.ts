@@ -110,7 +110,8 @@ describe('attempt details', () => {
 		const gate = new Promise<void>(resolve => { release = resolve; });
 		const instance = runtime();
 		instance.providerUsageProviderName = async () => { await gate; return 'Provider'; };
-		const pending = instance.recordProviderUsage({ ...usageInput, attemptId });
+		const pending = instance.recordProviderUsage({ ...usageInput, attemptId, settings: { ...usageInput.settings, baseUrl: 'https://openrouter.ai/api/v1' } });
+		expect(store.request(id).attempts[0]?.usage?.cachedInputTokens).toBe(4);
 		const later = store.startAttempt(id, body);
 		store.settle(later, { kind: 'timeout' });
 		release();
@@ -118,6 +119,42 @@ describe('attempt details', () => {
 		const attempts = store.request(id).attempts;
 		expect(attempts[0]?.usage?.cachedInputTokens).toBe(4);
 		expect(attempts[1]?.usage).toBeNull();
+	});
+
+	it('does not assign a delayed provider name to a replacement row after storage erasure', async () => {
+		const instance = runtime();
+		let release!: () => void;
+		const gate = new Promise<void>(resolve => { release = resolve; });
+		instance.providerUsageProviderName = async () => { await gate; return 'Old Provider'; };
+		const input = { ...usageInput, settings: { ...usageInput.settings, baseUrl: 'https://openrouter.ai/api/v1' } };
+		const pending = instance.recordProviderUsage(input);
+		const oldId = storage.sql.exec<{ id: number }>('SELECT id FROM provider_usage LIMIT 1').one().id;
+		storage.sql.exec('DELETE FROM provider_usage');
+		storage.sql.exec("DELETE FROM sqlite_sequence WHERE name = 'provider_usage'");
+		instance.providerUsageProviderName = async () => null;
+		await instance.recordProviderUsage({ ...input, runId: 'replacement' });
+		expect(storage.sql.exec<{ id: number }>('SELECT id FROM provider_usage LIMIT 1').one().id).toBe(oldId);
+		release();
+		await pending;
+		expect(storage.sql.exec<{ provider_name: string | null }>('SELECT provider_name FROM provider_usage LIMIT 1').one().provider_name).toBeNull();
+	});
+
+	it('rolls back usage and completion together when publication fails', async () => {
+		const { id, attemptId } = start();
+		await expect(runtime().recordProviderUsage({ ...usageInput, attemptId }, () => {
+			store.finish(id, 'succeeded');
+			throw new Error('Publication failed.');
+		})).rejects.toThrow('Publication failed.');
+		expect(store.request(id)).toMatchObject({ state: 'pending', attempts: [{ usage: null }] });
+		expect(storage.sql.exec('SELECT id FROM provider_usage').toArray()).toEqual([]);
+	});
+
+	it('rejects usage linkage after a request reaches a final state', async () => {
+		const { id, attemptId } = start();
+		store.finish(id, 'succeeded');
+		await expect(runtime().recordProviderUsage({ ...usageInput, attemptId })).rejects.toMatchObject({ status: 409 });
+		expect(store.request(id).attempts[0]?.usage).toBeNull();
+		expect(storage.sql.exec('SELECT id FROM provider_usage').toArray()).toEqual([]);
 	});
 
 	it('rejects attribution for another request and bounds malformed stored metadata', () => {

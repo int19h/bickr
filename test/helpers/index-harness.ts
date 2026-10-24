@@ -2118,8 +2118,11 @@ export function capturingProviderUsageSql() {
 			if (/INSERT INTO provider_usage/.test(sql)) {
 				inserts.push(params);
 			}
+			if (/UPDATE provider_usage SET provider_name/.test(sql)) {
+				inserts[Number(params[1]) - 1]![8] = params[0];
+			}
 			return {
-				one: () => ({} as T),
+				one: () => ({ id: inserts.length } as T),
 				toArray: () => [],
 			};
 		},

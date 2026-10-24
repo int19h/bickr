@@ -193,7 +193,7 @@ export class AgentLogStore {
 		 WHERE id = ? AND (usage_id IS NULL OR usage_id = ?)
 		 AND NOT EXISTS (SELECT 1 FROM inference_attempts owned WHERE owned.usage_id = ? AND owned.id != ?)
 		 AND EXISTS (SELECT 1 FROM provider_usage u JOIN inference_requests r ON r.id = inference_attempts.request_id
-		 WHERE u.id = ? AND u.run_id = r.run_id AND u.request_seq = inference_attempts.event_seq)
+		 WHERE u.id = ? AND u.run_id = r.run_id AND u.request_seq = inference_attempts.event_seq AND r.state = 'pending')
 		 RETURNING id`, usageId, attemptId, usageId, usageId, attemptId, usageId).toArray();
 		if (updated.length !== 1) throw new RepositoryError('conflict', 'The usage row does not belong to this inference attempt.', 409);
 	}

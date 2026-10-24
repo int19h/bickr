@@ -65,6 +65,25 @@ describe('originating inference metadata', () => {
   expect(logs.request(logs.byEvent('run-a', 7)!.id).attempts[0]?.attribution).toEqual(result.inferenceAttribution);
  });
 
+ it('publishes compaction usage before a delayed provider-name lookup', async () => {
+  const { runtime: instance, access } = runtime();
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  instance.providerUsageProviderName = vi.fn(async () => { await gate; return 'Provider'; });
+  instance.fetchProviderCompactionResponse = vi.fn().mockResolvedValue({ content: 'Summary.', usage: { promptTokens: 20, completionTokens: 5, totalTokens: 25, cachedTokens: 4, reasoningTokens: 0, cost: 0.006, raw: {} } });
+  const pending = access.callProviderForCompaction({ text: botText('en'), model: 'test', baseUrl: 'https://openrouter.ai/api/v1', temperature: 0.1 }, [], 'run-a', new AbortController().signal, undefined, undefined, undefined, 7, '2026-10-01', bot, undefined, 23456);
+  await vi.waitFor(() => expect(instance.providerUsageProviderName).toHaveBeenCalledOnce());
+  const logs = new AgentLogStore(storage!);
+  const id = logs.byEvent('run-a', 7)!.id;
+  const before = logs.request(id);
+  expect(before).toMatchObject({ state: 'succeeded', attempts: [{ usage: { promptTokens: 20, cachedInputTokens: 4, totalTokens: 25 } }] });
+  expect(storage!.sql.exec<{ provider_name: string | null }>('SELECT provider_name FROM provider_usage LIMIT 1').one().provider_name).toBeNull();
+  release();
+  await pending;
+  expect(logs.request(id).attempts[0]?.usage).toEqual(before.attempts[0]?.usage);
+  expect(storage!.sql.exec<{ provider_name: string }>('SELECT provider_name FROM provider_usage LIMIT 1').one().provider_name).toBe('Provider');
+ });
+
  it('opens the exact compacted source and retains attribution after its event expires', async () => {
   const { access, store } = runtime();
   const attribution: InferenceAttribution = { model: 'vendor/model', parameters: { temperature: 0.3 }, source: { botId: bot.id, worldHandle: 'primary', botHandle: bot.handle, runId: 'run-a', requestSeq: 7 } };

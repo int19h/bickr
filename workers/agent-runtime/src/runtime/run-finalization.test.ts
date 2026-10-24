@@ -275,17 +275,18 @@ async function completedResponseWait(window: 'lease' | 'usage' | 'events', resta
 		ensureProviderPromptWithinBudget: async () => ({ renderContext: testResultContext, allowedPromptTokens: 13_500, providerTools: toolDefinitionsForProviderRound(text), promptTokens: 100, requestMessages: [] }),
 		callProvider: async (_settings: unknown, _messages: unknown, _tools: unknown, runId: string, eventSeq: number) => {
 			requestId = logs.byEvent(runId, eventSeq)!.id;
-			logs.startAttempt(requestId, '{"exact":"completed request"}');
-			return { content: 'The completed response before either tool.', reasoning: 'Retained reasoning.', reasoningDetails: [], toolCalls: calls, usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 } };
+			const inferenceAttemptId = logs.startAttempt(requestId, '{"exact":"completed request"}');
+			return { inferenceAttemptId, content: 'The completed response before either tool.', reasoning: 'Retained reasoning.', reasoningDetails: [], toolCalls: calls, usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2, cachedTokens: 1, reasoningTokens: 0, cost: null, raw: {} } };
 		},
-		recordProviderUsage: window === 'usage' ? wait : async () => {},
+		providerUsageProviderName: window === 'usage' ? async () => { await wait(); return 'Provider'; } : async () => null,
 		appendProviderMessages: window === 'events' ? wait : async () => {},
 		renewProgressLease: async () => { if (window === 'lease' && logs.responsePublication('run')) await wait(); },
 		executeTool: vi.fn(),
 	});
-	const pending = h.runtime.withRunExecution('run', () => h.runtime.runProviderLoop(bot, { baseUrl: 'https://provider.test', model: 'test', temperature: 0.2, toolCalls: 'at_will' }, 'run', [], { mode: 'normal', signal: h.runtime.activeAbortController.signal })).catch((error: unknown) => error);
+	const pending = h.runtime.withRunExecution('run', () => h.runtime.runProviderLoop(bot, { baseUrl: 'https://openrouter.ai/api/v1', model: 'test', temperature: 0.2, toolCalls: 'at_will' }, 'run', [], { mode: 'normal', signal: h.runtime.activeAbortController.signal })).catch((error: unknown) => error);
 	await vi.waitFor(() => expect(reached).toBe(true));
-	expect(logs.request(requestId)).toMatchObject({ state: 'succeeded', messageSeq: null });
+	const completed = logs.request(requestId);
+	expect(completed).toMatchObject({ state: 'succeeded', messageSeq: null, attempts: [{ usage: { promptTokens: 1, cachedInputTokens: 1, totalTokens: 2 } }] });
 	expect(h.storage.sql.exec("SELECT key FROM runtime_state WHERE key = 'pending_tool_v3'").toArray()).toEqual([]);
 	let recovery = h.runtime;
 	if (restart) {
@@ -305,6 +306,7 @@ async function completedResponseWait(window: 'lease' | 'usage' | 'events', resta
 	expect(h.runtime.executeTool).not.toHaveBeenCalled();
 	resume();
 	expect(await pending).toMatchObject({ name: 'TickStoppedError' });
+	expect(logs.request(requestId).attempts[0]?.usage).toEqual(completed.attempts[0]?.usage);
 	expect(recovery.loopMessagesPage(testResultContext, { page: 1 }).messages).toHaveLength((withTools ? 3 : 1) + (restart ? 1 : 0));
 	h.storage.database.close();
 }

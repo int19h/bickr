@@ -3735,23 +3735,18 @@ export class BotRuntime {
 				const malformedArgumentsOnlyResponse = allToolCallsDroppedResponse
 					? allToolCallsHaveMalformedArguments(sanitized.dropped, sanitized.originalToolCallCount)
 					: null;
-				if (!allToolCallsDroppedResponse) this.runStorageTransactionSync(() => {
-					const log = this.agentLogStore();
-					const attemptId = log.latestAttempt(logicalRequestId!);
-					if (attemptId !== null) {
-						log.settle(attemptId, responseStatus === 'interrupted' ? { kind: 'interrupted', response: JSON.stringify(providerResponseLogPayload(response, responseStatus)) } : { kind: 'success', response: JSON.stringify(providerResponseLogPayload(response, responseStatus)) });
-						if (providerResponseMessageForHistory(response)) log.stageResponsePublication({ kind: 'provider_response', runId, requestId: logicalRequestId!, eventSeq: requestEvent.seq, attemptId, assistantSeq: null, pendingCallIds: response.toolCalls.map(call => call.id) });
-					}
-					log.finish(logicalRequestId!, 'succeeded');
-				});
-				await this.recordDroppedProviderToolCalls(
-					runId,
-					requestEvent.seq,
-					sanitized.dropped,
-					'generated_response',
-					allToolCallsDroppedResponse && !allToolCallsDroppedRetried,
-				);
-				this.recordRepairedProviderToolCalls(runId, requestEvent.seq, sanitized.repaired);
+				const publishResponse = () => {
+					if (allToolCallsDroppedResponse) return;
+					this.runStorageTransactionSync(() => {
+						const log = this.agentLogStore();
+						const attemptId = log.latestAttempt(logicalRequestId!);
+						if (attemptId !== null) {
+							log.settle(attemptId, responseStatus === 'interrupted' ? { kind: 'interrupted', response: JSON.stringify(providerResponseLogPayload(response, responseStatus)) } : { kind: 'success', response: JSON.stringify(providerResponseLogPayload(response, responseStatus)) });
+							if (providerResponseMessageForHistory(response)) log.stageResponsePublication({ kind: 'provider_response', runId, requestId: logicalRequestId!, eventSeq: requestEvent.seq, attemptId, assistantSeq: null, pendingCallIds: response.toolCalls.map(call => call.id) });
+						}
+						log.finish(logicalRequestId!, 'succeeded');
+					});
+				};
 				if (response.usage) {
 					await this.recordProviderUsage({
 						attemptId: response.inferenceAttemptId,
@@ -3764,8 +3759,18 @@ export class BotRuntime {
 						runId,
 						settings,
 						usage: response.usage,
-					});
+					}, publishResponse);
+				} else {
+					publishResponse();
 				}
+				await this.recordDroppedProviderToolCalls(
+					runId,
+					requestEvent.seq,
+					sanitized.dropped,
+					'generated_response',
+					allToolCallsDroppedResponse && !allToolCallsDroppedRetried,
+				);
+				this.recordRepairedProviderToolCalls(runId, requestEvent.seq, sanitized.repaired);
 				try {
 					this.throwIfStopped(runId, runContext.signal);
 				} catch (error) {
@@ -4631,8 +4636,26 @@ export class BotRuntime {
 						usage: response.usage,
 					});
 				}
-				this.agentLogStore().settle(attemptId, { kind: 'success', response: response.rawResponse ?? JSON.stringify({ content: response.content }) });
-				this.agentLogStore().finish(requestId, 'succeeded');
+				const publishResponse = () => this.runStorageTransactionSync(() => {
+					this.agentLogStore().settle(attemptId, { kind: 'success', response: response.rawResponse ?? JSON.stringify({ content: response.content }) });
+					this.agentLogStore().finish(requestId, 'succeeded');
+				});
+				if (response.usage) {
+					await this.recordProviderUsage({
+						attemptId,
+						contextWindowTokens: requestContextWindowTokens ?? effectiveContextWindowTokensForModel(settings, effectiveTickSettings(bot?.tickSettings).contextWindowTokens),
+						createdAt,
+						providerName: response.responseProviderName,
+						providerResponseId: response.responseId,
+						requestSeq,
+						responseModel: response.responseModel,
+						runId,
+						settings,
+						usage: response.usage,
+					}, publishResponse);
+				} else {
+					publishResponse();
+				}
 				plan = plan.transition({ kind: 'success' });
 				return {
 					...response,
@@ -5102,10 +5125,12 @@ export class BotRuntime {
 		runId: string;
 		settings: LocalizedProviderSettings;
 		usage: ProviderUsage;
-	}): Promise<void> {
+	}, publishResponse?: () => void): Promise<void> {
 		const model = input.responseModel?.trim() || input.settings.model;
-		const providerName = await this.providerUsageProviderName(input.settings, input.providerName, input.providerResponseId);
-		this.runStorageTransactionSync(() => {
+		const providerName = isOpenRouterProviderBaseUrl(input.settings.baseUrl)
+			? normalizedProviderName(input.providerName)
+			: providerNameFromBaseUrl(input.settings.baseUrl);
+		const usageId = this.runStorageTransactionSync(() => {
 			if (input.attemptId !== undefined) this.agentLogStore().assertCanWrite();
 			const usageRow = this.state.storage.sql.exec<{ id: number }>(
 				`INSERT INTO provider_usage (
@@ -5132,8 +5157,19 @@ export class BotRuntime {
 				JSON.stringify(input.usage.raw),
 				input.createdAt,
 			);
-			if (input.attemptId !== undefined) this.agentLogStore().linkUsage(input.attemptId, usageRow.one().id);
+			const id = usageRow.one().id;
+			if (input.attemptId !== undefined) this.agentLogStore().linkUsage(input.attemptId, id);
+			publishResponse?.();
+			return id;
 		});
+		// Usage and request completion commit before the optional provider-name lookup.
+		if (!providerName) {
+			const resolvedName = await this.providerUsageProviderName(input.settings, input.providerName, input.providerResponseId);
+			if (resolvedName) {
+				this.agentLogStore().assertCanWrite();
+				this.state.storage.sql.exec('UPDATE provider_usage SET provider_name = ? WHERE id = ? AND run_id = ? AND request_seq = ? AND provider_name IS NULL', resolvedName, usageId, input.runId, input.requestSeq);
+			}
+		}
 	}
 
 	private async providerUsageProviderName(
@@ -7696,23 +7732,6 @@ export class BotRuntime {
 		}
 		const summary = response.content ? storedCompactionSummary(response.content) : deterministicCompactionSummary('', recentActivity);
 		const summaryPosition = providerRows[providerRows.length - 1]?.position ?? this.nextLoopMessagePosition();
-		if (response.usage) {
-			await this.recordProviderUsage({
-				attemptId: response.inferenceAttemptId,
-				contextWindowTokens: effectiveContextWindowTokensForModel(
-					settings,
-					effectiveTickSettings(bot.tickSettings).contextWindowTokens,
-				),
-				createdAt: summaryEvent.createdAt,
-				providerName: response.responseProviderName,
-				providerResponseId: response.responseId,
-				requestSeq: summaryEvent.seq,
-				responseModel: response.responseModel,
-				runId,
-				settings,
-				usage: response.usage,
-			});
-		}
 		await this.renewProgressLease(bot.id, runId, signal);
 		let summaryMessage!: BotLoopMessage;
 		const commit = () => {
