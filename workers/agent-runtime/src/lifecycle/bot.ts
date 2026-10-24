@@ -22,6 +22,9 @@ import {
 	lifecycleSecretValue,
 	markLifecycleMaterializing,
 	recordRetryableLifecycleFailure,
+	resolveBlockedCreation,
+	type BlockedCreationAction,
+	type LifecycleFailure,
 	reserveBotCreateLifecycle,
 	serializedLifecycleRequest,
 	type LifecycleFailurePoint,
@@ -127,7 +130,7 @@ export async function runBotCreateOperation(
 ): Promise<void> {
 	let operation = await lifecycleOperationById(context.env.BICKR_D1, initialOperation.operationId) ?? initialOperation;
 	if (operation.phase === "terminal") return;
-	if (operation.phase === "terminal_failed") throw new RepositoryError("conflict", "Participant creation previously failed terminally.", 409);
+	if (operation.phase === "terminal_failed") throw new RepositoryError("conflict", operation.kvRetryState === 'blocked' ? 'Participant creation needs an operator to resume or cancel it.' : 'Participant creation previously failed terminally.', 409);
 	if (!operation.requestJson) throw new RepositoryError("server_error", "Participant lifecycle request is missing.", 500);
 	let request = parseBotCreateLifecycleRequest(operation.requestJson);
 	if (operation.phase === "compensating") {
@@ -135,16 +138,22 @@ export async function runBotCreateOperation(
 		await compensateBotCreate(context, operation, request);
 		return;
 	}
-	// context-budget-minimum-v1: migrate executable state in this owner queue
-	// step before any replay. Remove with the sweep after schemaVersion > 2.
-	// Keep migration errors outside the creation catch: they must not delete
-	// a participant whose saved request has not yet migrated.
-	const migration = await migrateOwnedContextBudget(context.env.BICKR_KV, context.env.BICKR_D1, request.botId, request.userId);
-	if (migration.kind === 'missing') throw new RepositoryError('server_error', 'Participant creation migration could not find its lifecycle state.', 500);
-	operation = await lifecycleOperationById(context.env.BICKR_D1, operation.operationId) ?? operation;
-	if (!operation.requestJson) throw new RepositoryError("server_error", "Participant lifecycle request is missing.", 500);
-	request = parseBotCreateLifecycleRequest(operation.requestJson);
+	if (operation.kvRetryState === 'retrying' && operation.kvRetryDeadlineAt && Date.now() >= Date.parse(operation.kvRetryDeadlineAt)) {
+		await recordRetryableLifecycleFailure(context.env.BICKR_D1, operation, {
+			category: 'external_retryable', code: operation.failureCode ?? 'creation_kv_deadline', retryable: true, retryPolicy: 'preserve_creation',
+		}, new Date().toISOString());
+		throw new RepositoryError('conflict', 'Participant creation needs an operator to resume or cancel it.', 409);
+	}
+	let stage: 'migration' | 'materialization' = 'migration';
 	try {
+		// context-budget-minimum-v1: migrate executable state in this owner queue
+		// step before replay. Remove this call with the sweep after schemaVersion > 2.
+		const migration = await migrateOwnedContextBudget(context.env.BICKR_KV, context.env.BICKR_D1, request.botId, request.userId);
+		if (migration.kind === 'missing') throw new RepositoryError('server_error', 'Participant creation migration could not find its lifecycle state.', 500);
+		operation = await lifecycleOperationById(context.env.BICKR_D1, operation.operationId) ?? operation;
+		if (!operation.requestJson) throw new RepositoryError("server_error", "Participant lifecycle request is missing.", 500);
+		request = parseBotCreateLifecycleRequest(operation.requestJson);
+		stage = 'materialization';
 		operation = await markLifecycleMaterializing(context.env.BICKR_D1, operation, new Date().toISOString());
 		const materializationInput = await botCreateInputWithLifecycleSecret(context, operation, request.input);
 		const cloneSource = materializationInput.cloneSourceBotId
@@ -205,10 +214,16 @@ export async function runBotCreateOperation(
 			await activateLifecycleEntity(context.env.BICKR_D1, operation, { kind: "legacy_compatible" }, activatedAt);
 		}
 	} catch (error) {
-		const failure = classifyLifecycleFailure(error);
+		// Migration can change the request revision before a later write fails.
+		operation = await lifecycleOperationById(context.env.BICKR_D1, operation.operationId) ?? operation;
+		const classified = classifyLifecycleFailure(error);
+		const failure: LifecycleFailure = stage === 'migration'
+			? { category: 'external_retryable', code: classified.code, retryable: true, retryPolicy: 'preserve_creation' }
+			: classified;
 		const failedAt = new Date().toISOString();
 		if (failure.retryable) {
 			operation = await recordRetryableLifecycleFailure(context.env.BICKR_D1, operation, failure, failedAt);
+			if (operation.kvRetryState === 'blocked') throw new RepositoryError('conflict', 'Participant creation needs an operator to resume or cancel it.', 409);
 			if (operation.phase !== "compensating") {
 				await scheduleUserLifecycleAlarm(context.coordinator);
 				throw error;
@@ -224,6 +239,27 @@ export async function runBotCreateOperation(
 		}
 		throw error;
 	}
+}
+
+export async function resolveBlockedBotCreation(
+	context: LifecycleRuntimeContext, operationId: string, revision: number, action: BlockedCreationAction,
+): Promise<{ kind: 'resumed' | 'cancelled' | 'not_blocked'; operationId: string }> {
+	const operation = await lifecycleOperationById(context.env.BICKR_D1, operationId);
+	if (!operation) throw new RepositoryError('not_found', 'Lifecycle operation was not found.', 404);
+	if (operation.ownerUserId !== context.coordinator.ownerUserId) throw new RepositoryError('forbidden', 'The owner coordinator must resolve this operation.', 403);
+	if (operation.entityKind !== 'bot' || operation.action !== 'create') throw new RepositoryError('conflict', 'Only participant creations can use this action.', 409);
+	if (operation.kvRetryState !== 'blocked') return { kind: 'not_blocked', operationId };
+	if (!operation.requestJson) throw new RepositoryError('conflict', 'The blocked creation has no saved request.', 409);
+	const request = parseBotCreateLifecycleRequest(operation.requestJson);
+	if (request.botId !== operation.entityId || request.userId !== operation.ownerUserId) throw new RepositoryError('conflict', 'The saved creation identity does not match its operation. Repair it before resolution.', 409);
+	const resolved = await resolveBlockedCreation(context.env.BICKR_D1, operation, action, revision, new Date().toISOString());
+	if (action.kind === 'resume') {
+		await scheduleUserLifecycleAlarm(context.coordinator);
+		return { kind: 'resumed', operationId };
+	}
+	// An explicit operator cancellation uses the existing idempotent cleanup.
+	await runBotCreateOperation(context, resolved);
+	return { kind: 'cancelled', operationId };
 }
 
 async function materializeLifecycleImportAvatar(
@@ -305,7 +341,11 @@ async function compensateBotCreate(
 ): Promise<void> {
 	await deleteBotVector(context.env, request.botId);
 	const bot = await readJson<BotDocument>(context.env.BICKR_KV, kvKeys.bot(request.botId));
-	if (bot?.avatar?.key && context.env.BICKR_R2) await context.env.BICKR_R2.delete(bot.avatar.key);
+	// A stale or misfiled document cannot authorize deletion of another asset.
+	const avatarPrefix = `worlds/${encodeURIComponent(request.worldId)}/bots/${encodeURIComponent(request.botId)}/avatars/`;
+	if (bot?.id === request.botId && bot.ownerUserId === request.userId && bot.homeWorldId === request.worldId && bot.avatar?.key.startsWith(avatarPrefix) && context.env.BICKR_R2) {
+		await context.env.BICKR_R2.delete(bot.avatar.key);
+	}
 	if (request.input.importSource && context.env.BICKR_R2) {
 		await context.env.BICKR_R2.delete([
 			lifecycleBotImportAvatarKey(request.worldId, request.botId, "image/jpeg"),

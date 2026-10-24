@@ -142,17 +142,23 @@ describe('context-budget-minimum-v1 migration', () => {
 		}
 		const oldSnapshot = stage === 'reserved' ? null : await stored(request.botId);
 		if (stage === 'kv') {
+			let interrupt = true;
 			const interruptedDb: D1Database = {
 				prepare: env.BICKR_D1.prepare.bind(env.BICKR_D1),
 				exec: env.BICKR_D1.exec.bind(env.BICKR_D1),
 				withSession: env.BICKR_D1.withSession.bind(env.BICKR_D1),
 				dump: env.BICKR_D1.dump.bind(env.BICKR_D1),
-				batch: async () => { throw new Error('Migration interruption.'); },
+				async batch<T = unknown>(statements: D1PreparedStatement[]) {
+					if (interrupt) { interrupt = false; throw new Error('Migration interruption.'); }
+					return env.BICKR_D1.batch<T>(statements);
+				},
 			};
 			await expect(queue.run(() => resumeDueUserLifecycleOperation({ ...context, env: { ...env, BICKR_D1: interruptedDb } }, new Date(Date.now() + 60_000).toISOString()))).rejects.toThrow('Migration interruption.');
 			const interrupted = (await lifecycleOperationById(env.BICKR_D1, operation.operationId))!;
 			expect(interrupted.phase).toBe('materializing');
 			expect(interrupted.requestHash).toBe(operation.requestHash);
+			expect(interrupted).toMatchObject({ kvRetryState: 'retrying', kvRetryCount: 1, failureCode: 'unexpected_error' });
+			expect(interrupted.kvRetryDeadlineAt).not.toBeNull();
 			expect(parseBotCreateLifecycleRequest(interrupted.requestJson!).input.tickSettings?.contextWindowTokens).toBe(contextWindowTokensMin);
 			expect((await stored(request.botId)).tickSettings.contextWindowTokens).toBe(contextWindowTokensMin);
 		}

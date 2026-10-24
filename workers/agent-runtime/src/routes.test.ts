@@ -5,6 +5,7 @@ const routeCases = [
 	{ method: 'POST', path: '/auth/maintenance', handlerId: 'auth-maintenance' },
 	{ method: 'POST', path: '/users/user-1/repair-index', handlerId: 'account-index-repair' },
 	{ method: 'POST', path: '/accounts/bootstrap', handlerId: 'account-bootstrap-dispatch' },
+	{ method: 'POST', path: '/users/user-1/lifecycle/operations/op-1/resolve', handlerId: 'resolve-blocked-creation' },
 	{ method: 'POST', path: '/users/user-1/lifecycle/recover', handlerId: 'lifecycle-recovery' },
 	{ method: 'PUT', path: '/users/user-1/avatar', handlerId: 'user-avatar-upload' },
 	{ method: 'DELETE', path: '/users/user-1/avatar', handlerId: 'user-avatar-delete' },

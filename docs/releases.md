@@ -300,14 +300,16 @@ Materialization also passes its document directly into avatar import.
 Neither step reads its own KV write back.
 D1 projection revisions detect older participant snapshots from interrupted attempts.
 KV-dependent document mismatches raise `LifecycleKvReadError` and preserve the creation for retry.
+
 These retries do not consume the normal retry limit or trigger deletion.
+They have a separate deadline and attempt count, stored with the operation.
 
 The safeguard also covers missing owner documents and missing or inconsistent clone source documents.
 The personal forum step reads D1 and does not read its new KV document back.
 Vector publication uses the materialization result directly.
 A stale KV snapshot cannot prove that a participant no longer exists.
 If a KV mismatch persists, resolve the stored data before retrying recovery.
-The existing lifecycle row stays recoverable until storage becomes consistent or an operator resolves the mismatch.
+A persistent mismatch stops automatic recovery when either bound expires.
 
 D1-confirmed missing or deleted owners, worlds, and immediate clone sources remain terminal failures.
 D1-confirmed foreign ownership, handle conflicts, and invalid clone graphs also remain terminal.
@@ -315,6 +317,68 @@ These causes come from authoritative records, rather than KV visibility.
 Invalid saved input remains terminal when its validation does not depend on a KV document.
 Other external failures keep their existing retry limit and cleanup policy.
 Keep the permanent snapshot handoff and KV retry rules when removing the budget migration safeguard.
+
+D1 migration `0072_creation_kv_retry_bounds.sql` adds the persisted retry state, deadline, and attempt count.
+Apply it through the normal release process before the updated Worker handles requests.
+The bounds are one hour from the first KV-dependent failure and 128 attempts.
+Recovery waits 30 seconds between these attempts.
+The first bound that expires stops automatic recovery.
+`lifecycleKvRetryWindowMs`, `lifecycleKvRetryLimit`, and `lifecycleKvRetryDelayMs` define these values in `entity-lifecycle.ts`.
+
+An exhausted creation uses the existing `terminal_failed` phase with `kv_retry_state = 'blocked'`.
+This failed state already stops recovery and has no automatic compensation step.
+The explicit blocked marker retains the saved request, secrets, claims, and participant data.
+Its `terminal_cleanup_at` stays `NULL`, and terminal-history cleanup excludes blocked rows.
+These retained rows require operator resolution and have no automatic expiry.
+Successful recovery or explicit cancellation restores the existing 30-day terminal retention.
+
+Account deletion returns a conflict before hiding the account when it finds a blocked creation.
+An operator must resume or cancel that creation first.
+The operator route requires internal service authentication, scheduler authority, and the matching owner coordinator.
+It works with or without global maintenance mode.
+It returns only the resolution kind and operation ID.
+It never returns the saved request or secrets.
+
+In the target environment's D1 operator console, list at most 25 blocked creations:
+
+```sql
+SELECT owner_user_id, operation_id, revision, failure_code,
+       kv_retry_count, kv_retry_deadline_at
+FROM entity_lifecycle_operations
+WHERE kv_retry_state = 'blocked'
+ORDER BY owner_user_id, operation_id
+LIMIT 25;
+```
+
+After resolving that page, repeat the query until no blocked creations remain.
+After fixing the cause, resume a creation through the target environment's internal agent-runtime binding.
+Send this request:
+
+```text
+POST /users/<owner-id>/lifecycle/operations/<operation-id>/resolve
+x-bickr-scheduler: 1
+x-bickr-user-id: <owner-id>
+<internal service authentication>
+content-type: application/json
+
+{"kind":"resume","revision":<revision from the inventory>}
+```
+
+The resume action resets the KV retry window and queues recovery.
+To cancel a creation and delete its partial data, send the same request with `"kind":"cancel"`.
+Cancellation uses the existing creation cleanup and releases its reservations.
+Avatar cleanup requires matching participant ownership and its own storage path.
+Resolution also matches the saved identity against the canonical operation before any mutation.
+
+A repeated action returns `not_blocked` when the operation no longer needs resolution.
+If the revision changes, refresh the inventory before sending another action.
+A stale revision cannot resolve a newly blocked attempt.
+
+Before rolling back lifecycle writers, resolve all blocked creations.
+Earlier writers do not guard account deletion against these held creations.
+
+Keep this retry bound and operator route after removing the temporary context-budget migration.
+The migration adds no separate retry store and does not change participant retention.
 
 Complete these steps in test before an authorized production release:
 
@@ -368,7 +432,8 @@ Use the same cursor protocol and completion rules as test.
 The test proxy does not exist in production.
 Do not write KV or the runtime index directly.
 
-The migration adds no table, column, KV key, or retained sweep state.
+The context-budget sweep adds no table, KV key, or retained sweep state.
+The permanent lifecycle retry columns follow the retention rules above.
 The operator owns the resumable cursor and saves page evidence in release artifact storage.
 Existing document, index, and historical data retention rules stay in force.
 After both environments complete a second pass with no changes, retire rollback writers that accept the old minimum.

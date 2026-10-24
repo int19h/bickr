@@ -11,6 +11,9 @@ import type {
 export const lifecycleTerminalRetentionDays = 30;
 export const lifecycleRetryLimit = 8;
 export const lifecycleRetryDelayMs = 5_000;
+export const lifecycleKvRetryWindowMs = 60 * 60_000;
+export const lifecycleKvRetryLimit = 128;
+export const lifecycleKvRetryDelayMs = 30_000;
 export const lifecycleRecoveryLeaseMs = 10 * 60_000;
 export const lifecycleRecoveryOwnerBatchLimit = 25;
 
@@ -65,6 +68,9 @@ export type LifecycleOperation = {
 	phase: LifecycleOperationPhase;
 	revision: number;
 	retryCount: number;
+	kvRetryState: 'none' | 'retrying' | 'blocked';
+	kvRetryCount: number;
+	kvRetryDeadlineAt: string | null;
 	nextRetryAt: string | null;
 	failureCategory: LifecycleFailureCategory | null;
 	failureCode: string | null;
@@ -108,6 +114,9 @@ type LifecycleOperationRow = {
 	phase: LifecycleOperationPhase;
 	revision: number;
 	retryCount: number;
+	kvRetryState: 'none' | 'retrying' | 'blocked';
+	kvRetryCount: number;
+	kvRetryDeadlineAt: string | null;
 	nextRetryAt: string | null;
 	failureCategory: LifecycleFailureCategory | null;
 	failureCode: string | null;
@@ -519,6 +528,8 @@ export async function beginAccountDeleteLifecycle(
 	db: D1DatabaseLike,
 	input: Omit<DeleteLifecycleReservationInput, "entityKind" | "entityId">,
 ): Promise<{ operation: LifecycleOperation; created: boolean }> {
+	const blocked = await db.prepare("SELECT operation_id FROM entity_lifecycle_operations WHERE owner_user_id = ? AND kv_retry_state = 'blocked' LIMIT 1").bind(input.ownerUserId).first();
+	if (blocked) throw new RepositoryError('conflict', 'Account deletion needs an operator to resume or cancel a blocked participant creation.', 409);
 	return beginDeleteLifecycleInternal(db, {
 		...input,
 		entityKind: "account",
@@ -580,7 +591,8 @@ async function beginDeleteLifecycleInternal(
 					AND NOT EXISTS (
 						SELECT 1 FROM entity_lifecycle_operations
 						WHERE owner_user_id = ? AND phase NOT IN ('terminal', 'terminal_failed')
-					)`;
+					)
+					AND NOT EXISTS (SELECT 1 FROM entity_lifecycle_operations WHERE owner_user_id = ? AND kv_retry_state = 'blocked' LIMIT 1)`;
 	const operationBinds: unknown[] = [
 		operationId,
 		input.ownerUserId,
@@ -594,7 +606,7 @@ async function beginDeleteLifecycleInternal(
 		input.entityId,
 	];
 	if (guard.kind === "account_without_foreign_bots") {
-		operationBinds.push(input.ownerUserId, input.ownerUserId, input.ownerUserId);
+		operationBinds.push(input.ownerUserId, input.ownerUserId, input.ownerUserId, input.ownerUserId);
 	}
 	if (guard.kind === "world_without_bots") operationBinds.push(input.entityId);
 	try {
@@ -910,8 +922,9 @@ export async function recordRetryableLifecycleFailure(
 	failure: LifecycleFailure,
 	now: string,
 ): Promise<LifecycleOperation> {
-	const retryCount = operation.retryCount + (failure.retryPolicy === 'preserve_creation' ? 0 : 1);
-	const exhausted = failure.retryPolicy !== 'preserve_creation' && retryCount >= lifecycleRetryLimit;
+	if (failure.retryPolicy === 'preserve_creation') return recordCreationKvFailure(db, operation, failure, now);
+	const retryCount = operation.retryCount + 1;
+	const exhausted = retryCount >= lifecycleRetryLimit;
 	const category: LifecycleFailureCategory = exhausted ? "retry_exhausted" : failure.category;
 	const nextRetryAt = exhausted ? null : new Date(Date.parse(now) + lifecycleRetryDelayMs).toISOString();
 	const nextPhase: LifecycleOperationPhase = exhausted ? "compensating" : operation.action === "create" ? "materializing" : "deleting";
@@ -938,6 +951,52 @@ export async function recordRetryableLifecycleFailure(
 			)
 			.bind(entityPhase, now, operation.entityKind, operation.entityId, operation.operationId, operation.operationId),
 	]);
+	return requiredLifecycleOperation(db, operation.operationId);
+}
+
+// The owner queue calls this after reloading any migration writes. Both the
+// retry bound and the canonical entity phase commit in one revision-fenced batch.
+async function recordCreationKvFailure(db: D1DatabaseLike, operation: LifecycleOperation, failure: LifecycleFailure, now: string): Promise<LifecycleOperation> {
+	if (operation.entityKind !== 'bot' || operation.action !== 'create') throw new RepositoryError('server_error', 'KV creation retries require a participant creation.', 500);
+	const deadline = operation.kvRetryDeadlineAt ?? new Date(Date.parse(now) + lifecycleKvRetryWindowMs).toISOString();
+	const attempts = operation.kvRetryCount + 1;
+	const blocked = attempts >= lifecycleKvRetryLimit || Date.parse(now) >= Date.parse(deadline);
+	const phase = blocked ? 'terminal_failed' : 'materializing';
+	const nextRetryAt = blocked ? null : new Date(Math.min(Date.parse(deadline), Date.parse(now) + lifecycleKvRetryDelayMs)).toISOString();
+	const results = await db.batch([
+		db.prepare(`UPDATE entity_lifecycle_operations SET phase = ?, revision = revision + 1,
+			kv_retry_state = ?, kv_retry_count = ?, kv_retry_deadline_at = ?, next_retry_at = ?,
+			failure_category = ?, failure_code = ?, updated_at = ?, terminal_at = ?, terminal_cleanup_at = NULL
+			WHERE operation_id = ? AND revision = ? AND phase IN ('pending', 'materializing')`)
+			.bind(phase, blocked ? 'blocked' : 'retrying', attempts, deadline, nextRetryAt,
+				blocked ? 'retry_exhausted' : failure.category, failure.code, now, blocked ? now : null, operation.operationId, operation.revision),
+		db.prepare(`UPDATE entity_lifecycle_entities SET phase = ?, revision = revision + 1, updated_at = ?
+			WHERE entity_kind = 'bot' AND entity_id = ? AND active_operation_id = ?
+			AND EXISTS (SELECT 1 FROM entity_lifecycle_operations WHERE operation_id = ? AND revision = ? AND phase = ?)`)
+			.bind(phase, now, operation.entityId, operation.operationId, operation.operationId, operation.revision + 1, phase),
+	]);
+	if ((results[0]?.meta?.changes ?? 0) < 1) throw new RepositoryError('conflict', 'Creation changed before its retry was recorded.', 409);
+	return requiredLifecycleOperation(db, operation.operationId);
+}
+
+export type BlockedCreationAction = { kind: 'resume' } | { kind: 'cancel' };
+
+export async function resolveBlockedCreation(db: D1DatabaseLike, operation: LifecycleOperation, action: BlockedCreationAction, revision: number, now: string): Promise<LifecycleOperation> {
+	if (operation.entityKind !== 'bot' || operation.action !== 'create' || operation.kvRetryState !== 'blocked') throw new RepositoryError('conflict', 'This operation is not a blocked participant creation.', 409);
+	const phase = action.kind === 'resume' ? 'materializing' : 'compensating';
+	const results = await db.batch([
+		db.prepare(`UPDATE entity_lifecycle_operations SET phase = ?, revision = revision + 1,
+			kv_retry_state = 'none', kv_retry_count = 0, kv_retry_deadline_at = NULL,
+			next_retry_at = ?, terminal_at = NULL, terminal_cleanup_at = NULL, updated_at = ?
+			WHERE operation_id = ? AND owner_user_id = ? AND revision = ? AND kv_retry_state = 'blocked'
+			AND (? = 'cancel' OR EXISTS (SELECT 1 FROM users_index WHERE user_id = ? AND lifecycle_state = 'active' AND deleted_at IS NULL))`)
+			.bind(phase, action.kind === 'resume' ? now : null, now, operation.operationId, operation.ownerUserId, revision, action.kind, operation.ownerUserId),
+		db.prepare(`UPDATE entity_lifecycle_entities SET phase = ?, revision = revision + 1, updated_at = ?
+			WHERE entity_kind = 'bot' AND entity_id = ? AND active_operation_id = ?
+			AND EXISTS (SELECT 1 FROM entity_lifecycle_operations WHERE operation_id = ? AND revision = ? AND phase = ?)`)
+			.bind(phase, now, operation.entityId, operation.operationId, operation.operationId, revision + 1, phase),
+	]);
+	if ((results[0]?.meta?.changes ?? 0) < 1) throw new RepositoryError('conflict', 'Blocked creation changed or its account is unavailable.', 409);
 	return requiredLifecycleOperation(db, operation.operationId);
 }
 
@@ -1230,7 +1289,7 @@ export const terminalLifecycleCleanupDeleteSql =
 	 WHERE operation_id IN (
 		SELECT operation_id
 		FROM entity_lifecycle_operations
-		WHERE terminal_cleanup_at IS NOT NULL AND terminal_cleanup_at <= ?
+		WHERE kv_retry_state != 'blocked' AND terminal_cleanup_at IS NOT NULL AND terminal_cleanup_at <= ?
 		ORDER BY terminal_cleanup_at ASC, operation_id ASC
 		LIMIT ?
 	 )
@@ -1457,6 +1516,9 @@ function lifecycleOperationSelect(): string {
 		phase,
 		revision,
 		retry_count AS retryCount,
+		kv_retry_state AS kvRetryState,
+		kv_retry_count AS kvRetryCount,
+		kv_retry_deadline_at AS kvRetryDeadlineAt,
 		next_retry_at AS nextRetryAt,
 		failure_category AS failureCategory,
 		failure_code AS failureCode,

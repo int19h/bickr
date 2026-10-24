@@ -80,10 +80,11 @@ export function isSafeHttpMethod(method: string): boolean {
 }
 
 // These routes enforce service authentication and scheduler authority themselves.
-// Migration actions also require maintenance. Cleanup and inspection remain available.
+// Routes that require maintenance enforce it in their handlers.
 export function isExplicitMaintenanceRequest(request: Request): boolean {
 	if (request.method !== 'POST') return false;
 	const pathname = new URL(request.url).pathname;
+	if (/^\/users\/[^/]+\/lifecycle\/operations\/[^/]+\/resolve$/.test(pathname)) return true;
 	if (pathname === '/maintenance/context-budget' || /^\/users\/[^/]+\/bots\/[^/]+\/context-budget-migration$/.test(pathname)) return true;
 	return /^\/maintenance\/legacy-history\/(?:census|compact)$/.test(pathname) || /^\/bots\/[^/]+\/maintenance\/legacy-history\/compact$/.test(pathname) || pathname === "/maintenance/participant-time" || /^\/users\/[^/]+\/bots\/[^/]+\/normalize-time$/.test(pathname) || /^\/maintenance\/instruction-localization\/(?:runtime|bootstrap)$/.test(pathname) || pathname === '/auth/maintenance' || /^\/users\/[^/]+\/inference-graph\/(?:migrate|rollback|reactivate|provider-default-barrier-sweep)$/.test(pathname) ||
 		/^\/users\/[^/]+\/inference-translation-role\/migrate$/.test(pathname) ||
