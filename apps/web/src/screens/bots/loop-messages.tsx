@@ -122,7 +122,7 @@ export function LoopMessageRow({
 			<div className="event-meta">
 				{loopMessageOriginLabel(message.origin)} / {message.runId} / {formatTokenCount(message.tokenEstimate)} tokens
 			</div>
-			<LoopMessageReadableView display={message.display} message={message.message} origin={message.origin} toolCall={toolCallContext} toolCallsById={toolCallsById} />
+			<LoopMessageReadableView contentFormat={message.contentFormat} display={message.display} message={message.message} origin={message.origin} toolCall={toolCallContext} toolCallsById={toolCallsById} />
 		</div>
 	);
 }

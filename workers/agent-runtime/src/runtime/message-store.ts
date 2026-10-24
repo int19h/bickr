@@ -1154,6 +1154,15 @@ function isRuntimeDiagnosticLoopMessageOrigin(
 	return runtimeDiagnosticLoopMessageOrigins.some((diagnosticOrigin) => diagnosticOrigin === origin);
 }
 
+function loopMessageContentFormat(row: LoopMessageRow): BotLoopMessage['contentFormat'] {
+	if (row.tool_result_view_json || row.origin === 'synthetic_context' || (row.role === 'user' && row.origin === 'input')) {
+		return 'markdown';
+	}
+	if (row.role === 'assistant') return 'text';
+	// Old rows without format evidence retain the JSON fallback.
+	return 'json';
+}
+
 export function loopMessageFromRow(row: LoopMessageRow, context: ResultRenderContext): BotLoopMessage {
 	const display = loopMessageDisplayFromRow(row);
 	return {
@@ -1162,6 +1171,7 @@ export function loopMessageFromRow(row: LoopMessageRow, context: ResultRenderCon
 		runId: row.run_id,
 		role: row.role,
 		message: renderStoredLoopMessage(row, context),
+		contentFormat: loopMessageContentFormat(row),
 		...(display ? { display } : {}),
 		origin: row.origin,
 		tokenEstimate: row.token_estimate,

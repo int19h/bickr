@@ -63,6 +63,7 @@ const loopMessage = (seq: number, content: string): BotLoopMessage => ({
 	runId: `run-${seq}`,
 	role: 'assistant',
 	message: { role: 'assistant', content },
+	contentFormat: "text",
 	origin: 'provider_response',
 	status: 'complete',
 	tokenEstimate: 2,

@@ -29,6 +29,7 @@ function loopMessage(
 		role: message.role,
 		message,
 		...(display ? { display } : {}),
+		contentFormat: "json",
 		origin,
 		tokenEstimate: 1,
 		createdAt,

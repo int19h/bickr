@@ -1,3 +1,4 @@
+import { LoopMarkdown } from "./loop-markdown";
 import { localizedTextString, type CommentDocument, type ThreadDocument } from "@bickr/shared/model";
 import type {
 	RandomRangeTarget,
@@ -54,12 +55,12 @@ export const readableToolResultRenderers = {
 			))}
 		</ReadableResultList>
 	),
-	profile_viewed: ({ profiles }) => <JsonSyntaxBlock value={profiles} />,
-	note_listed: ({ ids, nextCursor, total, unknownFilters }) => <JsonSyntaxBlock value={{ ids, nextCursor, total, unknownFilters }} />,
-	note_read: ({ id, content, links }) => <JsonSyntaxBlock value={{ id, content, links }} />,
-	note_written: ({ outcome, id, links, unknownReferences }) => <JsonSyntaxBlock value={{ outcome, id, links, unknownReferences }} />,
+	profile_viewed: ({ profiles }, context) => resultText(profiles, context),
+	note_listed: ({ ids, nextCursor, total, unknownFilters }, context) => resultText({ ids, nextCursor, total, unknownFilters }, context),
+	note_read: ({ id, content, links }, context) => resultText({ id, content, links }, context),
+	note_written: ({ outcome, id, links, unknownReferences }, context) => resultText({ outcome, id, links, unknownReferences }, context),
 	note_deleted: ({ id }) => <span>Deleted note {id}.</span>,
-	note_reset: ({ id, content }) => <JsonSyntaxBlock value={{ reset: id, content }} />,
+	note_reset: ({ id, content }, context) => resultText({ reset: id, content }, context),
 	content_read: ({ items }, displayContext) => (
 		<ReadableResultList empty="No readable content was returned.">
 			{items.map((item, index) => {
@@ -77,19 +78,25 @@ export const readableToolResultRenderers = {
 			))}
 		</ReadableResultList>
 	),
-	forums_listed: ({ forums }) => <JsonSyntaxBlock value={forums} />,
+	forums_listed: ({ forums }, context) => resultText(forums, context),
 	threads_listed: ({ items }, context) => renderContentItems(items, context),
 	posts_read: ({ items }, context) => renderContentItems(items, context),
 	posts_searched: ({ items }, context) => renderContentItems(items, context),
-	profiles_searched: ({ profiles }) => <JsonSyntaxBlock value={profiles} />,
-	profiles_listed: ({ page }) => <JsonSyntaxBlock value={page} />,
-	notifications_checked: ({ events }) => <JsonSyntaxBlock value={events} />,
-	activity_viewed: ({ feed }) => <JsonSyntaxBlock value={feed} />,
-	followers_queried: ({ result }) => <JsonSyntaxBlock value={result} />,
+	profiles_searched: ({ profiles }, context) => resultText(profiles, context),
+	profiles_listed: ({ page }, context) => resultText(page, context),
+	notifications_checked: ({ events }, context) => resultText(events, context),
+	activity_viewed: ({ feed }, context) => resultText(feed, context),
+	followers_queried: ({ result }, context) => resultText(result, context),
 	batch_settled: () => <span>Finished the batch.</span>,
 	logged_off: () => <span>Finished.</span>,
-	opaque: ({ value }) => <JsonSyntaxBlock value={value} />,
+	opaque: ({ value }, context) => resultText(value, context),
 } satisfies ResultRendererTable;
+
+function resultText(value: unknown, context: ReadableDisplayContext): ReactNode {
+	return context.markdownText !== undefined
+		? <LoopMarkdown text={context.markdownText} worldHandle={context.worldHandle} />
+		: <JsonSyntaxBlock value={value} />;
+}
 
 function renderContentItems(items: ToolResultContentItem[], context: ReadableDisplayContext): ReactNode {
 	return readableToolResultRenderers.content_read({ kind: 'content_read', items }, context);
@@ -151,7 +158,7 @@ export function ReadableThreadCard({
 				<span>{thread.voteScore} votes</span>
 				<span>{thread.commentCount} comments</span>
 			</div>
-			{rootComment && <ReadableQuote text={localizedTextString(rootComment.body)} />}
+			{rootComment && <ReadableQuote worldHandle={worldHandle} text={localizedTextString(rootComment.body)} />}
 		</div>
 	);
 }
@@ -188,8 +195,8 @@ export function ReadableCommentCard({
 					worldHandle={worldHandle}
 				/>
 			</div>
-			{parent && <ReadableQuote label="Parent comment" text={localizedTextString(parent.body)} />}
-			<ReadableQuote label="Comment" text={localizedTextString(comment.body)} />
+			{parent && <ReadableQuote worldHandle={worldHandle} label="Parent comment" text={localizedTextString(parent.body)} />}
+			<ReadableQuote worldHandle={worldHandle} label="Comment" text={localizedTextString(comment.body)} />
 		</div>
 	);
 }
@@ -213,7 +220,7 @@ export function ReadableProfileRow({
 				/>
 				<span>{localizedTextString(action.profile.displayName)}</span>
 			</div>
-			{action.reason && <ReadableQuote label="Reason" text={localizedTextString(action.reason)} />}
+			{action.reason && <ReadableQuote worldHandle={worldHandle} label="Reason" text={localizedTextString(action.reason)} />}
 		</div>
 	);
 }
@@ -241,8 +248,8 @@ export function ReadableVoteLine({
 					worldHandle={worldHandle}
 				/>
 			</div>
-			{target && <ReadableQuote label="Voted comment" text={localizedTextString(target.body)} />}
-			{vote.reason && <ReadableQuote label="Reason" text={localizedTextString(vote.reason)} />}
+			{target && <ReadableQuote worldHandle={worldHandle} label="Voted comment" text={localizedTextString(target.body)} />}
+			{vote.reason && <ReadableQuote worldHandle={worldHandle} label="Reason" text={localizedTextString(vote.reason)} />}
 		</div>
 	);
 }
@@ -282,7 +289,7 @@ export function ReadableContentResultItem({
 						worldHandle={worldHandle}
 					/>
 				</div>
-				{item.body && <ReadableQuote text={localizedTextString(item.body)} />}
+				{item.body && <ReadableQuote worldHandle={worldHandle} text={localizedTextString(item.body)} />}
 			</div>
 		);
 	}
@@ -313,7 +320,7 @@ export function ReadableContentResultItem({
 					worldHandle={worldHandle}
 				/>
 			</div>
-			{item.body && <ReadableQuote text={localizedTextString(item.body)} />}
+			{item.body && <ReadableQuote worldHandle={worldHandle} text={localizedTextString(item.body)} />}
 		</div>
 	);
 }

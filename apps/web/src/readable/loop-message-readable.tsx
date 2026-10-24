@@ -1,3 +1,4 @@
+import { LoopMarkdown } from "./loop-markdown";
 import { formatThreadRef } from "@bickr/shared/ids";
 import type { BotInferenceSubmissionMessage, BotLoopMessage } from "@bickr/shared/model";
 import type { ReactNode } from "react";
@@ -44,15 +45,30 @@ export type LoopToolCallContext = {
 export type ReadableDisplayContext = {
 	worldHandle?: string;
 	allowActiveWorldFallback: boolean;
+	markdownText?: string;
 };
 
+function isMarkdownContent(format: BotLoopMessage['contentFormat']): boolean {
+	switch (format) {
+		case 'markdown': return true;
+		case 'json':
+		case 'text': return false;
+		default: {
+			const unknownFormat: never = format;
+			throw new Error(`Unsupported Loop content format: ${unknownFormat}`);
+		}
+	}
+}
+
 export function LoopMessageReadableView({
+	contentFormat = "json",
 	display,
 	message,
 	origin,
 	toolCall,
 	toolCallsById,
 }: {
+	contentFormat?: BotLoopMessage["contentFormat"];
 	display?: BotLoopMessage["display"];
 	message: BotInferenceSubmissionMessage;
 	origin?: BotLoopMessage["origin"];
@@ -64,7 +80,9 @@ export function LoopMessageReadableView({
 	return (
 		<div className={`loop-readable role-${message.role}`}>
 			{message.role === "tool" ?
-				<ReadableToolResult content={content} display={display} toolCall={toolCall} />
+				<ReadableToolResult contentFormat={contentFormat} content={content} display={display} toolCall={toolCall} />
+			: isMarkdownContent(contentFormat) ?
+				<LoopMarkdown text={content} worldHandle={display?.context?.worldHandle} />
 			: content ?
 				<div className="loop-readable-text">
 					{normalizeReadableText(content)}
@@ -200,20 +218,25 @@ export function ReadableToolCall({ context, toolCall }: { context?: LoopToolCall
 }
 
 export function ReadableToolResult({
+	contentFormat = "json",
 	content,
 	display,
 	toolCall,
 }: {
 	content: string;
+	contentFormat?: BotLoopMessage["contentFormat"];
 	display?: BotLoopMessage["display"];
 	toolCall?: LoopToolCallContext;
 }) {
-	const parsed = display?.kind === "tool_result" ? display.result : parseJsonValue(content);
+	const parsed = display?.kind === "tool_result" ? display.result : isMarkdownContent(contentFormat) ? undefined : parseJsonValue(content);
 	const inferredName = display?.name ?? toolCall?.name ?? inferToolNameFromResult(parsed);
 	const name = canonicalDisplayToolName(inferredName);
 	const failure = readableToolFailureRecord(parsed);
 	const args = recordValue(display?.args ?? toolCall?.args);
-	const displayContext = readableDisplayContext(display);
+	const displayContext = { ...readableDisplayContext(display), ...(isMarkdownContent(contentFormat) ? { markdownText: content } : {}) };
+	if (isMarkdownContent(contentFormat) && !display) {
+		return <div className="tool-block readable"><span>{readableToolResultTitle(name)}</span><LoopMarkdown text={content} /></div>;
+	}
 	if (failure) {
 		return (
 			<div className="tool-block readable">
@@ -263,9 +286,9 @@ export function ReadableToolFailure({ displayContext, failure }: { displayContex
 	const hasExistingThread = Boolean(threadIdFromValue(failure.existingThreadRef ?? failure.existingThreadId));
 	return (
 		<div className="tool-pretty tool-list">
-			{message && <div className="tool-pretty-item">{message}</div>}
+			{message && <div className="tool-pretty-item">{displayContext.markdownText !== undefined ? <LoopMarkdown text={message} worldHandle={displayContext.worldHandle} /> : message}</div>}
 			{hasExistingThread && <ReadableFailureExistingThread displayContext={displayContext} failure={failure} />}
-			{guidance && <div className="tool-pretty-item">{guidance}</div>}
+			{guidance && <div className="tool-pretty-item">{displayContext.markdownText !== undefined ? <LoopMarkdown text={guidance} worldHandle={displayContext.worldHandle} /> : guidance}</div>}
 			{!message && !guidance && !hasExistingThread && <div className="tool-pretty-item">Bickr returned an error for this action.</div>}
 		</div>
 	);

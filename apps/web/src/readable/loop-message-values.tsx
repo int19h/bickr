@@ -1,3 +1,4 @@
+import { LoopMarkdown } from "./loop-markdown";
 import { parseCommentRef, parseThreadRef } from "@bickr/shared/ids";
 import type { BotLoopMessage } from "@bickr/shared/model";
 import { useContext, type ReactNode } from "react";
@@ -9,11 +10,11 @@ import type { LoopToolCall, LoopToolCallContext } from "./loop-message-readable"
 
 export type JsonRecord = Record<string, unknown>;
 
-export function ReadableQuote({ label, text }: { label?: string; text: string }) {
+export function ReadableQuote({ label, text, worldHandle }: { label?: string; text: string; worldHandle?: string }) {
 	return (
 		<blockquote className="readable-quote">
 			{label && <span>{label}</span>}
-			{normalizeReadableText(text)}
+			<LoopMarkdown text={text} worldHandle={worldHandle} />
 		</blockquote>
 	);
 }

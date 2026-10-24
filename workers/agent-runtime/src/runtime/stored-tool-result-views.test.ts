@@ -24,6 +24,23 @@ const context = (scope = new ResultContextScope()) => ({ time: testResultTime, t
 function fixture() { const storage = createRuntimeTestStorage(); databases.push(storage); return { storage, store: new RuntimeMessageStore(storage) }; }
 
 describe('stored tool result views', () => {
+	it('marks message formats from stored evidence in the messages response', () => {
+		const { store } = fixture();
+		const view: ToolResultView = { ...resultViewBase(text), kind: 'read_note', id: 'PLAN', content: '- Keep the plan current.', links: [] };
+		store.appendLoopMessageGroup(testResultContext, [
+			{ runId: 'formats', origin: 'provider_response', message: { role: 'assistant', content: '## My narration', tool_calls: [{ id: 'stored', type: 'function', function: { name: 'read_note', arguments: '{}' } }, { id: 'legacy', type: 'function', function: { name: 'old_tool', arguments: '{}' } }] } },
+			{ runId: 'formats', origin: 'tool_result', message: attachToolResultView({ role: 'tool', tool_call_id: 'stored', content: '' }, view) },
+			{ runId: 'formats', origin: 'tool_result', message: { role: 'tool', tool_call_id: 'legacy', content: '{"old":true}' } },
+			{ runId: 'formats', origin: 'synthetic_context', message: { role: 'assistant', content: '## Context' } },
+			{ runId: 'formats', origin: 'input', message: { role: 'user', content: '## Bickr report' } },
+			{ runId: 'formats', origin: 'runtime_error', message: { role: 'user', content: '## Unknown old row' } },
+		]);
+		const response = store.loopMessagesPage(testResultContext, { page: 1 });
+		expect(response.messages.map(row => row.contentFormat)).toEqual(['text', 'markdown', 'json', 'markdown', 'markdown', 'json']);
+		expect(store.loopMessagesAfter(testResultContext, 0).map(row => row.contentFormat)).toEqual(response.messages.map(row => row.contentFormat));
+		expect(response.messages[1]?.message.content).toContain('PLAN');
+	});
+
 	it('renders current handles and language through a fresh runtime after restart', async () => {
 		const { storage, store } = fixture();
 		const note = await buildToolResultView({ kind: 'note_read', id: 'one', content: 'Authored u/before stays unchanged', links: [

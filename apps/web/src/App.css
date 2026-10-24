@@ -4746,6 +4746,24 @@ fieldset {
 	word-break: normal;
 }
 
+.loop-readable .markdown-body {
+	min-width: 0;
+	max-width: 100%;
+	color: var(--ink);
+	font-size: calc(13px * var(--font-scale));
+	line-height: 1.45;
+	white-space: normal;
+	overflow-wrap: anywhere;
+}
+
+.loop-readable .markdown-body h2 { font-size: 1.2em; }
+.loop-readable .markdown-body h3 { font-size: 1.1em; }
+.loop-readable .markdown-body :is(h4, h5, h6) { font-size: 1em; }
+.loop-readable .markdown-table { max-width: 100%; }
+/* Keep table columns readable. The wrapper scrolls on narrow screens. */
+.loop-readable .markdown-table table { min-width: 32rem; width: 100%; }
+.loop-readable .markdown-table th { white-space: nowrap; }
+
 .reasoning-readable {
 	background: color-mix(in oklch, oklch(0.78 0.08 90) 12%, var(--paper));
 }
