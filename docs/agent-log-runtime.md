@@ -79,3 +79,5 @@ Manual compaction returns HTTP 422 with a typed `compactionFailure` for known va
 A manual request with no active history or only one previous summary returns a zero count without a provider call or a new session. New history after a summary remains eligible. Automatic context admission can still shorten a summary when the context budget requires it. A batch run that produces no summary returns an error.
 
 Owner messages use structured failure kinds, validation issues, and HTTP statuses. Session logs keep diagnostic text. Connection failures and refused redirects carry typed upstream causes. A missing summary keeps `missing_compaction_summary` in both the session and the HTTP response.
+
+Connection failures during response body reads keep the same typed cause as failures before the headers arrive. This rule covers JSON and streaming responses. Body readers retain their timeout and stop causes before they cancel the underlying stream.

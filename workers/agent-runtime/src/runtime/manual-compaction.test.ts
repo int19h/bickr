@@ -178,6 +178,36 @@ it.each(['connection', 'redirect'] as const)('maps a real provider boundary %s f
 });
 
 it.each([
+	{ wrapped: false, status: 200 }, { wrapped: true, status: 200 },
+	{ wrapped: false, status: 503 }, { wrapped: true, status: 503 },
+])('records a connection failure from the real compaction body reader (HTTP $status, wrapped: $wrapped)', async ({ wrapped, status }) => {
+	append();
+	const instance = runtime();
+	const diagnosticError = new TypeError('Private body connection diagnostic.');
+	vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(new ReadableStream({
+		pull(controller) { controller.error(diagnosticError); },
+	}), { status })));
+	instance.compactLoopMessageBatchesForSession.mockImplementation(async (_context: unknown, _bot: unknown, settings: unknown, runId: string, signal: AbortSignal) => {
+		const request = logs.begin({ runId, eventSeq: 1, purpose: 'compaction', sessionId: sessionId() });
+		const attempt = logs.startAttempt(request, '{}');
+		try {
+			await instance.fetchProviderCompactionResponse(settings, 'https://provider.test/v1', '{}', signal);
+		} catch (error) {
+			logs.settle(attempt, agentLogFailure(error));
+			logs.finish(request, 'failed');
+			throw wrapped ? new ProviderCompactionRequestError(error, '{}', diagnostic) : error;
+		}
+	});
+	const response = await post(instance);
+	expect(response.status).toBe(502);
+	const payload = await response.json() as ApiErrorPayload;
+	expect(payload.details?.compactionFailure).toMatchObject({ kind: 'provider_error', status: null, errorType: 'connection' });
+	expect(JSON.stringify(payload)).not.toContain(diagnosticError.message);
+	const failure = { kind: 'provider_error', status: null, errorType: 'connection', message: diagnosticError.message };
+	expect(logs.session(sessionId())).toMatchObject({ outcome: { kind: 'failed', error: failure }, requests: [{ attempts: [{ outcome: failure }] }] });
+});
+
+it.each([
 	{ name: 'provider status', create: () => new ProviderRequestError(503, 'test', 'https://provider.test', 'Unavailable.') },
 	{ name: 'validation', create: () => new ProviderStructuredOutputValidationError(botText('en'), 'compaction', botText('en').issue('structured_output.nonreducing.before', { compactedTokens: 100 }), { validationIssue: 'transcript_like_compaction' }) },
 	{ name: 'redirect', create: () => new ProviderTransportError('redirect', 'Diagnostic') },

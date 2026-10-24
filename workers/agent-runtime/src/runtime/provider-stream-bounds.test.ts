@@ -1,7 +1,10 @@
-import { describe, expect, it, vi } from 'vitest';
-import { consumeProviderResponse, readSse, type ProviderSseRuntime } from '../provider/sse';
-import { ProviderResponseInterruptedError, ProviderStreamIncompleteError, ResponseBodySizeLimitError } from '../errors';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { consumeProviderResponse, providerFetchWithHeaderTimeout, readJsonResponseText, readSse, type ProviderSseRuntime } from '../provider/sse';
+import { ProviderResponseBodyTimeoutError, ProviderResponseInterruptedError, ProviderStreamIdleTimeoutError, ProviderStreamIncompleteError, ResponseBodySizeLimitError, TickStoppedError } from '../errors';
 import { StreamReasoningDetails } from '../provider/reasoning-stream';
+import { agentLogFailure } from './agent-log-store';
+
+afterEach(() => vi.unstubAllGlobals());
 
 function stream(frames: string[], close = true) {
 	const cancel = vi.fn();
@@ -26,6 +29,35 @@ async function readAll(body: ReadableStream<Uint8Array>, options: { maxBytes: nu
 }
 
 describe('provider stream bounds and completion', () => {
+	it('keeps a body connection failure typed after a streamed delta', async () => {
+		const error = new TypeError('Connection broke after a delta.');
+		let sent = false;
+		vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(new ReadableStream({ pull(controller) {
+			if (sent) controller.error(error);
+			else { sent = true; controller.enqueue(new TextEncoder().encode(frame({ content: 'partial' }))); }
+		} }, { highWaterMark: 0 }))));
+		const signal = new AbortController().signal;
+		const response = await providerFetchWithHeaderTimeout('https://provider.test', {}, signal, 1000);
+		const broadcast = vi.fn();
+		const failure = await consumeProviderResponse('run', 1, response.body!, signal, { ...runtime, broadcastProviderDelta: broadcast }).catch(error => error);
+		expect(broadcast).toHaveBeenCalledWith('run', 1, { kind: 'content', text: 'partial' });
+		expect(failure).toMatchObject({ kind: 'connection', cause: error });
+		expect(agentLogFailure(failure)).toEqual({ kind: 'provider_error', status: null, errorType: 'connection', message: error.message });
+	});
+	it.each(['json timeout', 'stream timeout', 'json stop', 'stream stop'] as const)('preserves %s through the provider body wrapper', async mode => {
+		const cancel = vi.fn();
+		vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(new ReadableStream({ cancel }))));
+		const controller = new AbortController();
+		const response = await providerFetchWithHeaderTimeout('https://provider.test', {}, controller.signal, 1000);
+		const reading = mode.startsWith('json')
+			? readJsonResponseText(response, 1000, controller.signal, 10, () => new ProviderResponseBodyTimeoutError(10))
+			: readSse(response.body!, controller.signal, 10).next();
+		const expected = mode.endsWith('stop') ? TickStoppedError : mode.startsWith('json') ? ProviderResponseBodyTimeoutError : ProviderStreamIdleTimeoutError;
+		const assertion = expect(reading).rejects.toBeInstanceOf(expected);
+		if (mode.endsWith('stop')) controller.abort();
+		await assertion;
+		expect(cancel).toHaveBeenCalledOnce();
+	});
 	it('does not repeatedly slice a growing event when the provider sends tiny chunks', async () => {
 		const slice = String.prototype.slice;
 		for (const length of [32_768, 65_536]) {

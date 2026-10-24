@@ -1,4 +1,4 @@
-import { fetchProviderResponse } from '@bickr/shared/provider-transport';
+import { fetchProviderResponse, ProviderTransportError } from '@bickr/shared/provider-transport';
 import {
 	providerBodyReadTimeoutMs,
 	providerResponseBodyMaxBytes,
@@ -77,7 +77,7 @@ export async function readProviderErrorBody(response: Response, signal: AbortSig
 			timeoutError: () => new ProviderResponseBodyTimeoutError(providerBodyReadTimeoutMs),
 		});
 	} catch (error) {
-		if (error instanceof TickStoppedError || isAbortError(error)) {
+		if (error instanceof TickStoppedError || isAbortError(error) || error instanceof ProviderTransportError) {
 			throw error;
 		}
 		if (error instanceof ProviderResponseBodyTimeoutError) {
@@ -151,8 +151,9 @@ export async function readTextFromStream(
 			: new Promise<never>((_, reject) => {
 					timeout = setTimeout(() => {
 						const error = options.timeoutError ? options.timeoutError() : new RuntimeOperationTimeoutError('Response body read', timeoutMs);
-						cancelReader(error.message);
+						// Reject first: cancellation can resolve the pending read as EOF.
 						reject(error);
+						cancelReader(error.message);
 					}, timeoutMs);
 				});
 	let abortPromise: Promise<never> | undefined;
@@ -163,8 +164,8 @@ export async function readTextFromStream(
 		}
 		abortPromise = new Promise<never>((_, reject) => {
 			abortListener = () => {
-				cancelReader('This Bickr visit was stopped.');
 				reject(new TickStoppedError());
+				cancelReader('This Bickr visit was stopped.');
 			};
 			options.signal?.addEventListener('abort', abortListener, { once: true });
 		});
@@ -292,8 +293,8 @@ async function readStreamChunk(
 	const abortPromise = signal
 		? new Promise<never>((_, reject) => {
 				abortListener = () => {
-					cancelReader('This Bickr visit was stopped.');
 					reject(new TickStoppedError());
+					cancelReader('This Bickr visit was stopped.');
 				};
 				signal.addEventListener('abort', abortListener, { once: true });
 			})
@@ -305,8 +306,8 @@ async function readStreamChunk(
 			new Promise<never>((_, reject) => {
 				timeout = setTimeout(() => {
 					const error = timeoutError();
-					cancelReader(error.message);
 					reject(error);
+					cancelReader(error.message);
 				}, idleTimeoutMs);
 			}),
 		]);
