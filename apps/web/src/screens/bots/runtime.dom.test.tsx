@@ -449,7 +449,7 @@ describe('runtime monitor authoritative reconciliation', () => {
 	});
 });
 
-function liveEntry(id: string, content: string, deltaRevision = 0, attemptId?: number): AgentLogEntry {
+function liveEntry(id: string, content: string, deltaRevision = 0, attemptId?: number): Extract<AgentLogEntry, { kind: 'live' }> {
 	return { kind: 'live', requestId: id, runId: `run-${id}`, position: 1, attempts: { count: 1, failures: [] }, partialResponse: JSON.stringify({ content, reasoning: '' }), response: null, deltaRevision, attemptId };
 }
 
@@ -488,6 +488,55 @@ it('merges missed snapshot text and skips deltas that the snapshot already conta
 	await act(async () => pendingMessages[2]?.resolve({ messages: [], entries: [liveEntry('same', 'ABCD', 4)], page: page(1, {}, [{ page: 1, messageCount: 0 }]) }));
 	expect(container.textContent).toContain('ABCD');
 	expect(container.textContent).not.toContain('ABCDD');
+});
+
+it('ignores delayed deltas at or below the revision in a snapshot', async () => {
+	await act(async () => pendingMessages[0]?.resolve({ messages: [], entries: [liveEntry('delayed', 'AB', 2, 2)], page: page(1, {}, [{ page: 1, messageCount: 0 }]) }));
+	const socket = MonitorSocket.instances[0]!;
+	await act(async () => streamDelta(socket, 'delayed', 'B', 2, 2));
+	await act(async () => streamDelta(socket, 'delayed', 'A', 1, 2));
+	await act(async () => streamDelta(socket, 'delayed', 'Old attempt', 9, 1));
+	expect(container.textContent).toContain('AB');
+	expect(container.textContent).not.toContain('ABB');
+	expect(container.textContent).not.toContain('ABA');
+	expect(container.textContent).not.toContain('Old attempt');
+	await act(async () => streamDelta(socket, 'delayed', 'C', 3, 2));
+	expect(container.textContent).toContain('ABC');
+	expect(container.textContent).not.toContain('ABCC');
+});
+
+it('keeps a completed response when a delayed delta from the same attempt arrives', async () => {
+	const entry: AgentLogEntry = { ...liveEntry('completed', 'AB', 2, 2), response: '{"content":"Completed response"}' };
+	await act(async () => pendingMessages[0]?.resolve({ messages: [], entries: [entry], page: page(1, {}, [{ page: 1, messageCount: 0 }]) }));
+	const socket = MonitorSocket.instances[0]!;
+	await act(async () => streamDelta(socket, 'completed', 'B', 2, 2));
+	await act(async () => streamDelta(socket, 'completed', 'C', 3, 2));
+	await act(async () => streamDelta(socket, 'completed', 'Old attempt', 9, 1));
+	expect(container.textContent).toContain('Completed response');
+	expect(container.textContent).not.toContain('ABC');
+	expect(container.textContent).not.toContain('Old attempt');
+	await act(async () => streamDelta(socket, 'completed', 'New attempt', 1, 3));
+	expect(container.textContent).toContain('New attempt');
+	expect(container.textContent).not.toContain('Completed response');
+});
+
+it('ignores a delayed delta after the response has a history row', async () => {
+	const message = loopMessage(3, 'Committed response');
+	const entry: AgentLogEntry = { kind: 'message', position: 1, message, author: { kind: 'model' }, requestId: 'stored', sessionId: null, attempts: { count: 1, failures: [] } };
+	await act(async () => pendingMessages[0]?.resolve({ messages: [message], entries: [entry], page: page(1, {}, [{ page: 1, messageCount: 1 }]) }));
+	await act(async () => streamDelta(MonitorSocket.instances[0]!, 'stored', 'Delayed text', 1, 2));
+	expect(container.textContent).toContain('Committed response');
+	expect(container.textContent).not.toContain('Live request');
+	expect(container.textContent).not.toContain('Delayed text');
+});
+
+it('keeps rejected deltas out of the refresh buffer', async () => {
+	await act(async () => pendingMessages[0]?.resolve({ messages: [], entries: [liveEntry('archived', 'AB', 2, 2)], page: page(1, {}, [{ page: 1, messageCount: 0 }]) }));
+	await refreshLog();
+	await act(async () => streamDelta(MonitorSocket.instances[0]!, 'archived', 'B', 2, 2));
+	await answerMessages(1, [loopMessage(10, 'New page summary')]);
+	expect(container.textContent).toContain('New page summary');
+	expect(container.textContent).not.toContain('Live request');
 });
 
 it('keeps the current attempt when a snapshot contains the previous attempt', async () => {

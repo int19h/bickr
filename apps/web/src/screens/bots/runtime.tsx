@@ -52,6 +52,15 @@ export type RuntimeMonitorPayload = {
 	deletedAt?: string;
 };
 
+type RequestLogEntry = Extract<AgentLogEntry, { kind: 'live' | 'message' }>;
+
+function ignoresStreamDelta(entry: RequestLogEntry | undefined, delta: { attemptId?: number; deltaRevision?: number }): boolean {
+	if (!entry) return false;
+	if (entry.kind === 'message') return true;
+	if (entry.attemptId !== undefined && delta.attemptId !== undefined && entry.attemptId !== delta.attemptId) return delta.attemptId < entry.attemptId;
+	return entry.response !== null || (entry.deltaRevision !== undefined && delta.deltaRevision !== undefined && delta.deltaRevision <= entry.deltaRevision);
+}
+
 export function BotLoopScreen({
 	bot,
 	busy,
@@ -158,6 +167,8 @@ export function BotRuntimePanel({
 	const eventsRequestGenerationRef = useRef(0);
 	const messagesRequestGenerationRef = useRef(0);
 	const streamRevisionRef = useRef(0);
+	// Keep only the current snapshot. Reject old frames before they enter the refresh buffer.
+	const streamSnapshotEntriesRef = useRef(new Map<string, RequestLogEntry>());
 	const liveUpdatesRef = useRef(new Map<string, { revision: number; runId: string; attemptId?: number; deltas: Array<{ arrival: number; revision?: number; kind?: string; text?: string; part?: unknown }> }>());
 	const endedRunsRef = useRef(new Set<string>());
 	const usageRequestGenerationRef = useRef(0);
@@ -196,6 +207,7 @@ export function BotRuntimePanel({
 		setStatus(null);
 		setEvents([]);
 		setLoopMessages([]);
+		streamSnapshotEntriesRef.current.clear();
 		setLoopEntries([]);
 		setLoopMessagePage(null);
 		setOpenLoopMessageLogs(null);
@@ -241,7 +253,8 @@ export function BotRuntimePanel({
 				invalidateRefreshes({ events: true, messages: true });
 				setEvents([]);
 				setLoopMessages([]);
-		setLoopEntries([]);
+				streamSnapshotEntriesRef.current.clear();
+				setLoopEntries([]);
 				setLoopMessagePage(null);
 				setOpenLoopMessageLogs(null);
 				setDeletingLoopMessageSeq(null);
@@ -296,26 +309,33 @@ export function BotRuntimePanel({
 					return;
 				}
 				if (endedRunsRef.current.has(payload.event.runId)) return;
-				setLoopMessages((current) => upsertLiveProviderLoopMessage(current, payload.event!));
 				const delta = payload.event.payload as { requestId?: string; kind?: string; text?: string; deltaRevision?: number; attemptId?: number; part?: unknown };
 				if (delta.requestId) {
+					if (ignoresStreamDelta(streamSnapshotEntriesRef.current.get(delta.requestId), delta)) return;
 					const arrival = ++streamRevisionRef.current;
 					const currentUpdate = liveUpdatesRef.current.get(delta.requestId);
+					if (currentUpdate?.attemptId !== undefined && delta.attemptId !== undefined && delta.attemptId < currentUpdate.attemptId) return;
+					const previousRevision = currentUpdate?.deltas.at(-1)?.revision;
+					if (currentUpdate?.attemptId === delta.attemptId && previousRevision !== undefined && delta.deltaRevision !== undefined && delta.deltaRevision <= previousRevision) return;
 					const previous = currentUpdate?.attemptId !== undefined && delta.attemptId !== undefined && currentUpdate.attemptId !== delta.attemptId ? undefined : currentUpdate;
 					const update = previous ?? { revision: arrival, runId: payload.event.runId, attemptId: delta.attemptId, deltas: [] };
 					update.revision = arrival;
+					update.attemptId = delta.attemptId ?? update.attemptId;
 					update.deltas.push({ arrival, revision: delta.deltaRevision, kind: delta.kind, text: delta.text, part: delta.part });
 					liveUpdatesRef.current.set(delta.requestId, update);
 					setLoopEntries(current => {
-						const old = current.find(entry => entry.kind === 'live' && entry.requestId === delta.requestId && (entry.attemptId === undefined || delta.attemptId === undefined || entry.attemptId === delta.attemptId));
+						const existing = current.find((entry): entry is RequestLogEntry => (entry.kind === 'live' || entry.kind === 'message') && entry.requestId === delta.requestId);
+						if (ignoresStreamDelta(existing, delta)) return current;
+						const old = existing?.kind === 'live' && (existing.attemptId === undefined || delta.attemptId === undefined || existing.attemptId === delta.attemptId) ? existing : undefined;
 						const partial = old?.kind === 'live' && old.partialResponse ? JSON.parse(old.partialResponse) as { content: string; reasoning: string; toolCalls?: unknown[] } : { content: '', reasoning: '', toolCalls: [] };
 						if (delta.kind === 'content') partial.content += delta.text ?? '';
 						if (delta.kind === 'reasoning') partial.reasoning += delta.text ?? '';
 						if (delta.kind === 'tool_call') (partial.toolCalls ??= []).push(delta.part);
-						const live: AgentLogEntry = { kind: 'live', position: Number.MAX_SAFE_INTEGER, requestId: delta.requestId!, runId: payload.event!.runId, attempts: old?.kind === 'live' ? old.attempts : { count: 1, failures: [] }, partialResponse: JSON.stringify(partial), response: null, deltaRevision: delta.deltaRevision, attemptId: delta.attemptId };
+						const live: AgentLogEntry = { kind: 'live', position: Number.MAX_SAFE_INTEGER, requestId: delta.requestId!, runId: payload.event!.runId, attempts: old?.kind === 'live' ? old.attempts : { count: 1, failures: [] }, partialResponse: JSON.stringify(partial), response: null, deltaRevision: delta.deltaRevision ?? old?.deltaRevision, attemptId: delta.attemptId ?? old?.attemptId };
 						return [...current.filter(entry => entry.kind !== 'live' || entry.requestId !== delta.requestId), live];
 					});
 				}
+				setLoopMessages((current) => upsertLiveProviderLoopMessage(current, payload.event!));
 				return;
 			}
 			if (payload.event) {
@@ -614,6 +634,7 @@ export function BotRuntimePanel({
 				if (update.revision <= streamRevisionAtStart) liveUpdatesRef.current.delete(id);
 				else update.deltas = update.deltas.filter(delta => delta.arrival > streamRevisionAtStart);
 			}
+			streamSnapshotEntriesRef.current = new Map(messagesResult.data.entries.flatMap(entry => (entry.kind === 'live' || entry.kind === 'message') && entry.requestId ? [[entry.requestId, entry] as const] : []));
 			const retainedUpdates = new Map([...liveUpdatesRef.current].map(([id, update]) => [id, { ...update, deltas: [...update.deltas] }]));
 			const endedRuns = new Set(endedRunsRef.current);
 			setLoopEntries(current => {
@@ -676,6 +697,7 @@ export function BotRuntimePanel({
 		currentLoopPageRef.current = targetPage;
 		shouldStickToBottomRef.current = targetPage === 1;
 		setLoopMessages([]);
+		streamSnapshotEntriesRef.current.clear();
 		setLoopEntries([]);
 		setOpenLoopMessageLogs(null);
 		setLoopMessageLogError("");
@@ -807,6 +829,7 @@ export function BotRuntimePanel({
 		setSourceMessage({ botId: bot.id, seq: target.seq, runId: target.runId, requestSeq, generation });
 		setLoopMessagePage(null);
 		setLoopMessages([]);
+		streamSnapshotEntriesRef.current.clear();
 		setLoopEntries([]);
 		// Page numbers change after compaction. Resolve the source generation
 		// through the same authoritative page map used for history navigation.
@@ -878,7 +901,8 @@ export function BotRuntimePanel({
 			const count = result.data.compacted.messageCount;
 			setMessage(count > 0 ? `Compacted ${count} loop chat message${count === 1 ? "" : "s"}.` : "There were no loop chat messages to compact.");
 			setLoopMessages([]);
-		setLoopEntries([]);
+			streamSnapshotEntriesRef.current.clear();
+			setLoopEntries([]);
 			setLoopMessagePage(null);
 			latestLoopMessageSeqRef.current = 0;
 			currentLoopPageRef.current = 1;
@@ -899,7 +923,8 @@ export function BotRuntimePanel({
 			invalidateRefreshes({ events: true, messages: true });
 			setEvents([]);
 			setLoopMessages([]);
-		setLoopEntries([]);
+			streamSnapshotEntriesRef.current.clear();
+			setLoopEntries([]);
 			setLoopMessagePage(null);
 			setOpenLoopMessageLogs(null);
 			setDeletingLoopMessageSeq(null);
