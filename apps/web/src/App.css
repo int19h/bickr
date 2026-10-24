@@ -8625,6 +8625,7 @@ button.inference-model-name:hover { text-decoration: underline; }
 	outline: 2px solid var(--accent);
 }
 .agent-log-foot {
+	position: relative;
 	min-height: 28px;
 	display: flex;
 	align-items: center;
@@ -8633,6 +8634,20 @@ button.inference-model-name:hover { text-decoration: underline; }
 	color: var(--ink-3);
 	font-size: 10.5px;
 	margin-top: 8px;
+}
+.agent-log-foot-links {
+	display: inline-flex;
+	flex-shrink: 0;
+	flex-wrap: wrap;
+	max-width: 100%;
+	gap: 8px;
+}
+.agent-log-foot .agent-log-foot-links button {
+	padding-inline: 0;
+}
+.tool-phrase,
+.readable-field-list > .tool-phrase {
+	display: block;
 }
 .agent-log-foot button,
 .agent-log-notice button,
@@ -8650,6 +8665,8 @@ button.inference-model-name:hover { text-decoration: underline; }
 	color: inherit;
 }
 .agent-log-foot .agent-log-delete {
+	position: absolute;
+	pointer-events: none;
 	opacity: 0;
 	display: inline-flex;
 	align-items: center;
@@ -8657,6 +8674,8 @@ button.inference-model-name:hover { text-decoration: underline; }
 }
 .agent-log-card:hover .agent-log-delete,
 .agent-log-card:focus-within .agent-log-delete {
+	position: static;
+	pointer-events: auto;
 	opacity: 1;
 }
 .agent-log-status {
@@ -8783,6 +8802,8 @@ button.inference-model-name:hover { text-decoration: underline; }
 		display: none;
 	}
 	.agent-log-foot .agent-log-delete {
+		position: static;
+		pointer-events: auto;
 		opacity: 1;
 		width: 36px;
 		height: 36px;

@@ -1,3 +1,4 @@
+import { Children, Fragment, type ReactNode } from "react";
 import { textValueForDisplay } from "../reasoning-formatting";
 import type { ReadableDisplayContext } from "./loop-message-readable";
 import {
@@ -19,6 +20,19 @@ import {
 	type JsonRecord,
 } from "./loop-message-values";
 
+export function ReadableToolPhrase({ children, className = "tool-pretty" }: { children: ReactNode; className?: string }) {
+	const parts = Children.toArray(children);
+	return (
+		<div className={className + " tool-phrase"}>
+			{parts.map((part, index) => (
+				<Fragment key={index}>
+					{index > 0 ? " " : null}{part}
+				</Fragment>
+			))}
+		</div>
+	);
+}
+
 // Tool-call previews consume provider arguments, which are intentionally
 // JSON-shaped. Keep their compatibility probing separate from result dispatch.
 export function ReadablePostingReply({ args, displayContext, result }: { args: JsonRecord; displayContext: ReadableDisplayContext; result?: unknown }) {
@@ -35,7 +49,7 @@ export function ReadablePostingReply({ args, displayContext, result }: { args: J
 	const replyBody = textValueForDisplay(args.body);
 	return (
 		<div className="tool-pretty tool-list">
-			<div className="tool-pretty-item">
+			<ReadableToolPhrase className="tool-pretty-item">
 				<span>Replying to</span>
 				<ThreadReference
 					allowActiveWorldFallback={displayContext.allowActiveWorldFallback}
@@ -46,7 +60,7 @@ export function ReadablePostingReply({ args, displayContext, result }: { args: J
 					title={targetCommentId ? undefined : title}
 					worldHandle={worldHandle}
 				/>
-			</div>
+			</ReadableToolPhrase>
 			{targetBody && <ReadableQuote label="Target comment" text={trimReadableSnippet(targetBody)} />}
 			{replyBody && <ReadableQuote label="Reply" text={replyBody} />}
 		</div>
@@ -61,17 +75,17 @@ export function ReadableQueryFollowersCall({ args, displayContext }: { args: Jso
 	const glob = stringValue(args.usernameGlob);
 	return (
 		<div className="tool-pretty tool-list">
-			<div className="tool-pretty-item">
+			<ReadableToolPhrase className="tool-pretty-item">
 				<span>{isFollowing ? "Looking for profiles following" : "Looking for profiles followed by"}</span>
 				{username ?
 					<ProfileReference allowActiveWorldFallback={displayContext.allowActiveWorldFallback} username={username} worldHandle={worldHandle} />
 				:	<span>profile</span>}
-			</div>
+			</ReadableToolPhrase>
 			{glob && (
-				<div className="tool-pretty-item">
+				<ReadableToolPhrase className="tool-pretty-item">
 					<span className="tool-pretty-label">Username filter</span>
 					<span>{glob}</span>
-				</div>
+				</ReadableToolPhrase>
 			)}
 		</div>
 	);
@@ -87,10 +101,10 @@ export function ReadableGenericFields({ record }: { record: JsonRecord }) {
 	return (
 		<div className="readable-field-list">
 			{entries.map(([key, value]) => (
-				<div key={key}>
+				<ReadableToolPhrase className="readable-field-phrase" key={key}>
 					<span>{humanizeKey(key)}</span>
 					<b>{String(value)}</b>
-				</div>
+				</ReadableToolPhrase>
 			))}
 		</div>
 	);

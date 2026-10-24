@@ -209,22 +209,24 @@ export function AgentLogView(props: AgentLogViewProps) {
 									<span>{removeLabel}</span>
 								</button>
 							)}
-							{number && <a href={`#loop-call-${number}`}>result of call {number}</a>}
-							{tool && !number && row && (
-								<button type="button" onClick={() => props.onLogs(row)}>
-									Open the call
-								</button>
-							)}
-							{isSummary && page?.olderPage && (
-								<button type="button" onClick={() => props.onPage(page.olderPage!, messageEntry?.sessionId ?? undefined)}>
-									Open the compaction notice
-								</button>
-							)}
-							{isSummary && messageEntry?.sessionId && (
-								<button type="button" onClick={() => props.onSession(messageEntry.sessionId!)}>
-									Open the session log
-								</button>
-							)}
+							<div className="agent-log-foot-links">
+								{number && <a href={`#loop-call-${number}`}>result of call {number}</a>}
+								{tool && !number && row && (
+									<button type="button" onClick={() => props.onLogs(row)}>
+										Open the call
+									</button>
+								)}
+								{isSummary && page?.olderPage && (
+									<button type="button" onClick={() => props.onPage(page.olderPage!, messageEntry?.sessionId ?? undefined)}>
+										Open the compaction notice
+									</button>
+								)}
+								{isSummary && messageEntry?.sessionId && (
+									<button type="button" onClick={() => props.onSession(messageEntry.sessionId!)}>
+										Open the session log
+									</button>
+								)}
+							</div>
 							<span className="agent-log-status">
 								{live ? (
 									'streaming'
