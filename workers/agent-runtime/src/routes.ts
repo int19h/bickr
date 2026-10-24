@@ -1,5 +1,5 @@
 import { legacyHistoryCursor, legacyHistoryFleetPage } from './runtime/legacy-history-maintenance';
-import { migrateContextBudgetPage, migrateOwnedContextBudget } from './context-budget-migration';
+import { contextBudgetMigrationCursor, migrateContextBudgetPage, migrateOwnedContextBudget } from './context-budget-migration';
 import { backfillDeletedReferenceHandles, type DeletedHandleBackfillCursor } from '@bickr/shared/deleted-reference-handles';
 import { migrateParticipantTime } from "@bickr/shared/participant-time-migration";
 import { normalizeKvDocuments, isDocumentNormalizationOutcome, isWithinKvNormalizationQuietPeriod } from "@bickr/shared/kv-normalization-sweep";
@@ -1777,9 +1777,8 @@ export const agentRuntimeRouteTable = [
 			requireSchedulerServiceRequest(context.request);
 			if (!(await readMaintenanceState(context.env.BICKR_D1)).enabled) throw new RepositoryError('conflict', 'Context budget migration requires maintenance mode.', 409);
 			const body = requiredRecord(await readOptionalJsonBody(context.request));
-			if (body.cursor !== undefined && (typeof body.cursor !== 'string' || body.cursor.length > 256)) throw new InputError('The migration cursor must be a string of at most 256 characters.');
 			if (!context.env.USER_BOTS) throw new RepositoryError('server_error', 'Owner coordinator binding is unavailable.', 500);
-			return ok({ page: await migrateContextBudgetPage({ ...context.env, USER_BOTS: context.env.USER_BOTS }, typeof body.cursor === 'string' ? body.cursor : '') });
+			return ok({ page: await migrateContextBudgetPage({ ...context.env, USER_BOTS: context.env.USER_BOTS }, contextBudgetMigrationCursor(body.cursor)) });
 		},
 	},
 	{

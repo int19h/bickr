@@ -264,8 +264,12 @@ The default is `defaultTickSettings.contextWindowTokens` in `packages/shared/src
 API validation, CLI flags, UI limits, drafts, probes, and compaction use these values.
 The editor help text derives both numbers from those sources.
 
-Only participant documents in KV store the configurable override.
+Participant documents in KV store the current configurable override.
 The `bot_runtime_index.context_window_tokens` projection stores that override or `NULL`.
+Pending creation requests also store an executable budget in `entity_lifecycle_operations.request_json`.
+The migration raises that saved budget before recovery resumes.
+It preserves the original request hash, which identifies the submitted request.
+
 Inference configurations, account defaults, worlds, and linked clone sources do not supply this setting.
 A linked clone uses its own override or the shared default.
 Changing the default affects every participant without an explicit override, including disabled participants and linked clones.
@@ -294,16 +298,28 @@ Complete these steps in test before an authorized production release:
 
    Each page includes at most 25 participants.
    It includes pending and deleted participants and retained runtime index rows.
+   The `indexed` pass also includes canonical lifecycle records before index creation.
+   The `creations` pass reads saved creation requests, including requests without a KV document yet.
+   The `documents` pass lists KV participant keys, including documents without any index or lifecycle row.
    Each write runs through the participant owner's `UserBotsCoordinator` queue.
    The queue serializes the document and projection writes with other configuration writes.
-3. Save each page response and resume with `body.cursor` set to `data.page.nextCursor`.
+3. Save each page response and resume with `body.cursor` set to the complete object in `data.page.nextCursor`.
+   Keep its `kind` and position fields unchanged when moving between passes.
    Continue until `data.page.done` is true and `data.page.nextCursor` is `null`.
    A `missing` result stops the cursor before that participant.
    Resolve the missing document before resuming that cursor.
+   A matching pending creation can lack KV before materialization.
+   A matching compensating creation can lack KV after cleanup deletes it.
+   The sweep accepts these lifecycle states without restoring a document.
    If a request fails or its response is lost, repeat the same input cursor.
    A replay finishes pending projection writes without raising a document revision twice.
-4. Repeat the full pass from the empty cursor.
-   Require every result to be `unchanged`, with no missing documents.
+4. Before the second full pass, wait at least 60 seconds after the final write.
+   KV can return cached values during [propagation](https://developers.cloudflare.com/kv/api/list-keys/).
+   If an operator set a longer KV cache lifetime, wait for that lifetime too.
+   Repeat all three passes from the empty cursor.
+   Require `data.page.changes.documents`, `indexes`, and `creationRequests` to be zero on every page.
+   Require every result to be `unchanged`, with no missing documents, including pending creations.
+   If any counter is nonzero, repeat the wait and all three passes.
    Keep both passes and the release record as evidence.
    Then disable maintenance mode.
 

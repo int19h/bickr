@@ -59,7 +59,7 @@ type CredentialFreeCreateBotInput = Omit<CreateBotInput, "inferenceSettings"> & 
 	inferenceSettings?: Omit<NonNullable<CreateBotInput["inferenceSettings"]>, "openRouterApiKey">;
 };
 
-type BotCreateLifecycleRequest = {
+export type BotCreateLifecycleRequest = {
 	kind: "bot_create" | "clone_create";
 	userId: string;
 	worldId: string;
@@ -504,7 +504,7 @@ async function botCreateInputWithLifecycleSecret(
 	};
 }
 
-function parseBotCreateLifecycleRequest(serialized: string): BotCreateLifecycleRequest {
+export function parseBotCreateLifecycleRequest(serialized: string): BotCreateLifecycleRequest {
 	const value: unknown = JSON.parse(serialized);
 	if (!value || typeof value !== "object" || Array.isArray(value)) throw new RepositoryError("server_error", "Participant lifecycle request is invalid.", 500);
 	const request = value as Partial<BotCreateLifecycleRequest>;
