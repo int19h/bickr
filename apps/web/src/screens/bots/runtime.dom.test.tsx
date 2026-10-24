@@ -1,4 +1,4 @@
-import type { BotLoopMessage, BotLoopMessagePage, BotRuntimeEvent, BotSummary } from '@bickr/shared/model';
+import type { AgentLogEntry, BotLoopMessage, BotLoopMessagePage, BotRuntimeEvent, BotSummary } from '@bickr/shared/model';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -7,7 +7,7 @@ import * as runtimeUtils from './runtime-utils';
 
 type PendingMessages = {
 	path: string;
-	resolve: (response: { messages: BotLoopMessage[]; page: BotLoopMessagePage }) => void;
+	resolve: (response: { messages: BotLoopMessage[]; entries: AgentLogEntry[]; page: BotLoopMessagePage }) => void;
 };
 
 type PendingEvents = {
@@ -114,9 +114,9 @@ beforeEach(async () => {
 		}
 		if (path.includes('/runtime/messages')) {
 			return new Promise<Response>((resolve) => {
-				pendingMessages.push({ path, resolve: ({ messages, page }) => resolve(json({
+				pendingMessages.push({ path, resolve: ({ messages, entries, page }) => resolve(json({
 					ok: true,
-					data: { messages, page },
+					data: { messages, entries, page },
 				})) });
 			});
 		}
@@ -332,7 +332,7 @@ describe('runtime monitor authoritative reconciliation', () => {
 						seq: 30 + index / 1000,
 						runId: 'run-live',
 						type: 'provider_delta',
-						payload: { kind: 'content', text: '.', streamSeq: 7 },
+						payload: { requestId: 'live-request', kind: 'content', text: '.', streamSeq: 7 },
 						tokenEstimate: 0,
 						createdAt: '2026-08-23T00:00:01.000Z',
 					},
@@ -449,10 +449,15 @@ describe('runtime monitor authoritative reconciliation', () => {
 	});
 });
 
+it('renders an unknown entry as a plain notice', async () => {
+	await act(async () => pendingMessages[0]?.resolve({ messages: [], entries: [{ kind: 'future_entry' } as unknown as AgentLogEntry], page: page(1, {}, [{ page: 1, messageCount: 0 }]) }));
+	expect(container.textContent).toContain('Unknown log entry.');
+});
+
 async function answerMessages(index: number, messages: BotLoopMessage[], responsePage = page(1, {}, [
 	{ page: 1, messageCount: messages.length },
 ])): Promise<void> {
-	await act(async () => pendingMessages[index]?.resolve({ messages, page: responsePage }));
+	await act(async () => pendingMessages[index]?.resolve({ messages, entries: messages.map(message => ({ kind: 'message' as const, position: message.position ?? message.seq, message, author: { kind: 'model' as const }, requestId: null, sessionId: null, attempts: null })), page: responsePage }));
 }
 
 async function answerEvents(index: number, events: BotRuntimeEvent[]): Promise<void> {

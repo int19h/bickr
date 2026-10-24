@@ -1,4 +1,7 @@
 import type {
+	AgentLogEntry,
+	AgentLogRequest,
+	AgentLogCompactionSession,
 	BotLoopMessage,
 	BotLoopMessageLogsResponse,
 	BotLoopMessagePage,
@@ -22,10 +25,10 @@ import {
 	upsertLiveProviderLoopMessage,
 } from "../../loop-message-streams";
 import { loopContinuationRowsForPage } from "../../loop-page-continuations";
-import { Avatar, Confirm, Icon, textValue } from "../../ui";
+import { Avatar, Confirm, Icon, Modal, textValue } from "../../ui";
 import { useBotEffectiveModels } from "../../inference/bot-models";
 import { loopToolCallsById } from "../../readable/loop-message-values";
-import { LoopContinuationRow, LoopMessageLogsModal, LoopMessagePager, LoopMessageRow } from "./loop-messages";
+import { AgentLogRequestView, LoopContinuationRow, LoopMessageLogsModal, LoopMessagePager, LoopMessageRow } from "./loop-messages";
 import { RuntimeRow } from "./runtime-row";
 import {
 	formatTickIntervalMinutes,
@@ -108,6 +111,24 @@ export function BotRuntimePanel({
 }) {
 	const [status, setStatus] = useState<BotRuntimeStatus | null>(null);
 	const [events, setEvents] = useState<BotRuntimeEvent[]>([]);
+	const [loopEntries, setLoopEntries] = useState<AgentLogEntry[]>([]);
+	const [requestDetail, setRequestDetail] = useState<AgentLogRequest | null>(null);
+	const [sessionDetail, setSessionDetail] = useState<AgentLogCompactionSession | null>(null);
+	useEffect(() => {
+		if (!requestDetail || requestDetail.state !== 'pending') return;
+		const id = requestDetail.id;
+		let closed = false;
+		let fetching = false;
+		const timer = window.setInterval(async () => {
+			if (fetching) return;
+			fetching = true;
+			try {
+				const result = await api<{ request: AgentLogRequest }>(`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/requests/${encodeURIComponent(id)}`);
+				if (!closed && result.ok) setRequestDetail(current => current?.id === id ? result.data.request : current);
+			} finally { fetching = false; }
+		}, 500);
+		return () => { closed = true; window.clearInterval(timer); };
+	}, [bot.id, requestDetail?.id, requestDetail?.state]);
 	const [loopMessages, setLoopMessages] = useState<BotLoopMessage[]>([]);
 	const [loopMessagePage, setLoopMessagePage] = useState<BotLoopMessagePage | null>(null);
 	const [openLoopMessageLogs, setOpenLoopMessageLogs] = useState<BotLoopMessageLogsResponse | null>(null);
@@ -169,6 +190,7 @@ export function BotRuntimePanel({
 		setStatus(null);
 		setEvents([]);
 		setLoopMessages([]);
+		setLoopEntries([]);
 		setLoopMessagePage(null);
 		setOpenLoopMessageLogs(null);
 		setLoopMessageLogLoadingSeq(null);
@@ -212,6 +234,7 @@ export function BotRuntimePanel({
 				invalidateRefreshes({ events: true, messages: true });
 				setEvents([]);
 				setLoopMessages([]);
+		setLoopEntries([]);
 				setLoopMessagePage(null);
 				setOpenLoopMessageLogs(null);
 				setDeletingLoopMessageSeq(null);
@@ -245,6 +268,7 @@ export function BotRuntimePanel({
 			if (payload.type === "loop_message_deleted" && Number.isInteger(payload.seq)) {
 				invalidateRefreshes({ messages: true });
 				setLoopMessages((current) => current.filter((item) => item.seq !== payload.seq));
+				setLoopEntries(current => current.filter(entry => entry.kind !== 'message' || entry.message.seq !== payload.seq));
 				setOpenLoopMessageLogs((current) => current && current.message.seq === payload.seq ? null : current);
 				setDeletingLoopMessageSeq((current) => current === payload.seq ? null : current);
 				scheduleTrailingRefresh();
@@ -265,6 +289,15 @@ export function BotRuntimePanel({
 					return;
 				}
 				setLoopMessages((current) => upsertLiveProviderLoopMessage(current, payload.event!));
+				const delta = payload.event.payload as { requestId?: string; kind?: string; text?: string };
+				if (delta.requestId) setLoopEntries(current => {
+					const old = current.find(entry => entry.kind === 'live' && entry.requestId === delta.requestId);
+					const partial = old?.kind === 'live' && old.partialResponse ? JSON.parse(old.partialResponse) as { content: string; reasoning: string } : { content: '', reasoning: '' };
+					if (delta.kind === 'content') partial.content += delta.text ?? '';
+					if (delta.kind === 'reasoning') partial.reasoning += delta.text ?? '';
+					const live: AgentLogEntry = { kind: 'live', position: Number.MAX_SAFE_INTEGER, requestId: delta.requestId!, runId: payload.event!.runId, attempts: old?.kind === 'live' ? old.attempts : { count: 1, failures: [] }, partialResponse: JSON.stringify(partial) };
+					return [...current.filter(entry => entry.kind !== 'live' || entry.requestId !== delta.requestId), live];
+				});
 				return;
 			}
 			if (payload.event) {
@@ -277,6 +310,7 @@ export function BotRuntimePanel({
 				const terminal = ["tick_completed", "tick_failed", "tick_stopped"].includes(payload.event.type);
 				invalidateRefreshes({ events: true, messages: terminal });
 				if (terminal) {
+					setLoopEntries(current => current.filter(entry => entry.kind !== 'live' || entry.runId !== payload.event!.runId));
 					if (currentLoopPageRef.current === 1) {
 						setLoopMessages((current) => removeLiveProviderLoopMessagesForRun(current, payload.event!.runId));
 					}
@@ -545,6 +579,12 @@ export function BotRuntimePanel({
 			currentLoopPageRef.current = page.currentPage;
 			currentLoopSourceCompactionSeqRef.current = returnedSource;
 			setLoopMessagePage(page);
+			setLoopEntries(current => {
+				const entries = messagesResult.data.entries;
+				if (page.currentPage !== 1) return entries;
+				const ids = new Set(entries.flatMap(entry => entry.kind === 'message' || entry.kind === 'live' ? entry.requestId ? [entry.requestId] : [] : entry.notice.kind === 'request_failed' ? [entry.notice.requestId] : []));
+				return [...entries, ...current.filter(entry => entry.kind === 'live' && !ids.has(entry.requestId))];
+			});
 			if (page.currentPage === 1) {
 				for (const loopMessage of messagesResult.data.messages) {
 					rememberLoopMessageSeq(loopMessage);
@@ -577,6 +617,7 @@ export function BotRuntimePanel({
 		currentLoopPageRef.current = targetPage;
 		shouldStickToBottomRef.current = targetPage === 1;
 		setLoopMessages([]);
+		setLoopEntries([]);
 		setOpenLoopMessageLogs(null);
 		setLoopMessageLogError("");
 		setMessage(`Loading loop page ${targetPage}...`);
@@ -707,6 +748,7 @@ export function BotRuntimePanel({
 		setSourceMessage({ botId: bot.id, seq: target.seq, runId: target.runId, requestSeq, generation });
 		setLoopMessagePage(null);
 		setLoopMessages([]);
+		setLoopEntries([]);
 		// Page numbers change after compaction. Resolve the source generation
 		// through the same authoritative page map used for history navigation.
 		currentLoopSourceCompactionSeqRef.current = target.compactedBy ?? null;
@@ -730,10 +772,23 @@ export function BotRuntimePanel({
 		setLoopMessageLogError(result.message);
 	}
 
+	async function viewRequest(id: string): Promise<void> {
+		const result = await api<{ request: AgentLogRequest }>(`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/requests/${encodeURIComponent(id)}`);
+		if (result.ok) setRequestDetail(result.data.request);
+		else setLoopMessageLogError(result.message);
+	}
+
+	async function viewSession(id: string): Promise<void> {
+		const result = await api<{ session: AgentLogCompactionSession }>(`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/compaction-sessions/${encodeURIComponent(id)}`);
+		if (result.ok) setSessionDetail(result.data.session);
+		else setLoopMessageLogError(result.message);
+	}
+
 	async function deleteLoopMessage(loopMessage: BotLoopMessage): Promise<void> {
 		if (isLiveProviderLoopMessage(loopMessage)) {
 			return;
 		}
+		if (!window.confirm(currentLoopPageRef.current === 1 ? "Delete this message from the model context?" : "Delete this message from the archive?")) return;
 		setDeletingLoopMessageSeq(loopMessage.seq);
 		const result = await api<{ deleted: { seq: number; runId: string; origin: BotLoopMessage["origin"]; deletedAt: string } }>(
 			`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/messages/${encodeURIComponent(String(loopMessage.seq))}`,
@@ -743,6 +798,7 @@ export function BotRuntimePanel({
 		if (result.ok) {
 			invalidateRefreshes({ messages: true });
 			setLoopMessages((current) => current.filter((item) => item.seq !== loopMessage.seq));
+			setLoopEntries(current => current.filter(entry => entry.kind !== 'message' || entry.message.seq !== loopMessage.seq));
 			setOpenLoopMessageLogs((current) => current && current.message.seq === loopMessage.seq ? null : current);
 			setMessage("Loop message deleted.");
 			scheduleTrailingRefresh();
@@ -763,6 +819,7 @@ export function BotRuntimePanel({
 			const count = result.data.compacted.messageCount;
 			setMessage(count > 0 ? `Compacted ${count} loop chat message${count === 1 ? "" : "s"}.` : "There were no loop chat messages to compact.");
 			setLoopMessages([]);
+		setLoopEntries([]);
 			setLoopMessagePage(null);
 			latestLoopMessageSeqRef.current = 0;
 			currentLoopPageRef.current = 1;
@@ -783,6 +840,7 @@ export function BotRuntimePanel({
 			invalidateRefreshes({ events: true, messages: true });
 			setEvents([]);
 			setLoopMessages([]);
+		setLoopEntries([]);
 			setLoopMessagePage(null);
 			setOpenLoopMessageLogs(null);
 			setDeletingLoopMessageSeq(null);
@@ -897,8 +955,24 @@ export function BotRuntimePanel({
 							page={row.page}
 						/>
 					))}
-					{loopMessages.length === 0 && <div className="empty compact-empty">No loop chat messages yet.</div>}
-					{loopMessages.map((loopMessage) => (
+					{loopEntries.length === 0 && <div className="empty compact-empty">No loop chat messages yet.</div>}
+					{loopEntries.map((entry, index) => {
+						if (entry.kind === 'notice') {
+							const notice = entry.notice;
+							switch (notice.kind) {
+								case 'runtime_error': case 'dropped_output': return <p key={`notice-${index}`}>{notice.message}</p>;
+								case 'request_failed': return <p key={notice.requestId}><button className="btn" onClick={() => void viewRequest(notice.requestId)}>No response after {notice.attempts.count} attempts</button></p>;
+								case 'compaction_started': return <p key={notice.sessionId}><button className="btn" onClick={() => void viewSession(notice.sessionId)}>Compaction: {notice.outcome.kind}</button></p>;
+								default: return <p key={`unknown-notice-${index}`}>Unknown runtime notice.</p>;
+							}
+						}
+						if (entry.kind === 'live') return <div className="event-row activity-assistant" key={entry.requestId}><button className="btn" onClick={() => void viewRequest(entry.requestId)}>Live request</button><pre>{entry.partialResponse ?? ''}</pre></div>;
+						if (entry.kind !== 'message') return <p key={`unknown-${index}`}>Unknown log entry.</p>;
+						const loopMessage = loopMessages.find(message => message.seq === entry.message.seq) ?? entry.message;
+						return <div key={`${loopMessage.runId}-${loopMessage.seq}`}>
+						{entry.attempts && entry.attempts.count > 1 && entry.requestId && <button className="btn" onClick={() => void viewRequest(entry.requestId!)}>{entry.attempts.count} attempts</button>}
+						{entry.sessionId && <button className="btn" onClick={() => void viewSession(entry.sessionId!)}>Compaction session</button>}
+
 						<LoopMessageRow
 							key={`${loopMessage.runId}-${loopMessage.seq}`}
 							deleting={deletingLoopMessageSeq === loopMessage.seq}
@@ -910,7 +984,8 @@ export function BotRuntimePanel({
 							onViewLogs={() => void viewLoopMessageLogs(loopMessage)}
 							toolCallsById={toolCallsById}
 						/>
-					))}
+						</div>;
+					})}
 					{continuationRows.filter((row) => row.position === "end").map((row) => (
 						<LoopContinuationRow
 							key={`${row.position}-${row.page}`}
@@ -925,6 +1000,8 @@ export function BotRuntimePanel({
 					page={loopMessagePage}
 				/>
 			</div>
+			{requestDetail && <Modal onClose={() => setRequestDetail(null)} open title="Inference request" wide><AgentLogRequestView request={requestDetail} /></Modal>}
+			{sessionDetail && <Modal onClose={() => setSessionDetail(null)} open title="Compaction session" wide><pre>{JSON.stringify(sessionDetail.outcome, null, 2)}</pre>{sessionDetail.requests.map(request => <AgentLogRequestView key={request.id} request={request} />)}</Modal>}
 			<LoopMessageLogsModal
 				onClose={() => setOpenLoopMessageLogs(null)}
 				open={Boolean(openLoopMessageLogs)}

@@ -1,3 +1,4 @@
+import type { AgentLogRequest } from "@bickr/shared/model";
 import { InferenceAttributionFields } from "../../components/inference-attribution";
 import type { Ref } from "react";
 import type {
@@ -43,6 +44,7 @@ export function LoopMessageLogsModal({
 				<RuntimeRow label="Run" value={message.runId} />
 			</div>
 			<div className="submission-chat-log">
+				{payload.request ? <AgentLogRequestView request={payload.request} /> : <p>The exact request is not retained.</p>}
 				{requestUsage && <LoopMessageRequestUsageLine usage={requestUsage} />}
 				{payload.inferenceAttribution && <InferenceAttributionFields attribution={payload.inferenceAttribution} />}
 				{requestMessages && requestMessages.length > 0 ?
@@ -96,9 +98,9 @@ export function LoopMessageRow({
 			<button
 				aria-label={`Open raw logs for loop message ${message.seq}`}
 				className="raw-json-button"
-				disabled={loadingLogs || !message.hasLogs || isLive}
+				disabled={loadingLogs || isLive}
 				onClick={onViewLogs}
-				title={message.hasLogs ? "Open exact provider and tool logs" : "No retained logs"}
+				title="Open retained provider and tool logs"
 				type="button"
 			>
 				{loadingLogs ? <span className="spinner" /> : <Icon name="info" size={13} />}
@@ -281,4 +283,18 @@ export function SubmissionJsonBlock({ label, value }: { label: string; value: un
 			:	<pre>{prettyJsonText(value)}</pre>}
 		</div>
 	);
+}
+
+export function AgentLogRequestView({ request }: { request: AgentLogRequest }) {
+	const selected = request.attempts.find(attempt => attempt.outcome?.kind === 'success') ?? request.attempts.at(-1);
+	return <div>
+		<p>{request.state}. Attempts: {request.attempts.length}.</p>
+		{selected?.body ? <pre>{selected.body}</pre> : <p>The exact request is not retained.</p>}
+		{selected?.outcome && (selected.outcome.kind === 'success' || (selected.outcome.kind === 'interrupted' && selected.outcome.response)) ? <pre>{selected.outcome.response}</pre> : selected?.partialResponse ? <pre>{selected.partialResponse}</pre> : null}
+		{request.attempts.filter(attempt => attempt.outcome && attempt.outcome.kind !== 'success').map(attempt => <details key={attempt.id}>
+			<summary>Attempt {attempt.id}: {attempt.outcome?.kind}</summary>
+			<pre>{JSON.stringify(attempt.outcome, null, 2)}</pre>
+			{attempt.body ? <details><summary>Request body</summary><pre>{attempt.body}</pre></details> : <p>The exact request is not retained.</p>}
+		</details>)}
+	</div>;
 }
