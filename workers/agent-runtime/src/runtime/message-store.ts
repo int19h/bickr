@@ -207,6 +207,7 @@ export class RuntimeMessageStore {
 		broadcast: boolean;
 		source?: AgentLogSource;
 	}): BotLoopMessage {
+		new AgentLogStore(this.storage).assertCanWrite();
 		if (input.origin === 'synthetic_context' && input.message.role === 'assistant' && !input.source) throw new Error('Synthetic assistant content requires a source.');
 		const now = input.createdAt ?? new Date().toISOString();
 		const view = toolResultViewForMessage(input.message);

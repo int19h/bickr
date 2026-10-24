@@ -582,7 +582,7 @@ export function BotRuntimePanel({
 			setLoopEntries(current => {
 				const entries = messagesResult.data.entries;
 				if (page.currentPage !== 1) return entries;
-				const ids = new Set(entries.flatMap(entry => entry.kind === 'message' || entry.kind === 'live' ? entry.requestId ? [entry.requestId] : [] : entry.notice.kind === 'request_failed' ? [entry.notice.requestId] : []));
+				const ids = new Set(entries.flatMap(entry => entry.kind === 'message' || entry.kind === 'live' ? entry.requestId ? [entry.requestId] : [] : entry.kind === 'notice' && entry.notice.kind === 'request_failed' ? [entry.notice.requestId] : []));
 				return [...entries, ...current.filter(entry => entry.kind === 'live' && !ids.has(entry.requestId))];
 			});
 			if (page.currentPage === 1) {

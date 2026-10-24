@@ -1,6 +1,6 @@
 # Agent log storage
 
-The runtime stores each inference attempt before it sends the request. Each attempt holds the exact outgoing body after provider sanitization. A request groups transport retries and retries after invalid output. The details endpoint reads stored bodies. It never builds them from current history.
+The runtime stores each inference attempt before it sends the request. Each attempt holds the exact outgoing body after provider sanitization. A request groups transport retries and retries after invalid output. The details endpoint reads stored bodies. It never builds them from current history. Each writer rejects stopped visits and erased storage. Finalization settles pending requests and sessions before it releases the visit.
 
 ## Tables and retention
 

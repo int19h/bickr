@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { AgentLogStore, agentLogSchema, agentLogFailure } from './agent-log-store';
 import type { AgentLogSource, AgentLogCompactionTrigger } from '@bickr/shared/model';
 import { legacyHistoryRateLimit, legacyHistoryRetryDelay, LegacyHistoryRateLimitError } from './legacy-history-maintenance';
@@ -1859,13 +1860,14 @@ function pendingToolFromStoredRow(row: { key: string; value_json: string }): Pen
 	return { ...value, ...(row.key === 'pending_tool_v1' ? { kind: 'legacy_single_call' as const } : {}), instructionLocale: 'en', stage: 'dispatched' };
 }
 
+type CompactionSessionContext = { id: string; commits: Array<() => void> | null; facets: import('./result-context-scope').ResultFacetValue[] };
+// Each async session keeps its own identity when an older call outlives Stop.
+const compactionSessionScope = new AsyncLocalStorage<CompactionSessionContext>();
+
 export class BotRuntime {
 	private readonly state: DurableObjectState;
 	private readonly env: Env;
 	private readonly notes: BotNotesStore;
-	private stagedCompactionFacets: import('./result-context-scope').ResultFacetValue[] = [];
-	private stagedCompactionCommits: Array<() => void> | null = null;
-	private activeCompactionSessionId: string | null = null;
 	private activeAbortController: AbortController | null = null;
 	private activeRunId: string | null = null;
 	private activeMaintenanceOperation: ActiveMaintenanceOperation | null = null;
@@ -2487,9 +2489,8 @@ export class BotRuntime {
 		const messageSeq = messageSeqFromPath(url.pathname);
 		if (request.method === 'DELETE' && messageSeq !== null) {
 			await this.requireOwnerOrInternal(request, botId);
-			const row = this.runtimeMessageStore().loopMessageRow(messageSeq);
-			const changedContext = row?.compacted_by === null && row.deleted_at === null && loopMessageContributesToProviderHistory(row.origin, loopMessageStructureFromRow(row));
-			return ok({ deleted: await this.deleteLoopMessage(botId, messageSeq), changedContext });
+			const deleted = await this.deleteLoopMessage(botId, messageSeq);
+			return ok({ deleted, changedContext: deleted.changedContext });
 		}
 
 		if (request.method === 'POST' && url.pathname.endsWith('/context-budget')) {
@@ -3100,6 +3101,7 @@ export class BotRuntime {
 		const current = this.liveness.read();
 		if (!current || current.runId !== runId || current.kind !== 'active') return false;
 		settleOutsideExecution(() => this.state.storage.transactionSync(() => {
+			this.agentLogStore().failPending(runId, type === 'tick_stopped' ? { kind: 'interrupted' } : { kind: 'provider_error', status: null, errorType: null, message: stringValue(payload.message) ?? 'This Bickr visit ended.' });
 			const finished = this.liveness.finish(runId, type === 'tick_failed' ? 'failed' : 'idle', stringValue(payload.message) ?? null, type);
 			if (finished?.kind === 'finalizing' && pause) this.liveness.write({ ...finished, pause });
 			if (!this.hasTerminalEvent(runId)) {
@@ -3144,12 +3146,12 @@ export class BotRuntime {
 			const runId = journal.runId;
 			const context = await this.resultRenderContextForRows(journal.botId, this.activeLoopMessageRows());
 			settleOutsideExecution(() => this.state.storage.transactionSync(() => {
+				this.agentLogStore().failPending(runId, stopped ? { kind: 'interrupted' } : { kind: 'timeout' });
 				journal = this.liveness.finish(runId, stopped ? 'idle' : 'failed', message, stopped ? 'tick_stopped' : 'tick_failed')!;
 				if (!this.hasTerminalEvent(runId)) {
 					this.settlePendingTool(context, runId);
 					if (stopped) {
-						this.agentLogStore().failPending(runId, { kind: 'provider_error', status: null, errorType: null, message });
-		this.markPendingCompactionEventsFailed(runId, message);
+						this.markPendingCompactionEventsFailed(runId, message);
 						this.appendEvent(runId, 'tick_stopped', { message });
 					}
 					else this.recordTickFailure(context, runId, { message, reason: 'run_inactivity', inactivityMs: runInactivityMs });
@@ -3212,6 +3214,7 @@ export class BotRuntime {
 		if (journal?.kind === 'active') {
 			const message = 'This Bickr visit closed because a runtime transition did not finish.';
 			settleOutsideExecution(() => this.state.storage.transactionSync(() => {
+				this.agentLogStore().failPending(journal.runId, { kind: 'timeout' });
 				this.liveness.finish(journal.runId, 'failed', message, 'tick_failed');
 				// Recovery loads a fresh render context before it publishes the pending result.
 			}));
@@ -4555,7 +4558,7 @@ export class BotRuntime {
 				sessionId,
 			);
 			const body = stringifyProviderRequest(request);
-			const requestId = this.agentLogStore().begin({ runId, eventSeq: requestSeq, purpose: 'compaction', sessionId: this.activeCompactionSessionId ?? undefined, createdAt });
+			const requestId = this.agentLogStore().begin({ runId, eventSeq: requestSeq, purpose: 'compaction', sessionId: compactionSessionScope.getStore()?.id, createdAt });
 			const attemptId = this.agentLogStore().startAttempt(requestId, body);
 			const inferenceAttribution = bot ? this.recordInferenceAttribution(request, bot, runId, requestSeq, requestContextWindowTokens) : undefined;
 			try {
@@ -4853,7 +4856,7 @@ export class BotRuntime {
 		]);
 	}
 
-	private agentLogStore(): AgentLogStore { return new AgentLogStore(this.state.storage); }
+	private agentLogStore(): AgentLogStore { return new AgentLogStore(this.state.storage, () => this.requireWritableRuntimeStorage()); }
 
 	private migrateAgentLog(): void {
 		this.agentLogStore().migrate(this.runtimeMessageStore());
@@ -7463,19 +7466,18 @@ export class BotRuntime {
 		legacyCost?: LegacyHistoryCost,
 	): Promise<void> {
 		const sessionId = this.agentLogStore().startSession(runId, { kind: legacyCost ? 'legacy_forced' : mode === 'manual' ? 'manual' : 'visit' });
-		this.activeCompactionSessionId = sessionId;
-		this.stagedCompactionCommits = [];
-		this.stagedCompactionFacets = [];
-		try {
-			await this.compactLoopMessageBatchesForSession(context, bot, settings, runId, signal, rows, mode, metrics, legacyCost);
-			this.runStorageTransactionSync(() => { for (const commit of this.stagedCompactionCommits ?? []) commit(); });
-			this.broadcastControl({ type: 'loop_messages_reset' });
-			const summary = this.state.storage.sql.exec<{ seq: number }>("SELECT seq FROM loop_messages WHERE session_id = ? AND origin = 'compaction' ORDER BY seq DESC LIMIT 1", sessionId).toArray()[0];
-			if (summary) this.agentLogStore().settleSession(sessionId, { kind: 'succeeded', summarySeq: summary.seq });
-		} catch (error) {
-			this.agentLogStore().settleSession(sessionId, { kind: 'failed', error: agentLogFailure(error) });
-			throw error;
-		} finally { this.activeCompactionSessionId = null; this.stagedCompactionCommits = null; this.stagedCompactionFacets = []; }
+		return compactionSessionScope.run({ id: sessionId, commits: [], facets: [] }, async () => {
+			try {
+				await this.compactLoopMessageBatchesForSession(context, bot, settings, runId, signal, rows, mode, metrics, legacyCost);
+				this.runStorageTransactionSync(() => { for (const commit of compactionSessionScope.getStore()?.commits ?? []) commit(); });
+				this.broadcastControl({ type: 'loop_messages_reset' });
+				const summary = this.state.storage.sql.exec<{ seq: number }>("SELECT seq FROM loop_messages WHERE session_id = ? AND origin = 'compaction' ORDER BY seq DESC LIMIT 1", sessionId).toArray()[0];
+				if (summary) this.agentLogStore().settleSession(sessionId, { kind: 'succeeded', summarySeq: summary.seq });
+			} catch (error) {
+				this.agentLogStore().settleSession(sessionId, { kind: 'failed', error: agentLogFailure(error) });
+				throw error;
+			}
+		});
 	}
 
 	private async compactLoopMessageBatchesForSession(
@@ -7562,31 +7564,33 @@ export class BotRuntime {
 		metrics: CompactionMetrics,
 		legacyCost?: LegacyHistoryCost,
 	): Promise<LoopMessageRow[]> {
-		if (this.activeCompactionSessionId) return this.compactLoopMessageRowsForSession(context, bot, settings, runId, signal, compacted, mode, metrics, legacyCost);
+		if (compactionSessionScope.getStore()) return this.compactLoopMessageRowsForSession(context, bot, settings, runId, signal, compacted, mode, metrics, legacyCost);
 		const store = this.agentLogStore();
 		const trigger: AgentLogCompactionTrigger = { kind: legacyCost ? 'legacy_forced' : mode === 'manual' ? 'manual' : metrics.allowedPromptTokens !== undefined ? 'admission' : 'visit' };
 		const sessionId = store.startSession(runId, trigger);
-		this.activeCompactionSessionId = sessionId;
-		try {
-			const result = await this.compactLoopMessageRowsForSession(context, bot, settings, runId, signal, compacted, mode, metrics, legacyCost);
-			const summary = this.state.storage.sql.exec<{ seq: number }>("SELECT seq FROM loop_messages WHERE session_id = ? AND origin = 'compaction' ORDER BY seq DESC LIMIT 1", sessionId).toArray()[0];
-			if (summary) store.settleSession(sessionId, { kind: 'succeeded', summarySeq: summary.seq });
-			else store.settleSession(sessionId, { kind: 'failed', error: { kind: 'provider_error', status: null, errorType: null, message: 'Compaction produced no summary.' } });
-			return result;
-		} catch (error) {
-			store.settleSession(sessionId, { kind: 'failed', error: agentLogFailure(error) });
-			throw error;
-		} finally { this.activeCompactionSessionId = null; }
+		return compactionSessionScope.run({ id: sessionId, commits: null, facets: [] }, async () => {
+			try {
+				const result = await this.compactLoopMessageRowsForSession(context, bot, settings, runId, signal, compacted, mode, metrics, legacyCost);
+				const summary = this.state.storage.sql.exec<{ seq: number }>("SELECT seq FROM loop_messages WHERE session_id = ? AND origin = 'compaction' ORDER BY seq DESC LIMIT 1", sessionId).toArray()[0];
+				if (summary) store.settleSession(sessionId, { kind: 'succeeded', summarySeq: summary.seq });
+				else store.settleSession(sessionId, { kind: 'failed', error: { kind: 'provider_error', status: null, errorType: null, message: 'Compaction produced no summary.' } });
+				return result;
+			} catch (error) {
+				store.settleSession(sessionId, { kind: 'failed', error: agentLogFailure(error) });
+				throw error;
+			}
+		});
 	}
 
 	private async compactLoopMessageRowsForSession(
 		context: ResultRenderContext, bot: RuntimeBotDocument, settings: LocalizedProviderSettings, runId: string, signal: AbortSignal, compacted: LoopMessageRow[], mode: 'auto' | 'manual', metrics: CompactionMetrics, legacyCost?: LegacyHistoryCost,
 	): Promise<LoopMessageRow[]> {
 		await this.renewProgressLease(bot.id, runId, signal);
+		const session = compactionSessionScope.getStore();
 		let providerRows = compacted.map(row => {
-			if (!this.stagedCompactionCommits || this.stagedCompactionFacets.length === 0) return row;
+			if (!session?.commits || session.facets.length === 0) return row;
 			const view = toolResultViewFromRow(row);
-			if (!view || hydrateResultFacets(this.stagedCompactionFacets, resultViewFacetArrays(view)) === 0) return row;
+			if (!view || hydrateResultFacets(session.facets, resultViewFacetArrays(view)) === 0) return row;
 			return { ...row, tool_result_view_json: JSON.stringify(view) };
 		}).filter((row) => loopMessageContributesToCompactionProviderInput(row));
 		if (providerRows.length === 0) {
@@ -7756,7 +7760,7 @@ export class BotRuntime {
 		let summaryMessage!: BotLoopMessage;
 		const commit = () => {
 			if (ledgerRows[0]) this.agentLogStore().anchorUnattachedNotices(ledgerRows[0].seq, summaryPosition, summaryEvent.createdAt);
-			if (this.activeCompactionSessionId) this.state.storage.sql.exec("UPDATE compaction_sessions SET anchor_seq = ? WHERE id = ? AND NOT EXISTS (SELECT 1 FROM loop_messages WHERE session_id = ? AND origin = 'compaction')", ledgerRows.at(-1)?.seq ?? null, this.activeCompactionSessionId, this.activeCompactionSessionId);
+			if (session) this.state.storage.sql.exec("UPDATE compaction_sessions SET anchor_seq = ? WHERE id = ? AND NOT EXISTS (SELECT 1 FROM loop_messages WHERE session_id = ? AND origin = 'compaction')", ledgerRows.at(-1)?.seq ?? null, session.id, session.id);
 			summaryMessage = this.insertLoopMessage(context, {
 				runId,
 				message: { role: 'assistant', content: summary },
@@ -7766,7 +7770,7 @@ export class BotRuntime {
 				streamSeq: summaryEvent.seq,
 				broadcast: false,
 			});
-			if (this.activeCompactionSessionId) this.state.storage.sql.exec('UPDATE loop_messages SET session_id = ? WHERE seq = ?', this.activeCompactionSessionId, summaryMessage.seq);
+			if (session) this.state.storage.sql.exec('UPDATE loop_messages SET session_id = ? WHERE seq = ?', session.id, summaryMessage.seq);
 			for (const row of ledgerRows) {
 				this.state.storage.sql.exec(
 					`UPDATE loop_messages
@@ -7798,12 +7802,20 @@ export class BotRuntime {
 				compactedCommentBodies,
 			);
 		};
-		if (this.stagedCompactionCommits) { this.stagedCompactionCommits.push(commit); this.stagedCompactionFacets.push(...compactedFacets); }
+		if (session?.commits) this.stageCompactionCommit(commit, compactedFacets);
 		else {
 			this.runStorageTransactionSync(commit);
 			this.broadcastControl({ type: 'loop_messages_reset' });
 		}
 		return providerRows;
+	}
+
+	private stageCompactionCommit(commit: () => void, facets: import('./result-context-scope').ResultFacetValue[] = []): void {
+		assertExecutionPublication();
+		const session = compactionSessionScope.getStore();
+		if (!session?.commits) throw new Error('A staged compaction requires a batch session.');
+		session.commits.push(commit);
+		session.facets.push(...facets);
 	}
 
 	private compactionLedgerRows(providerRows: readonly LoopMessageRow[]): LoopMessageRow[] {
@@ -8093,7 +8105,7 @@ export class BotRuntime {
 	private async deleteLoopMessage(
 		botId: string,
 		seq: number,
-	): Promise<{ seq: number; runId: string; origin: BotLoopMessageOrigin; deletedAt: string }> {
+	): Promise<{ seq: number; runId: string; origin: BotLoopMessageOrigin; deletedAt: string; changedContext: boolean }> {
 		if (!Number.isInteger(seq) || seq <= 0) {
 			throw new RepositoryError('bad_request', 'Loop message sequence is invalid.', 400);
 		}
@@ -8112,7 +8124,7 @@ export class BotRuntime {
 		}
 		const { deletedAt } = deleted;
 		this.broadcastControl({ type: 'loop_message_deleted', seq, deletedAt });
-		return { seq, runId: row.run_id, origin: row.origin, deletedAt };
+		return { seq, runId: deleted.row.run_id, origin: deleted.row.origin, deletedAt, changedContext: deleted.row.deleted_at === null && deleted.row.compacted_by === null && loopMessageContributesToProviderHistory(deleted.row.origin, loopMessageStructureFromRow(deleted.row)) };
 	}
 
 	private async deleteEvent(botId: string, seq: number): Promise<{ seq: number; runId: string; type: BotRuntimeEventType }> {

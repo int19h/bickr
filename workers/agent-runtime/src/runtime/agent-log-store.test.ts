@@ -1,3 +1,8 @@
+import { attachToolResultView } from './result-messages';
+import { resultViewBase, type ToolResultView } from './tool-result-views';
+import { hydrateResultFacets } from './result-context-scope';
+import { resultHandleKey } from './result-handles';
+import { withRunExecution, settleOutsideExecution } from './execution-scope';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { agentLogAuthor, type AgentLogSource, type BotLoopMessageOrigin } from '@bickr/shared/model';
 import { AgentLogStore, agentLogFailure } from './agent-log-store';
@@ -22,13 +27,18 @@ describe('agent log storage', () => {
 		let release!: () => void;
 		const gate = new Promise<void>(resolve => { release = resolve; });
 		let sent = '';
+		const ref = { kind: 'participant' as const, entityId: 'actor', handle: 'before-rename' };
+		const view: ToolResultView = { ...resultViewBase(botText('en')), kind: 'profiles', source: 'view', facets: [{ entityId: 'actor', facet: 'profile_bio', state: 'known', fingerprint: 'same' }], profiles: [{ ref, bio: 0, isFollowedByMe: false, isFollowingMe: false, followers: 0 }] };
+		messages.appendLoopMessage(testResultContext, 'earlier', { role: 'assistant', tool_calls: [{ id: 'profile-call', type: 'function', function: { name: 'view_profiles', arguments: '{}' } }] }, 'provider_response');
+		const toolRow = messages.appendLoopMessage(testResultContext, 'earlier', attachToolResultView({ role: 'tool', tool_call_id: 'profile-call', content: '' }, view), 'tool_result');
+		const history = messages.loopMessagesAfter(testResultContext, 0).map(row => row.message);
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
 			state: { storage }, env: {}, renewProgressLease: vi.fn(), throwIfStopped: vi.fn(),
 			requireOwnerOrInternal: vi.fn(), recordProviderTokenCalibrationSampleFromError: vi.fn(),
 			fetchProviderResponse: vi.fn(async (_settings, _endpoint, body: string) => { sent = body; await gate; return new ReadableStream(); }),
 			consumeProviderResponse: vi.fn(async () => response),
 		});
-		const pending = runtime.callProvider({ text: botText('en'), model: 'test', baseUrl: 'https://example.test/v1' }, [{ role: 'user', content: 'Before rename' }], [], 'run', 1, new AbortController().signal, 'participant', undefined, '2026-10-24');
+		const pending = runtime.callProvider({ text: botText('en'), model: 'test', baseUrl: 'https://example.test/v1' }, history, [], 'run', 1, new AbortController().signal, 'participant', undefined, '2026-10-24');
 		await vi.waitFor(() => expect(sent).not.toBe(''));
 		const id = store.byEvent('run', 1)!.id;
 		expect(store.request(id).attempts[0]?.body).toBe(sent);
@@ -41,7 +51,14 @@ describe('agent log storage', () => {
 		release();
 		await pending;
 		const row = append();
-		storage.sql.exec('UPDATE loop_messages SET message_json = ? WHERE seq = ?', JSON.stringify({ role: 'assistant', content: 'After rename and hydration' }), row.seq);
+		expect(hydrateResultFacets([{ entityId: 'actor', facet: 'profile_bio', state: 'shown', fingerprint: 'same', value: 'The hydrated biography.' }], [view.facets])).toBe(1);
+		storage.sql.exec('UPDATE loop_messages SET tool_result_view_json = ? WHERE seq = ?', JSON.stringify(view), toolRow.seq);
+		const changedContext = { ...testResultContext, handles: new Map([[resultHandleKey(ref), { kind: 'current' as const, handle: 'after-rename' }]]) };
+		const rendered = messages.loopMessagesPage(changedContext, { page: 1 }).messages.find(message => message.seq === toolRow.seq)?.message.content;
+		expect(rendered).toContain('after-rename');
+		expect(rendered).toContain('The hydrated biography.');
+		expect(sent).toContain('before-rename');
+		expect(sent).not.toContain('The hydrated biography.');
 		expect(store.requestForMessage(row.seq)?.attempts[0]?.body).toBe(sent);
 	});
 
@@ -151,7 +168,7 @@ describe('agent log storage', () => {
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
 			state: { storage }, broadcastControl: vi.fn(),
 			compactLoopMessageBatchesForSession: vi.fn(async () => {
-				runtime.stagedCompactionCommits.push(() => messages.appendLoopMessage(testResultContext, 'run', { role: 'assistant', content: 'Uncommitted summary' }, 'compaction'));
+				runtime.stageCompactionCommit(() => messages.appendLoopMessage(testResultContext, 'run', { role: 'assistant', content: 'Uncommitted summary' }, 'compaction'));
 				throw new Error('The second batch failed.');
 			}),
 		});
@@ -164,6 +181,96 @@ describe('agent log storage', () => {
 	it('rejects synthetic assistant writes that do not name their source', () => {
 		expect(() => messages.appendLoopMessage(testResultContext, 'run', { role: 'assistant', content: 'Unknown source' }, 'synthetic_context')).toThrow('requires a source');
 		expect(messages.activeLoopMessageRows()).toEqual([]);
+	});
+
+	it('keeps a pending retry on the newest page after its original anchor is compacted', () => {
+		const anchor = messages.appendLoopMessage(testResultContext, 'run', { role: 'user', content: 'Before retry' }, 'input');
+		const id = request();
+		const first = store.startAttempt(id, '{"messages":[]}');
+		store.settle(first, { kind: 'dropped_invalid_output', droppedCalls: [] });
+		const summary = messages.appendLoopMessage(testResultContext, 'run', { role: 'assistant', content: 'Summary' }, 'compaction');
+		storage.sql.exec('UPDATE loop_messages SET compacted_by = ? WHERE seq = ?', summary.seq, anchor.seq);
+		store.begin({ runId: 'run', eventSeq: 2, purpose: 'loop', existingId: id });
+		store.startAttempt(id, '{"messages":[{"role":"assistant","content":"Summary"}]}');
+		expect(store.entries([], null)).toMatchObject([{ kind: 'live', requestId: id }]);
+		expect(store.entries([], summary.seq)).toEqual([]);
+	});
+
+	it('reports the context changed by the deletion transaction after a concurrent compaction', async () => {
+		const row = append();
+		let release!: () => void;
+		const gate = new Promise<void>(resolve => { release = resolve; });
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), { state: { storage }, readStatus: async () => { await gate; return { status: 'idle' }; }, broadcastControl: vi.fn() });
+		const deleting = runtime.deleteLoopMessage('participant', row.seq);
+		const summary = messages.appendLoopMessage(testResultContext, 'run', { role: 'assistant', content: 'Summary' }, 'compaction');
+		storage.sql.exec('UPDATE loop_messages SET compacted_by = ? WHERE seq = ?', summary.seq, row.seq);
+		release();
+		expect(await deleting).toMatchObject({ changedContext: false });
+		expect(await runtime.deleteLoopMessage('participant', row.seq)).toMatchObject({ changedContext: false });
+	});
+
+	it('blocks a delayed provider rejection after a full storage clear', async () => {
+		let rejectFetch!: (error: unknown) => void;
+		let active = true;
+		const fetchGate = new Promise<never>((_resolve, reject) => { rejectFetch = reject; });
+		const deletingStorage = Object.assign(storage, { deleteAll: async () => {
+			const tables = storage.sql.exec<{ name: string }>("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'").toArray();
+			for (const table of tables) storage.database.exec(`DROP TABLE ${table.name}`);
+		} });
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			state: { storage: deletingStorage, getWebSockets: () => [] }, env: {},
+			renewProgressLease: vi.fn(), throwIfStopped: vi.fn(),
+			beginMaintenanceOperation: vi.fn(), finishMaintenanceOperation: vi.fn(), broadcastControl: vi.fn(),
+			fetchProviderResponse: vi.fn(async () => fetchGate),
+		});
+		const pending = withRunExecution(() => active, () => runtime.callProvider({ text: botText('en'), model: 'test', baseUrl: 'https://example.test/v1' }, [], [], 'run', 1, new AbortController().signal, 'participant')).catch((error: unknown) => error);
+		await vi.waitFor(() => expect(runtime.fetchProviderResponse).toHaveBeenCalledOnce());
+		settleOutsideExecution(() => store.failPending('run', { kind: 'interrupted' }));
+		active = false;
+		await runtime.clearRuntimeStorage('participant');
+		rejectFetch(new Error('The old fetch failed.'));
+		expect(await pending).toMatchObject({ name: 'TickStoppedError' });
+		for (const table of ['inference_requests', 'inference_attempts', 'inference_body_chunks', 'compaction_sessions']) expect(storage.sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM ${table}`).one().n).toBe(0);
+	});
+
+	it('blocks unscoped writers after the stored clear marker', () => {
+		storage.sql.exec("INSERT INTO runtime_state(key, value_json) VALUES ('runtime_storage_cleared_at', ?)", JSON.stringify('2026-10-24'));
+		expect(() => request()).toThrow('was erased');
+		expect(() => messages.insertLoopMessage(testResultContext, { runId: 'run', origin: 'provider_response', message: { role: 'assistant', content: 'Late' }, broadcast: false })).toThrow('was erased');
+		expect(storage.sql.exec<{ n: number }>('SELECT COUNT(*) AS n FROM loop_messages').one().n).toBe(0);
+	});
+
+	it('settles pending requests and sessions inside terminal finalization', async () => {
+		const id = request();
+		store.startAttempt(id, '{"messages":[]}');
+		const sessionId = store.startSession('run', { kind: 'admission' });
+		let active = true;
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			state: { storage }, liveness: { read: () => active ? { kind: 'active', runId: 'run' } : null, finish: () => { active = false; return { kind: 'finalizing' }; } },
+			hasTerminalEvent: () => false, settlePendingTool: vi.fn(), markPendingCompactionEventsFailed: vi.fn(), appendEvent: vi.fn(), reconcileRunJournal: vi.fn(),
+		});
+		await runtime.finalizeRun(testResultContext, 'run', 'tick_stopped', { message: 'Stopped.' });
+		expect(store.request(id)).toMatchObject({ state: 'failed', attempts: [{ outcome: { kind: 'interrupted' } }] });
+		expect(store.session(sessionId).outcome).toEqual({ kind: 'failed', error: { kind: 'interrupted' } });
+		expect(store.entries([], null).some(entry => entry.kind === 'live')).toBe(false);
+	});
+
+	it('keeps a large response in bounded chunks and reads it without loss', () => {
+		const id = request();
+		const attempt = store.startAttempt(id, '{"messages":[]}');
+		const response = '"\\'.repeat(1_100_000);
+		store.settle(attempt, { kind: 'success', response });
+		expect(store.request(id).attempts[0]?.outcome).toEqual({ kind: 'success', response });
+		expect(storage.sql.exec<{ n: number }>('SELECT MAX(length(text)) AS n FROM inference_body_chunks').one().n).toBeLessThan(2_000_000);
+		expect(storage.sql.exec<{ n: number }>('SELECT length(outcome_json) AS n FROM inference_attempts WHERE id = ?', attempt).one().n).toBeLessThan(100);
+	});
+
+	it('preserves invalid outcomes when moving historical exact requests', () => {
+		const row = messages.appendLoopMessage(testResultContext, 'run', { role: 'assistant', content: 'Invalid' }, 'dropped_provider_response', 'invalid', { streamSeq: 1 });
+		messages.recordLoopMessageLog(row.seq, 'provider_request', '{"messages":[]}');
+		messages.recordLoopMessageLog(row.seq, 'provider_response', JSON.stringify({ droppedToolCalls: [{ id: 'bad', name: 'action', reason: 'invalid_arguments_json' }] }));
+		store.migrate(messages);
+		expect(store.requestForMessage(row.seq)).toMatchObject({ state: 'failed', attempts: [{ outcome: { kind: 'dropped_invalid_output', droppedCalls: [{ id: 'bad' }] } }] });
 	});
 
 	it('keeps structured provider status and error type', () => {
