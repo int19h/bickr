@@ -8402,6 +8402,7 @@ button.inference-model-name:hover { text-decoration: underline; }
 .agent-log,
 .agent-log-modal {
 	--ink-3: var(--loop-meta-ink);
+	--ink-4: var(--loop-meta-ink);
 	--danger: var(--loop-danger-ink);
 }
 .agent-log {
