@@ -3135,7 +3135,7 @@ export class BotRuntime {
 		const current = this.liveness.read();
 		if (!current || current.runId !== runId || current.kind !== 'active') return false;
 		settleOutsideExecution(() => this.state.storage.transactionSync(() => {
-			this.agentLogStore().failPending(runId, type === 'tick_stopped' ? { kind: 'interrupted' } : { kind: 'provider_error', status: null, errorType: null, message: stringValue(payload.message) ?? 'This Bickr visit ended.' });
+			this.agentLogStore().failPending(runId, type === 'tick_stopped' ? { kind: 'interrupted' } : { kind: 'runtime_error', message: stringValue(payload.message) ?? 'This Bickr visit ended.' });
 			const finished = this.liveness.finish(runId, type === 'tick_failed' ? 'failed' : 'idle', stringValue(payload.message) ?? null, type);
 			if (finished?.kind === 'finalizing' && pause) this.liveness.write({ ...finished, pause });
 			if (!this.hasTerminalEvent(runId)) {
@@ -7570,7 +7570,7 @@ export class BotRuntime {
 				const result = await this.compactLoopMessageRowsForSession(context, bot, settings, runId, signal, compacted, mode, metrics, legacyCost);
 				const summary = this.state.storage.sql.exec<{ seq: number }>("SELECT seq FROM loop_messages WHERE session_id = ? AND origin = 'compaction' ORDER BY seq DESC LIMIT 1", sessionId).toArray()[0];
 				if (summary) store.settleSession(sessionId, { kind: 'succeeded', summarySeq: summary.seq });
-				else store.settleSession(sessionId, { kind: 'failed', error: { kind: 'provider_error', status: null, errorType: null, message: 'Compaction produced no summary.' } });
+				else store.settleSession(sessionId, { kind: 'failed', error: { kind: 'runtime_error', message: 'Compaction produced no summary.' } });
 				return result;
 			} catch (error) {
 				store.settleSession(sessionId, { kind: 'failed', error: agentLogFailure(error) });

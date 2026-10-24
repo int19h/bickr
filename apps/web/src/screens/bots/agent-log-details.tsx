@@ -10,6 +10,10 @@ export function attemptCause(outcome: AgentLogAttemptOutcome | null): string {
 	switch (outcome.kind) {
 		case 'success':
 			return 'Succeeded';
+		case 'unknown':
+			return 'Unknown failure';
+		case 'runtime_error':
+			return 'Runtime error';
 		case 'provider_error':
 			return ['Provider error', outcome.status, outcome.errorType].filter((value) => value !== null).join(' · ');
 		case 'dropped_invalid_output':

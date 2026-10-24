@@ -23,6 +23,7 @@ export function logFailure(value: unknown): AgentLogFailure {
 	const item = record(value);
 	switch (item.kind) {
 		case 'provider_error': return { kind: 'provider_error', status: item.status === null ? null : number(item.status), errorType: item.errorType === null ? null : text(item.errorType), message: text(item.message) };
+		case 'runtime_error': return { kind: 'runtime_error', message: text(item.message) };
 		case 'validation': return { kind: 'validation', issue: item.issue === null ? null : text(item.issue), message: text(item.message) };
 		case 'dropped_invalid_output': return { kind: 'dropped_invalid_output', droppedCalls: array(item.droppedCalls).map(value => {
 			const call = record(value);
@@ -42,7 +43,7 @@ export function logAttemptOutcome(value: unknown): AgentLogAttemptOutcome {
 export function logAttemptKind(value: unknown): AgentLogAttemptOutcome['kind'] {
 	const item = record(value);
 	switch (item.kind) {
-		case 'success': case 'provider_error': case 'validation': case 'dropped_invalid_output': case 'interrupted': case 'timeout': return item.kind;
+		case 'success': case 'runtime_error': case 'provider_error': case 'validation': case 'dropped_invalid_output': case 'interrupted': case 'timeout': return item.kind;
 		default: return invalid();
 	}
 }
@@ -56,6 +57,35 @@ export function logCompactionOutcome(value: unknown): AgentLogCompactionOutcome 
 		case 'partial': return { kind: 'partial', summarySeqs: array(item.summarySeqs).map(number), failedBatchCount: number(item.failedBatchCount), error: logFailure(item.error) };
 		default: return invalid();
 	}
+}
+
+// Readers contain unsupported stored outcomes. Writers use the strict codecs above.
+function readOutcome<T>(decode: () => T, fallback: T): T {
+	try { return decode(); }
+	catch (error) {
+		if (error instanceof RepositoryError && error.status === 409) return fallback;
+		throw error;
+	}
+}
+
+export function readLogAttemptOutcome(value: string): AgentLogAttemptOutcome {
+	return readOutcome(() => logAttemptOutcome(storedLogValue(value)), { kind: 'unknown' });
+}
+
+export function readLogAttemptKind(value: string): AgentLogAttemptOutcome['kind'] {
+	return readOutcome(() => logAttemptKind(storedLogValue(value)), 'unknown');
+}
+
+export function readLogCompactionOutcome(value: string): AgentLogCompactionOutcome {
+	return readOutcome<AgentLogCompactionOutcome>(() => {
+		const item = record(storedLogValue(value));
+		const failure = () => readOutcome<AgentLogFailure>(() => logFailure(item.error), { kind: 'unknown' });
+		switch (item.kind) {
+			case 'failed': return { kind: 'failed', error: failure() };
+			case 'partial': return { kind: 'partial', summarySeqs: array(item.summarySeqs).map(number), failedBatchCount: number(item.failedBatchCount), error: failure() };
+			default: return logCompactionOutcome(item);
+		}
+	}, { kind: 'failed', error: { kind: 'unknown' } });
 }
 
 export function logTrigger(value: unknown): AgentLogCompactionTrigger {
