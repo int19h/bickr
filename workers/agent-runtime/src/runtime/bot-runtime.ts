@@ -152,15 +152,11 @@ import {
 	type BotContextWindowBreakdown,
 	defaultReasoningPrefill,
 	defaultTextGenerationTemperature,
-	type BotInferenceSubmissionMessage,
 	type BotInferenceSubmissionPurpose,
 	type BotLoopMessage,
 	type BotLoopMessagesResponse,
-	type BotLoopMessageLog,
 	type BotLoopMessageLogKind,
 	type BotLoopMessageLogsResponse,
-	type BotLoopMessageRequestLogMessage,
-	type BotLoopMessageRequestUsage,
 	type BotLoopMessageOrigin,
 	type BotLoopMessageStatus,
 	type BotDocument,
@@ -449,7 +445,6 @@ import type {
 	ProviderUsageRow,
 	ProviderUsageExportRow,
 	ProviderTokenCalibrationSampleRow,
-	ProviderUsageLogRow,
 	ProviderLoopUsageRow,
 	ProviderTokenCalibrationLegacyBackfillRow,
 	PromptTokenBaselineRow,
@@ -3759,6 +3754,7 @@ export class BotRuntime {
 				this.recordRepairedProviderToolCalls(runId, requestEvent.seq, sanitized.repaired);
 				if (response.usage) {
 					await this.recordProviderUsage({
+						attemptId: response.inferenceAttemptId,
 						contextWindowTokens: requestContextWindowTokens,
 						createdAt: requestEvent.createdAt,
 						providerName: response.responseProviderName,
@@ -4366,6 +4362,7 @@ export class BotRuntime {
 			try {
 				const streamResponse = providerStreamFetchResponse(await this.fetchProviderResponse(requestSettings, endpoint, body, signal));
 				const response = await this.consumeProviderResponse(runId, streamSeq, streamResponse.stream, signal, streamResponse.responseId);
+				this.agentLogStore().recordAttribution(attemptId, inferenceAttribution);
 				if (response.usage) {
 					this.recordProviderTokenCalibrationSample({
 						attempt: calibrationAttempt,
@@ -4379,8 +4376,9 @@ export class BotRuntime {
 						usage: response.usage,
 					});
 				}
-				return { ...response, requestBody: body, inferenceAttribution };
+				return { ...response, requestBody: body, inferenceAttribution, inferenceAttemptId: attemptId };
 			} catch (error) {
+				this.agentLogStore().recordAttribution(attemptId, inferenceAttribution);
 				this.agentLogStore().settle(attemptId, agentLogFailure(error));
 				this.recordProviderTokenCalibrationSampleFromError({
 					attempt: calibrationAttempt,
@@ -4393,7 +4391,7 @@ export class BotRuntime {
 					settings: requestSettings,
 				});
 				if (error instanceof ProviderResponseInterruptedError) {
-					throw new ProviderResponseInterruptedError({ ...error.response, requestBody: body, inferenceAttribution }, error.originalError);
+					throw new ProviderResponseInterruptedError({ ...error.response, requestBody: body, inferenceAttribution, inferenceAttemptId: attemptId }, error.originalError);
 				}
 				if (error instanceof TickStoppedError || isAbortError(error)) {
 					throw error;
@@ -4547,7 +4545,7 @@ export class BotRuntime {
 		requestContextWindowTokens?: number,
 		legacyCost?: LegacyHistoryCost,
 	): Promise<
-		Pick<ProviderResponse, 'usage' | 'responseId' | 'responseModel' | 'responseProviderName' | 'requestBody' | 'rawResponse' | 'inferenceAttribution'> & {
+		Pick<ProviderResponse, 'usage' | 'responseId' | 'responseModel' | 'responseProviderName' | 'requestBody' | 'rawResponse' | 'inferenceAttribution' | 'inferenceAttemptId'> & {
 			compactionReasoning: CompactionAttemptReasoningState;
 			content: string;
 		}
@@ -4613,6 +4611,7 @@ export class BotRuntime {
 			try {
 				if (legacyCost) { legacyCost.providerCalls += 1; legacyCost.usageMissingCalls += 1; }
 				const response = await this.fetchProviderCompactionResponse(requestSettings, endpoint, body, signal, limits, mode);
+				this.agentLogStore().recordAttribution(attemptId, inferenceAttribution);
 				if (response.usage && legacyCost) {
 					legacyCost.usageMissingCalls -= 1;
 					legacyCost.promptTokens += response.usage.promptTokens;
@@ -4638,10 +4637,12 @@ export class BotRuntime {
 				return {
 					...response,
 					compactionReasoning: attemptState.reasoning,
+					inferenceAttemptId: attemptId,
 					requestBody: body,
 					inferenceAttribution,
 				};
 			} catch (error) {
+				this.agentLogStore().recordAttribution(attemptId, inferenceAttribution);
 				this.agentLogStore().settle(attemptId, agentLogFailure(error));
 				this.agentLogStore().finish(requestId, 'failed');
 				this.recordProviderTokenCalibrationSampleFromError({
@@ -5064,21 +5065,7 @@ export class BotRuntime {
 
 	private loopMessageLogsForSeq(context: ResultRenderContext, seq: number): BotLoopMessageLogsResponse {
 		const response = this.runtimeMessageStore().loopMessageLogsForSeq(context, seq);
-		const row = this.runtimeMessageStore().loopMessageRow(seq);
-		if (!row) {
-			throw new RepositoryError('not_found', 'Loop message was not found.', 404);
-		}
-		const requestUsage = row.stream_seq ? this.loopMessageRequestUsage(row.run_id, row.stream_seq) : undefined;
-		const requestMessages = this.loopMessageRequestMessages(response.logs, requestUsage);
-		const attributionLog = response.logs.find(log => log.kind === 'inference_attribution');
-		const inferenceAttribution = attributionLog ? JSON.parse(attributionLog.text) as InferenceAttribution : row.stream_seq ? this.eventInferenceAttribution(row.stream_seq) : undefined;
-		return {
-			...response,
-			request: this.agentLogStore().requestForMessage(seq),
-			...(requestMessages.length > 0 ? { requestMessages } : {}),
-			...(requestUsage ? { requestUsage } : {}),
-			...(inferenceAttribution ? { inferenceAttribution } : {}),
-		};
+		return { message: response.message, logs: response.logs, request: this.agentLogStore().requestForMessage(seq) };
 	}
 
 	private recordInferenceAttribution(request: unknown, bot: BotDocument, runId: string, requestSeq: number, requestContextWindowTokens?: number): InferenceAttribution {
@@ -5097,92 +5084,6 @@ export class BotRuntime {
 		return row?.attribution ? JSON.parse(row.attribution) as InferenceAttribution : undefined;
 	}
 
-	private loopMessageRequestUsage(runId: string, requestSeq: number): BotLoopMessageRequestUsage | undefined {
-		const row = this.state.storage.sql
-			.exec<ProviderUsageLogRow>(
-				`SELECT created_at, run_id, model, requested_model, response_model, provider_name, context_window_tokens,
-				        prompt_tokens, completion_tokens, total_tokens, cached_tokens, reasoning_tokens, cost, usage_json
-				 FROM provider_usage
-				 WHERE run_id = ?
-				   AND request_seq = ?
-				 ORDER BY id DESC
-				 LIMIT 1`,
-				runId,
-				requestSeq,
-			)
-			.toArray()[0];
-		if (!row) {
-			return undefined;
-		}
-		let raw: Record<string, unknown> = {};
-		try {
-			raw = runtimeRecord(JSON.parse(row.usage_json));
-		} catch {
-			raw = {};
-		}
-		const costDetails = runtimeRecord(raw.cost_details);
-		const totalCost = row.cost ?? numberValue(raw.cost) ?? null;
-		let promptCost = numberValue(costDetails.upstream_inference_prompt_cost) ?? null;
-		let outputCost = numberValue(costDetails.upstream_inference_completions_cost) ?? null;
-		if (promptCost === null && totalCost !== null && outputCost !== null) {
-			promptCost = Math.max(0, totalCost - outputCost);
-		}
-		if (outputCost === null && totalCost !== null && promptCost !== null) {
-			outputCost = Math.max(0, totalCost - promptCost);
-		}
-		const cachedInputTokens = Math.min(row.prompt_tokens, Math.max(0, row.cached_tokens));
-		const uncachedInputTokens = Math.max(0, row.prompt_tokens - cachedInputTokens);
-		const cachedInputCost = promptCost === null ? null : row.prompt_tokens > 0 ? promptCost * (cachedInputTokens / row.prompt_tokens) : 0;
-		const uncachedInputCost =
-			promptCost === null ? null : row.prompt_tokens > 0 ? promptCost * (uncachedInputTokens / row.prompt_tokens) : 0;
-		return {
-			promptTokens: row.prompt_tokens,
-			cachedInputTokens,
-			uncachedInputTokens,
-			outputTokens: row.completion_tokens,
-			totalTokens: row.total_tokens,
-			cachedInputCost,
-			uncachedInputCost,
-			outputCost,
-			totalCost,
-			estimatedCostSplit: promptCost !== null && cachedInputTokens > 0 && uncachedInputTokens > 0,
-		};
-	}
-
-	private loopMessageRequestMessages(
-		logs: readonly BotLoopMessageLog[],
-		usage: BotLoopMessageRequestUsage | undefined,
-	): BotLoopMessageRequestLogMessage[] {
-		const requestLog = logs.find((log) => log.kind === 'provider_request' || log.kind === 'compaction_request');
-		if (!requestLog) {
-			return [];
-		}
-		let messages: BotInferenceSubmissionMessage[];
-		try {
-			const record = runtimeRecord(JSON.parse(requestLog.text));
-			messages = Array.isArray(record.messages) ? (record.messages as BotInferenceSubmissionMessage[]) : [];
-		} catch {
-			return [];
-		}
-		if (messages.length === 0) {
-			return [];
-		}
-		const calibration = this.textTokenCalibration();
-		let consumed = 0;
-		const cachedTokens = usage?.cachedInputTokens ?? 0;
-		return messages.map((message, index) => {
-			const tokens = estimateChatMessageTokens(message, calibration);
-			const start = consumed;
-			const end = consumed + tokens;
-			consumed = end;
-			const cacheStatus = cachedTokens <= start ? undefined : cachedTokens >= end ? 'cached' : 'partially_cached';
-			return {
-				message,
-				position: index + 1,
-				...(cacheStatus ? { cacheStatus } : {}),
-			};
-		});
-	}
 
 	private recordLoopMessageLog(messageSeq: number, kind: BotLoopMessageLogKind, text: string): void {
 		assertExecutionPublication();
@@ -5191,6 +5092,7 @@ export class BotRuntime {
 	}
 
 	private async recordProviderUsage(input: {
+		attemptId?: number;
 		contextWindowTokens: number;
 		createdAt: string;
 		providerName?: string;
@@ -5203,31 +5105,35 @@ export class BotRuntime {
 	}): Promise<void> {
 		const model = input.responseModel?.trim() || input.settings.model;
 		const providerName = await this.providerUsageProviderName(input.settings, input.providerName, input.providerResponseId);
-		this.state.storage.sql.exec(
-			`INSERT INTO provider_usage (
-				run_id, request_seq, provider_response_id, requested_model, response_model, model,
-				context_window_tokens, provider_base_url, provider_name, prompt_tokens, completion_tokens, total_tokens,
-				cached_tokens, reasoning_tokens, cost, usage_json, created_at
-			)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			input.runId,
-			input.requestSeq,
-			input.providerResponseId ?? null,
-			input.settings.model,
-			input.responseModel ?? null,
-			model,
-			input.contextWindowTokens,
-			input.settings.baseUrl,
-			providerName,
-			input.usage.promptTokens,
-			input.usage.completionTokens,
-			input.usage.totalTokens,
-			input.usage.cachedTokens,
-			input.usage.reasoningTokens,
-			input.usage.cost,
-			JSON.stringify(input.usage.raw),
-			input.createdAt,
-		);
+		this.runStorageTransactionSync(() => {
+			if (input.attemptId !== undefined) this.agentLogStore().assertCanWrite();
+			const usageRow = this.state.storage.sql.exec<{ id: number }>(
+				`INSERT INTO provider_usage (
+					run_id, request_seq, provider_response_id, requested_model, response_model, model,
+					context_window_tokens, provider_base_url, provider_name, prompt_tokens, completion_tokens, total_tokens,
+					cached_tokens, reasoning_tokens, cost, usage_json, created_at
+				)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+				input.runId,
+				input.requestSeq,
+				input.providerResponseId ?? null,
+				input.settings.model,
+				input.responseModel ?? null,
+				model,
+				input.contextWindowTokens,
+				input.settings.baseUrl,
+				providerName,
+				input.usage.promptTokens,
+				input.usage.completionTokens,
+				input.usage.totalTokens,
+				input.usage.cachedTokens,
+				input.usage.reasoningTokens,
+				input.usage.cost,
+				JSON.stringify(input.usage.raw),
+				input.createdAt,
+			);
+			if (input.attemptId !== undefined) this.agentLogStore().linkUsage(input.attemptId, usageRow.one().id);
+		});
 	}
 
 	private async providerUsageProviderName(
@@ -7649,7 +7555,7 @@ export class BotRuntime {
 		const providerTools = providerToolsForBotRound(bot, settings).tools;
 		const providerActive = Boolean(settings.apiKey || settings.usesCustomBaseUrl || this.env.BICKR_SIMULATION_MODE === 'provider');
 		let response:
-			| (Pick<ProviderResponse, 'usage' | 'responseId' | 'responseModel' | 'responseProviderName' | 'requestBody' | 'rawResponse' | 'inferenceAttribution'> & {
+			| (Pick<ProviderResponse, 'usage' | 'responseId' | 'responseModel' | 'responseProviderName' | 'requestBody' | 'rawResponse' | 'inferenceAttribution' | 'inferenceAttemptId'> & {
 					compactionReasoning: CompactionAttemptReasoningState;
 					content: string;
 			  })
@@ -7792,6 +7698,7 @@ export class BotRuntime {
 		const summaryPosition = providerRows[providerRows.length - 1]?.position ?? this.nextLoopMessagePosition();
 		if (response.usage) {
 			await this.recordProviderUsage({
+				attemptId: response.inferenceAttemptId,
 				contextWindowTokens: effectiveContextWindowTokensForModel(
 					settings,
 					effectiveTickSettings(bot.tickSettings).contextWindowTokens,

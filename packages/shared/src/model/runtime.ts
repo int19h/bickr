@@ -228,11 +228,8 @@ export type BotLoopMessageRequestUsage = {
 
 export type BotLoopMessageLogsResponse = {
 	request?: import("./agent-log.ts").AgentLogRequest | null;
-	inferenceAttribution?: InferenceAttribution;
 	message: BotLoopMessage;
 	logs: BotLoopMessageLog[];
-	requestMessages?: BotLoopMessageRequestLogMessage[];
-	requestUsage?: BotLoopMessageRequestUsage;
 };
 
 export type BotTokenUsageTotals = {

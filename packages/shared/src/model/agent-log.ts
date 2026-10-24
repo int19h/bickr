@@ -1,4 +1,4 @@
-import type { BotLoopMessage, BotLoopMessageOrigin } from './runtime.ts';
+import type { BotLoopMessage, BotLoopMessageOrigin, BotLoopMessageRequestUsage, BotLoopMessageRequestLogMessage, InferenceAttribution } from './runtime.ts';
 
 export type AgentLogAuthor =
 	| { kind: 'model' | 'owner_injection' | 'reminder' | 'self_correction' | 'recurring_prompt' | 'spotlight_focus' | 'synthetic_tool_call' | 'local_simulation' | 'compaction_summary' | 'legacy_summary' | 'bickr_report' | 'legacy_synthetic' }
@@ -16,6 +16,9 @@ export type AgentLogAttempt = {
 	id: number;
 	startedAt: string;
 	body: string | null;
+	usage: BotLoopMessageRequestUsage | null;
+	attribution: InferenceAttribution | null;
+	messages: BotLoopMessageRequestLogMessage[];
 	partialResponse: string | null;
 	outcome: AgentLogAttemptOutcome | null;
 };

@@ -13,7 +13,7 @@ export function agentLogStoreStub(this: { state?: { storage?: RuntimeStorage } }
 	return {
 		begin: () => 'request', startAttempt: () => 1, latestAttempt: () => 1,
 		stageResponsePublication: () => {}, responsePublication: () => null, completeResponsePublication: () => {}, discardResponsePublication: () => {},
-		settle: () => {}, finish: () => {}, partial: () => 'request', streamState: () => ({ kind: 'none' }),
+		recordAttribution: () => {}, linkUsage: () => {}, assertCanWrite: () => {}, settle: () => {}, finish: () => {}, partial: () => 'request', streamState: () => ({ kind: 'none' }),
 		failPending: () => {}, migrate: () => {}, prune: () => {}, body: () => null,
 		anchorUnattachedNotices: () => {}, clear: () => {}, migrationStatus: () => ({}),
 		startSession: () => 'session', settleSession: () => {}, requestForMessage: () => null,

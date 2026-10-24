@@ -303,6 +303,7 @@ export type ProviderUsage = {
 };
 
 export type ProviderResponse = {
+	inferenceAttemptId?: number;
 	inferenceAttribution?: import('@bickr/shared/model').InferenceAttribution;
 	content: string;
 	reasoning: string;

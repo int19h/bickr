@@ -6,6 +6,7 @@ import { ProviderRequestError } from '../errors';
 import type { LocalizedProviderSettings } from '../provider-requests';
 import type { ChatMessage, ProviderResponse } from '../types';
 import { BotRuntime, runtimeSchema } from './bot-runtime';
+import { AgentLogStore } from './agent-log-store';
 import { RuntimeMessageStore } from './message-store';
 import { createRuntimeTestStorage, type RuntimeTestStorage } from './sqlite-test-helper';
 
@@ -45,6 +46,10 @@ describe('originating inference metadata', () => {
   expect(settings).not.toHaveProperty('providerRouting');
   const stored = storage!.sql.exec<{ payload_json: string }>('SELECT payload_json FROM events WHERE seq = 7').one();
   expect(JSON.parse(stored.payload_json).inferenceAttribution).toEqual(result.inferenceAttribution);
+  const logs = new AgentLogStore(storage!);
+  const retained = logs.request(logs.byEvent('run-a', 7)!.id);
+  expect(retained.attempts.at(-1)?.attribution).toEqual(result.inferenceAttribution);
+  expect(retained.attempts[0]?.attribution?.parameters.provider ?? {}).not.toHaveProperty('ignore');
  });
 
  it('captures compaction parameters from its own request', async () => {
@@ -56,11 +61,19 @@ describe('originating inference metadata', () => {
   expect(result.inferenceAttribution?.parameters.temperature).toBe(request.temperature);
   expect(result.inferenceAttribution?.parameters.max_completion_tokens).toBe(request.max_completion_tokens);
   expect(result.inferenceAttribution?.parameters).not.toHaveProperty('response_format');
+  const logs = new AgentLogStore(storage!);
+  expect(logs.request(logs.byEvent('run-a', 7)!.id).attempts[0]?.attribution).toEqual(result.inferenceAttribution);
  });
 
  it('opens the exact compacted source and retains attribution after its event expires', async () => {
   const { access, store } = runtime();
   const attribution: InferenceAttribution = { model: 'vendor/model', parameters: { temperature: 0.3 }, source: { botId: bot.id, worldHandle: 'primary', botHandle: bot.handle, runId: 'run-a', requestSeq: 7 } };
+  const logs = new AgentLogStore(storage!);
+  const id = logs.begin({ runId: 'run-a', eventSeq: 7, purpose: 'loop' });
+  const attempt = logs.startAttempt(id, '{}');
+  logs.recordAttribution(attempt, attribution);
+  logs.settle(attempt, { kind: 'success', response: 'A post' });
+  logs.finish(id, 'succeeded');
 		const message = store.appendLoopMessage(testResultContext, 'run-a', { role: 'assistant', content: 'A post' }, 'provider_response', 'complete', { streamSeq: 7 });
   store.recordLoopMessageLog(message.seq, 'inference_attribution', JSON.stringify(attribution));
   storage!.sql.exec('UPDATE loop_messages SET compacted_by = 99 WHERE seq = ?', message.seq);
@@ -69,7 +82,7 @@ describe('originating inference metadata', () => {
   const response = await access.handleRuntimeReadRequest(new Request(url), url, bot.id);
   const data = (await response.json() as { data: BotLoopMessageLogsResponse }).data;
   expect(data.message.seq).toBe(message.seq);
-  expect(data.inferenceAttribution).toEqual(attribution);
+  expect(data.request?.attempts[0]?.attribution).toEqual(attribution);
   const other = new URL('https://internal/bots/bot-a/inference-logs?requestSeq=7&runId=run-b');
   await expect(access.handleRuntimeReadRequest(new Request(other), other, bot.id)).rejects.toThrow('no longer retained');
  });

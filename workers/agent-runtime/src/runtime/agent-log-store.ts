@@ -1,3 +1,5 @@
+import { attemptAttribution, attemptMessages, attemptUsage, type AttemptUsageRow } from './agent-log-attempt-details';
+import type { InferenceAttribution } from '@bickr/shared/model';
 import { logAttemptOutcome, logAttemptKind, logAuthor, logCompactionOutcome, logToolDelta, logTrigger, logPartial, storedLogValue } from './agent-log-codecs';
 import { runtimeStorageClearedStateKey } from '../constants';
 import { assertExecutionPublication } from './execution-scope';
@@ -23,6 +25,8 @@ CREATE INDEX IF NOT EXISTS inference_requests_age ON inference_requests(created_
 CREATE INDEX IF NOT EXISTS inference_requests_session ON inference_requests(session_id, created_at);
 CREATE TABLE IF NOT EXISTS inference_attempts (
  id INTEGER PRIMARY KEY AUTOINCREMENT, request_id TEXT NOT NULL, event_seq INTEGER NOT NULL, started_at TEXT NOT NULL,
+ -- These nullable fields share attempt retention. A removed usage row resolves to null.
+ usage_id INTEGER, attribution_json TEXT,
  outcome_json TEXT, partial_response TEXT, base_id INTEGER, prefix_length INTEGER NOT NULL DEFAULT 0,
  CHECK(base_id IS NULL OR base_id < id)
 );
@@ -42,7 +46,7 @@ CREATE INDEX IF NOT EXISTS compaction_sessions_age ON compaction_sessions(create
 `;
 
 type RequestRow = { id: string; run_id: string; event_seq: number; purpose: AgentLogRequest['purpose']; state: AgentLogRequest['state']; position: number; anchor_seq: number | null; message_seq: number | null; session_id: string | null; created_at: string };
-type AttemptRow = { id: number; request_id: string; started_at: string; outcome_json: string | null; partial_response: string | null; base_id: number | null; prefix_length: number };
+type AttemptRow = { usage_id: number | null; attribution_json: string | null; event_seq: number; id: number; request_id: string; started_at: string; outcome_json: string | null; partial_response: string | null; base_id: number | null; prefix_length: number };
 type SessionRow = { id: string; run_id: string; trigger_json: string; position: number; anchor_seq: number | null; outcome_json: string; created_at: string };
 const chunkLength = 64_000;
 export const agentLogDeltaDepthLimit = 16;
@@ -86,6 +90,9 @@ export class AgentLogStore {
 
 	initialize(): void {
 		for (const statement of agentLogSchema.split(';')) if (statement.trim()) this.storage.sql.exec(statement);
+		const attemptColumns = new Set(this.storage.sql.exec<{ name: string }>('PRAGMA table_info(inference_attempts)').toArray().map(row => row.name));
+		for (const [name, type] of [['usage_id', 'INTEGER'], ['attribution_json', 'TEXT']] as const) if (!attemptColumns.has(name)) this.storage.sql.exec(`ALTER TABLE inference_attempts ADD COLUMN ${name} ${type}`);
+		this.storage.sql.exec('CREATE UNIQUE INDEX IF NOT EXISTS inference_attempts_usage ON inference_attempts(usage_id)');
 		const columns = new Set(this.storage.sql.exec<{ name: string }>('PRAGMA table_info(loop_messages)').toArray().map(row => row.name));
 		// These columns share the retention of their loop row.
 		for (const name of ['author_json', 'request_id', 'session_id']) if (!columns.has(name)) this.storage.sql.exec(`ALTER TABLE loop_messages ADD COLUMN ${name} TEXT`);
@@ -178,6 +185,26 @@ export class AgentLogStore {
 			this.storage.sql.exec('UPDATE inference_attempts SET outcome_json = ? WHERE id = ?', JSON.stringify({ kind: outcome.kind }), attemptId);
 			this.forgetAttempt(attemptId);
 		});
+	}
+
+	linkUsage(attemptId: number, usageId: number): void {
+		this.assertCanWrite();
+		const updated = this.storage.sql.exec(`UPDATE inference_attempts SET usage_id = ?
+		 WHERE id = ? AND (usage_id IS NULL OR usage_id = ?)
+		 AND NOT EXISTS (SELECT 1 FROM inference_attempts owned WHERE owned.usage_id = ? AND owned.id != ?)
+		 AND EXISTS (SELECT 1 FROM provider_usage u JOIN inference_requests r ON r.id = inference_attempts.request_id
+		 WHERE u.id = ? AND u.run_id = r.run_id AND u.request_seq = inference_attempts.event_seq)
+		 RETURNING id`, usageId, attemptId, usageId, usageId, attemptId, usageId).toArray();
+		if (updated.length !== 1) throw new RepositoryError('conflict', 'The usage row does not belong to this inference attempt.', 409);
+	}
+
+	recordAttribution(attemptId: number, attribution: InferenceAttribution | undefined): void {
+		this.assertCanWrite();
+		const projected = attemptAttribution(attribution);
+		const updated = this.storage.sql.exec(`UPDATE inference_attempts SET attribution_json = ? WHERE id = ?
+		 AND (? IS NULL OR (event_seq = ? AND EXISTS (SELECT 1 FROM inference_requests r WHERE r.id = inference_attempts.request_id AND r.run_id = ?))) RETURNING id`,
+		 projected ? JSON.stringify(projected) : null, attemptId, projected?.source.runId ?? null, projected?.source.requestSeq ?? null, projected?.source.runId ?? null).toArray();
+		if (updated.length !== 1) throw new RepositoryError('conflict', 'The attribution does not belong to this inference attempt.', 409);
 	}
 
 	stageResponsePublication(publication: ResponsePublication): void {
@@ -280,7 +307,20 @@ export class AgentLogStore {
 	request(id: string): AgentLogRequest {
 		const row = this.storage.sql.exec<RequestRow>('SELECT * FROM inference_requests WHERE id = ? LIMIT 1', id).toArray()[0];
 		if (!row) throw new RepositoryError('not_found', 'The inference request is not retained.', 404);
-		const attempts = this.storage.sql.exec<AttemptRow>('SELECT * FROM inference_attempts WHERE request_id = ? ORDER BY id LIMIT 1000', id).toArray().map((attempt): AgentLogAttempt => ({ id: attempt.id, startedAt: attempt.started_at, body: this.body(attempt.id), partialResponse: this.partialText(attempt.id, attempt.partial_response), outcome: attempt.outcome_json ? this.outcome(attempt.id, attempt.outcome_json) : null }));
+		const rows = this.storage.sql.exec<AttemptRow>('SELECT * FROM inference_attempts WHERE request_id = ? ORDER BY id LIMIT 1000', id).toArray();
+		const usageRows = rows.some(attempt => attempt.usage_id !== null) ? this.storage.sql.exec<AttemptUsageRow & { id: number }>(
+			`SELECT u.id, u.prompt_tokens, u.cached_tokens, u.completion_tokens, u.total_tokens, u.cost, u.usage_json
+			 FROM inference_attempts a JOIN provider_usage u ON u.id = a.usage_id AND u.request_seq = a.event_seq
+			 JOIN inference_requests r ON r.id = a.request_id AND r.run_id = u.run_id
+			 WHERE a.request_id = ? ORDER BY a.id LIMIT 1000`, id,
+		).toArray() : [];
+		const usages = new Map(usageRows.map(usage => [usage.id, usage]));
+		const attempts = rows.map((attempt): AgentLogAttempt => {
+			const body = this.body(attempt.id);
+			const usageRow = attempt.usage_id === null ? undefined : usages.get(attempt.usage_id);
+			const usage = usageRow ? attemptUsage(usageRow) : null;
+			return { id: attempt.id, startedAt: attempt.started_at, body, usage, attribution: attemptAttribution(attempt.attribution_json ? storedLogValue(attempt.attribution_json) : null), messages: attemptMessages(body, usage), partialResponse: this.partialText(attempt.id, attempt.partial_response), outcome: attempt.outcome_json ? this.outcome(attempt.id, attempt.outcome_json) : null };
+		});
 		return { id: row.id, runId: row.run_id, purpose: row.purpose, state: row.state, createdAt: row.created_at, messageSeq: row.message_seq, sessionId: row.session_id, attempts };
 	}
 
