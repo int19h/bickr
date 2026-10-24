@@ -71,6 +71,8 @@ const loopMessage = (seq: number, content: string): BotLoopMessage => ({
 	createdAt: '2026-08-23T00:00:00.000Z',
 });
 
+let runtimeStatus: 'running' | 'idle';
+let pendingCompactions: Array<{ path: string; method: string | undefined; resolve: (response: Response) => void }>;
 let container: HTMLDivElement;
 let root: Root;
 let pendingMessages: PendingMessages[];
@@ -88,15 +90,20 @@ beforeEach(async () => {
 	pendingInference = [];
 	pendingLogs = [];
 	pendingRequests = [];
+	pendingCompactions = [];
+	runtimeStatus = 'running';
 	MonitorSocket.instances = [];
 	vi.stubGlobal('WebSocket', MonitorSocket);
-	vi.stubGlobal('fetch', (input: RequestInfo | URL) => {
+	vi.stubGlobal('fetch', (input: RequestInfo | URL, init?: RequestInit) => {
 		const path = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+		if (path.endsWith('/runtime/compact')) {
+			return new Promise<Response>(resolve => pendingCompactions.push({ path, method: init?.method, resolve }));
+		}
 		if (path.includes('/effective-models?')) {
 			return Promise.resolve(json({ ok: true, data: { effectiveModels: { models: [{ botId: bot.id, effectiveModel: 'test/model' }] } } }));
 		}
 		if (path.endsWith('/runtime/status')) {
-			return Promise.resolve(json({ ok: true, data: { status: { botId: bot.id, enabled: true, status: 'running' } } }));
+			return Promise.resolve(json({ ok: true, data: { status: { botId: bot.id, enabled: true, status: runtimeStatus } } }));
 		}
 		if (path.endsWith('/runtime/events')) {
 			if (holdEventSnapshots) {
@@ -790,4 +797,41 @@ it('keeps the latest selected request when detail responses arrive out of order'
 	await act(async () => pendingRequests[0]!.resolve(json({ ok: true, data: { request: { ...requestFixture, id: 'request-0', attempts: [] } } })));
 	expect(container.querySelector('.modal')?.textContent).toContain('I must include the thread reference.');
 	expect(container.querySelector('.modal')?.textContent).not.toContain('The exact request is not retained.');
+});
+
+
+async function confirmManualCompaction(origin: 'provider_response' | 'compaction'): Promise<void> {
+	const row = { ...loopMessage(1, 'Kept history'), origin };
+	await answerMessages(0, [row]);
+	runtimeStatus = 'idle';
+	await act(async () => MonitorSocket.instances[0]!.open());
+	await answerMessages(1, [row]);
+	const button = [...container.querySelectorAll('button')].find(item => item.textContent === 'Compact chat')!;
+	expect(button.disabled).toBe(false);
+	await act(async () => button.click());
+	const confirm = [...container.querySelectorAll<HTMLButtonElement>('.modal button')].find(item => item.textContent === 'Compact chat')!;
+	await act(async () => confirm.click());
+	expect(pendingCompactions).toHaveLength(1);
+	expect(pendingCompactions[0]).toMatchObject({ method: 'POST', path: `/api/me/bots/${bot.id}/runtime/compact` });
+}
+
+it('shows a manual compaction error without reporting success or losing history', async () => {
+	await confirmManualCompaction('provider_response');
+	const message = 'Compaction could not produce a shorter summary.';
+	await act(async () => pendingCompactions[0]!.resolve(json({ ok: false, error: 'bad_request', message, details: { compactionFailure: { kind: 'validation', issue: 'non_reducing_compaction', message } } }, 422)));
+	expect(container.textContent).toContain(message);
+	expect(container.textContent).toContain('Kept history');
+	expect(container.textContent).not.toContain('Compacted 1 loop chat message');
+	expect(container.querySelector('.modal')).toBeNull();
+	expect(pendingMessages).toHaveLength(2);
+});
+
+it('shows nothing to compact and keeps the summary after the manual request', async () => {
+	await confirmManualCompaction('compaction');
+	await act(async () => pendingCompactions[0]!.resolve(json({ ok: true, data: { compacted: { messageCount: 0 } } })));
+	await answerMessages(2, [{ ...loopMessage(1, 'Kept history'), origin: 'compaction' }]);
+	expect(container.textContent).toContain('There is no new loop history to compact.');
+	expect(container.textContent).toContain('Kept history');
+	expect(container.textContent).not.toContain('Compacted 1 loop chat message');
+	expect(container.querySelector('.modal')).toBeNull();
 });

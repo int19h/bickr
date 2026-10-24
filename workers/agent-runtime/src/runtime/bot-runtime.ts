@@ -1,3 +1,4 @@
+import { manualCompactionError } from './manual-compaction-errors';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { AgentLogStore, agentLogSchema, agentLogFailure } from './agent-log-store';
 import type { AgentLogSource, AgentLogCompactionTrigger } from '@bickr/shared/model';
@@ -366,6 +367,7 @@ import {
 	ProviderEmptyResponseError,
 	PromptContextBudgetExceededError,
 	PromptContextCompactionLimitError,
+	CompactionSummaryMissingError,
 	PersistentCompactionReductionFailureError,
 	TickStoppedError,
 	ProviderResponseInterruptedError,
@@ -7448,18 +7450,7 @@ export class BotRuntime {
 			}
 			return { fromSeq: rows[0]?.seq, toSeq: rows[rows.length - 1]?.seq, messageCount: rows.length };
 		} catch (error) {
-			if (error instanceof RepositoryError) throw error;
-			const failure = agentLogFailure(error);
-			if (failure.kind === 'validation') {
-				const message = failure.issue === 'non_reducing_compaction'
-					? 'Compaction could not produce a shorter summary. Add new history or reduce the summary size before you try again.'
-					: failure.message;
-				throw new RepositoryError('bad_request', message, 422, { compactionFailure: { kind: 'validation', issue: failure.issue, message } });
-			}
-			if (failure.kind === 'timeout') throw new RepositoryError('bad_request', 'Compaction timed out. Try again later.', 408, { compactionFailure: { kind: 'timeout' } });
-			if (failure.kind === 'interrupted') throw new RepositoryError('conflict', 'Compaction was interrupted.', 409, { compactionFailure: { kind: 'interrupted' } });
-			if (failure.kind === 'provider_error') throw new RepositoryError('server_error', failure.message, 502, { compactionFailure: { kind: 'provider_error', status: failure.status, errorType: failure.errorType, message: failure.message } });
-			throw error;
+			throw manualCompactionError(error) ?? error;
 		} finally {
 			this.finishMaintenanceOperation('manual_compaction');
 		}
@@ -7482,8 +7473,7 @@ export class BotRuntime {
 				await this.compactLoopMessageBatchesForSession(context, bot, settings, runId, signal, rows, mode, metrics, legacyCost);
 				const summary = this.state.storage.sql.exec<{ seq: number }>("SELECT seq FROM loop_messages WHERE session_id = ? AND origin = 'compaction' ORDER BY seq DESC LIMIT 1", sessionId).toArray()[0];
 				if (!summary && mode === 'manual') {
-					const message = 'Compaction did not produce a summary.';
-					throw new RepositoryError('bad_request', message, 422, { compactionFailure: { kind: 'validation', issue: 'missing_compaction_summary', message } });
+					throw new CompactionSummaryMissingError();
 				}
 				if (summary) this.agentLogStore().settleSession(sessionId, { kind: 'succeeded', summarySeq: summary.seq });
 			} catch (error) {

@@ -1,13 +1,14 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { ApiErrorPayload, ApiSuccessPayload } from '@bickr/shared/model';
 import { botById, userById } from '@bickr/shared/repository';
+import { fetchProviderResponse, ProviderTransportError } from '@bickr/shared/provider-transport';
 import { internalServiceAuthHeader } from '@bickr/shared/internal-service';
 import { BotRuntime, runtimeSchema } from './bot-runtime';
 import { AgentLogStore, agentLogFailure } from './agent-log-store';
 import { RuntimeMessageStore } from './message-store';
 import { createRuntimeTestStorage, type RuntimeTestStorage } from './sqlite-test-helper';
 import { testResultContext } from './result-render-context.test-support';
-import { PersistentCompactionReductionFailureError, ProviderCompactionRequestError, ProviderRequestError, ProviderRequestTimeoutError, TickStoppedError, type CompactionReasoningDiagnostic } from '../errors';
+import { CompactionSummaryMissingError, PersistentCompactionReductionFailureError, ProviderStructuredOutputValidationError, ProviderCompactionRequestError, ProviderRequestError, ProviderRequestTimeoutError, TickStoppedError, type CompactionReasoningDiagnostic } from '../errors';
 import { botText } from '../localization';
 
 vi.mock('@bickr/shared/repository', async original => ({ ...await original<object>(), botById: vi.fn(), userById: vi.fn() }));
@@ -27,7 +28,7 @@ beforeEach(() => {
 	vi.mocked(botById).mockResolvedValue({ id: 'participant', ownerUserId: 'owner', text: botText('en'), tickSettings: {} } as never);
 	vi.mocked(userById).mockResolvedValue({ id: 'owner' } as never);
 });
-afterEach(() => { storage.database.close(); vi.clearAllMocks(); });
+afterEach(() => { storage.database.close(); vi.clearAllMocks(); vi.unstubAllGlobals(); });
 function runtime() {
 	return Object.assign(Object.create(BotRuntime.prototype), {
 		state: { storage }, env: { INTERNAL_SERVICE_SECRET: 'test' }, agentLogs: logs,
@@ -103,7 +104,7 @@ it('rejects a manual batch run that returns without a summary', async () => {
 	const response = await post(instance);
 	expect(response.status).toBe(422);
 	expect(await response.json()).toMatchObject({ ok: false, details: { compactionFailure: { kind: 'validation', issue: 'missing_compaction_summary' } } });
-	expect(logs.session(sessionId()).outcome).toMatchObject({ kind: 'failed' });
+	expect(logs.session(sessionId()).outcome).toMatchObject({ kind: 'failed', error: { kind: 'validation', issue: 'missing_compaction_summary' } });
 });
 
 it.each(['empty', 'summary'] as const)('skips provider work for %s history', async history => {
@@ -158,4 +159,44 @@ it('preserves a wrapped provider failure as a typed upstream error', async () =>
 	const response = await post(instance);
 	expect(response.status).toBe(502);
 	expect(await response.json()).toMatchObject({ ok: false, details: { compactionFailure: { kind: 'provider_error', status: 503 } } });
+});
+
+
+it.each(['connection', 'redirect'] as const)('maps a real provider boundary %s failure to a typed 502', async kind => {
+	append();
+	const instance = runtime();
+	vi.stubGlobal('fetch', kind === 'connection'
+		? vi.fn().mockRejectedValue(new TypeError('Private connection diagnostic.'))
+		: vi.fn().mockResolvedValue(new Response(null, { status: 302 })));
+	instance.compactLoopMessageBatchesForSession.mockImplementation(async () => { await fetchProviderResponse('https://provider.test/v1'); });
+	const response = await post(instance);
+	expect(response.status).toBe(502);
+	const payload = await response.json() as ApiErrorPayload;
+	expect(payload.details?.compactionFailure).toMatchObject({ kind: 'provider_error', status: null, errorType: kind });
+	expect(JSON.stringify(payload)).not.toContain('Private connection diagnostic.');
+	expect(logs.session(sessionId()).outcome).toMatchObject({ kind: 'failed', error: { kind: 'provider_error', errorType: kind } });
+});
+
+it.each([
+	{ name: 'provider status', create: () => new ProviderRequestError(503, 'test', 'https://provider.test', 'Unavailable.') },
+	{ name: 'validation', create: () => new ProviderStructuredOutputValidationError(botText('en'), 'compaction', botText('en').issue('structured_output.nonreducing.before', { compactedTokens: 100 }), { validationIssue: 'transcript_like_compaction' }) },
+	{ name: 'redirect', create: () => new ProviderTransportError('redirect', 'Diagnostic') },
+	{ name: 'connection', create: () => new ProviderTransportError('connection', 'Diagnostic') },
+	{ name: 'missing summary', create: () => new CompactionSummaryMissingError() },
+])('builds the owner response from the $name cause instead of diagnostic text', async ({ create }) => {
+	append();
+	const instance = runtime();
+	const payloads: ApiErrorPayload[] = [];
+	for (const diagnostic of ['Private diagnostic A.', 'Private diagnostic B.']) {
+		const error = create();
+		error.message = diagnostic;
+		instance.compactLoopMessageBatchesForSession.mockRejectedValue(error);
+		const response = await post(instance);
+		expect(response.status).toBeGreaterThanOrEqual(400);
+		payloads.push(await response.json() as ApiErrorPayload);
+	}
+	expect(payloads[0]).toEqual(payloads[1]);
+	expect(JSON.stringify(payloads)).not.toContain('Private diagnostic');
+	const outcomes = storage.sql.exec<{ outcome_json: string }>('SELECT outcome_json FROM compaction_sessions ORDER BY rowid').toArray();
+	expect(outcomes.map(row => JSON.parse(row.outcome_json).error.message)).toEqual(['Private diagnostic A.', 'Private diagnostic B.']);
 });

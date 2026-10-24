@@ -32,3 +32,15 @@ describe("provider transport policy", () => {
 		expect(cancel).toHaveBeenCalledOnce();
 	});
 });
+
+it('gives a failed connection a typed cause and retains its diagnostic', async () => {
+	const diagnostic = new TypeError('Network diagnostic.');
+	vi.stubGlobal('fetch', vi.fn().mockRejectedValue(diagnostic));
+	await expect(fetchProviderResponse('https://provider.example/v1')).rejects.toMatchObject({ kind: 'connection', message: diagnostic.message, cause: diagnostic });
+});
+
+it('preserves cancellation instead of treating it as a connection failure', async () => {
+	const error = new DOMException('Cancelled.', 'AbortError');
+	vi.stubGlobal('fetch', vi.fn().mockRejectedValue(error));
+	await expect(fetchProviderResponse('https://provider.example/v1')).rejects.toBe(error);
+});
