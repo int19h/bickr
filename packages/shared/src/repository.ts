@@ -118,8 +118,8 @@ import { planBotTickSpread, type TickSpreadInput } from "./tick-spread";
 import { slugifyHandle } from "./validation";
 import { decodeOpaqueJsonCursor, encodeOpaqueJsonCursor } from "./opaque-json-cursor";
 
-import { RepositoryError } from "./repository-error";
-export { RepositoryError, type RepositoryErrorDetails } from "./repository-error";
+import { LifecycleKvReadError, RepositoryError } from "./repository-error";
+export { LifecycleKvReadError, RepositoryError, type RepositoryErrorDetails } from "./repository-error";
 export * from "./auth-sessions";
 import { activeAccountProjectionExists } from "./auth-principal";
 
@@ -316,6 +316,9 @@ export type CreateBotOptions = {
 	checkpoint?: (point: LifecycleFailurePoint) => Promise<void>;
 	prepareAvatar?: (bot: BotDocument) => Promise<AvatarImage | undefined>;
 	cloneSource?: BotDocument;
+	// A known null means that this queue step found no document. Do not read
+	// KV again after a migration write or discard its in-memory result.
+	materialization?: { kind: 'lifecycle_snapshot'; document: BotDocument | null };
 };
 
 export type CreateWorldOptions = {
@@ -722,9 +725,10 @@ async function assertActiveAccountOwner(db: D1DatabaseLike, userId: string): Pro
 	}
 }
 
-export async function userById(kv: KVNamespaceLike, userId: string): Promise<UserDocument> {
+export async function userById(kv: KVNamespaceLike, userId: string, creationRecovery = false): Promise<UserDocument> {
 	const user = await readJson<UserDocument>(kv, kvKeys.user(userId));
-	if (!user || user.deletedAt) {
+	if (!user || user.deletedAt || (creationRecovery && user.id !== userId)) {
+		if (creationRecovery) throw new LifecycleKvReadError('owner_document');
 		throw new RepositoryError("not_found", "User not found.", 404);
 	}
 	return normalizeUserDefaults(user);
@@ -1455,13 +1459,20 @@ async function spreadUserBotTicks(
 }
 
 async function createBot(
+	kv: KVNamespaceLike, db: D1DatabaseLike, worldHandle: string,
+	input: CreateBotInput, userId: string, options: CreateBotOptions | string = {},
+): Promise<BotSummary> {
+	return (await materializeBotCreation(kv, db, worldHandle, input, userId, options)).summary;
+}
+
+async function materializeBotCreation(
 	kv: KVNamespaceLike,
 	db: D1DatabaseLike,
 	worldHandle: string,
 	input: CreateBotInput,
 	userId: string,
 	options: CreateBotOptions | string = {},
-): Promise<BotSummary> {
+): Promise<{ kind: 'materialized'; document: BotDocument; summary: BotSummary }> {
 	assertContextWindowTokens(input.tickSettings?.contextWindowTokens);
 	if (input.instructionLanguage !== undefined) {
 		try { input = { ...input, instructionLanguage: parseInstructionLanguagePreference(input.instructionLanguage) }; }
@@ -1485,9 +1496,9 @@ async function createBot(
 		throw new RepositoryError("conflict", "A bot with that handle already exists in this world.", 409);
 	}
 
-	const owner = await userById(kv, userId);
 	await assertActiveAccountOwner(db, userId);
-	const cloneSource = input.cloneSourceBotId ? createOptions.cloneSource ?? await rawBotById(kv, db, input.cloneSourceBotId) : null;
+	const owner = await userById(kv, userId, createOptions.lifecycleState === 'pending');
+	const cloneSource = input.cloneSourceBotId ? createOptions.cloneSource ?? await rawBotById(kv, db, input.cloneSourceBotId, createOptions.lifecycleState === 'pending') : null;
 	if (cloneSource && cloneSource.id !== input.cloneSourceBotId) {
 		throw new RepositoryError("bad_request", "Clone source does not match the requested source.", 400);
 	}
@@ -1535,7 +1546,7 @@ async function createBot(
 		createdAt: now,
 		updatedAt: now,
 	};
-	const previouslyMaterialized = createOptions.botId
+	const previouslyMaterialized = createOptions.materialization ? createOptions.materialization.document : createOptions.botId
 		? await readJson<BotDocument>(kv, kvKeys.bot(createOptions.botId))
 		: null;
 	if (previouslyMaterialized) {
@@ -1547,6 +1558,7 @@ async function createBot(
 			existing.handle !== bot.handle ||
 			existing.createdAt !== now
 		) {
+			if (createOptions.lifecycleState === 'pending') throw new LifecycleKvReadError('participant_identity');
 			throw new RepositoryError("conflict", "Participant materialization identity changed during retry.", 409);
 		}
 		bot = existing;
@@ -1559,13 +1571,16 @@ async function createBot(
 
 	const lifecyclePrefix = cloneSource ? "clone" : "bot";
 	bot = migrateParticipantTime(bot);
-	assertContextWindowTokens(bot.tickSettings.contextWindowTokens);
+	if (createOptions.lifecycleState === 'pending') {
+		try { assertContextWindowTokens(bot.tickSettings.contextWindowTokens); }
+		catch (error) { if (error instanceof RepositoryError) throw new LifecycleKvReadError('participant_budget'); throw error; }
+	} else assertContextWindowTokens(bot.tickSettings.contextWindowTokens);
 	await writeJson(kv, kvKeys.bot(bot.id), bot);
 	await createOptions.checkpoint?.(`${lifecyclePrefix}.materialize.kv` as LifecycleFailurePoint);
 	if (cloneSource) {
 		await insertBotCloneSource(db, bot, cloneSource, now);
 	}
-	const effectiveBot = cloneSource ? await effectiveBotDocument(kv, db, bot) : effectiveStandaloneBot(bot);
+	const effectiveBot = cloneSource ? await effectiveBotDocument(kv, db, bot, { ...emptyEffectiveBotContext(), creationRecovery: createOptions.lifecycleState === 'pending' }) : effectiveStandaloneBot(bot);
 	await upsertBotIndex(db, effectiveBot, { lifecycleState: createOptions.lifecycleState });
 	await createPersonalForumForBot(kv, db, effectiveBot, userId, now, createOptions.personalForumId);
 	await createOptions.checkpoint?.(`${lifecyclePrefix}.materialize.personal_forum` as LifecycleFailurePoint);
@@ -1594,12 +1609,12 @@ async function createBot(
 	await putObjectIndex(db, bot, "bot", entityIndexVersions.bot, bot.homeWorldId);
 	await createOptions.checkpoint?.(`${lifecyclePrefix}.materialize.indexes.d1` as LifecycleFailurePoint);
 
-	return publicBotSummary(effectiveBot, {
+	return { kind: 'materialized', document: bot, summary: publicBotSummary(effectiveBot, {
 		includeToolSettings: true,
 		nextDueAt: await botRuntimeNextDueAt(db, bot.id),
 		owner: publicUser(owner),
 		worldPostingSettings: world.postingSettings,
-	});
+	}) };
 }
 
 async function updateBot(
@@ -1740,6 +1755,7 @@ async function updateBotAvatar(
 
 type PendingBotAvatarMaterialization = {
 	kind: "lifecycle_import_avatar";
+	document: BotDocument;
 	botId: string;
 	ownerUserId: string;
 	operationId: string;
@@ -1765,9 +1781,9 @@ async function materializePendingBotAvatar(
 	if (!row) {
 		throw new RepositoryError("not_found", "Pending participant materialization was not found.", 404);
 	}
-	const bot = await readJson<BotDocument>(kv, kvKeys.bot(input.botId));
-	if (!bot || bot.deletedAt || bot.ownerUserId !== row.ownerUserId) {
-		throw new RepositoryError("server_error", "Pending participant document is missing.", 500);
+	const bot = input.document;
+	if (bot.id !== input.botId || bot.deletedAt || bot.ownerUserId !== row.ownerUserId) {
+		throw new LifecycleKvReadError('avatar_document');
 	}
 	return updateBotAvatarDocument(kv, db, normalizeBotDefaults(migrateParticipantTime(bot)), input.avatar, input.now, {
 		lifecycleState: "pending",
@@ -1784,7 +1800,7 @@ async function updateBotAvatarDocument(
 ): Promise<BotSummary> {
 	bot = migrateParticipantTime(bot);
 	const userId = bot.ownerUserId;
-	const owner = await userById(kv, userId);
+	const owner = await userById(kv, userId, options.lifecycleState === 'pending');
 	const worldPostingSettings = await worldPostingSettingsById(db, bot.homeWorldId);
 	const updated: BotDocument = {
 		...bot,
@@ -1794,7 +1810,7 @@ async function updateBotAvatarDocument(
 	};
 
 	await writeJson(kv, kvKeys.bot(updated.id), updated);
-	const effectiveUpdated = await effectiveBotDocument(kv, db, updated);
+	const effectiveUpdated = await effectiveBotDocument(kv, db, updated, { ...emptyEffectiveBotContext(), creationRecovery: options.lifecycleState === 'pending' });
 	await upsertBotIndex(db, effectiveUpdated, options);
 	await upsertBotSearchIndex(db, effectiveUpdated);
 	await putObjectIndex(db, updated, "bot", entityIndexVersions.bot, updated.homeWorldId);
@@ -2083,17 +2099,18 @@ async function relinkBotClone(
 	});
 }
 
-export async function rawBotById(kv: KVNamespaceLike, db: D1DatabaseLike, botId: string): Promise<BotDocument> {
+export async function rawBotById(kv: KVNamespaceLike, db: D1DatabaseLike, botId: string, creationRecovery = false): Promise<BotDocument> {
 	const row = await db
-		.prepare(`SELECT deleted_at AS deletedAt FROM bots_index WHERE bot_id = ?`)
+		.prepare(`SELECT deleted_at AS deletedAt, owner_user_id AS ownerUserId FROM bots_index WHERE bot_id = ?`)
 		.bind(botId)
-		.first<{ deletedAt: string | null }>();
+		.first<{ deletedAt: string | null; ownerUserId: string }>();
 	if (!row || row.deletedAt) {
 		throw new RepositoryError("not_found", "Bot not found.", 404, { botIssue: botServiceIssue("issue.service.participantMissing", {}) });
 	}
 
 	const bot = await readJson<BotDocument>(kv, kvKeys.bot(botId));
-	if (!bot || bot.deletedAt) {
+	if (!bot || bot.deletedAt || (creationRecovery && (bot.id !== botId || bot.ownerUserId !== row.ownerUserId))) {
+		if (creationRecovery) throw new LifecycleKvReadError('clone_source_document');
 		throw new RepositoryError("not_found", "Bot not found.", 404, { botIssue: botServiceIssue("issue.service.participantMissing", {}) });
 	}
 	return normalizeBotDefaults(bot);
@@ -3319,6 +3336,7 @@ const maxCloneChainDepth = 16;
 type EffectiveBotContext = {
 	cache: Map<string, EffectiveBotDocument>;
 	visiting: Set<string>;
+	creationRecovery?: boolean;
 };
 
 function emptyEffectiveBotContext(): EffectiveBotContext {
@@ -3368,6 +3386,7 @@ async function effectiveBotDocument(
 			await cloneSourceSummary(kv, db, cloneSource, context, depth)
 		:	cloneSource ?? undefined;
 		if (normalized.instructionLanguage?.kind === "source") {
+			if (context.creationRecovery) throw new LifecycleKvReadError('clone_source_document');
 			throw new RepositoryError("conflict", "Instructions can inherit a source language only for a linked clone.", 409, { instructionLanguageCause: "source_not_linked" });
 		}
 		const resolved: EffectiveBotDocument = {
@@ -3381,7 +3400,7 @@ async function effectiveBotDocument(
 
 	context.visiting.add(normalized.id);
 	try {
-		const sourceRaw = await sourceRawBotForLinkedClone(kv, db, cloneSource, normalized.ownerUserId);
+		const sourceRaw = await sourceRawBotForLinkedClone(kv, db, cloneSource, normalized.ownerUserId, context.creationRecovery);
 		const sourceEffective = await effectiveBotDocument(kv, db, sourceRaw, context, depth + 1);
 		const effectiveLanguage = normalized.language ?? sourceEffective.language;
 		const effectiveIncludeLanguageInSystemPrompt =
@@ -3420,12 +3439,14 @@ async function sourceRawBotForLinkedClone(
 	db: D1DatabaseLike,
 	cloneSource: BotCloneSource,
 	ownerUserId: string,
+	creationRecovery = false,
 ): Promise<BotDocument> {
 	// Account deletion can hide a source before its clones. Retained source data
 	// still supplies those clones, but it never becomes a public active profile.
 	const row = await db.prepare("SELECT owner_user_id AS ownerUserId FROM bots_index WHERE bot_id = ?")
 		.bind(cloneSource.sourceBotId).first<{ ownerUserId: string }>();
 	const source = await readJson<BotDocument>(kv, kvKeys.bot(cloneSource.sourceBotId));
+	if (creationRecovery && row?.ownerUserId === ownerUserId && (!source || source.id !== cloneSource.sourceBotId || source.ownerUserId !== ownerUserId)) throw new LifecycleKvReadError('clone_source_document');
 	if (!row || !source || source.id !== cloneSource.sourceBotId) {
 		throw new RepositoryError("server_error", "Linked clone source is missing.", 500);
 	}
@@ -5467,6 +5488,7 @@ export const userCoordinatorRepositoryMutations = Object.freeze({
 	deleteBotAvatar,
 	linkProviderIdentity,
 	materializePendingBotAvatar,
+	materializeBotCreation,
 	providerUserBootstrapActivationStatements,
 	refreshLinkedCloneIndexes,
 	refreshNormalizedProviderIdentity,

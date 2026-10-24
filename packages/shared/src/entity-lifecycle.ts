@@ -1,6 +1,6 @@
 import { isD1UniqueConstraintError } from "./d1-errors";
 import { makeId, sha256Hex } from "./ids";
-import { RepositoryError } from "./repository";
+import { LifecycleKvReadError, RepositoryError } from "./repository-error";
 import { InputError } from "./validation";
 import type {
 	D1DatabaseLike,
@@ -164,6 +164,8 @@ export type LifecycleFailure = {
 	category: LifecycleFailureCategory;
 	code: string;
 	retryable: boolean;
+	// Storage visibility cannot justify destructive compensation.
+	retryPolicy?: 'preserve_creation';
 };
 
 export type LifecycleFailurePoint =
@@ -908,8 +910,8 @@ export async function recordRetryableLifecycleFailure(
 	failure: LifecycleFailure,
 	now: string,
 ): Promise<LifecycleOperation> {
-	const retryCount = operation.retryCount + 1;
-	const exhausted = retryCount >= lifecycleRetryLimit;
+	const retryCount = operation.retryCount + (failure.retryPolicy === 'preserve_creation' ? 0 : 1);
+	const exhausted = failure.retryPolicy !== 'preserve_creation' && retryCount >= lifecycleRetryLimit;
 	const category: LifecycleFailureCategory = exhausted ? "retry_exhausted" : failure.category;
 	const nextRetryAt = exhausted ? null : new Date(Date.parse(now) + lifecycleRetryDelayMs).toISOString();
 	const nextPhase: LifecycleOperationPhase = exhausted ? "compensating" : operation.action === "create" ? "materializing" : "deleting";
@@ -1248,6 +1250,7 @@ export async function cleanupTerminalLifecycleOperations(
 }
 
 export function classifyLifecycleFailure(error: unknown): LifecycleFailure {
+	if (error instanceof LifecycleKvReadError) return { category: 'external_retryable', code: `creation_kv_${error.issue}`, retryable: true, retryPolicy: 'preserve_creation' };
 	if (error instanceof InjectedLifecycleFailure) {
 		return error.failure;
 	}

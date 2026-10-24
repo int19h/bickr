@@ -24,6 +24,7 @@ const expectedRepositoryCapabilityMembers = {
 		"deleteBotAvatar",
 		"linkProviderIdentity",
 		"materializePendingBotAvatar",
+		"materializeBotCreation",
 		"providerUserBootstrapActivationStatements",
 		"refreshLinkedCloneIndexes",
 		"refreshNormalizedProviderIdentity",

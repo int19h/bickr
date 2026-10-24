@@ -295,6 +295,27 @@ Compensating cleanup only deletes data and does not execute or validate the save
 Terminal operations do not replay the saved request.
 This safeguard changes executable state at its writer, rather than repairing data on reads.
 
+Recovery passes the migrated document directly into materialization within the same queue operation.
+Materialization also passes its document directly into avatar import.
+Neither step reads its own KV write back.
+D1 projection revisions detect older participant snapshots from interrupted attempts.
+KV-dependent document mismatches raise `LifecycleKvReadError` and preserve the creation for retry.
+These retries do not consume the normal retry limit or trigger deletion.
+
+The safeguard also covers missing owner documents and missing or inconsistent clone source documents.
+The personal forum step reads D1 and does not read its new KV document back.
+Vector publication uses the materialization result directly.
+A stale KV snapshot cannot prove that a participant no longer exists.
+If a KV mismatch persists, resolve the stored data before retrying recovery.
+The existing lifecycle row stays recoverable until storage becomes consistent or an operator resolves the mismatch.
+
+D1-confirmed missing or deleted owners, worlds, and immediate clone sources remain terminal failures.
+D1-confirmed foreign ownership, handle conflicts, and invalid clone graphs also remain terminal.
+These causes come from authoritative records, rather than KV visibility.
+Invalid saved input remains terminal when its validation does not depend on a KV document.
+Other external failures keep their existing retry limit and cleanup policy.
+Keep the permanent snapshot handoff and KV retry rules when removing the budget migration safeguard.
+
 Complete these steps in test before an authorized production release:
 
 1. Deploy the reviewed commit.

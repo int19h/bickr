@@ -55,7 +55,7 @@ import { clearBotRuntimeStorage } from "../runtime/runtime-storage-retention";
 import { scheduleUserLifecycleAlarm } from "./common";
 import type { AgentRuntimeRouteEnv, LifecycleReservationContext, LifecycleRuntimeContext } from "./types";
 
-const { createBot, deleteBot, materializePendingBotAvatar } = userCoordinatorRepositoryMutations;
+const { materializeBotCreation, deleteBot, materializePendingBotAvatar } = userCoordinatorRepositoryMutations;
 
 type BotDeleteLifecycleRequest = {
 	kind: "bot_delete" | "clone_delete";
@@ -148,12 +148,12 @@ export async function runBotCreateOperation(
 		operation = await markLifecycleMaterializing(context.env.BICKR_D1, operation, new Date().toISOString());
 		const materializationInput = await botCreateInputWithLifecycleSecret(context, operation, request.input);
 		const cloneSource = materializationInput.cloneSourceBotId
-			? await rawBotById(context.env.BICKR_KV, context.env.BICKR_D1, materializationInput.cloneSourceBotId)
+			? await rawBotById(context.env.BICKR_KV, context.env.BICKR_D1, materializationInput.cloneSourceBotId, true)
 			: undefined;
 		if (cloneSource && cloneSource.ownerUserId !== request.userId) {
 			throw new RepositoryError("forbidden", "You can only clone your own participants.", 403);
 		}
-		let bot = await createBot(
+		const materialized = await materializeBotCreation(
 			context.env.BICKR_KV,
 			context.env.BICKR_D1,
 			request.worldHandle,
@@ -165,12 +165,14 @@ export async function runBotCreateOperation(
 				personalForumId: request.personalForumId,
 				lifecycleState: "pending",
 				cloneSource,
+				materialization: { kind: 'lifecycle_snapshot', document: migration.document },
 				checkpoint: (point) => lifecycleCheckpoint(context.coordinator.failureInjector, point),
 			},
 		);
+		let bot = materialized.summary;
 		const lifecyclePrefix = request.kind === "clone_create" ? "clone" : "bot";
 		if (request.input.importSource?.sourceAvatarUrl) {
-			bot = await materializeLifecycleImportAvatar(context, operation, request, bot);
+			bot = await materializeLifecycleImportAvatar(context, operation, request, bot, materialized.document);
 			await lifecycleCheckpoint(context.coordinator.failureInjector, "bot.materialize.import_avatar");
 		}
 		await upsertBotVector(context.env, bot);
@@ -229,6 +231,7 @@ async function materializeLifecycleImportAvatar(
 	operation: LifecycleOperation,
 	request: BotCreateLifecycleRequest,
 	bot: BotSummary,
+	document: BotDocument,
 ): Promise<BotSummary> {
 	const source = request.input.importSource;
 	if (!source?.sourceAvatarUrl) return bot;
@@ -264,6 +267,7 @@ async function materializeLifecycleImportAvatar(
 		});
 		return materializePendingBotAvatar(context.env.BICKR_KV, context.env.BICKR_D1, {
 			kind: "lifecycle_import_avatar",
+			document,
 			botId: bot.id,
 			ownerUserId: request.userId,
 			operationId: operation.operationId,
@@ -285,6 +289,7 @@ async function materializeLifecycleImportAvatar(
 	});
 	return materializePendingBotAvatar(context.env.BICKR_KV, context.env.BICKR_D1, {
 		kind: "lifecycle_import_avatar",
+		document,
 		botId: bot.id,
 		ownerUserId: request.userId,
 		operationId: operation.operationId,

@@ -1,5 +1,5 @@
 import { legacyHistoryCursor, legacyHistoryFleetPage } from './runtime/legacy-history-maintenance';
-import { contextBudgetMigrationCursor, migrateContextBudgetPage, migrateOwnedContextBudget } from './context-budget-migration';
+import { contextBudgetMigrationResult, contextBudgetMigrationCursor, migrateContextBudgetPage, migrateOwnedContextBudget } from './context-budget-migration';
 import { backfillDeletedReferenceHandles, type DeletedHandleBackfillCursor } from '@bickr/shared/deleted-reference-handles';
 import { migrateParticipantTime } from "@bickr/shared/participant-time-migration";
 import { normalizeKvDocuments, isDocumentNormalizationOutcome, isWithinKvNormalizationQuietPeriod } from "@bickr/shared/kv-normalization-sweep";
@@ -1790,7 +1790,7 @@ export const agentRuntimeRouteTable = [
 			requireSchedulerServiceRequest(context.request);
 			const userId = requireUserMatch(context.request, decodeURIComponent(context.match[1] ?? ''));
 			if (context.coordinator.ownerUserId !== userId || !context.coordinator.queue) throw new RepositoryError('forbidden', 'The owner coordinator must run this migration.', 403);
-			return ok({ migration: await migrateOwnedContextBudget(context.env.BICKR_KV, context.env.BICKR_D1, decodeURIComponent(context.match[2] ?? ''), userId) });
+			return ok({ migration: contextBudgetMigrationResult(await migrateOwnedContextBudget(context.env.BICKR_KV, context.env.BICKR_D1, decodeURIComponent(context.match[2] ?? ''), userId)) });
 		},
 	},
 	{

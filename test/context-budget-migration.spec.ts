@@ -1,15 +1,29 @@
 import { resumeDueUserLifecycleOperation } from '../workers/agent-runtime/src/lifecycle/recovery';
 import { parseBotCreateLifecycleRequest } from '../workers/agent-runtime/src/lifecycle/bot-create-request';
-import { authCookie, createBotForTest, describe, expect, it, kvKeys, seedWorld, testEnv, testCoordinatorEnv } from './helpers/index-harness';
+import { authCookie, createBotForTest, describe, expect, it, kvKeys, seedWorld, testEnv, testCoordinatorEnv, fakeR2Bucket, webpAvatarBytes, vi } from './helpers/index-harness';
 import { contextWindowTokensMin, type BotDocument } from '@bickr/shared/model';
-import { defaultTickSettings, userCoordinatorRepositoryMutations } from '@bickr/shared/repository';
-import { beginLifecycleCompensation, lifecycleOperationById, markLifecycleMaterializing } from '@bickr/shared/entity-lifecycle';
+import { defaultTickSettings, LifecycleKvReadError, userCoordinatorRepositoryMutations } from '@bickr/shared/repository';
+import { beginLifecycleCompensation, lifecycleOperationById, markLifecycleMaterializing, lifecycleRetryLimit, InjectedLifecycleFailure } from '@bickr/shared/entity-lifecycle';
 import { parseCreateBotInput } from '@bickr/shared/validation';
 import { reserveBotCreate, runBotCreateOperation } from '../workers/agent-runtime/src/lifecycle/bot';
 import { handleAgentRuntimeRequest, handleAgentRuntimeWorkerRequest } from '../workers/agent-runtime/src/routes';
 import { ExclusiveOperationQueue } from '@bickr/shared/exclusive-operation-queue';
-import { contextBudgetMigrationBatchSize, type ContextBudgetMigrationCursor, type migrateContextBudgetPage } from '../workers/agent-runtime/src/context-budget-migration';
+import { contextBudgetMigrationBatchSize, migrateOwnedContextBudget, type ContextBudgetMigrationCursor, type migrateContextBudgetPage } from '../workers/agent-runtime/src/context-budget-migration';
 import { internalServiceTestHeaders } from './helpers/internal-service-auth';
+
+// Intercept only JSON reads. All other KV operations keep their real behavior.
+function interceptJsonReads(read: (key: string, current: unknown) => unknown): KVNamespace {
+	return new Proxy(testEnv.BICKR_KV, {
+		get(target, property) {
+			if (property === 'get') return async (key: string, options?: { type: string }) => {
+				const value = await Reflect.apply(target.get, target, [key, options]);
+				return options?.type === 'json' ? read(key, value) : value;
+			};
+			const value = Reflect.get(target, property);
+			return typeof value === 'function' ? value.bind(target) : value;
+		},
+	});
+}
 
 function sweep(cursor: ContextBudgetMigrationCursor | '' = '', headers: Record<string, string> = internalServiceTestHeaders) {
 	return handleAgentRuntimeWorkerRequest(new Request('https://internal.bickr/maintenance/context-budget', {
@@ -126,23 +140,42 @@ describe('context-budget-minimum-v1 migration', () => {
 			const document = await stored(request.botId);
 			await env.BICKR_KV.put(kvKeys.bot(request.botId), JSON.stringify({ ...document, tickSettings: input.tickSettings }));
 		}
-		if (stage === 'kv' && !clone) {
-			const interruptedKv: KVNamespace = {
-				get: env.BICKR_KV.get.bind(env.BICKR_KV),
-				getWithMetadata: env.BICKR_KV.getWithMetadata.bind(env.BICKR_KV),
-				list: env.BICKR_KV.list.bind(env.BICKR_KV),
-				delete: env.BICKR_KV.delete.bind(env.BICKR_KV),
-				put: async () => { throw new Error('Migration interruption.'); },
+		const oldSnapshot = stage === 'reserved' ? null : await stored(request.botId);
+		if (stage === 'kv') {
+			const interruptedDb: D1Database = {
+				prepare: env.BICKR_D1.prepare.bind(env.BICKR_D1),
+				exec: env.BICKR_D1.exec.bind(env.BICKR_D1),
+				withSession: env.BICKR_D1.withSession.bind(env.BICKR_D1),
+				dump: env.BICKR_D1.dump.bind(env.BICKR_D1),
+				batch: async () => { throw new Error('Migration interruption.'); },
 			};
-			await expect(queue.run(() => resumeDueUserLifecycleOperation({ ...context, env: { ...env, BICKR_KV: interruptedKv } }, new Date(Date.now() + 60_000).toISOString()))).rejects.toThrow('Migration interruption.');
+			await expect(queue.run(() => resumeDueUserLifecycleOperation({ ...context, env: { ...env, BICKR_D1: interruptedDb } }, new Date(Date.now() + 60_000).toISOString()))).rejects.toThrow('Migration interruption.');
 			const interrupted = (await lifecycleOperationById(env.BICKR_D1, operation.operationId))!;
 			expect(interrupted.phase).toBe('materializing');
 			expect(interrupted.requestHash).toBe(operation.requestHash);
 			expect(parseBotCreateLifecycleRequest(interrupted.requestJson!).input.tickSettings?.contextWindowTokens).toBe(contextWindowTokensMin);
-			expect((await stored(request.botId)).tickSettings.contextWindowTokens).toBe(contextWindowTokensMin - 5_000);
+			expect((await stored(request.botId)).tickSettings.contextWindowTokens).toBe(contextWindowTokensMin);
 		}
+		if (stage === 'indexed') {
+			// Stop after the complete safeguard, before materialization. The next
+			// recovery sees an older KV revision than the completed D1 projection.
+			await queue.run(() => migrateOwnedContextBudget(env.BICKR_KV, env.BICKR_D1, request.botId, owner));
+			const staleKv = interceptJsonReads((key, value) => key === kvKeys.bot(request.botId) ? oldSnapshot : value);
+			await expect(queue.run(() => runBotCreateOperation({ ...context, env: { ...env, BICKR_KV: staleKv } }, operation))).rejects.toBeInstanceOf(LifecycleKvReadError);
+			expect((await lifecycleOperationById(env.BICKR_D1, operation.operationId))?.phase).toBe('materializing');
+			expect(await stored(request.botId)).not.toBeNull();
+		}
+		let participantReads = 0;
+		const staleKv = interceptJsonReads((key, value) => {
+			if (key === kvKeys.bot(request.botId)) {
+				participantReads++;
+				if (stage === 'kv' || participantReads > 1) return oldSnapshot;
+			}
+			return value;
+		});
 		// The real recovery dispatcher reaches this operation before any sweep.
-		const recovered = await queue.run(() => resumeDueUserLifecycleOperation(context, new Date(Date.now() + 60_000).toISOString()));
+		const recovered = await queue.run(() => resumeDueUserLifecycleOperation({ ...context, env: { ...env, BICKR_KV: staleKv } }, new Date(Date.now() + 60_000).toISOString()));
+		expect(participantReads).toBe(1);
 		expect(recovered.operationId).toBe(operation.operationId);
 		const completed = (await lifecycleOperationById(env.BICKR_D1, operation.operationId))!;
 		expect(completed.phase).toBe('terminal');
@@ -152,6 +185,86 @@ describe('context-budget-minimum-v1 migration', () => {
 		// Replaying the stale operation object also loads the completed state.
 		await queue.run(() => runBotCreateOperation(context, operation));
 		expect((await fullPass()).changes).toEqual({ documents: 0, indexes: 0, creationRequests: 0 });
+	});
+	it.each(['owner', 'source', 'source-owner', 'nested-source', 'nested-source-owner', 'identity', 'revision'] as const)('keeps creation recoverable after repeated stale %s reads', async target => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const root = await createBotForTest(cookie, 'stale-root', { enabled: false });
+		let source: { id: string } = root;
+		const owner = (await stored(root.id)).ownerUserId;
+		const env = { ...testEnv, ...testCoordinatorEnv() };
+		const queue = new ExclusiveOperationQueue();
+		const context = { env, coordinator: { objectId: owner, ownerUserId: owner, queue }, request: new Request('https://internal.bickr/create') };
+		if (target === 'nested-source' || target === 'nested-source-owner') {
+			const sourceInput = parseCreateBotInput({ handle: 'stale-source', language: 'en', cloneSourceBotId: root.id });
+			const sourceOperation = await queue.run(() => reserveBotCreate(context, owner, root.homeWorldHandle, sourceInput));
+			await queue.run(() => runBotCreateOperation(context, sourceOperation));
+			source = { id: sourceOperation.entityId };
+		}
+		const clone = target === 'source' || target === 'source-owner' || target === 'nested-source' || target === 'nested-source-owner';
+		const input = parseCreateBotInput({ handle: 'stale-pending', language: 'en', displayName: 'Pending participant', shortBio: 'A participant.', prompt: 'Keep useful memories.', tickSettings: { contextWindowTokens: contextWindowTokensMin }, ...(clone ? { cloneSourceBotId: source.id } : {}) });
+		const operation = await queue.run(() => reserveBotCreate(context, owner, root.homeWorldHandle, input));
+		const request = parseBotCreateLifecycleRequest(operation.requestJson!);
+		if (target === 'identity' || target === 'revision') {
+			await expect(queue.run(() => userCoordinatorRepositoryMutations.createBot(env.BICKR_KV, env.BICKR_D1, root.homeWorldHandle, input, owner, {
+				now: request.createdAt, botId: request.botId, personalForumId: request.personalForumId, lifecycleState: 'pending',
+				checkpoint: async point => { if (point === 'bot.materialize.indexes.d1') throw new Error('Hard interruption.'); },
+			}))).rejects.toThrow('Hard interruption.');
+		}
+		const staleKv = interceptJsonReads((key, value) => {
+			if (target === 'owner' && key === kvKeys.user(owner)) return null;
+			if (target === 'source' && key === kvKeys.bot(source.id)) return null;
+			if (((target === 'source-owner' && key === kvKeys.bot(source.id)) || (target === 'nested-source-owner' && key === kvKeys.bot(root.id))) && value && typeof value === 'object') return { ...value, ownerUserId: 'stale-owner' };
+			if (target === 'nested-source' && key === kvKeys.bot(root.id)) return null;
+			if (key === kvKeys.bot(request.botId) && value && typeof value === 'object') {
+				if (target === 'identity') return { ...value, handle: 'stale-handle' };
+				if (target === 'revision') return { ...value, revision: 0 };
+			}
+			return value;
+		});
+		for (let attempt = 0; attempt <= lifecycleRetryLimit; attempt++) {
+			await expect(queue.run(() => runBotCreateOperation({ ...context, env: { ...env, BICKR_KV: staleKv } }, operation))).rejects.toBeInstanceOf(LifecycleKvReadError);
+			const waiting = (await lifecycleOperationById(env.BICKR_D1, operation.operationId))!;
+			expect(['pending', 'materializing']).toContain(waiting.phase);
+			expect(waiting.requestHash).toBe(operation.requestHash);
+			expect(waiting.requestJson).not.toBeNull();
+			expect(waiting.retryCount).toBe(0);
+		}
+		const ordinaryFailure = new InjectedLifecycleFailure(clone ? 'clone.materialize.kv' : 'bot.materialize.kv', { category: 'external_retryable', code: 'ordinary_failure', retryable: true });
+		await expect(queue.run(() => runBotCreateOperation({ ...context, coordinator: { ...context.coordinator, failureInjector: { checkpoint(point) { if (point === ordinaryFailure.point) throw ordinaryFailure; } } } }, operation))).rejects.toBe(ordinaryFailure);
+		expect((await lifecycleOperationById(env.BICKR_D1, operation.operationId))?.phase).toBe('materializing');
+		expect((await lifecycleOperationById(env.BICKR_D1, operation.operationId))?.retryCount).toBe(1);
+		await queue.run(() => runBotCreateOperation(context, operation));
+		expect((await lifecycleOperationById(env.BICKR_D1, operation.operationId))?.phase).toBe('terminal');
+		expect((await stored(request.botId)).tickSettings.contextWindowTokens).toBe(contextWindowTokensMin);
+		expect((await stored(request.botId)).deletedAt).toBeUndefined();
+	});
+	it('carries the participant snapshot through avatar import without reading its writes back', async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const root = await createBotForTest(cookie, 'avatar-root', { enabled: false });
+		const owner = (await stored(root.id)).ownerUserId;
+		const r2 = fakeR2Bucket();
+		const env = { ...testEnv, ...testCoordinatorEnv(), BICKR_R2: r2.bucket, BICKR_R2_PUBLIC_BASE_URL: 'https://assets.test' };
+		const queue = new ExclusiveOperationQueue();
+		const context = { env, coordinator: { objectId: owner, ownerUserId: owner, queue }, request: new Request('https://internal.bickr/create') };
+		const input = parseCreateBotInput({ handle: 'avatar-pending', language: 'en', displayName: 'Pending participant', shortBio: 'A participant.', prompt: 'Keep useful memories.', tickSettings: { contextWindowTokens: contextWindowTokensMin },
+			importSource: { provider: 'chirper', originalHandle: 'source', originalProfileUrl: 'https://chirper.ai/source', apiUrl: 'https://api.chirper.ai/source', importedAt: new Date().toISOString(), sourceAvatarUrl: 'https://images.test/source.webp' } });
+		const operation = await queue.run(() => reserveBotCreate(context, owner, root.homeWorldHandle, input));
+		let reads = 0;
+		const staleKv = interceptJsonReads((key, value) => {
+			if (key === kvKeys.bot(operation.entityId) && ++reads > 1) return null;
+			return value;
+		});
+		const originalFetch = globalThis.fetch;
+		vi.stubGlobal('fetch', async () => new Response(webpAvatarBytes(), { headers: { 'content-type': 'image/webp' } }));
+		try {
+			await queue.run(() => runBotCreateOperation({ ...context, env: { ...env, BICKR_KV: staleKv } }, operation));
+		} finally { vi.stubGlobal('fetch', originalFetch); }
+		expect(reads).toBe(1);
+		expect((await lifecycleOperationById(env.BICKR_D1, operation.operationId))?.phase).toBe('terminal');
+		expect((await stored(operation.entityId)).avatar?.url).toContain('https://assets.test/');
+		expect((await stored(operation.entityId)).tickSettings.contextWindowTokens).toBe(contextWindowTokensMin);
 	});
 	it('passes cleanup interrupted after KV deletion without restoring the participant', async () => {
 		const cookie = await authCookie();
@@ -282,7 +395,9 @@ describe('context-budget-minimum-v1 migration', () => {
 		const unscheduled = new Request(owned);
 		unscheduled.headers.delete('x-bickr-scheduler');
 		expect((await handleAgentRuntimeRequest(unscheduled, testEnv, coordinator)).status).toBe(401);
-		expect((await handleAgentRuntimeRequest(owned, testEnv, coordinator)).status).toBe(200);
+		const responseWithSummary = await handleAgentRuntimeRequest(owned, testEnv, coordinator);
+		expect(responseWithSummary.status).toBe(200);
+		expect(await responseWithSummary.json()).not.toHaveProperty('data.migration.document');
 	});
 	it('resumes bounded pages, raises only low overrides, restores NULL defaults, and is idempotent', async () => {
 		const cookie = await authCookie();

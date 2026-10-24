@@ -1,5 +1,5 @@
 import { contextWindowTokensMin, type BotDocument } from '@bickr/shared/model';
-import { assertContextWindowTokens, RepositoryError } from '@bickr/shared/repository';
+import { assertContextWindowTokens, LifecycleKvReadError, RepositoryError } from '@bickr/shared/repository';
 import { kvKeys, readJson, writeJson, type D1DatabaseLike, type KVNamespaceLike } from '@bickr/shared/storage';
 import { InputError } from '@bickr/shared/validation';
 import { parseBotCreateLifecycleRequest } from './lifecycle/bot-create-request';
@@ -13,6 +13,10 @@ export const contextBudgetMigrationBatchSize = 25;
 export type ContextBudgetMigrationResult =
 	| { kind: 'migrated' | 'unchanged'; documentChanged: boolean; indexChanged: boolean; creationRequestsChanged: number }
 	| { kind: 'missing' };
+
+type ContextBudgetMigrationWriteResult =
+	| { kind: 'missing' }
+	| (Exclude<ContextBudgetMigrationResult, { kind: 'missing' }> & { document: BotDocument | null });
 
 export type ContextBudgetMigrationCursor =
 	| { kind: 'indexed'; afterId: string }
@@ -36,7 +40,7 @@ export function contextBudgetMigrationCursor(value: unknown): ContextBudgetMigra
 export async function migrateOwnedContextBudget(
 	kv: KVNamespaceLike, db: D1DatabaseLike, botId: string, ownerUserId: string,
 	now = new Date().toISOString(),
-): Promise<ContextBudgetMigrationResult> {
+): Promise<ContextBudgetMigrationWriteResult> {
 	// Saved creation input is executable state. Keep its original request hash
 	// as the client identity, but migrate the input that recovery will execute.
 	const operations = (await db.prepare(`SELECT operation_id AS id, owner_user_id AS owner, request_json AS request, revision, phase
@@ -45,6 +49,7 @@ export async function migrateOwnedContextBudget(
 		.all<{ id: string; owner: string; request: string; revision: number; phase: string }>()).results ?? [];
 	if (operations.length > contextBudgetMigrationBatchSize) throw new RepositoryError('conflict', 'Participant creation records exceed the migration batch bound.', 409);
 	const bot = await readJson<BotDocument>(kv, kvKeys.bot(botId));
+	let compensationDeletedDocument = false;
 	if (!bot) {
 		const entity = await db.prepare("SELECT owner_user_id AS owner, phase, active_operation_id AS operationId FROM entity_lifecycle_entities WHERE entity_kind = 'bot' AND entity_id = ?")
 			.bind(botId).first<{ owner: string; phase: string; operationId: string }>();
@@ -55,7 +60,13 @@ export async function migrateOwnedContextBudget(
 			((entity.phase === 'pending' || entity.phase === 'materializing') && (operation.phase === 'pending' || operation.phase === 'materializing')) ||
 			(entity.phase === 'compensating' && operation.phase === 'compensating'));
 		if (!expectedAbsence) return { kind: 'missing' };
+		compensationDeletedDocument = entity.phase === 'compensating';
 	}
+	// D1 publishes each completed projection revision. A stale KV snapshot
+	// cannot replace that revision or recreate a document that is still hidden.
+	const projection = await db.prepare("SELECT revision FROM objects_index WHERE object_id = ? AND object_type = 'bot' LIMIT 1")
+		.bind(botId).first<{ revision: number }>();
+	if (projection && ((!bot && !compensationDeletedDocument) || (bot && bot.revision < projection.revision))) throw new LifecycleKvReadError('participant_revision');
 	let creationRequestsChanged = 0;
 	for (const operation of operations) {
 		const request = parseBotCreateLifecycleRequest(operation.request);
@@ -70,9 +81,9 @@ export async function migrateOwnedContextBudget(
 		if ((result.meta?.changes ?? 0) < 1) throw new RepositoryError('conflict', 'Participant creation changed during migration. Retry the same page.', 409);
 		creationRequestsChanged++;
 	}
-	if (!bot) return { kind: creationRequestsChanged ? 'migrated' : 'unchanged', documentChanged: false, indexChanged: false, creationRequestsChanged };
+	if (!bot) return { kind: creationRequestsChanged ? 'migrated' : 'unchanged', documentChanged: false, indexChanged: false, creationRequestsChanged, document: null };
 	if (bot.id !== botId || bot.type !== 'bot' || bot.ownerUserId !== ownerUserId) {
-		throw new RepositoryError('conflict', 'Participant ownership does not match the migration.', 409);
+		throw new LifecycleKvReadError('participant_identity');
 	}
 	const stored = bot.tickSettings?.contextWindowTokens;
 	const documentChanged = typeof stored === 'number' && stored < contextWindowTokensMin;
@@ -96,7 +107,7 @@ export async function migrateOwnedContextBudget(
 			.bind(next.revision, next.updatedAt, botId, 'bot'),
 	]);
 	const indexChanged = (results[0]?.meta?.changes ?? 0) > 0;
-	return { kind: documentChanged || indexChanged || creationRequestsChanged ? 'migrated' : 'unchanged', documentChanged, indexChanged, creationRequestsChanged };
+	return { kind: documentChanged || indexChanged || creationRequestsChanged ? 'migrated' : 'unchanged', documentChanged, indexChanged, creationRequestsChanged, document: next };
 }
 
 type FleetResult = { botId: string; result: ContextBudgetMigrationResult };
@@ -150,7 +161,7 @@ export async function migrateContextBudgetPage(
 			));
 			if (!response.ok) throw new RepositoryError('server_error', 'Context budget migration dispatch failed. Retry the same page.', 502);
 			const payload = await response.json() as { data?: { migration?: unknown } };
-			return migrationResult(payload.data?.migration);
+			return contextBudgetMigrationResult(payload.data?.migration);
 		});
 		results.push({ botId: row.botId, result });
 		if (result.kind === 'missing') return { schemaVersion: contextBudgetMigrationVersion, changes, results, done: false, nextCursor: after };
@@ -162,7 +173,7 @@ export async function migrateContextBudgetPage(
 	return { schemaVersion: contextBudgetMigrationVersion, changes, results, done: nextCursor === null, nextCursor };
 }
 
-function migrationResult(value: unknown): ContextBudgetMigrationResult {
+export function contextBudgetMigrationResult(value: unknown): ContextBudgetMigrationResult {
 	if (value && typeof value === 'object' && 'kind' in value) {
 		if (value.kind === 'missing') return { kind: 'missing' };
 		if ((value.kind === 'migrated' || value.kind === 'unchanged') &&
