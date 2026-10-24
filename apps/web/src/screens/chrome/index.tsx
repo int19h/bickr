@@ -705,7 +705,7 @@ export function NotificationBody({ body }: { body: TextLike }) {
 }
 
 export function SpotlightNotificationBadge() {
-	return <span aria-label="Spotlight" className="notification-spotlight-badge" title="Spotlight">🔦</span>;
+	return <span aria-label="Spotlight" className="notification-spotlight-badge" title="Spotlight"><Icon name="spotlight" size={14} /></span>;
 }
 
 type NotificationSwipeGesture = {

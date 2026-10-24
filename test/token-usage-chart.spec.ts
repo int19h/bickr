@@ -9,7 +9,6 @@ import {
 	type TokenUsageChartPoint,
 } from "../apps/web/src/token-usage-chart";
 import { type BotTokenUsageModelBreakdown, type GlobalInferenceCostPublicModelProviderRow } from "../packages/shared/src/model";
-import { loopContinuationRowsForPage } from "../apps/web/src/loop-page-continuations";
 import { loopPagePagerItems } from "../apps/web/src/loop-page-pager";
 
 function point(timeMs: number, totalTokens: number, cachedTokens = 0): TokenUsageChartPoint {
@@ -160,22 +159,6 @@ describe("globalInferenceCostTableRows", () => {
 			{ key: "google/gemini\u0000Provider A", modelCell: "google/gemini", provider: "Provider A" },
 			{ key: "google/gemini\u0000Provider B", modelCell: "", provider: "Provider B" },
 			{ key: "openai/gpt\u0000Provider A", modelCell: "openai/gpt", provider: "Provider A" },
-		]);
-	});
-});
-
-describe("loopContinuationRowsForPage", () => {
-	it("places continued-from at the start and continued-on at the end", () => {
-		expect(loopContinuationRowsForPage({
-			currentPage: 2,
-			pageCount: 3,
-			pages: [],
-			compactionPageBySeq: { "20": 2 },
-			olderPage: 3,
-			newerPage: 1,
-		})).toEqual([
-			{ position: "start", label: "continued from", page: 3 },
-			{ position: "end", label: "continued on", page: 1 },
 		]);
 	});
 });

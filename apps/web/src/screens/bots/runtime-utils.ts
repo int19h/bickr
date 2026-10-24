@@ -62,54 +62,6 @@ export function loopMessageKey(message: BotLoopMessage): string {
 	return `${message.runId}:${message.seq}`;
 }
 
-export function loopMessageActivityKind(message: BotLoopMessage): "input" | "assistant" | "tool" | "error" {
-	if (
-		message.origin === "tool_failure" ||
-		message.origin === "runtime_error" ||
-		message.origin === "dropped_provider_response"
-	) {
-		return "error";
-	}
-	if (message.role === "tool") {
-		return "tool";
-	}
-	return message.role === "assistant" ? "assistant" : "input";
-}
-
-export function loopMessageTitle(message: BotLoopMessage): string {
-	if (message.origin === "compaction") {
-		return "Compaction summary";
-	}
-	if (message.origin === "legacy_migration") {
-		return "Legacy history summary";
-	}
-	if (message.role === "tool") {
-		return message.origin === "tool_failure" ? "Tool failure" : "Tool result";
-	}
-	if (message.origin === "runtime_error") {
-		return "Runtime error";
-	}
-	if (message.origin === "dropped_provider_response") {
-		return "Invalid provider output";
-	}
-	if (message.origin === "injection") {
-		return "Injected thought";
-	}
-	if (message.origin === "reminder") {
-		return "Loop reminder";
-	}
-	if (message.origin === "synthetic_context") {
-		return "Synthetic context";
-	}
-	if (message.origin === "local_simulation") {
-		return "Local simulation";
-	}
-	if (message.origin === "self_correction") {
-		return "Self-correction";
-	}
-	return message.role === "assistant" ? "Provider response" : "Runtime input";
-}
-
 export function loopMessageOriginLabel(origin: BotLoopMessage["origin"]): string {
 	switch (origin) {
 		case "input":

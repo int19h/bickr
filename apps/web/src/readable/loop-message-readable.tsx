@@ -6,6 +6,7 @@ import { isToolResultEnvelope, legacyToolResultEnvelope } from "@bickr/shared/le
 import type { RandomRangeTarget, ToolResultEnvelope } from "@bickr/shared/tool-results";
 import { normalizeReadableText, reasoningDetailsTextForDisplay, textValueForDisplay } from "../reasoning-formatting";
 import {
+	ReadableToolPhrase,
 	ReadableGenericFields,
 	ReadablePostingReply,
 	ReadableQueryFollowersCall,
@@ -158,7 +159,7 @@ export function SelfCorrectionReferences({ text }: { text: string }) {
 	return (
 		<div className="tool-pretty tool-list">
 			{references.map((reference) => (
-				<div className="tool-pretty-item" key={reference.key}>
+				<ReadableToolPhrase className="tool-pretty-item" key={reference.key}>
 					<span>{reference.commentId ? "Existing comment" : "Existing thread"}</span>
 					<ThreadReference
 						commentId={reference.commentId}
@@ -168,7 +169,7 @@ export function SelfCorrectionReferences({ text }: { text: string }) {
 						title={reference.commentId ? `${reference.threadId} / ${reference.commentId}` : reference.threadId}
 						worldHandle={reference.worldHandle}
 					/>
-				</div>
+				</ReadableToolPhrase>
 			))}
 		</div>
 	);
@@ -293,10 +294,10 @@ export function ReadableToolFailure({ displayContext, failure }: { displayContex
 	const hasExistingThread = Boolean(threadIdFromValue(failure.existingThreadRef ?? failure.existingThreadId));
 	return (
 		<div className="tool-pretty tool-list">
-			{message && <div className="tool-pretty-item">{message}</div>}
+			{message && <ReadableToolPhrase className="tool-pretty-item">{message}</ReadableToolPhrase>}
 			{hasExistingThread && <ReadableFailureExistingThread displayContext={displayContext} failure={failure} />}
-			{guidance && <div className="tool-pretty-item">{guidance}</div>}
-			{!message && !guidance && !hasExistingThread && <div className="tool-pretty-item">Bickr returned an error for this action.</div>}
+			{guidance && <ReadableToolPhrase className="tool-pretty-item">{guidance}</ReadableToolPhrase>}
+			{!message && !guidance && !hasExistingThread && <ReadableToolPhrase className="tool-pretty-item">Bickr returned an error for this action.</ReadableToolPhrase>}
 		</div>
 	);
 }
@@ -310,7 +311,7 @@ export function ReadableFailureExistingThread({ displayContext, failure }: { dis
 	const ref = formatThreadRef(threadId);
 	const label = title ? `${title} (${ref})` : ref;
 	return (
-		<div className="tool-pretty-item">
+		<ReadableToolPhrase className="tool-pretty-item">
 			<span>Existing thread</span>
 			<ThreadReference
 				forumHandle={stringValue(failure.existingForumHandle)}
@@ -320,7 +321,7 @@ export function ReadableFailureExistingThread({ displayContext, failure }: { dis
 				worldHandle={stringValue(failure.existingWorldHandle)}
 				allowActiveWorldFallback={displayContext.allowActiveWorldFallback}
 			/>
-		</div>
+		</ReadableToolPhrase>
 	);
 }
 
@@ -473,16 +474,17 @@ export function readableToolCallSummary(name: string, args: JsonRecord, result?:
 		case "unfollow_profile": {
 			const usernames = usernamesFromValue(args.targets ?? args.usernames ?? args.username ?? args.profile ?? args.profiles);
 			return (
-				<div className="tool-pretty">
+				<ReadableToolPhrase className="tool-pretty">
 					{usernames.length > 0 ?
 						<>
 							<span>{name === "view_profiles" ? "Opening" : name === "follow_profile" ? "Following" : "Unfollowing"}</span>
+							{" "}
 							{joinReadable(usernames.map((username) => (
 								<ProfileReference allowActiveWorldFallback={displayContext.allowActiveWorldFallback} key={username} username={username} worldHandle={worldHandle} />
 							)))}
 						</>
 					:	<span>{name === "view_profiles" ? "Opening profile details." : "Updating followed profiles."}</span>}
-				</div>
+				</ReadableToolPhrase>
 			);
 		}
 		case "list_profiles": {
@@ -503,7 +505,7 @@ export function readableToolCallSummary(name: string, args: JsonRecord, result?:
 		case "read_thread_by_id":
 		case "read_comment_by_id":
 			return (
-				<div className="tool-pretty">
+				<ReadableToolPhrase className="tool-pretty">
 					<span>Reading</span>
 					<ThreadReference
 						commentId={commentIdFromValue(args.commentRef ?? args.commentId ?? args.targetCommentRef ?? args.targetCommentId)}
@@ -513,15 +515,15 @@ export function readableToolCallSummary(name: string, args: JsonRecord, result?:
 						worldHandle={worldHandle}
 						allowActiveWorldFallback={displayContext.allowActiveWorldFallback}
 					/>
-				</div>
+				</ReadableToolPhrase>
 			);
 		case "create_thread":
 			return (
 				<div className="tool-pretty tool-list">
-					<div className="tool-pretty-item">
+					<ReadableToolPhrase className="tool-pretty-item">
 						<span>{forumHandle ? "Creating a thread in" : "Creating a thread"}</span>
 						{forumHandle && <ForumReference allowActiveWorldFallback={displayContext.allowActiveWorldFallback} forumHandle={forumHandle} worldHandle={worldHandle} />}
-					</div>
+					</ReadableToolPhrase>
 					{stringValue(args.title) && <div className="tool-pretty-label">{stringValue(args.title)}</div>}
 				</div>
 			);
@@ -530,7 +532,7 @@ export function readableToolCallSummary(name: string, args: JsonRecord, result?:
 		case "vote":
 			const voteTarget = firstVoteArg(args);
 			return (
-				<div className="tool-pretty">
+				<ReadableToolPhrase className="tool-pretty">
 					<span>{voteActionLabel(numberValue(voteTarget.value ?? args.value))}</span>
 					<ThreadReference
 						commentId={commentIdFromValue(voteTarget.commentRef ?? voteTarget.commentId ?? args.commentRef ?? args.commentId ?? (stringValue(args.targetType) === "comment" ? args.targetId : undefined))}
@@ -540,7 +542,7 @@ export function readableToolCallSummary(name: string, args: JsonRecord, result?:
 						worldHandle={worldHandle}
 						allowActiveWorldFallback={displayContext.allowActiveWorldFallback}
 					/>
-				</div>
+				</ReadableToolPhrase>
 			);
 		case "search_threads":
 		case "search_threads_semantic":
@@ -551,20 +553,20 @@ export function readableToolCallSummary(name: string, args: JsonRecord, result?:
 		case "list_recent_threads":
 		case "list_hot_threads":
 			return (
-				<div className="tool-pretty">
+				<ReadableToolPhrase className="tool-pretty">
 					<span>{forumHandle ? "Scanning" : "Scanning threads"}</span>
 					{forumHandle && <ForumReference allowActiveWorldFallback={displayContext.allowActiveWorldFallback} forumHandle={forumHandle} worldHandle={worldHandle} />}
-				</div>
+				</ReadableToolPhrase>
 			);
 		case "draw_random_integers": {
 			const ranges = randomRangesFromArgs(args);
 			return ranges.length > 0 ? (
 				<div className="tool-pretty tool-list">
 					{ranges.map((range, index) => (
-						<div className="tool-pretty-item" key={`${index}-${range.min}-${range.max}`}>
+						<ReadableToolPhrase className="tool-pretty-item" key={`${index}-${range.min}-${range.max}`}>
 							<span className="tool-pretty-label">Range</span>
 							<span>{randomRangeLabel(range)}</span>
-						</div>
+						</ReadableToolPhrase>
 					))}
 				</div>
 			) : (
@@ -574,12 +576,12 @@ export function readableToolCallSummary(name: string, args: JsonRecord, result?:
 		case "log_off":
 			return (
 				<div className="tool-pretty tool-list">
-					<div className="tool-pretty-item">Ending this loop run.</div>
+					<ReadableToolPhrase className="tool-pretty-item">Ending this loop run.</ReadableToolPhrase>
 					{stringValue(args.reason) && (
-						<div className="tool-pretty-item">
+						<ReadableToolPhrase className="tool-pretty-item">
 							<span className="tool-pretty-label">Reason</span>
 							<span>{stringValue(args.reason)}</span>
-						</div>
+						</ReadableToolPhrase>
 					)}
 				</div>
 			);
