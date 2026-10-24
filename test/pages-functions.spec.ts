@@ -1,3 +1,4 @@
+import { contextWindowTokensMin } from "@bickr/shared/model";
 import { botText as testBotText } from "../workers/agent-runtime/src/localization";
 const englishInstructions = testBotText("en");
 import { runHumanNotificationFanout } from "@bickr/shared/human-notification-fanout";
@@ -116,7 +117,7 @@ import {
 	type LifecycleFailureInjector,
 } from "@bickr/shared/entity-lifecycle";
 import { internalServiceAuthHeader } from "@bickr/shared/internal-service";
-import { worldIndexProjectionStatement } from "@bickr/shared/repository";
+import { defaultTickSettings, worldIndexProjectionStatement } from "@bickr/shared/repository";
 import { exportThreadRef } from "../apps/web/functions/api/cli/export/_export";
 import { onRequest as inferenceConfigurationsProxy } from "../apps/web/functions/api/me/inference-configurations/[[path]]";
 import {
@@ -3000,7 +3001,7 @@ describe("Pages functions", () => {
 			expect(created.data.bot.tickSettings).not.toHaveProperty("maxGeneratedTokensPerIteration");
 			expect(created.data.bot.effectiveTickSettings).toMatchObject({
 				allowEarlyLogOff: true,
-				contextWindowTokens: 30_000,
+				contextWindowTokens: defaultTickSettings.contextWindowTokens,
 				compactionSummaryPercent: 10,
 				compactionMaxCharacters: 4_000,
 				maxToolCallsPerTick: 10,
@@ -3242,7 +3243,7 @@ describe("Pages functions", () => {
 			expect(clearedTickDefaults.data.bot.tickSettings).not.toHaveProperty("maxGeneratedTokensPerIteration");
 			expect(clearedTickDefaults.data.bot.effectiveTickSettings).toMatchObject({
 				allowEarlyLogOff: true,
-				contextWindowTokens: 30_000,
+				contextWindowTokens: defaultTickSettings.contextWindowTokens,
 				compactionSummaryPercent: 10,
 				compactionMaxCharacters: 4_000,
 				maxToolCallsPerTick: 10,
@@ -3300,7 +3301,7 @@ describe("Pages functions", () => {
 				jsonRequest(
 					`http://example.com/api/me/bots/${created.data.bot.id}`,
 					"PATCH",
-					{ tickSettings: { contextWindowTokens: 14_999 } },
+					{ tickSettings: { contextWindowTokens: contextWindowTokensMin - 1 } },
 					cookie,
 				),
 				{ botId: created.data.bot.id },
@@ -3742,7 +3743,7 @@ describe("Pages functions", () => {
 
 		const first = await promptContextBudget(created.data.bot.id, {
 			prompt: "Stay brief.",
-			tickSettings: { contextWindowTokens: 15_000 },
+			tickSettings: { contextWindowTokens: contextWindowTokensMin },
 		});
 		expect(first).toMatchObject({
 			cached: false,
@@ -3752,7 +3753,7 @@ describe("Pages functions", () => {
 			nextCompactionTokens: expect.any(Number),
 			personaPromptTokens: 60,
 			worldPromptTokens: 0,
-			remainingLoopTokens: 15_000 - 200 - 60 - providerContextCompletionReserveTokens,
+			remainingLoopTokens: contextWindowTokensMin - 200 - 60 - providerContextCompletionReserveTokens,
 			responseReserveTokens: providerContextCompletionReserveTokens,
 		});
 		const defaultLoopRequest = providerChatCompletionRequest(
@@ -3772,7 +3773,7 @@ describe("Pages functions", () => {
 
 		const second = await promptContextBudget(created.data.bot.id, {
 			prompt: "Stay brief.",
-			tickSettings: { contextWindowTokens: 15_000 },
+			tickSettings: { contextWindowTokens: contextWindowTokensMin },
 		});
 		expect(second.cached).toBe(true);
 		expect(second.personaPromptTokens).toBe(60);
@@ -3782,6 +3783,7 @@ describe("Pages functions", () => {
 		const cachedCurrent = await cachedPromptContextBudget(created.data.bot.id);
 		expect(cachedCurrent).toMatchObject({
 			cached: true,
+			contextWindowTokens: defaultTickSettings.contextWindowTokens,
 			fixedSystemTokens: 200,
 			personaPromptTokens: 60,
 			worldPromptTokens: 0,
@@ -3805,7 +3807,7 @@ describe("Pages functions", () => {
 		expect(worldRecurringPatch.status, await worldRecurringPatch.clone().text()).toBe(200);
 		const worldRecurringChanged = await promptContextBudget(created.data.bot.id, {
 			prompt: "Stay brief.",
-			tickSettings: { contextWindowTokens: 15_000 },
+			tickSettings: { contextWindowTokens: contextWindowTokensMin },
 		});
 		expect(worldRecurringChanged.cached).toBe(false);
 		expect(calls).toHaveLength(6);
@@ -3821,7 +3823,7 @@ describe("Pages functions", () => {
 
 		const changed = await promptContextBudget(created.data.bot.id, {
 			prompt: "Stay brief with exact counts.",
-			tickSettings: { contextWindowTokens: 15_000 },
+			tickSettings: { contextWindowTokens: contextWindowTokensMin },
 		});
 		expect(changed.cached).toBe(false);
 		expect(calls).toHaveLength(9);
@@ -3829,7 +3831,7 @@ describe("Pages functions", () => {
 		const languageSettingChanged = await promptContextBudget(created.data.bot.id, {
 			includeLanguageInSystemPrompt: false,
 			prompt: "Stay brief.",
-			tickSettings: { contextWindowTokens: 15_000 },
+			tickSettings: { contextWindowTokens: contextWindowTokensMin },
 		});
 		expect(languageSettingChanged.cached).toBe(false);
 		expect(calls).toHaveLength(12);

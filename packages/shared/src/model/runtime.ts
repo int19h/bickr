@@ -29,7 +29,7 @@ export const defaultTextGenerationTemperature = 1;
 export const legacyDefaultTextGenerationTemperature = 0.9;
 // English previews are owner-facing. Runtime factories require their own context.
 export const defaultTranslationPrompt = factoryText('en').format('factory.translationPrompt');
-export const contextWindowTokensMin = 15_000;
+export const contextWindowTokensMin = 20_000;
 export const contextWindowTokensMax = 1_000_000;
 
 export function defaultReasoningPrefill(text: FactoryText, handle: string): string {

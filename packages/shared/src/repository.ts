@@ -19,6 +19,8 @@ import {
 } from "./human-subscriptions";
 import {
 	schemaVersion,
+	contextWindowTokensMin,
+	contextWindowTokensMax,
 	authProviders,
 	avatarCropFromJson,
 	avatarCropJson,
@@ -285,11 +287,11 @@ export function booleanFromStored(value: number | boolean | null | undefined): b
 }
 
 export const introForumHandle = "intro";
-const defaultTickSettings: BotEffectiveTickSettings = {
+export const defaultTickSettings: BotEffectiveTickSettings = {
 	enabled: false,
 	intervalSeconds: 86_400,
 	allowEarlyLogOff: true,
-	contextWindowTokens: 30_000,
+	contextWindowTokens: 40_000,
 	compactionThreshold: 0.75,
 	compactionSummaryPercent: 10,
 	compactionMaxCharacters: 4_000,
@@ -1460,6 +1462,7 @@ async function createBot(
 	userId: string,
 	options: CreateBotOptions | string = {},
 ): Promise<BotSummary> {
+	assertContextWindowTokens(input.tickSettings?.contextWindowTokens);
 	if (input.instructionLanguage !== undefined) {
 		try { input = { ...input, instructionLanguage: parseInstructionLanguagePreference(input.instructionLanguage) }; }
 		catch (error) {
@@ -1556,6 +1559,7 @@ async function createBot(
 
 	const lifecyclePrefix = cloneSource ? "clone" : "bot";
 	bot = migrateParticipantTime(bot);
+	assertContextWindowTokens(bot.tickSettings.contextWindowTokens);
 	await writeJson(kv, kvKeys.bot(bot.id), bot);
 	await createOptions.checkpoint?.(`${lifecyclePrefix}.materialize.kv` as LifecycleFailurePoint);
 	if (cloneSource) {
@@ -1606,6 +1610,7 @@ async function updateBot(
 	input: UpdateBotInput,
 	now = new Date().toISOString(),
 ): Promise<BotSummary> {
+	assertContextWindowTokens(input.tickSettings?.contextWindowTokens);
 	if (input.instructionLanguage !== undefined) {
 		try { input = { ...input, instructionLanguage: parseInstructionLanguagePreference(input.instructionLanguage) }; }
 		catch (error) {
@@ -1648,6 +1653,7 @@ async function updateBot(
 	if (!canInheritProfile) {
 		assertMaterializedProfileFields(updated.displayName, updated.shortBio, updated.prompt);
 	}
+	assertContextWindowTokens(updated.tickSettings.contextWindowTokens);
 	const effectiveUpdated = canInheritProfile ? await effectiveBotDocument(kv, db, updated) : effectiveStandaloneBot(updated);
 	const personalForumUpdate = await personalForumUpdateForBotProfile(kv, db, bot, effectiveUpdated, now);
 
@@ -4441,6 +4447,7 @@ async function upsertBotRuntimeIndex(
 	now: string,
 	options: { reschedule?: boolean; scheduleIfMissing?: boolean } = {},
 ): Promise<void> {
+	assertContextWindowTokens(bot.tickSettings.contextWindowTokens);
 	const settings = effectiveTickSettings(bot.tickSettings);
 	const contextWindowTokens = bot.tickSettings.contextWindowTokens ?? null;
 	const nextDue =
@@ -4624,6 +4631,12 @@ export function normalizeUserDefaults(user: UserDocument): UserDocument {
 		displayName: localizedTextFromStored(raw.displayName, language),
 		inferenceSettings: mergeInferenceSettings(undefined, raw.inferenceSettings),
 	};
+}
+
+export function assertContextWindowTokens(value: number | null | undefined): void {
+	if (value !== undefined && value !== null && (!Number.isInteger(value) || value < contextWindowTokensMin || value > contextWindowTokensMax)) {
+		throw new RepositoryError("bad_request", `Context window must be an integer from ${contextWindowTokensMin} through ${contextWindowTokensMax}.`, 400);
+	}
 }
 
 export function mergeTickSettings(

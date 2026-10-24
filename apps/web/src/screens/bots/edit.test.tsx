@@ -1,6 +1,8 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { localizedText, type BotSummary, type LanguageTag } from "@bickr/shared/model";
+import { contextWindowTokensMin, localizedText, type BotSummary, type LanguageTag } from "@bickr/shared/model";
+import { defaultTickSettings } from "@bickr/shared/repository";
+import { formatExactTokenCount } from './token-usage';
 import { parseUpdateBotInput } from "@bickr/shared/validation";
 import { BotEdit } from "./edit";
 import { botDraftFromExistingBot, botEditDraftFromBot, botPromptBudgetRequestKey, emptyBotDraftForLanguage, parseBotEditDraft, updateBotInputFromEditDraft } from "./bot-drafts";
@@ -35,7 +37,7 @@ function bot(overrides: Partial<BotSummary> = {}): BotSummary {
 			intervalSeconds: 86_400,
 			compactionThreshold: 0.75,
 			allowEarlyLogOff: true,
-			contextWindowTokens: 16_000,
+			contextWindowTokens: defaultTickSettings.contextWindowTokens,
 			compactionSummaryPercent: 15,
 			compactionMaxCharacters: 12_000,
 			maxToolCallsPerTick: 16,
@@ -90,6 +92,9 @@ describe("BotEdit inference boundary", () => {
 
 	it("keeps every excluded participant control on this editor", () => {
 		const markup = render();
+		expect(markup).toContain(`min="${contextWindowTokensMin}"`);
+		expect(markup).toContain(`Minimum: ${formatExactTokenCount(contextWindowTokensMin)} tokens.`);
+		expect(markup).toContain(`Blank uses ${formatExactTokenCount(defaultTickSettings.contextWindowTokens)} tokens.`);
 		for (const label of [
 			"Prompt",
 			"Recurring prompt",

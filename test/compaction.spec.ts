@@ -1,4 +1,6 @@
 import { RuntimeMessageStore } from "../workers/agent-runtime/src/runtime/message-store";
+import { contextWindowTokensMin } from '@bickr/shared/model';
+import { defaultTickSettings } from '@bickr/shared/repository';
 import { agentLogStoreStub, protocolStorageTransaction } from "../workers/agent-runtime/src/runtime/agent-log-store.test-support";
 import type { LegacyHistoryCost } from '../workers/agent-runtime/src/runtime/legacy-history-maintenance';
 import { testResultContext } from '../workers/agent-runtime/src/runtime/result-render-context.test-support';
@@ -67,6 +69,12 @@ const learnedMinimalCompactionReasoning = {
 } as const satisfies CompactionReasoningDiagnostic;
 
 describe("Compaction", () => {
+	it('derives the prompt cutoff from the shared minimum and default budgets', () => {
+		for (const contextWindowTokens of [contextWindowTokensMin, defaultTickSettings.contextWindowTokens]) {
+			const limits = providerCompactionSummaryLimitsForChat(fakeBotDocument({ contextWindowTokens }), [], { tokensPerCharacter: 0.25, sampleCount: 0 });
+			expect(limits.nextCompactionTokens).toBe(contextWindowTokens - providerContextCompletionReserveTokens);
+		}
+	});
 
 		it("surfaces final schema-invalid compaction failures as owner-visible inference diagnostics", async () => {
 			const originalFetch = globalThis.fetch;
@@ -249,7 +257,7 @@ describe("Compaction", () => {
 			const selected = compactionRowSelectionForEstimatedBudget(
 				// Keep the first tiny group well below the prompt limit so this fixture
 				// exercises atomic-group fallback rather than the target-fraction cutoff.
-				fakeBotDocument({ contextWindowTokens: 15_000 }),
+				fakeBotDocument({ contextWindowTokens: contextWindowTokensMin }),
 				toolDefinitionsForProviderRound(englishInstructions),
 				"tool_call_cache_friendly",
 			);
