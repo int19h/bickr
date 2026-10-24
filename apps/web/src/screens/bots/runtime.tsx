@@ -295,7 +295,7 @@ export function BotRuntimePanel({
 					const partial = old?.kind === 'live' && old.partialResponse ? JSON.parse(old.partialResponse) as { content: string; reasoning: string } : { content: '', reasoning: '' };
 					if (delta.kind === 'content') partial.content += delta.text ?? '';
 					if (delta.kind === 'reasoning') partial.reasoning += delta.text ?? '';
-					const live: AgentLogEntry = { kind: 'live', position: Number.MAX_SAFE_INTEGER, requestId: delta.requestId!, runId: payload.event!.runId, attempts: old?.kind === 'live' ? old.attempts : { count: 1, failures: [] }, partialResponse: JSON.stringify(partial) };
+					const live: AgentLogEntry = { kind: 'live', position: Number.MAX_SAFE_INTEGER, requestId: delta.requestId!, runId: payload.event!.runId, attempts: old?.kind === 'live' ? old.attempts : { count: 1, failures: [] }, partialResponse: JSON.stringify(partial), response: null };
 					return [...current.filter(entry => entry.kind !== 'live' || entry.requestId !== delta.requestId), live];
 				});
 				return;
@@ -966,8 +966,9 @@ export function BotRuntimePanel({
 								default: return <p key={`unknown-notice-${index}`}>Unknown runtime notice.</p>;
 							}
 						}
-						if (entry.kind === 'live') return <div className="event-row activity-assistant" key={entry.requestId}><button className="btn" onClick={() => void viewRequest(entry.requestId)}>Live request</button><pre>{entry.partialResponse ?? ''}</pre></div>;
+						if (entry.kind === 'live') return <div className="event-row activity-assistant" key={entry.requestId}><button className="btn" onClick={() => void viewRequest(entry.requestId)}>Live request</button><pre>{entry.response ?? entry.partialResponse ?? ''}</pre></div>;
 						if (entry.kind !== 'message') return <p key={`unknown-${index}`}>Unknown log entry.</p>;
+						if (entry.author.kind === 'unknown') return <p key={`unknown-author-${entry.message.seq}`}>Unknown message author.</p>;
 						const loopMessage = loopMessages.find(message => message.seq === entry.message.seq) ?? entry.message;
 						return <div key={`${loopMessage.runId}-${loopMessage.seq}`}>
 						{entry.attempts && entry.attempts.count > 1 && entry.requestId && <button className="btn" onClick={() => void viewRequest(entry.requestId!)}>{entry.attempts.count} attempts</button>}

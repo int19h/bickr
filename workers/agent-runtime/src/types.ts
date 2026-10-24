@@ -213,7 +213,7 @@ export type LoopMessageGroupEntry = {
 	message: ChatMessage;
 	origin: BotLoopMessageOrigin;
 	status?: BotLoopMessageStatus;
-	options?: { streamSeq?: number; displayEventSeq?: number; source?: import('@bickr/shared/model').AgentLogSource };
+	options?: { streamSeq?: number; requestId?: string; displayEventSeq?: number; source?: import('@bickr/shared/model').AgentLogSource };
 	extraLogs?: LoopMessageAppendLog[];
 };
 

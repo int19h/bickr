@@ -1,7 +1,7 @@
 import { logAttemptOutcome, logAttemptKind, logAuthor, logCompactionOutcome, logToolDelta, logTrigger, logPartial, storedLogValue } from './agent-log-codecs';
 import { runtimeStorageClearedStateKey } from '../constants';
 import { assertExecutionPublication } from './execution-scope';
-import { agentLogAuthor, type AgentLogAttempt, type AgentLogAttemptOutcome, type AgentLogAttemptSummary, type AgentLogCompactionOutcome, type AgentLogCompactionSession, type AgentLogCompactionTrigger, type AgentLogEntry, type AgentLogFailure, type AgentLogRequest, type AgentLogSource, type AgentLogRequestSummary, type BotLoopMessage } from '@bickr/shared/model';
+import { agentLogAuthor, type AgentLogAuthor, type AgentLogAttempt, type AgentLogAttemptOutcome, type AgentLogAttemptSummary, type AgentLogCompactionOutcome, type AgentLogCompactionSession, type AgentLogCompactionTrigger, type AgentLogEntry, type AgentLogFailure, type AgentLogRequest, type AgentLogSource, type AgentLogRequestSummary, type BotLoopMessage } from '@bickr/shared/model';
 import { loopMessageContributesToProviderHistory } from '../provider/sanitize';
 import { RepositoryError } from '@bickr/shared/repository';
 import { ProviderCompactionRequestError, ProviderLoopRequestError, ProviderRequestError, ProviderRequestTimeoutError, ProviderResponseBodyTimeoutError, ProviderResponseInterruptedError, ProviderStreamIdleTimeoutError, ProviderStructuredOutputValidationError, TickStoppedError } from '../errors';
@@ -222,10 +222,10 @@ export class AgentLogStore {
 		for (const [key, live] of this.liveAttempts) if (live.attemptId === id) this.liveAttempts.delete(key);
 	}
 
-	private partialText(id: number, retained: string | null): string | null {
+	private partialText(id: number, retained: string | null, stored?: string): string | null {
 		const live = [...this.liveAttempts.values()].find(attempt => attempt.attemptId === id);
 		if (live && (live.unflushedBytes || retained)) return JSON.stringify(live.text);
-		return retained ? JSON.stringify(logPartial(storedLogValue(this.readChunks(id, 'partial')))) : null;
+		return retained ? JSON.stringify(logPartial(storedLogValue(stored ?? this.readChunks(id, 'partial')))) : null;
 	}
 
 	request(id: string): AgentLogRequest {
@@ -252,11 +252,12 @@ export class AgentLogStore {
 		});
 	}
 
-	migrationStatus(): { authorsPending: boolean; requestsPending: boolean; legacySubmissionsRemain: boolean; legacyAuthorsRemain: boolean } {
+	migrationStatus(): { authorsPending: boolean; requestsPending: boolean; legacySubmissionsRemain: boolean; legacyAuthorsRemain: boolean; legacyPendingRequestsRemain: boolean } {
 		return {
 			authorsPending: !this.migrationDone('agent_log_authors_v1'),
 			requestsPending: !this.migrationDone('agent_log_request_store_v1'),
 			legacySubmissionsRemain: this.storage.sql.exec('SELECT id FROM inference_submissions LIMIT 1').toArray().length > 0,
+			legacyPendingRequestsRemain: this.storage.sql.exec("SELECT key FROM runtime_state WHERE key IN ('pending_tool_v1', 'pending_tool_v2', 'pending_tool_v3') AND (key != 'pending_tool_v3' OR json_extract(value_json, '$.requestId') IS NULL OR json_extract(value_json, '$.requestEventSeq') IS NULL) LIMIT 1").toArray().length > 0,
 			legacyAuthorsRemain: this.storage.sql.exec(`SELECT seq FROM loop_messages WHERE author_json = ? LIMIT 1`, JSON.stringify({ kind: 'legacy_synthetic' })).toArray().length > 0,
 		};
 	}
@@ -267,7 +268,9 @@ export class AgentLogStore {
 	}
 
 	list(): AgentLogRequestSummary[] {
-		return this.storage.sql.exec<RequestRow>('SELECT * FROM inference_requests ORDER BY created_at DESC, id LIMIT 100').toArray().map(row => ({ id: row.id, runId: row.run_id, purpose: row.purpose, state: row.state, createdAt: row.created_at, messageSeq: row.message_seq, sessionId: row.session_id, attempts: this.summary(row.id) }));
+		const rows = this.storage.sql.exec<RequestRow>('SELECT * FROM inference_requests ORDER BY created_at DESC, id LIMIT 100').toArray();
+		const summaries = this.summaries(rows.map(row => row.id));
+		return rows.map(row => ({ id: row.id, runId: row.run_id, purpose: row.purpose, state: row.state, createdAt: row.created_at, messageSeq: row.message_seq, sessionId: row.session_id, attempts: summaries.get(row.id) ?? { count: 0, failures: [] } }));
 	}
 
 	private readChunks(id: number, kind: 'body' | 'outcome' | 'partial'): string {
@@ -279,18 +282,46 @@ export class AgentLogStore {
 	}
 
 	summary(requestId: string): AgentLogAttemptSummary {
-		const attempts = this.storage.sql.exec<Pick<AttemptRow, 'id' | 'outcome_json'>>('SELECT id, outcome_json FROM inference_attempts WHERE request_id = ? ORDER BY id LIMIT 1000', requestId).toArray();
-		return { count: attempts.length, failures: attempts.flatMap(row => {
-			if (!row.outcome_json || logAttemptKind(storedLogValue(row.outcome_json)) === 'success') return [];
-			const outcome = this.outcome(row.id, row.outcome_json);
-			return outcome && outcome.kind !== 'success' ? [{ attemptId: row.id, outcome }] : [];
-		}) };
+		return this.summaries([requestId]).get(requestId) ?? { count: 0, failures: [] };
+	}
+
+	private chunkTexts(ids: number[], kind: 'outcome' | 'partial'): Map<number, string> {
+		const texts = new Map<number, string>();
+		if (!ids.length) return texts;
+		for (const chunk of this.storage.sql.exec<{ attempt_id: number; text: string }>(`SELECT attempt_id, text FROM inference_body_chunks WHERE attempt_id IN (SELECT value FROM json_each(?)) AND kind = ? ORDER BY attempt_id, chunk_index`, JSON.stringify(ids), kind).toArray()) texts.set(chunk.attempt_id, (texts.get(chunk.attempt_id) ?? '') + chunk.text);
+		return texts;
+	}
+
+	private summaries(requestIds: string[]): Map<string, AgentLogAttemptSummary> {
+		const summaries = new Map<string, AgentLogAttemptSummary>();
+		if (!requestIds.length) return summaries;
+		// One JSON parameter keeps the page below SQLite's bound-parameter limit.
+		const attempts = this.storage.sql.exec<Pick<AttemptRow, 'id' | 'outcome_json'> & { request_id: string }>(`SELECT id, request_id, outcome_json FROM inference_attempts WHERE request_id IN (SELECT value FROM json_each(?)) ORDER BY request_id, id`, JSON.stringify(requestIds)).toArray();
+		const failed = attempts.filter(row => row.outcome_json && logAttemptKind(storedLogValue(row.outcome_json)) !== 'success');
+		const texts = this.chunkTexts(failed.map(row => row.id), 'outcome');
+		for (const row of attempts) {
+			const summary: AgentLogAttemptSummary = summaries.get(row.request_id) ?? { count: 0, failures: [] };
+			summary.count++;
+			summaries.set(row.request_id, summary);
+		}
+		for (const row of failed) {
+			const outcome = logAttemptOutcome(storedLogValue(texts.get(row.id) || row.outcome_json!));
+			if (outcome.kind !== 'success') summaries.get(row.request_id)!.failures.push({ attemptId: row.id, outcome });
+		}
+		return summaries;
 	}
 
 	link(messageSeq: number, runId: string, eventSeq: number | undefined, origin: string): void {
 		this.assertCanWrite();
 		if (eventSeq === undefined) return;
 		const request = this.byEvent(runId, eventSeq);
+		if (!request) return;
+		this.linkRequest(messageSeq, runId, request.id, origin);
+	}
+
+	linkRequest(messageSeq: number, runId: string, requestId: string, origin: string): void {
+		this.assertCanWrite();
+		const request = this.storage.sql.exec<RequestRow>('SELECT * FROM inference_requests WHERE id = ? AND run_id = ? LIMIT 1', requestId, runId).toArray()[0];
 		if (!request) return;
 		this.storage.sql.exec('UPDATE loop_messages SET request_id = ?, session_id = ? WHERE seq = ?', request.id, request.session_id, messageSeq);
 		if (origin === 'provider_response' || origin === 'compaction') this.storage.sql.exec('UPDATE inference_requests SET message_seq = ? WHERE id = ?', messageSeq, request.id);
@@ -343,25 +374,45 @@ export class AgentLogStore {
 		return { id: row.id, trigger: logTrigger(storedLogValue(row.trigger_json)), position: row.position, createdAt: row.created_at, outcome: logCompactionOutcome(storedLogValue(row.outcome_json)), requests: this.storage.sql.exec<{ id: string }>('SELECT id FROM inference_requests WHERE session_id = ? ORDER BY event_seq LIMIT 1000', id).toArray().map(request => this.request(request.id)) };
 	}
 
-	entries(messages: BotLoopMessage[], source: number | null): AgentLogEntry[] {
+	private pageAuthor(value: string | null, message: BotLoopMessage): AgentLogAuthor {
+		try { return logAuthor(value ? storedLogValue(value) : agentLogAuthor(message.origin, message.role)); }
+		catch (error) {
+			if (error instanceof RepositoryError && error.status === 409) return { kind: 'unknown' };
+			throw error;
+		}
+	}
+
+	entries(messages: BotLoopMessage[], source: number | null, activeRunId: string | null = null): AgentLogEntry[] {
+		type References = { seq: number; author_json: string | null; request_id: string | null; session_id: string | null };
+		const refs = new Map(this.storage.sql.exec<References>('SELECT seq, author_json, request_id, session_id FROM loop_messages WHERE seq IN (SELECT value FROM json_each(?))', JSON.stringify(messages.map(message => message.seq))).toArray().map(row => [row.seq, row]));
+		const pagePredicate = source === null ? 'm.compacted_by IS NULL' : 'm.compacted_by = ?';
+		const bindings = source === null ? [] : [source];
+		type UnlinkedRequest = RequestRow & { attempt_id: number | null; partial_response: string | null; outcome_json: string | null };
+		const unlinked = this.storage.sql.exec<UnlinkedRequest>(`SELECT r.*, a.id AS attempt_id, a.partial_response, a.outcome_json
+		 FROM inference_requests r LEFT JOIN loop_messages m ON m.seq = r.anchor_seq
+		 LEFT JOIN inference_attempts a ON a.id = (SELECT id FROM inference_attempts WHERE request_id = r.id ORDER BY id DESC LIMIT 1)
+		 WHERE r.purpose = 'loop' AND r.message_seq IS NULL AND (r.state != 'succeeded' OR r.run_id = ?) AND (${source === null ? "r.state IN ('pending', 'succeeded') OR " : ''}${pagePredicate})
+		 ORDER BY r.position, r.created_at LIMIT 2000`, activeRunId, ...bindings).toArray();
+		const summaries = this.summaries([...new Set([...refs.values()].flatMap(row => row.request_id ? [row.request_id] : []).concat(unlinked.map(row => row.id)))]);
+		const summary = (id: string): AgentLogAttemptSummary => summaries.get(id) ?? { count: 0, failures: [] };
 		const entries: AgentLogEntry[] = messages.flatMap((message): AgentLogEntry[] => {
-			const refs = this.storage.sql.exec<{ author_json: string; request_id: string | null; session_id: string | null }>('SELECT author_json, request_id, session_id FROM loop_messages WHERE seq = ? LIMIT 1', message.seq).one();
+			const ref = refs.get(message.seq);
 			if (message.origin === 'runtime_error' || message.origin === 'dropped_provider_response') {
-				if (message.origin === 'dropped_provider_response' && refs.request_id) return [];
+				if (message.origin === 'dropped_provider_response' && ref?.request_id) return [];
 				return [{ kind: 'notice', position: message.position ?? message.seq, notice: { kind: message.origin === 'runtime_error' ? 'runtime_error' : 'dropped_output', message: message.message.content ?? '', messageSeq: message.seq } }];
 			}
 			if (!loopMessageContributesToProviderHistory(message.origin, message.message)) return [];
-			return [{ kind: 'message', position: message.position ?? message.seq, message, author: logAuthor(refs.author_json ? storedLogValue(refs.author_json) : agentLogAuthor(message.origin, message.role)), requestId: refs.request_id, sessionId: refs.session_id, attempts: refs.request_id ? this.summary(refs.request_id) : null }];
+			return [{ kind: 'message', position: message.position ?? message.seq, message, author: this.pageAuthor(ref?.author_json ?? null, message), requestId: ref?.request_id ?? null, sessionId: ref?.session_id ?? null, attempts: ref?.request_id ? summary(ref.request_id) : null }];
 		});
-		const pagePredicate = source === null ? 'm.compacted_by IS NULL' : 'm.compacted_by = ?';
-		const bindings = source === null ? [] : [source];
-		for (const row of this.storage.sql.exec<RequestRow>(`SELECT r.* FROM inference_requests r LEFT JOIN loop_messages m ON m.seq = r.anchor_seq WHERE r.purpose = 'loop' AND r.message_seq IS NULL AND (${source === null ? "r.state = 'pending' OR " : ''}${pagePredicate}) ORDER BY r.position, r.created_at LIMIT 2000`, ...bindings).toArray()) {
-			if (row.state === 'pending' && source === null) {
-				const attempt = this.latestAttempt(row.id);
-				const partial = attempt === null ? null : this.storage.sql.exec<{ partial_response: string | null }>('SELECT partial_response FROM inference_attempts WHERE id = ? LIMIT 1', attempt).one().partial_response;
-				const partialText = attempt !== null ? this.partialText(attempt, partial) : null;
-				entries.push({ kind: 'live', position: Number.MAX_SAFE_INTEGER, requestId: row.id, runId: row.run_id, attempts: this.summary(row.id), partialResponse: partialText });
-			} else if (row.state === 'failed') entries.push({ kind: 'notice', position: row.position, notice: { kind: 'request_failed', requestId: row.id, attempts: this.summary(row.id) } });
+		const live = source === null ? unlinked.filter(row => row.state === 'pending' || row.state === 'succeeded') : [];
+		const partials = this.chunkTexts(live.flatMap(row => row.attempt_id !== null && row.partial_response ? [row.attempt_id] : []), 'partial');
+		const responses = this.chunkTexts(live.flatMap(row => row.attempt_id !== null && row.state === 'succeeded' && row.outcome_json ? [row.attempt_id] : []), 'outcome');
+		for (const row of unlinked) {
+			if ((row.state === 'pending' || row.state === 'succeeded') && source === null) {
+				const outcome = row.state === 'succeeded' && row.outcome_json ? logAttemptOutcome(storedLogValue(responses.get(row.attempt_id!) || row.outcome_json)) : null;
+				const response = outcome?.kind === 'success' ? outcome.response : outcome?.kind === 'interrupted' ? outcome.response ?? null : null;
+				entries.push({ kind: 'live', position: Number.MAX_SAFE_INTEGER, requestId: row.id, runId: row.run_id, attempts: summary(row.id), partialResponse: row.attempt_id !== null ? this.partialText(row.attempt_id, row.partial_response, partials.get(row.attempt_id)) : null, response });
+			} else if (row.state === 'failed') entries.push({ kind: 'notice', position: row.position, notice: { kind: 'request_failed', requestId: row.id, attempts: summary(row.id) } });
 		}
 		for (const row of this.storage.sql.exec<SessionRow>(`SELECT s.* FROM compaction_sessions s LEFT JOIN loop_messages m ON m.seq = s.anchor_seq WHERE ${pagePredicate} ORDER BY s.position, s.created_at LIMIT 2000`, ...bindings).toArray()) entries.push({ kind: 'notice', position: row.position, notice: { kind: 'compaction_started', sessionId: row.id, outcome: logCompactionOutcome(storedLogValue(row.outcome_json)) } });
 		return entries.sort((a, b) => a.position - b.position);

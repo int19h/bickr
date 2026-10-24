@@ -2,7 +2,8 @@ import type { BotLoopMessage, BotLoopMessageOrigin } from './runtime.ts';
 
 export type AgentLogAuthor =
 	| { kind: 'model' | 'owner_injection' | 'reminder' | 'self_correction' | 'recurring_prompt' | 'spotlight_focus' | 'synthetic_tool_call' | 'local_simulation' | 'compaction_summary' | 'legacy_summary' | 'bickr_report' | 'legacy_synthetic' }
-	| { kind: 'tool_result'; synthetic: boolean };
+	| { kind: 'tool_result'; synthetic: boolean }
+	| { kind: 'unknown' };
 
 export type AgentLogFailure =
 	| { kind: 'provider_error'; status: number | null; errorType: string | null; message: string }
@@ -46,7 +47,7 @@ export type AgentLogNotice =
 	| { kind: 'compaction_started'; sessionId: string; outcome: AgentLogCompactionOutcome };
 export type AgentLogEntry =
 	| { kind: 'message'; position: number; message: BotLoopMessage; author: AgentLogAuthor; requestId: string | null; sessionId: string | null; attempts: AgentLogAttemptSummary | null }
-	| { kind: 'live'; position: number; requestId: string; runId: string; attempts: AgentLogAttemptSummary; partialResponse: string | null }
+	| { kind: 'live'; position: number; requestId: string; runId: string; attempts: AgentLogAttemptSummary; partialResponse: string | null; response: string | null }
 	| { kind: 'notice'; position: number; notice: AgentLogNotice };
 
 export type AgentLogSource = 'recurring_prompt' | 'spotlight_focus' | 'synthetic_tool_call';

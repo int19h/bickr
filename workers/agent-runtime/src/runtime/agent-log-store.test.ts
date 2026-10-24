@@ -375,13 +375,50 @@ describe('agent log storage', () => {
 		expect(() => store.request(id)).toThrow('The stored agent log has an unsupported shape.');
 		expect(() => store.summary(id)).toThrow('The stored agent log has an unsupported shape.');
 		const row = append();
+		storage.sql.exec("UPDATE inference_body_chunks SET text = ? WHERE attempt_id = ? AND kind = 'outcome'", '{"kind":"timeout"}', attempt);
 		storage.sql.exec('UPDATE loop_messages SET author_json = ? WHERE seq = ?', '{"kind":"unknown"}', row.seq);
-		expect(() => store.entries([row], null)).toThrow('The stored agent log has an unsupported shape.');
+		expect(store.entries([row], null)).toMatchObject([{ kind: 'message', author: { kind: 'unknown' } }]);
 		const sessionId = store.startSession('other', { kind: 'manual' });
 		storage.sql.exec('UPDATE compaction_sessions SET outcome_json = ? WHERE id = ?', '{"kind":"unknown"}', sessionId);
 		expect(() => store.session(sessionId)).toThrow('The stored agent log has an unsupported shape.');
 		storage.sql.exec('UPDATE compaction_sessions SET outcome_json = ?, trigger_json = ? WHERE id = ?', '{"kind":"pending"}', '{"kind":"unknown"}', sessionId);
 		expect(() => store.session(sessionId)).toThrow('The stored agent log has an unsupported shape.');
+	});
+
+	it('contains one unknown author between valid entries', () => {
+		const rows = [append(), append(), append()];
+		storage.sql.exec('UPDATE loop_messages SET author_json = ? WHERE seq = ?', '{"kind":"future_author","internalSecret":"private"}', rows[1]!.seq);
+		const entries = store.entries(rows, null);
+		expect(entries).toMatchObject([{ kind: 'message', author: { kind: 'model' } }, { kind: 'message', author: { kind: 'unknown' } }, { kind: 'message', author: { kind: 'model' } }]);
+		expect(JSON.stringify(entries)).not.toContain('internalSecret');
+	});
+
+	it('keeps page read counts flat across messages and failed attempts', () => {
+		const rows = [];
+		for (let seq = 1; seq <= 120; seq++) {
+			const id = request(seq);
+			store.settle(store.startAttempt(id, '{}'), { kind: 'provider_error', status: 429, errorType: 'busy', message: 'Retry.' });
+			store.settle(store.startAttempt(id, '{}'), { kind: 'success', response: 'Reply' });
+			store.finish(id, 'succeeded');
+			rows.push(messages.appendLoopMessage(testResultContext, 'run', { role: 'assistant', content: 'Reply' }, 'provider_response', 'complete', { streamSeq: seq }));
+		}
+		const sql = vi.spyOn(storage.sql, 'exec');
+		const single = store.entries(rows.slice(0, 1), null);
+		const singleReads = sql.mock.calls.length;
+		sql.mockClear();
+		const page = store.entries(rows, null);
+		expect(page).toHaveLength(120);
+		expect(page.every(entry => entry.kind === 'message' && entry.attempts?.count === 2 && entry.attempts.failures.length === 1)).toBe(true);
+		expect(single).toHaveLength(1);
+		expect(sql.mock.calls.length).toBe(singleReads);
+		expect(singleReads).toBeLessThanOrEqual(6);
+	});
+
+	it('counts pending journals without request references for their removal sweep', () => {
+		storage.sql.exec('INSERT INTO runtime_state(key, value_json) VALUES (?, ?)', 'pending_tool_v3', JSON.stringify({ kind: 'provider_group', runId: 'run' }));
+		expect(store.migrationStatus().legacyPendingRequestsRemain).toBe(true);
+		storage.sql.exec('UPDATE runtime_state SET value_json = ? WHERE key = ?', JSON.stringify({ kind: 'provider_group', runId: 'run', requestId: 'request', requestEventSeq: 1 }), 'pending_tool_v3');
+		expect(store.migrationStatus().legacyPendingRequestsRemain).toBe(false);
 	});
 
 	it('keeps structured provider status and error type', () => {

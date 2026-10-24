@@ -1845,7 +1845,7 @@ const runtimeStorageTables: readonly string[] = [...(runtimeSchema + agentLogSch
 
 type LegacyPendingProviderTool = { runId: string; toolCall: ToolCall; args: Record<string, unknown> };
 type PendingProviderTool = LegacyPendingProviderTool & (
-	| { kind: 'provider_group'; assistant: ChatMessage; assistantSeq: number | null }
+	| { kind: 'provider_group'; assistant: ChatMessage; assistantSeq: number | null; requestId?: string; requestEventSeq?: number }
 	| { kind: 'legacy_single_call' }
 ) & { instructionLocale: InstructionLocale; stage: ToolDispatchStage; mutationIdentity?: MutationIdentity };
 
@@ -2993,9 +2993,9 @@ export class BotRuntime {
 
 	// Retention: one in-flight call per object, removed atomically with its result
 	// on success, failure or recovery. It never contains a queue of old calls.
-	private setPendingTool(text: BotText, runId: string, toolCall: ToolCall, args: Record<string, unknown>, assistant: ChatMessage, assistantSeq: number | null): void {
+	private setPendingTool(text: BotText, runId: string, toolCall: ToolCall, args: Record<string, unknown>, assistant: ChatMessage, assistantSeq: number | null, request: { id: string; eventSeq: number }): void {
 		assertExecutionPublication();
-		this.setRuntimeState('pending_tool_v3', { kind: 'provider_group', instructionLocale: text.locale, stage: 'prepared', runId, toolCall, args, assistant, assistantSeq } satisfies PendingProviderTool);
+		this.setRuntimeState('pending_tool_v3', { kind: 'provider_group', instructionLocale: text.locale, stage: 'prepared', runId, toolCall, args, assistant, assistantSeq, requestId: request.id, requestEventSeq: request.eventSeq } satisfies PendingProviderTool);
 	}
 
 	private markPendingToolDispatched(runId: string, toolCallId: string): void {
@@ -3019,7 +3019,8 @@ export class BotRuntime {
 		const row = this.state.storage.sql.exec<{ key: string; value_json: string }>(`SELECT key, value_json FROM runtime_state WHERE key IN ('pending_tool_v1', 'pending_tool_v2', 'pending_tool_v3') AND json_extract(value_json, '$.runId') = ? ORDER BY key DESC LIMIT 1`, runId).toArray()[0];
 		if (!row) return;
 		// One compatibility adapter consumes old journals. Old requests used English.
-		// Retire v1/v2 after the bounded fleet sweep and rollback window end.
+		// The same adapter accepts old v3 journals without request references.
+		// After the fleet sweep settles old journals, advance schemaVersion to 2 and remove these cases.
 		const pending = pendingToolFromStoredRow(row);
 		const text = context.text;
 		const settlement = interruptedToolSettlement(text, pending.toolCall.function.name, pending.stage);
@@ -3039,7 +3040,7 @@ export class BotRuntime {
 		let event: BotRuntimeEvent | undefined;
 		this.runtimeMessageStore().appendProviderToolResult(
 			context,
-			{ runId, message: { ...assistant, tool_calls: [pending.toolCall] }, origin: 'provider_response', status: 'interrupted' },
+			{ runId, message: { ...assistant, tool_calls: [pending.toolCall] }, origin: 'provider_response', status: 'interrupted', ...(pending.kind === 'provider_group' ? { options: { streamSeq: pending.requestEventSeq, requestId: pending.requestId } } : {}) },
 			{ runId, message: attachToolResultView({ role: 'tool', tool_call_id: pending.toolCall.id, content: JSON.stringify(outcome) }, settlementResultView(settlement.outcome === 'unknown' ? 'outcome_unknown' : settlement.outcome, settlement.outcome === 'not_dispatched' ? resultMessage('recovery.notDispatched') : settlement.outcome === 'interrupted' ? resultMessage('recovery.interrupted') : unknownOutcomeText(pending.toolCall.function.name), text)), origin: 'tool_failure', status: 'interrupted' },
 			assistantSeq,
 			() => { event = this.runtimeEventsStore().appendEventWithoutBroadcast(runId, 'tool_result', { name: pending.toolCall.function.name, args: pending.args, mutationIdentity: pending.mutationIdentity, arguments: pending.toolCall.function.arguments, result: outcome, outcome: settlement.outcome }); },
@@ -3995,7 +3996,7 @@ export class BotRuntime {
 				let result: ToolResult;
 				try {
 					await this.renewProgressLease(bot.id, runId, runContext.signal);
-					this.setPendingTool(bot.text, runId, toolCall, args, assistantMessage!, providerResponseGroup.current?.seq ?? null);
+					this.setPendingTool(bot.text, runId, toolCall, args, assistantMessage!, providerResponseGroup.current?.seq ?? null, { id: logicalRequestId!, eventSeq: requestEvent.seq });
 					result = await this.executeTool(bot, runId, toolCall.function.name, args, { ...runContext, inferenceAttribution: response.inferenceAttribution, toolInvocationId: `${runId}:${requestEvent.seq}:${toolCall.id}`, toolCallId: toolCall.id }, (success) => {
 						const recordedToolCall = success.effectiveArgs ? toolCallWithArguments(toolCall, JSON.stringify(providerToolArgs(success.name, success.effectiveArgs))) : toolCall;
 						appendAssistantToolResultPair(toolCall, success.view ? attachToolResultView({ role: 'tool', tool_call_id: toolCall.id, content: typeof success.providerResult === 'string' ? success.providerResult : JSON.stringify(success.providerResult) }, success.view) : { role: 'tool', tool_call_id: toolCall.id, content: typeof success.providerResult === 'string' ? success.providerResult : JSON.stringify(success.providerResult) }, 'tool_result', 'complete', { displayEventSeq: success.displayEventSeq }, recordedToolCall);
@@ -5003,7 +5004,8 @@ export class BotRuntime {
 	private loopMessagesPage(context: ResultRenderContext, input: { page: number; after?: number }, page = this.runtimeMessageStore().loopMessagePageRows(input)): BotLoopMessagesResponse {
 		const messages = page.rows.map(row => loopMessageFromRow(row, context));
 		const source = page.page.pages.find(item => item.page === page.page.currentPage)?.sourceCompactionSeq ?? null;
-		return { messages, entries: this.agentLogStore().entries(messages, source), page: page.page };
+		const journal = this.liveness?.read();
+		return { messages, entries: this.agentLogStore().entries(messages, source, journal?.kind === 'active' ? journal.runId : null), page: page.page };
 	}
 
 	private latestActiveLoopCompactionBoundary(): { messageSeq: number; requestSeq: number; created_at: string } | null {

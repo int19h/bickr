@@ -454,6 +454,22 @@ it('renders an unknown entry as a plain notice', async () => {
 	expect(container.textContent).toContain('Unknown log entry.');
 });
 
+it('renders a generic notice for an unknown author without hiding valid messages', async () => {
+	const rows = [loopMessage(1, 'Before the unknown author'), loopMessage(2, 'Hidden unknown content'), loopMessage(3, 'After the unknown author')];
+	const entries: AgentLogEntry[] = rows.map((message, index) => ({ kind: 'message', position: index + 1, message, author: { kind: index === 1 ? 'unknown' : 'model' }, requestId: null, sessionId: null, attempts: null }));
+	await act(async () => pendingMessages[0]?.resolve({ messages: rows, entries, page: page(1, {}, [{ page: 1, messageCount: 3 }]) }));
+	expect(container.textContent).toContain('Before the unknown author');
+	expect(container.textContent).toContain('Unknown message author.');
+	expect(container.textContent).toContain('After the unknown author');
+	expect(container.textContent).not.toContain('Hidden unknown content');
+});
+
+it('shows the full response while a live entry waits for its first tool', async () => {
+	const entry: AgentLogEntry = { kind: 'live', position: 2, requestId: 'waiting-request', runId: 'run', attempts: { count: 1, failures: [] }, partialResponse: null, response: '{"content":"The full response before the tool result"}' };
+	await act(async () => pendingMessages[0]?.resolve({ messages: [], entries: [entry], page: page(1, {}, [{ page: 1, messageCount: 0 }]) }));
+	expect(container.textContent).toContain('The full response before the tool result');
+});
+
 it('names the failed batch count for a partly successful compaction', async () => {
 	const entry: AgentLogEntry = { kind: 'notice', position: 2, notice: { kind: 'compaction_started', sessionId: 'partial-session', outcome: { kind: 'partial', summarySeqs: [3], failedBatchCount: 1, error: { kind: 'timeout' } } } };
 	await act(async () => pendingMessages[0]?.resolve({ messages: [], entries: [entry], page: page(1, {}, [{ page: 1, messageCount: 0 }]) }));

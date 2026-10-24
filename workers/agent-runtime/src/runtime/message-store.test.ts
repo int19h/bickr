@@ -1,13 +1,14 @@
 import { testResultContext } from './result-render-context.test-support';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { BotInferenceSubmissionMessage, BotLoopMessage } from '@bickr/shared/model';
 import {
 	runtimeDiagnosticLoopMessageRetentionCount,
 	runtimeMonitorInitialBackfillLimit,
+	loopMessageLogChunkLength,
 } from '../constants';
 import { loopMessageContributesToProviderHistory } from '../provider/sanitize';
 import type { ProviderToolCallDropReason } from '../types';
-import { loopMessageFromRow, RuntimeMessageStore } from './message-store';
+import { loopMessageFromRow, RuntimeMessageStore, rawLogDeltaDepthLimit } from './message-store';
 import { createRuntimeTestStorage, type RuntimeTestStorage } from './sqlite-test-helper';
 
 describe('RuntimeMessageStore', () => {
@@ -441,6 +442,38 @@ describe('RuntimeMessageStore', () => {
 		expect(logs[1]?.baseLogId).toBe(logs[0]?.id);
 		expect(logs[3]?.baseLogId).toBe(logs[2]?.id);
 		expect(logs[3]?.prefixLength).toBe(320);
+	});
+
+	it('preserves emoji at raw log prefix and chunk cuts', () => {
+		insertMessage(storage, 1, 1);
+		const prefix = 'a'.repeat(400);
+		store.recordLoopMessageLog(1, 'message', prefix + '😀 first');
+		store.recordLoopMessageLog(1, 'message', prefix + '😁 second');
+		const huge = 'b'.repeat(loopMessageLogChunkLength - 1) + '😀 tail';
+		store.recordLoopMessageLog(1, 'message', huge);
+		expect(store.loopMessageLogsForSeq(testResultContext, 1).logs.map(log => log.text)).toEqual([prefix + '😀 first', prefix + '😁 second', huge]);
+	});
+
+	it('bounds raw log chains across distinct message rows', () => {
+		let deepest = 0;
+		for (let seq = 1; seq <= 300; seq++) {
+			insertMessage(storage, seq, seq);
+			const text = 'Common message prefix '.repeat(40) + seq;
+			store.recordLoopMessageLog(seq, 'message', text);
+			const log = storage.sql.exec<{ id: number; base_log_id: number | null }>('SELECT id, base_log_id FROM loop_message_logs WHERE message_seq = ?', seq).one();
+			let next = log.base_log_id;
+			let depth = 0;
+			while (next !== null) { depth++; next = storage.sql.exec<{ base_log_id: number | null }>('SELECT base_log_id FROM loop_message_logs WHERE id = ?', next).one().base_log_id; }
+			deepest = Math.max(deepest, depth);
+			expect(depth).toBeLessThanOrEqual(rawLogDeltaDepthLimit);
+			expect(store.reconstructLoopMessageLogText(log.id)).toBe(text);
+		}
+		expect(deepest).toBe(rawLogDeltaDepthLimit);
+		insertMessage(storage, 301, 301);
+		const sql = vi.spyOn(storage.sql, 'exec');
+		store.recordLoopMessageLog(301, 'message', 'Common message prefix '.repeat(40) + 'last');
+		expect(sql.mock.calls.length).toBeLessThan(80);
+		sql.mockRestore();
 	});
 
 	it('physically caps diagnostic rows and safely removes their dependent logs and chunks', () => {

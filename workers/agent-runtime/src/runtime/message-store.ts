@@ -68,6 +68,8 @@ type LoopMessageRetentionBatch = LoopMessageRetentionResult & {
 
 export type RuntimeStorage = Pick<DurableObjectStorage, 'sql' | 'transactionSync'>;
 
+export const rawLogDeltaDepthLimit = 16;
+
 export class RuntimeMessageStore {
 	private readonly storage: RuntimeStorage;
 	private readonly broadcastLoopMessage: (message: BotLoopMessage) => void;
@@ -140,6 +142,7 @@ export class RuntimeMessageStore {
 					origin: entry.origin,
 					status: entry.status,
 					streamSeq: entry.options?.streamSeq,
+					requestId: entry.options?.requestId,
 					displayEventSeq: entry.options?.displayEventSeq,
 					source: entry.options?.source,
 					broadcast: false,
@@ -201,6 +204,7 @@ export class RuntimeMessageStore {
 		origin: LoopMessageGroupEntry['origin'];
 		status?: BotLoopMessageStatus;
 		streamSeq?: number;
+		requestId?: string;
 		displayEventSeq?: number;
 		position?: number;
 		createdAt?: string;
@@ -235,7 +239,8 @@ export class RuntimeMessageStore {
 		const seq = this.storage.sql.exec<{ seq: number }>(`SELECT last_insert_rowid() AS seq`).one().seq;
 		const log = new AgentLogStore(this.storage);
 		log.writeAuthor(seq, input.origin, input.message.role, input.source);
-		log.link(seq, input.runId, input.streamSeq, input.origin);
+		if (input.requestId) log.linkRequest(seq, input.runId, input.requestId, input.origin);
+		else log.link(seq, input.runId, input.streamSeq, input.origin);
 		const message = loopMessageFromRow({
 			seq,
 			position,
@@ -660,7 +665,15 @@ export class RuntimeMessageStore {
 		const row = this.storage.sql
 			.exec<{ id: number }>(`SELECT id FROM loop_message_logs WHERE kind = ? ORDER BY id DESC LIMIT 1`, kind)
 			.toArray()[0];
-		return row ? { id: row.id, text: this.reconstructLoopMessageLogText(row.id) } : null;
+		if (!row) return null;
+		let id: number | null = row.id;
+		let depth = 0;
+		while (id !== null && depth < rawLogDeltaDepthLimit) {
+			const base: { base_log_id: number | null } | undefined = this.storage.sql.exec<{ base_log_id: number | null }>('SELECT base_log_id FROM loop_message_logs WHERE id = ? LIMIT 1', id).toArray()[0];
+			id = base?.base_log_id ?? null;
+			if (id !== null) depth++;
+		}
+		return depth < rawLogDeltaDepthLimit ? { id: row.id, text: this.reconstructLoopMessageLogText(row.id) } : null;
 	}
 
 	removeLog(id: number): void {
@@ -1193,7 +1206,13 @@ function commonPrefixLength(left: string, right: string): number {
 	while (index < limit && left.charCodeAt(index) === right.charCodeAt(index)) {
 		index += 1;
 	}
-	return index;
+	return unicodeBoundary(left, index);
+}
+
+function unicodeBoundary(text: string, offset: number): number {
+	const previous = text.charCodeAt(offset - 1);
+	const next = text.charCodeAt(offset);
+	return previous >= 0xd800 && previous <= 0xdbff && next >= 0xdc00 && next <= 0xdfff ? offset - 1 : offset;
 }
 
 function chunkText(text: string, chunkLength: number): string[] {
@@ -1201,8 +1220,10 @@ function chunkText(text: string, chunkLength: number): string[] {
 		return [''];
 	}
 	const chunks: string[] = [];
-	for (let index = 0; index < text.length; index += chunkLength) {
-		chunks.push(text.slice(index, index + chunkLength));
+	for (let index = 0; index < text.length;) {
+		const end = unicodeBoundary(text, Math.min(text.length, index + chunkLength));
+		chunks.push(text.slice(index, end));
+		index = end;
 	}
 	return chunks;
 }
