@@ -45,7 +45,6 @@ export type LoopToolCallContext = {
 export type ReadableDisplayContext = {
 	worldHandle?: string;
 	allowActiveWorldFallback: boolean;
-	markdownText?: string;
 };
 
 function isMarkdownContent(format: BotLoopMessage['contentFormat']): boolean {
@@ -228,15 +227,22 @@ export function ReadableToolResult({
 	display?: BotLoopMessage["display"];
 	toolCall?: LoopToolCallContext;
 }) {
-	const parsed = display?.kind === "tool_result" ? display.result : isMarkdownContent(contentFormat) ? undefined : parseJsonValue(content);
+	if (isMarkdownContent(contentFormat)) {
+		const name = canonicalDisplayToolName(display?.name ?? toolCall?.name ?? '');
+		return (
+			<div className="tool-block readable">
+				<span>{readableToolResultTitle(name)}</span>
+				<LoopMarkdown text={content} worldHandle={display?.context?.worldHandle} />
+			</div>
+		);
+	}
+	if (contentFormat === 'text') return <div className="loop-readable-text">{normalizeReadableText(content)}</div>;
+	const parsed = display?.kind === "tool_result" ? display.result : parseJsonValue(content);
 	const inferredName = display?.name ?? toolCall?.name ?? inferToolNameFromResult(parsed);
 	const name = canonicalDisplayToolName(inferredName);
 	const failure = readableToolFailureRecord(parsed);
 	const args = recordValue(display?.args ?? toolCall?.args);
-	const displayContext = { ...readableDisplayContext(display), ...(isMarkdownContent(contentFormat) ? { markdownText: content } : {}) };
-	if (isMarkdownContent(contentFormat) && !display) {
-		return <div className="tool-block readable"><span>{readableToolResultTitle(name)}</span><LoopMarkdown text={content} /></div>;
-	}
+	const displayContext = readableDisplayContext(display);
 	if (failure) {
 		return (
 			<div className="tool-block readable">
@@ -286,9 +292,9 @@ export function ReadableToolFailure({ displayContext, failure }: { displayContex
 	const hasExistingThread = Boolean(threadIdFromValue(failure.existingThreadRef ?? failure.existingThreadId));
 	return (
 		<div className="tool-pretty tool-list">
-			{message && <div className="tool-pretty-item">{displayContext.markdownText !== undefined ? <LoopMarkdown text={message} worldHandle={displayContext.worldHandle} /> : message}</div>}
+			{message && <div className="tool-pretty-item">{message}</div>}
 			{hasExistingThread && <ReadableFailureExistingThread displayContext={displayContext} failure={failure} />}
-			{guidance && <div className="tool-pretty-item">{displayContext.markdownText !== undefined ? <LoopMarkdown text={guidance} worldHandle={displayContext.worldHandle} /> : guidance}</div>}
+			{guidance && <div className="tool-pretty-item">{guidance}</div>}
 			{!message && !guidance && !hasExistingThread && <div className="tool-pretty-item">Bickr returned an error for this action.</div>}
 		</div>
 	);

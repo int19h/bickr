@@ -1,9 +1,10 @@
+import { loopMarkdownFixture as fixture } from '../../../../test/fixtures/loop-markdown';
 import { ReferenceDataContext } from '../components/content';
 import { NavigationContext } from '../components/navigation';
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { describe, expect, it } from 'vitest';
-import { localizedText, type BotLoopMessage } from '@bickr/shared/model';
+import { type BotLoopMessage } from '@bickr/shared/model';
 import { LoopMessageRow, RawInferenceSubmissionMessageView } from '../screens/bots/loop-messages';
 import { LoopMessageReadableView } from './loop-message-readable';
 
@@ -43,18 +44,42 @@ describe('Loop Markdown', () => {
 		} finally { view.close(); }
 	});
 
-	it('uses Markdown for opaque and note results while it keeps conversation cards', () => {
-		const base = { kind: 'tool_result' as const, eventSeq: 1, name: 'read_note', args: {}, result: {} };
-		const view = render(<>
-			<LoopMessageReadableView contentFormat="markdown" message={row.message} display={{ ...base, envelope: { kind: 'opaque', value: note } }} />
-			<LoopMessageReadableView contentFormat="markdown" message={row.message} display={{ ...base, envelope: { kind: 'note_read', id: 'PLAN', content: note, links: [] } }} />
-			<LoopMessageReadableView contentFormat="markdown" message={{ role: 'tool', content: 'Fallback source' }} display={{ ...base, name: 'read_thread', envelope: { kind: 'content_read', items: [{ kind: 'thread', id: 'thr_one', title: localizedText('A conversation', null), body: localizedText('### Body heading\n\n> Quoted body', null) }] } }} />
-		</>);
+	it('shows the stored thread pruning and shortened body instead of the full event card', () => {
+		const message = { role: 'tool' as const, tool_call_id: 'read', content: fixture.providerText };
+		const view = render(<LoopMessageReadableView contentFormat="markdown" message={message} display={fixture.display} />);
 		try {
-			expect(view.container.querySelectorAll('h3')).toHaveLength(2);
-			expect(view.container.querySelector('.readable-thread-card h4')?.textContent).toBe('Body heading');
-			expect(view.container.querySelector('pre')).toBeNull();
-			expect(view.container.textContent).not.toContain('Fallback source');
+			expect(fixture.providerText).toContain('1 more reply');
+			expect(view.container.textContent).toContain('This text is shortened.');
+			expect(view.container.textContent).toContain(fixture.shortenedBody);
+			expect(view.container.textContent).toContain('1 more reply to this comment is not shown.');
+			expect(view.container.textContent).toContain('I read this text earlier');
+			expect(view.container.textContent).not.toContain(fixture.hiddenBody);
+			expect(view.container.textContent).not.toContain(fixture.fullBody.trim());
+			expect(view.container.querySelector('.readable-thread-card')).toBeNull();
+			expect(view.container.querySelector('.markdown-body')?.getAttribute('data-markdown-source')).toBe(message.content);
+		} finally { view.close(); }
+	});
+
+	it('renders stored failures and settlements from their participant text', () => {
+		for (const content of [fixture.failureText, fixture.settlementText]) {
+			const message = { role: 'tool' as const, tool_call_id: 'failed', content };
+			const view = render(<LoopMessageReadableView contentFormat="markdown" message={message} display={{
+				kind: 'tool_result', eventSeq: 2, name: 'read_thread', args: {}, result: { error: 'refused', message: 'Full event diagnostic' },
+			}} />);
+			try {
+				expect(view.container.querySelector('.markdown-body')?.getAttribute('data-markdown-source')).toBe(message.content);
+				expect(view.container.textContent).not.toContain('Full event diagnostic');
+				expect(view.container.querySelector('pre')).toBeNull();
+			} finally { view.close(); }
+		}
+	});
+
+	it('keeps conversation cards for legacy JSON rows', () => {
+		const view = render(<LoopMessageReadableView contentFormat="json" message={{ role: 'tool', content: '{}' }} display={fixture.display} />);
+		try {
+			expect(view.container.querySelector('.readable-thread-card')).not.toBeNull();
+			expect(view.container.textContent).toContain(fixture.fullBody.trim());
+			expect(view.container.textContent).toContain(fixture.hiddenBody);
 		} finally { view.close(); }
 	});
 

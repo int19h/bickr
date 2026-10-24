@@ -1,4 +1,3 @@
-import { LoopMarkdown } from "./loop-markdown";
 import { localizedTextString, type CommentDocument, type ThreadDocument } from "@bickr/shared/model";
 import type {
 	RandomRangeTarget,
@@ -55,12 +54,12 @@ export const readableToolResultRenderers = {
 			))}
 		</ReadableResultList>
 	),
-	profile_viewed: ({ profiles }, context) => resultText(profiles, context),
-	note_listed: ({ ids, nextCursor, total, unknownFilters }, context) => resultText({ ids, nextCursor, total, unknownFilters }, context),
-	note_read: ({ id, content, links }, context) => resultText({ id, content, links }, context),
-	note_written: ({ outcome, id, links, unknownReferences }, context) => resultText({ outcome, id, links, unknownReferences }, context),
+	profile_viewed: ({ profiles }) => <JsonSyntaxBlock value={profiles} />,
+	note_listed: ({ ids, nextCursor, total, unknownFilters }) => <JsonSyntaxBlock value={{ ids, nextCursor, total, unknownFilters }} />,
+	note_read: ({ id, content, links }) => <JsonSyntaxBlock value={{ id, content, links }} />,
+	note_written: ({ outcome, id, links, unknownReferences }) => <JsonSyntaxBlock value={{ outcome, id, links, unknownReferences }} />,
 	note_deleted: ({ id }) => <span>Deleted note {id}.</span>,
-	note_reset: ({ id, content }, context) => resultText({ reset: id, content }, context),
+	note_reset: ({ id, content }) => <JsonSyntaxBlock value={{ reset: id, content }} />,
 	content_read: ({ items }, displayContext) => (
 		<ReadableResultList empty="No readable content was returned.">
 			{items.map((item, index) => {
@@ -78,25 +77,19 @@ export const readableToolResultRenderers = {
 			))}
 		</ReadableResultList>
 	),
-	forums_listed: ({ forums }, context) => resultText(forums, context),
+	forums_listed: ({ forums }) => <JsonSyntaxBlock value={forums} />,
 	threads_listed: ({ items }, context) => renderContentItems(items, context),
 	posts_read: ({ items }, context) => renderContentItems(items, context),
 	posts_searched: ({ items }, context) => renderContentItems(items, context),
-	profiles_searched: ({ profiles }, context) => resultText(profiles, context),
-	profiles_listed: ({ page }, context) => resultText(page, context),
-	notifications_checked: ({ events }, context) => resultText(events, context),
-	activity_viewed: ({ feed }, context) => resultText(feed, context),
-	followers_queried: ({ result }, context) => resultText(result, context),
+	profiles_searched: ({ profiles }) => <JsonSyntaxBlock value={profiles} />,
+	profiles_listed: ({ page }) => <JsonSyntaxBlock value={page} />,
+	notifications_checked: ({ events }) => <JsonSyntaxBlock value={events} />,
+	activity_viewed: ({ feed }) => <JsonSyntaxBlock value={feed} />,
+	followers_queried: ({ result }) => <JsonSyntaxBlock value={result} />,
 	batch_settled: () => <span>Finished the batch.</span>,
 	logged_off: () => <span>Finished.</span>,
-	opaque: ({ value }, context) => resultText(value, context),
+	opaque: ({ value }) => <JsonSyntaxBlock value={value} />,
 } satisfies ResultRendererTable;
-
-function resultText(value: unknown, context: ReadableDisplayContext): ReactNode {
-	return context.markdownText !== undefined
-		? <LoopMarkdown text={context.markdownText} worldHandle={context.worldHandle} />
-		: <JsonSyntaxBlock value={value} />;
-}
 
 function renderContentItems(items: ToolResultContentItem[], context: ReadableDisplayContext): ReactNode {
 	return readableToolResultRenderers.content_read({ kind: 'content_read', items }, context);
