@@ -46,7 +46,7 @@ function harness(name: string, args: Record<string, unknown>) {
 	const statement = { bind: () => statement, first: vi.fn(async () => ({ threadId: thread.id })), all: vi.fn(async () => ({ results: [] })), run: vi.fn(async () => ({})) };
 	const env = { BICKR_D1: { prepare: () => statement }, BICKR_KV: {}, FORUM_COORDINATOR_SERVICE: { fetch }, INTERNAL_SERVICE_SECRET: 'test' } as unknown as RuntimeToolsRuntime['env'];
 	const runtime = Object.assign(Object.create(BotRuntime.prototype), { state: { storage, getWebSockets: () => [] }, env });
-	runtime.setPendingTool(text, 'run', call, args, assistant, null);
+	runtime.setPendingTool(text, 'run', call, args, assistant, null, { id: 'request', eventSeq: 1 });
 	const store = new RuntimeMessageStore(storage);
 	const notes = new BotNotesStore(storage);
 	const events: BotRuntimeEvent[] = [];
@@ -151,7 +151,7 @@ describe('actual preparation and send boundaries', () => {
 		expect(crypto.subtle.digest).toHaveBeenCalled();
 		await vi.advanceTimersByTimeAsync(serviceBindingTimeoutMs);
 		expect(await pending).toBeInstanceOf(ToolPreparationError);
-		h.runtime.setPendingTool(text, 'run', { ...h.call, id: 'next' }, {}, h.assistant, null);
+		h.runtime.setPendingTool(text, 'run', { ...h.call, id: 'next' }, {}, h.assistant, null, { id: 'request', eventSeq: 1 });
 		gate.resolve(new Uint8Array(32).buffer); await vi.advanceTimersByTimeAsync(0);
 		expect(h.journal()).toMatchObject({ stage: 'prepared', toolCall: { id: 'next' } });
 		expect(h.fetch).not.toHaveBeenCalled();

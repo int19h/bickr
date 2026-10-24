@@ -1,4 +1,7 @@
 import type {
+	AgentLogEntry,
+	AgentLogRequest,
+	AgentLogCompactionSession,
 	BotLoopMessage,
 	BotLoopMessageLogsResponse,
 	BotLoopMessagePage,
@@ -22,10 +25,10 @@ import {
 	upsertLiveProviderLoopMessage,
 } from "../../loop-message-streams";
 import { loopContinuationRowsForPage } from "../../loop-page-continuations";
-import { Avatar, Confirm, Icon, textValue } from "../../ui";
+import { Avatar, Confirm, Icon, Modal, textValue } from "../../ui";
 import { useBotEffectiveModels } from "../../inference/bot-models";
 import { loopToolCallsById } from "../../readable/loop-message-values";
-import { LoopContinuationRow, LoopMessageLogsModal, LoopMessagePager, LoopMessageRow } from "./loop-messages";
+import { AgentLogRequestView, LoopContinuationRow, LoopMessageLogsModal, LoopMessagePager, LoopMessageRow } from "./loop-messages";
 import { RuntimeRow } from "./runtime-row";
 import {
 	formatTickIntervalMinutes,
@@ -48,6 +51,15 @@ export type RuntimeMonitorPayload = {
 	seq?: number;
 	deletedAt?: string;
 };
+
+type RequestLogEntry = Extract<AgentLogEntry, { kind: 'live' | 'message' }>;
+
+function ignoresStreamDelta(entry: RequestLogEntry | undefined, delta: { attemptId?: number; deltaRevision?: number }): boolean {
+	if (!entry) return false;
+	if (entry.kind === 'message') return true;
+	if (entry.attemptId !== undefined && delta.attemptId !== undefined && entry.attemptId !== delta.attemptId) return delta.attemptId < entry.attemptId;
+	return entry.response !== null || (entry.deltaRevision !== undefined && delta.deltaRevision !== undefined && delta.deltaRevision <= entry.deltaRevision);
+}
 
 export function BotLoopScreen({
 	bot,
@@ -108,6 +120,24 @@ export function BotRuntimePanel({
 }) {
 	const [status, setStatus] = useState<BotRuntimeStatus | null>(null);
 	const [events, setEvents] = useState<BotRuntimeEvent[]>([]);
+	const [loopEntries, setLoopEntries] = useState<AgentLogEntry[]>([]);
+	const [requestDetail, setRequestDetail] = useState<AgentLogRequest | null>(null);
+	const [sessionDetail, setSessionDetail] = useState<AgentLogCompactionSession | null>(null);
+	useEffect(() => {
+		if (!requestDetail || requestDetail.state !== 'pending') return;
+		const id = requestDetail.id;
+		let closed = false;
+		let fetching = false;
+		const timer = window.setInterval(async () => {
+			if (fetching) return;
+			fetching = true;
+			try {
+				const result = await api<{ request: AgentLogRequest }>(`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/requests/${encodeURIComponent(id)}`);
+				if (!closed && result.ok) setRequestDetail(current => current?.id === id ? result.data.request : current);
+			} finally { fetching = false; }
+		}, 500);
+		return () => { closed = true; window.clearInterval(timer); };
+	}, [bot.id, requestDetail?.id, requestDetail?.state]);
 	const [loopMessages, setLoopMessages] = useState<BotLoopMessage[]>([]);
 	const [loopMessagePage, setLoopMessagePage] = useState<BotLoopMessagePage | null>(null);
 	const [openLoopMessageLogs, setOpenLoopMessageLogs] = useState<BotLoopMessageLogsResponse | null>(null);
@@ -136,6 +166,11 @@ export function BotRuntimePanel({
 	const statusRequestGenerationRef = useRef(0);
 	const eventsRequestGenerationRef = useRef(0);
 	const messagesRequestGenerationRef = useRef(0);
+	const streamRevisionRef = useRef(0);
+	// Keep only the current snapshot. Reject old frames before they enter the refresh buffer.
+	const streamSnapshotEntriesRef = useRef(new Map<string, RequestLogEntry>());
+	const liveUpdatesRef = useRef(new Map<string, { revision: number; runId: string; attemptId?: number; deltas: Array<{ arrival: number; revision?: number; kind?: string; text?: string; part?: unknown }> }>());
+	const endedRunsRef = useRef(new Set<string>());
 	const usageRequestGenerationRef = useRef(0);
 	const trailingRefreshTimerRef = useRef<number | undefined>(undefined);
 	const reconnectAttemptRef = useRef(0);
@@ -166,9 +201,14 @@ export function BotRuntimePanel({
 		messagesRequestGenerationRef.current += 1;
 		usageRequestGenerationRef.current += 1;
 		reconnectAttemptRef.current = 0;
+		streamRevisionRef.current = 0;
+		liveUpdatesRef.current.clear();
+		endedRunsRef.current.clear();
 		setStatus(null);
 		setEvents([]);
 		setLoopMessages([]);
+		streamSnapshotEntriesRef.current.clear();
+		setLoopEntries([]);
 		setLoopMessagePage(null);
 		setOpenLoopMessageLogs(null);
 		setLoopMessageLogLoadingSeq(null);
@@ -209,9 +249,12 @@ export function BotRuntimePanel({
 
 		function handleMonitorPayload(payload: RuntimeMonitorPayload): void {
 			if (payload.type === "history_cleared") {
+				liveUpdatesRef.current.clear();
 				invalidateRefreshes({ events: true, messages: true });
 				setEvents([]);
 				setLoopMessages([]);
+				streamSnapshotEntriesRef.current.clear();
+				setLoopEntries([]);
 				setLoopMessagePage(null);
 				setOpenLoopMessageLogs(null);
 				setDeletingLoopMessageSeq(null);
@@ -245,6 +288,7 @@ export function BotRuntimePanel({
 			if (payload.type === "loop_message_deleted" && Number.isInteger(payload.seq)) {
 				invalidateRefreshes({ messages: true });
 				setLoopMessages((current) => current.filter((item) => item.seq !== payload.seq));
+				setLoopEntries(current => current.filter(entry => entry.kind !== 'message' || entry.message.seq !== payload.seq));
 				setOpenLoopMessageLogs((current) => current && current.message.seq === payload.seq ? null : current);
 				setDeletingLoopMessageSeq((current) => current === payload.seq ? null : current);
 				scheduleTrailingRefresh();
@@ -264,6 +308,33 @@ export function BotRuntimePanel({
 				if (currentLoopPageRef.current !== 1) {
 					return;
 				}
+				if (endedRunsRef.current.has(payload.event.runId)) return;
+				const delta = payload.event.payload as { requestId?: string; kind?: string; text?: string; deltaRevision?: number; attemptId?: number; part?: unknown };
+				if (delta.requestId) {
+					if (ignoresStreamDelta(streamSnapshotEntriesRef.current.get(delta.requestId), delta)) return;
+					const arrival = ++streamRevisionRef.current;
+					const currentUpdate = liveUpdatesRef.current.get(delta.requestId);
+					if (currentUpdate?.attemptId !== undefined && delta.attemptId !== undefined && delta.attemptId < currentUpdate.attemptId) return;
+					const previousRevision = currentUpdate?.deltas.at(-1)?.revision;
+					if (currentUpdate?.attemptId === delta.attemptId && previousRevision !== undefined && delta.deltaRevision !== undefined && delta.deltaRevision <= previousRevision) return;
+					const previous = currentUpdate?.attemptId !== undefined && delta.attemptId !== undefined && currentUpdate.attemptId !== delta.attemptId ? undefined : currentUpdate;
+					const update = previous ?? { revision: arrival, runId: payload.event.runId, attemptId: delta.attemptId, deltas: [] };
+					update.revision = arrival;
+					update.attemptId = delta.attemptId ?? update.attemptId;
+					update.deltas.push({ arrival, revision: delta.deltaRevision, kind: delta.kind, text: delta.text, part: delta.part });
+					liveUpdatesRef.current.set(delta.requestId, update);
+					setLoopEntries(current => {
+						const existing = current.find((entry): entry is RequestLogEntry => (entry.kind === 'live' || entry.kind === 'message') && entry.requestId === delta.requestId);
+						if (ignoresStreamDelta(existing, delta)) return current;
+						const old = existing?.kind === 'live' && (existing.attemptId === undefined || delta.attemptId === undefined || existing.attemptId === delta.attemptId) ? existing : undefined;
+						const partial = old?.kind === 'live' && old.partialResponse ? JSON.parse(old.partialResponse) as { content: string; reasoning: string; toolCalls?: unknown[] } : { content: '', reasoning: '', toolCalls: [] };
+						if (delta.kind === 'content') partial.content += delta.text ?? '';
+						if (delta.kind === 'reasoning') partial.reasoning += delta.text ?? '';
+						if (delta.kind === 'tool_call') (partial.toolCalls ??= []).push(delta.part);
+						const live: AgentLogEntry = { kind: 'live', position: Number.MAX_SAFE_INTEGER, requestId: delta.requestId!, runId: payload.event!.runId, attempts: old?.kind === 'live' ? old.attempts : { count: 1, failures: [] }, partialResponse: JSON.stringify(partial), response: null, deltaRevision: delta.deltaRevision ?? old?.deltaRevision, attemptId: delta.attemptId ?? old?.attemptId };
+						return [...current.filter(entry => entry.kind !== 'live' || entry.requestId !== delta.requestId), live];
+					});
+				}
 				setLoopMessages((current) => upsertLiveProviderLoopMessage(current, payload.event!));
 				return;
 			}
@@ -277,6 +348,8 @@ export function BotRuntimePanel({
 				const terminal = ["tick_completed", "tick_failed", "tick_stopped"].includes(payload.event.type);
 				invalidateRefreshes({ events: true, messages: terminal });
 				if (terminal) {
+					rememberEndedRun(payload.event.runId);
+					setLoopEntries(current => current.filter(entry => entry.kind !== 'live' || entry.runId !== payload.event!.runId));
 					if (currentLoopPageRef.current === 1) {
 						setLoopMessages((current) => removeLiveProviderLoopMessagesForRun(current, payload.event!.runId));
 					}
@@ -456,6 +529,13 @@ export function BotRuntimePanel({
 		shouldStickToBottomRef.current = log.scrollHeight - log.scrollTop - log.clientHeight < 24;
 	}
 
+	function rememberEndedRun(runId: string): void {
+		endedRunsRef.current.add(runId);
+		// Only recent runs can still have delayed socket frames or snapshots.
+		if (endedRunsRef.current.size > 1_000) endedRunsRef.current.delete(endedRunsRef.current.values().next().value!);
+		for (const [id, update] of liveUpdatesRef.current) if (update.runId === runId) liveUpdatesRef.current.delete(id);
+	}
+
 	function invalidateRefreshes(parts: { events?: boolean; messages?: boolean }): void {
 		if (parts.events) eventsRequestGenerationRef.current += 1;
 		if (parts.messages) messagesRequestGenerationRef.current += 1;
@@ -489,6 +569,7 @@ export function BotRuntimePanel({
 		const statusGeneration = ++statusRequestGenerationRef.current;
 		const eventsGeneration = ++eventsRequestGenerationRef.current;
 		const messagesGeneration = ++messagesRequestGenerationRef.current;
+		const streamRevisionAtStart = streamRevisionRef.current;
 		const usageGeneration = ++usageRequestGenerationRef.current;
 		const messageQuery = new URLSearchParams();
 		if (requestedPage > 1) {
@@ -512,6 +593,8 @@ export function BotRuntimePanel({
 			// remain additive, but a reconnect snapshot must remove rows whose delete
 			// or history-clear notification was missed while disconnected.
 			setEvents(eventsResult.data.events);
+			for (const event of eventsResult.data.events) if (['tick_completed', 'tick_failed', 'tick_stopped'].includes(event.type)) rememberEndedRun(event.runId);
+			setLoopEntries(current => current.filter(entry => entry.kind !== 'live' || !endedRunsRef.current.has(entry.runId)));
 		}
 		if (messagesResult.ok && messagesGeneration === messagesRequestGenerationRef.current) {
 			const page = messagesResult.data.page;
@@ -545,6 +628,43 @@ export function BotRuntimePanel({
 			currentLoopPageRef.current = page.currentPage;
 			currentLoopSourceCompactionSeqRef.current = returnedSource;
 			setLoopMessagePage(page);
+			// The snapshot replaces older live entries. Only newer stream updates
+			// can fill gaps or supersede a live value returned by this snapshot.
+			for (const [id, update] of liveUpdatesRef.current) {
+				if (update.revision <= streamRevisionAtStart) liveUpdatesRef.current.delete(id);
+				else update.deltas = update.deltas.filter(delta => delta.arrival > streamRevisionAtStart);
+			}
+			streamSnapshotEntriesRef.current = new Map(messagesResult.data.entries.flatMap(entry => (entry.kind === 'live' || entry.kind === 'message') && entry.requestId ? [[entry.requestId, entry] as const] : []));
+			const retainedUpdates = new Map([...liveUpdatesRef.current].map(([id, update]) => [id, { ...update, deltas: [...update.deltas] }]));
+			const endedRuns = new Set(endedRunsRef.current);
+			setLoopEntries(current => {
+				const entries = messagesResult.data.entries.filter(entry => entry.kind !== 'live' || !endedRuns.has(entry.runId));
+				if (page.currentPage !== 1) return entries;
+				const newer = current.filter((entry): entry is Extract<AgentLogEntry, { kind: 'live' }> => entry.kind === 'live' && !endedRuns.has(entry.runId) && (retainedUpdates.get(entry.requestId)?.revision ?? 0) > streamRevisionAtStart);
+				const ids = new Set(entries.flatMap(entry => entry.kind === 'message' || entry.kind === 'live' ? entry.requestId ? [entry.requestId] : [] : entry.kind === 'notice' && entry.notice.kind === 'request_failed' ? [entry.notice.requestId] : []));
+				const mergeLive = (entry: Extract<AgentLogEntry, { kind: 'live' }>, base?: Extract<AgentLogEntry, { kind: 'live' }>): AgentLogEntry => {
+					const attemptId = retainedUpdates.get(entry.requestId)?.attemptId;
+					if (base?.attemptId !== undefined && attemptId !== undefined && attemptId < base.attemptId) return base;
+					const reset = attemptId !== undefined && base?.attemptId !== undefined && attemptId > base.attemptId;
+					if (base?.response && !reset) return base;
+					const partial = !reset && base?.partialResponse ? JSON.parse(base.partialResponse) as { content: string; reasoning: string; toolCalls?: unknown[] } : { content: '', reasoning: '', toolCalls: [] };
+					const deltas = retainedUpdates.get(entry.requestId)?.deltas ?? [];
+					let deltaRevision = reset ? 0 : base?.deltaRevision ?? 0;
+					for (const delta of deltas) {
+						if (delta.arrival <= streamRevisionAtStart || (delta.revision !== undefined && delta.revision <= deltaRevision)) continue;
+						if (delta.kind === 'content') partial.content += delta.text ?? '';
+						if (delta.kind === 'reasoning') partial.reasoning += delta.text ?? '';
+						if (delta.kind === 'tool_call') (partial.toolCalls ??= []).push(delta.part);
+						deltaRevision = delta.revision ?? deltaRevision;
+					}
+					return { ...(base ?? entry), partialResponse: JSON.stringify(partial), response: reset ? null : base?.response ?? entry.response, deltaRevision, attemptId: attemptId ?? base?.attemptId };
+				};
+				return [...entries.map(entry => {
+					if (entry.kind !== 'live') return entry;
+					const update = newer.find(item => item.requestId === entry.requestId);
+					return update ? mergeLive(update, entry) : entry;
+				}), ...newer.filter(entry => !ids.has(entry.requestId)).map(entry => mergeLive(entry))];
+			});
 			if (page.currentPage === 1) {
 				for (const loopMessage of messagesResult.data.messages) {
 					rememberLoopMessageSeq(loopMessage);
@@ -577,6 +697,8 @@ export function BotRuntimePanel({
 		currentLoopPageRef.current = targetPage;
 		shouldStickToBottomRef.current = targetPage === 1;
 		setLoopMessages([]);
+		streamSnapshotEntriesRef.current.clear();
+		setLoopEntries([]);
 		setOpenLoopMessageLogs(null);
 		setLoopMessageLogError("");
 		setMessage(`Loading loop page ${targetPage}...`);
@@ -707,6 +829,8 @@ export function BotRuntimePanel({
 		setSourceMessage({ botId: bot.id, seq: target.seq, runId: target.runId, requestSeq, generation });
 		setLoopMessagePage(null);
 		setLoopMessages([]);
+		streamSnapshotEntriesRef.current.clear();
+		setLoopEntries([]);
 		// Page numbers change after compaction. Resolve the source generation
 		// through the same authoritative page map used for history navigation.
 		currentLoopSourceCompactionSeqRef.current = target.compactedBy ?? null;
@@ -730,10 +854,23 @@ export function BotRuntimePanel({
 		setLoopMessageLogError(result.message);
 	}
 
+	async function viewRequest(id: string): Promise<void> {
+		const result = await api<{ request: AgentLogRequest }>(`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/requests/${encodeURIComponent(id)}`);
+		if (result.ok) setRequestDetail(result.data.request);
+		else setLoopMessageLogError(result.message);
+	}
+
+	async function viewSession(id: string): Promise<void> {
+		const result = await api<{ session: AgentLogCompactionSession }>(`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/compaction-sessions/${encodeURIComponent(id)}`);
+		if (result.ok) setSessionDetail(result.data.session);
+		else setLoopMessageLogError(result.message);
+	}
+
 	async function deleteLoopMessage(loopMessage: BotLoopMessage): Promise<void> {
 		if (isLiveProviderLoopMessage(loopMessage)) {
 			return;
 		}
+		if (!window.confirm(currentLoopPageRef.current === 1 ? "Delete this message from the model context?" : "Delete this message from the archive?")) return;
 		setDeletingLoopMessageSeq(loopMessage.seq);
 		const result = await api<{ deleted: { seq: number; runId: string; origin: BotLoopMessage["origin"]; deletedAt: string } }>(
 			`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/messages/${encodeURIComponent(String(loopMessage.seq))}`,
@@ -743,6 +880,7 @@ export function BotRuntimePanel({
 		if (result.ok) {
 			invalidateRefreshes({ messages: true });
 			setLoopMessages((current) => current.filter((item) => item.seq !== loopMessage.seq));
+			setLoopEntries(current => current.filter(entry => entry.kind !== 'message' || entry.message.seq !== loopMessage.seq));
 			setOpenLoopMessageLogs((current) => current && current.message.seq === loopMessage.seq ? null : current);
 			setMessage("Loop message deleted.");
 			scheduleTrailingRefresh();
@@ -763,6 +901,8 @@ export function BotRuntimePanel({
 			const count = result.data.compacted.messageCount;
 			setMessage(count > 0 ? `Compacted ${count} loop chat message${count === 1 ? "" : "s"}.` : "There were no loop chat messages to compact.");
 			setLoopMessages([]);
+			streamSnapshotEntriesRef.current.clear();
+			setLoopEntries([]);
 			setLoopMessagePage(null);
 			latestLoopMessageSeqRef.current = 0;
 			currentLoopPageRef.current = 1;
@@ -783,6 +923,8 @@ export function BotRuntimePanel({
 			invalidateRefreshes({ events: true, messages: true });
 			setEvents([]);
 			setLoopMessages([]);
+			streamSnapshotEntriesRef.current.clear();
+			setLoopEntries([]);
 			setLoopMessagePage(null);
 			setOpenLoopMessageLogs(null);
 			setDeletingLoopMessageSeq(null);
@@ -897,8 +1039,25 @@ export function BotRuntimePanel({
 							page={row.page}
 						/>
 					))}
-					{loopMessages.length === 0 && <div className="empty compact-empty">No loop chat messages yet.</div>}
-					{loopMessages.map((loopMessage) => (
+					{loopEntries.length === 0 && <div className="empty compact-empty">No loop chat messages yet.</div>}
+					{loopEntries.map((entry, index) => {
+						if (entry.kind === 'notice') {
+							const notice = entry.notice;
+							switch (notice.kind) {
+								case 'runtime_error': case 'dropped_output': return <p key={`notice-${index}`}>{notice.message}</p>;
+								case 'request_failed': return <p key={notice.requestId}><button className="btn" onClick={() => void viewRequest(notice.requestId)}>No response after {notice.attempts.count} attempts</button></p>;
+								case 'compaction_started': return <p key={notice.sessionId}><button className="btn" onClick={() => void viewSession(notice.sessionId)}>Compaction: {notice.outcome.kind}{notice.outcome.kind === 'partial' ? ` (${notice.outcome.failedBatchCount} ${notice.outcome.failedBatchCount === 1 ? 'batch' : 'batches'} failed)` : ''}</button></p>;
+								default: return <p key={`unknown-notice-${index}`}>Unknown runtime notice.</p>;
+							}
+						}
+						if (entry.kind === 'live') return <div className="event-row activity-assistant" key={entry.requestId}><button className="btn" onClick={() => void viewRequest(entry.requestId)}>Live request</button><pre>{entry.response ?? entry.partialResponse ?? ''}</pre></div>;
+						if (entry.kind !== 'message') return <p key={`unknown-${index}`}>Unknown log entry.</p>;
+						if (entry.author.kind === 'unknown') return <p key={`unknown-author-${entry.message.seq}`}>Unknown message author.</p>;
+						const loopMessage = loopMessages.find(message => message.seq === entry.message.seq) ?? entry.message;
+						return <div key={`${loopMessage.runId}-${loopMessage.seq}`}>
+						{entry.attempts && entry.attempts.count > 1 && entry.requestId && <button className="btn" onClick={() => void viewRequest(entry.requestId!)}>{entry.attempts.count} attempts</button>}
+						{entry.sessionId && <button className="btn" onClick={() => void viewSession(entry.sessionId!)}>Compaction session</button>}
+
 						<LoopMessageRow
 							key={`${loopMessage.runId}-${loopMessage.seq}`}
 							deleting={deletingLoopMessageSeq === loopMessage.seq}
@@ -910,7 +1069,8 @@ export function BotRuntimePanel({
 							onViewLogs={() => void viewLoopMessageLogs(loopMessage)}
 							toolCallsById={toolCallsById}
 						/>
-					))}
+						</div>;
+					})}
 					{continuationRows.filter((row) => row.position === "end").map((row) => (
 						<LoopContinuationRow
 							key={`${row.position}-${row.page}`}
@@ -925,6 +1085,8 @@ export function BotRuntimePanel({
 					page={loopMessagePage}
 				/>
 			</div>
+			{requestDetail && <Modal onClose={() => setRequestDetail(null)} open title="Inference request" wide><AgentLogRequestView request={requestDetail} /></Modal>}
+			{sessionDetail && <Modal onClose={() => setSessionDetail(null)} open title="Compaction session" wide><pre>{JSON.stringify(sessionDetail.outcome, null, 2)}</pre>{sessionDetail.requests.map(request => <AgentLogRequestView key={request.id} request={request} />)}</Modal>}
 			<LoopMessageLogsModal
 				onClose={() => setOpenLoopMessageLogs(null)}
 				open={Boolean(openLoopMessageLogs)}

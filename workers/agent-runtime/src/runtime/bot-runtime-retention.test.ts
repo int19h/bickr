@@ -118,14 +118,14 @@ describe('BotRuntime storage retention', () => {
 		expect(response.status).toBe(200);
 		const retention = ((await response.json()) as { data: { retention: RuntimeStorageRetentionResult } }).data.retention;
 		expect(retention).toMatchObject({
-			loopMessages: { deletedMessages: 1, stampedSummaries: 1, pendingMore: false },
+			loopMessages: { deletedMessages: 0, stampedSummaries: 0, pendingMore: false },
 			injections: { deletedInjections: 1, droppedQueueEntries: 0 },
 		});
 		// A drained backlog is bounded by neither the allowance nor the clock, so the
 		// budget indicator stays absent.
 		expect(retention).not.toHaveProperty('timeBudgetExhausted');
 		// The 400-day-old row is still active context, so retention leaves it.
-		expect(rows<{ seq: number }>(`SELECT seq FROM loop_messages ORDER BY seq ASC`).map((row) => row.seq)).toEqual([10, 11]);
+		expect(rows<{ seq: number }>(`SELECT seq FROM loop_messages ORDER BY seq ASC`).map((row) => row.seq)).toEqual([1, 10, 11]);
 		expect(rows<{ id: string }>(`SELECT id FROM injections`).map((row) => row.id)).toEqual(['fresh-manual']);
 	});
 

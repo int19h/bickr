@@ -1,5 +1,6 @@
 /// <reference types="node" />
 
+import { AgentLogStore } from './agent-log-store';
 import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
 import type { RuntimeEventsStorage } from './events';
 import type { RuntimeStorage } from './message-store';
@@ -89,7 +90,7 @@ export function createRuntimeTestStorage(): RuntimeTestStorage {
 		},
 	};
 
-	return {
+	const storage = {
 		database,
 		sql: sql as RuntimeStorage['sql'],
 		transactionSync<T>(closure: () => T): T {
@@ -105,4 +106,6 @@ export function createRuntimeTestStorage(): RuntimeTestStorage {
 			}
 		},
 	};
+	new AgentLogStore(storage).initialize();
+	return storage;
 }

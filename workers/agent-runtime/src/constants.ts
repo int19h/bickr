@@ -213,11 +213,7 @@ export const maxBulkToolTargets = 32;
 
 export const providerStructuredOutputRepairAttempts = 4;
 
-export const inferenceSubmissionRetentionCount = 50;
-
 export const providerTokenCalibrationRetentionCount = 100;
-
-export const loopMessageLogRetentionCount = 50;
 
 export const loopMessageLogChunkLength = 250_000;
 

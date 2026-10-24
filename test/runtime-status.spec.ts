@@ -1,3 +1,4 @@
+import { agentLogStoreStub } from "../workers/agent-runtime/src/runtime/agent-log-store.test-support";
 import { testResultContext } from '../workers/agent-runtime/src/runtime/result-render-context.test-support';
 import { withTestRunLiveness } from "./helpers/index-harness";
 import { internalServiceTestEnv, internalServiceTestHeaders } from "./helpers/internal-service-auth";
@@ -266,7 +267,7 @@ function runtimeHarness(
 ): { runtime: TestRuntime; failureEvents: FailureEvent[] } {
 	const failureEvents: FailureEvent[] = [];
 	const terminalRuns = new Set<string>();
-	const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
+	const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub,
 		env: {
 			...internalServiceTestEnv,
 			BICKR_D1: db,

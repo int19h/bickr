@@ -16,7 +16,7 @@ export type LegacyHistoryCompactionResult = LegacyHistoryCost & { before: number
 	| { kind: 'unchanged' | 'compacted' }
 	| { kind: 'deferred'; reason: 'busy' }
 	| { kind: 'deferred'; reason: 'rate_limit'; retryAfterMs?: number }
-	| { kind: 'failed'; errorKind: string }
+	| { kind: 'failed'; errorKind: string; error?: import('@bickr/shared/model').AgentLogFailure }
 );
 
 type FleetResult =
@@ -111,7 +111,7 @@ function compactionResultFromResponse(value: unknown): LegacyHistoryCompactionRe
 			return row.reason === 'rate_limit' && retryAfterMs !== null
 				? { kind: 'deferred', reason: 'rate_limit', ...fields, ...(retryAfterMs !== undefined ? { retryAfterMs } : {}) } : null;
 		}
-		case 'failed': return typeof row.errorKind === 'string' ? { kind: 'failed', errorKind: row.errorKind, ...fields } : null;
+		case 'failed': return typeof row.errorKind === 'string' ? { kind: 'failed', errorKind: row.errorKind, ...fields, ...(row.error ? { error: row.error as import('@bickr/shared/model').AgentLogFailure } : {}) } : null;
 		default: return null;
 	}
 }

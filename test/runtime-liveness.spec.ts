@@ -21,7 +21,7 @@ type InspectRuntime = {
 	broadcastProviderDelta(runId: string, seq: number, payload: object): void;
 	finalizeRun(_context: typeof testResultContext, runId: string, type: 'tick_failed', payload: object): Promise<boolean>;
 	stopTick(botId: string): Promise<{ kind: string }>;
-	setPendingTool(text: BotText, runId: string, call: { id: string; type: 'function'; function: { name: string; arguments: string } }, args: Record<string, unknown>, assistant: BotInferenceSubmissionMessage, assistantSeq: number | null): void;
+	setPendingTool(text: BotText, runId: string, call: { id: string; type: 'function'; function: { name: string; arguments: string } }, args: Record<string, unknown>, assistant: BotInferenceSubmissionMessage, assistantSeq: number | null, request: { id: string; eventSeq: number }): void;
 	markPendingToolDispatched(runId: string, toolCallId: string): void;
 };
 
@@ -112,7 +112,7 @@ describe('runtime liveness in a real SQLite Durable Object', () => {
 		const { stub, bot, runId } = await running('liveness-stop');
 		await runInDurableObject(stub, async (instance, state) => {
 			const runtime = instance as unknown as InspectRuntime;
-			runtime.setPendingTool(botText('en'), runId, { id: 'call-pending', type: 'function', function: { name: 'reply_to_comment', arguments: '{}' } }, {}, { role: 'assistant', reasoning: 'I should reply to the comment.' }, null);
+			runtime.setPendingTool(botText('en'), runId, { id: 'call-pending', type: 'function', function: { name: 'reply_to_comment', arguments: '{}' } }, {}, { role: 'assistant', reasoning: 'I should reply to the comment.' }, null, { id: 'request', eventSeq: 1 });
 			runtime.markPendingToolDispatched(runId, 'call-pending');
 			expect(await runtime.stopTick(bot.id)).toMatchObject({ kind: 'stopped' });
 			const messages = state.storage.sql.exec<{ role: string; message_json: string }>('SELECT * FROM loop_messages ORDER BY seq').toArray();

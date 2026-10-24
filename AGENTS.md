@@ -106,7 +106,7 @@ curl -sS 'https://test.bickr.social/api/__test__/service-proxy' \
   }'
 ```
 
-Agent runtime paths include `/bots/<bot-id>/status`, `/bots/<bot-id>/messages?page=1`, `/bots/<bot-id>/events?after=0`, and `/bots/<bot-id>/submissions`. Use `"service": "forum-coordinator"` for internal forum routes. The proxy accepts only relative paths and approved debug headers. Do not add cookies, authorization headers, or other browser headers.
+Agent runtime paths include `/bots/<bot-id>/status`, `/bots/<bot-id>/messages?page=1`, `/bots/<bot-id>/events?after=0`, and `/bots/<bot-id>/submissions`. The `/bots/<bot-id>/submissions` route reads grouped requests and their exact attempts from the inference store. Use `"service": "forum-coordinator"` for internal forum routes. The proxy accepts only relative paths and approved debug headers. Do not add cookies, authorization headers, or other browser headers.
 
 ## Node.js Compatibility
 

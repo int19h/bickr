@@ -1,3 +1,4 @@
+import { agentLogStoreStub, protocolStorageTransaction } from "../workers/agent-runtime/src/runtime/agent-log-store.test-support";
 import { formatCommentRef } from '@bickr/shared/ids';
 import { testResultContext } from '../workers/agent-runtime/src/runtime/result-render-context.test-support';
 import { ResultContextScope } from '../workers/agent-runtime/src/runtime/result-context-scope';
@@ -148,7 +149,7 @@ function legacyLoopHistoryRuntime(rows: LoopMessageRowForTest[]) {
 			return { one: () => ({} as T), toArray: () => [] as T[] };
 		},
 	};
-	const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
+	const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction,
 		state: {
 			storage: {
 				sql,
@@ -183,7 +184,7 @@ describe("Tick limits and recovery", () => {
 		it("does not count failed parallel calls toward the iteration limit", async () => {
 			const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
 			const executedTools: string[] = [];
-		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
+		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction,
 			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) => {
 				events.push({ type, payload });
 				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
@@ -267,7 +268,7 @@ describe("Tick limits and recovery", () => {
 			const callProvider = vi.fn()
 				.mockResolvedValueOnce(providerResponseWithToolCall("call-log-off-first", "log_off", { reason: "done too early" }))
 				.mockResolvedValueOnce(providerResponseWithToolCall("call-log-off-second", "log_off", { reason: "still done" }));
-			const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
+			const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction,
 				appendEvent: (runId: string, type: string, payload: Record<string, unknown>) => {
 					events.push({ type, payload });
 					return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
@@ -359,7 +360,7 @@ describe("Tick limits and recovery", () => {
 				...providerResponseWithToolCall("call-read", "read_thread", { threadId: "thr_test" }),
 				usage: providerUsageForTest(25, 5),
 			}));
-			const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
+			const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction,
 				appendEvent: (runId: string, type: string, payload: Record<string, unknown>) =>
 					runtimeEvent(callProvider.mock.calls.length + executedTools.length + 1, runId, type as BotRuntimeEvent["type"], payload),
 				appendLoopMessage: (
@@ -436,7 +437,7 @@ describe("Tick limits and recovery", () => {
 				...providerResponseWithToolCall("call-read", "read_thread", { threadId: "thr_test" }),
 				usage: providerUsageForTest(10),
 			}));
-			const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
+			const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction,
 				appendEvent: (runId: string, type: string, payload: Record<string, unknown>) => {
 					events.push({ type, payload });
 					return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
@@ -522,7 +523,7 @@ describe("Tick limits and recovery", () => {
 				...providerResponseWithToolCall("call-log-off", "log_off", { reason: "done" }),
 				usage: providerUsageForTest(50),
 			}));
-			const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
+			const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction,
 				appendEvent: (runId: string, type: string, payload: Record<string, unknown>) => {
 					events.push({ type, payload });
 					return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
@@ -629,7 +630,7 @@ describe("Tick limits and recovery", () => {
 				rawResponse: "bounded raw SSE response preview",
 			})
 			.mockResolvedValueOnce(providerResponseWithToolCall("call-log-off", "log_off", { reason: "clean retry" }));
-		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
+		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction,
 			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) => {
 				events.push({ type, payload });
 				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
@@ -703,6 +704,7 @@ describe("Tick limits and recovery", () => {
 		).resolves.toMatchObject({ logOffCalled: true });
 
 		expect(callProvider).toHaveBeenCalledTimes(2);
+		submissions.push(...(callProvider.mock.calls as unknown as unknown[][]).map(call => call[1] as BotInferenceSubmissionMessage[]));
 		expect(submissions).toHaveLength(2);
 		expect(appendedLoopMessages.filter((message) => message.origin === "provider_response")).toHaveLength(1);
 		const [failedAttempt] = appendedLoopMessages.filter((message) => message.origin === "dropped_provider_response");
@@ -738,7 +740,7 @@ describe("Tick limits and recovery", () => {
 		});
 		const loggedMessage = loggedResponse.message as BotInferenceSubmissionMessage | undefined;
 		expect(loggedMessage?.tool_calls?.[0]?.function.arguments).toBe(completeRawArguments);
-		expect(retainedLogs).toContainEqual(expect.objectContaining({ kind: "provider_request", text: "complete failed request body" }));
+		expect(retainedLogs).not.toContainEqual(expect.objectContaining({ kind: "provider_request" }));
 		expect(events.filter((event) => event.type === "provider_tool_call_dropped")).toEqual([
 			expect.objectContaining({
 				payload: expect.objectContaining({
@@ -804,7 +806,7 @@ describe("Tick limits and recovery", () => {
 		const callProvider = vi.fn()
 			.mockResolvedValueOnce(providerResponseWithToolCall("call-draw", "draw_random_integers", { ranges: sentRanges }))
 			.mockResolvedValueOnce(providerResponseWithToolCall("call-log-off", "log_off", { reason: "done rolling" }));
-		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
+		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction,
 			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) =>
 				runtimeEvent(1, runId, type as BotRuntimeEvent["type"], payload),
 			appendLoopMessage: (
@@ -913,7 +915,7 @@ describe("Tick limits and recovery", () => {
 			.mockResolvedValueOnce(providerResponseWithRawToolCalls([
 				{ id: "call-bad-2", name: "read_thread", arguments: "[]" },
 			]));
-		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
+		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction,
 			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) => {
 				events.push({ type, payload });
 				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
@@ -981,6 +983,7 @@ describe("Tick limits and recovery", () => {
 		).rejects.toThrow("Inference provider returned only malformed page-control requests after retry.");
 
 		expect(callProvider).toHaveBeenCalledTimes(2);
+		submissions.push(...(callProvider.mock.calls as unknown as unknown[][]).map(call => call[1] as BotInferenceSubmissionMessage[]));
 		expect(submissions).toHaveLength(2);
 		expect(submissions[1]).toEqual([{ role: "assistant", content: "I am ready." }]);
 		expect(appendedLoopMessages.filter((message) => message.origin === "dropped_provider_response")).toHaveLength(2);
@@ -1019,7 +1022,7 @@ describe("Tick limits and recovery", () => {
 				providerResponseWithContent("I might be done.")
 			:	providerResponseWithToolCall("call-log-off", "log_off", { reason: "done after correction" });
 		});
-		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
+		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction,
 			...loopMemory,
 			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) => {
 				events.push({ type, payload });
@@ -1100,7 +1103,7 @@ describe("Tick limits and recovery", () => {
 				providerResponseWithContent("I should think about this without touching the page.")
 			:	providerResponseWithToolCall("call-read", "read_thread", { threadId: "thr_test" });
 		});
-		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
+		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction,
 			...loopMemory,
 			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) => {
 				events.push({ type, payload });
@@ -1174,7 +1177,7 @@ describe("Tick limits and recovery", () => {
 		const loopMemory = testLoopMessageMemory([{ role: "user", content: "Act." }]);
 		const appendedLoopMessages: Array<{ origin: string; message: Record<string, unknown> }> = [];
 		const callProvider = vi.fn(async () => providerResponseWithContent("Still thinking."));
-		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
+		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction,
 			...loopMemory,
 			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) =>
 				runtimeEvent(callProvider.mock.calls.length + appendedLoopMessages.length + 1, runId, type as BotRuntimeEvent["type"], payload),
@@ -1228,7 +1231,7 @@ describe("Tick limits and recovery", () => {
 		const providerToolsByCall: string[][] = [];
 		const systemPromptsByCall: string[] = [];
 		const appendedLoopMessages: Array<{ origin: string; message: Record<string, unknown> }> = [];
-		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
+		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction,
 			activeLoopMessagesForProvider: () => [],
 			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) =>
 				runtimeEvent(providerToolsByCall.length + appendedLoopMessages.length + 1, runId, type as BotRuntimeEvent["type"], payload),
@@ -1310,7 +1313,7 @@ describe("Tick limits and recovery", () => {
 		const callProvider = vi.fn()
 			.mockResolvedValueOnce(providerResponseWithToolCall("call-log-off", "log_off", { reason: "done" }))
 			.mockResolvedValueOnce(providerResponseWithContent("I will keep going."));
-		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
+		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction,
 			activeLoopMessagesForProvider: () => [],
 			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) => {
 				events.push({ type, payload });
@@ -1411,7 +1414,7 @@ describe("Tick limits and recovery", () => {
 		const providerToolsByCall: string[][] = [];
 		const systemPromptsByCall: string[] = [];
 		let providerCall = 0;
-		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
+		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction,
 			activeLoopMessagesForProvider: () => [],
 			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) =>
 				runtimeEvent(providerCall + 1, runId, type as BotRuntimeEvent["type"], payload),
@@ -1526,7 +1529,7 @@ describe("Tick limits and recovery", () => {
 				return { one: () => ({} as T), toArray: () => [] as T[] };
 			},
 		};
-		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
+		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction,
 			activeLoopMessagesForProvider: () => [],
 			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) =>
 				runtimeEvent(providerToolsByCall.length + 1, runId, type as BotRuntimeEvent["type"], payload),
@@ -1633,7 +1636,7 @@ describe("Tick limits and recovery", () => {
 				return { one: () => ({} as T), toArray: () => [] as T[] };
 			},
 		};
-		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
+		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction,
 			activeLoopMessagesForProvider: () => [],
 			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) =>
 				runtimeEvent(providerToolsByCall.length + 1, runId, type as BotRuntimeEvent["type"], payload),
@@ -1928,7 +1931,7 @@ describe("Tick limits and recovery", () => {
 				reasoningDetails: [{ type: "reasoning.encrypted", data: "opaque-original-reasoning", format: "anthropic-claude-v1", index: 0 }],
 			})
 			.mockResolvedValueOnce(providerResponseWithContent("Done."));
-		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
+		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction,
 			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) =>
 				runtimeEvent(type === "provider_request" ? 100 + callProvider.mock.calls.length : 200 + callProvider.mock.calls.length, runId, type as BotRuntimeEvent["type"], payload),
 			appendLoopMessageGroup: (_context: typeof testResultContext, entries: Array<{ message: BotInferenceSubmissionMessage; origin: string }>) => {
@@ -2020,7 +2023,7 @@ describe("Tick limits and recovery", () => {
 			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) =>
 				runtimeEvent(submissions.length + 1, runId, type as BotRuntimeEvent["type"], payload),
 			appendLoopMessageGroup: () => [],
-			callProvider: async () => providerResponseWithContent("Clean migrated history is ready."),
+			callProvider: async (_settings: unknown, messages: BotInferenceSubmissionMessage[]) => { submissions.push(messages); return providerResponseWithContent("Clean migrated history is ready."); },
 			ensureProviderPromptWithinBudget: async () => ({renderContext: testResultContext,
 				allowedPromptTokens: 13_500,
 				providerTools: toolDefinitionsForProviderRound(englishInstructions),
@@ -2077,7 +2080,7 @@ describe("Tick limits and recovery", () => {
 		const pendingCompactionPayload = { status: "pending", fromSeq: 10, toSeq: 20, messageCount: 3 };
 		const completedCompactionPayload = { status: "complete", summaryMessageSeq: 40 };
 		const updatedCompactions: unknown[] = [];
-		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
+		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction,
 			state: {
 				storage: {
 					sql: {
@@ -2345,7 +2348,7 @@ describe("Tick limits and recovery", () => {
 		const callToolSchemaStates: boolean[] = [];
 		let providerCall = 0;
 		const loopMemory = testLoopMessageMemory([{ role: "user", content: "Act." }]);
-		const runtime = Object.assign(testRuntimeForToolExecution(), {
+		const runtime = Object.assign(testRuntimeForToolExecution(), { runStorageTransactionSync: protocolStorageTransaction,
 			...loopMemory,
 			appendProviderMessages: async () => {},
 			callProvider: async (
@@ -2407,7 +2410,7 @@ describe("Tick limits and recovery", () => {
 		let eventSeq = 0;
 		const providerMessages: Array<Array<Record<string, unknown>>> = [];
 		const loopMemory = testLoopMessageMemory([{ role: "assistant", content: "I look around Bickr." }]);
-		const runtime = Object.assign(testRuntimeForToolExecution(), {
+		const runtime = Object.assign(testRuntimeForToolExecution(), { runStorageTransactionSync: protocolStorageTransaction,
 			...loopMemory,
 			appendProviderMessages: async () => {},
 			appendEvent: (runId: string, type: string, payload: unknown) => {
@@ -2494,7 +2497,7 @@ describe("Tick limits and recovery", () => {
 		let eventSeq = 0;
 		const providerMessages: Array<Array<Record<string, unknown>>> = [];
 		const loopMemory = testLoopMessageMemory([{ role: "assistant", content: "I look around Bickr." }]);
-		const runtime = Object.assign(testRuntimeForToolExecution(), {
+		const runtime = Object.assign(testRuntimeForToolExecution(), { runStorageTransactionSync: protocolStorageTransaction,
 			...loopMemory,
 			appendProviderMessages: async () => {},
 			appendEvent: (runId: string, type: string, payload: unknown) => {

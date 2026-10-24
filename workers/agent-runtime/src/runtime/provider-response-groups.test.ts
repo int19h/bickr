@@ -3,6 +3,7 @@ import { botText } from '../localization';
 import { compactionRowsForEstimatedBudget } from '../compaction/selection';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ChatMessage, LoopMessageGroupEntry, ToolCall } from '../types';
+import { AgentLogStore } from './agent-log-store';
 import { RuntimeMessageStore } from './message-store';
 import { createRuntimeTestStorage, type RuntimeTestStorage } from './sqlite-test-helper';
 import { BotRuntime } from './bot-runtime';
@@ -96,7 +97,7 @@ describe('provider response groups', () => {
 			state: { storage, getWebSockets: () => [] }, appendEvent: vi.fn(),
 		});
 		const assistant: ChatMessage = { role: 'assistant', reasoning_details: reasoning, tool_calls: [call('first'), call('second')] };
-		runtime.setPendingTool(botText('en'), 'run', call('second'), {}, assistant, first?.seq ?? null);
+		runtime.setPendingTool(botText('en'), 'run', call('second'), {}, assistant, first?.seq ?? null, { id: 'request', eventSeq: 1 });
 		runtime.markPendingToolDispatched('run', 'second');
 		runtime.settlePendingTool(testResultContext, 'run');
 		runtime.settlePendingTool(testResultContext, 'run');
@@ -107,6 +108,24 @@ describe('provider response groups', () => {
 		expect(messages.at(-1)?.content).toBe(unknownToolOutcomeMessage(botText('en'), 'view_profiles'));
 		expect(messages).toHaveLength(existing ? 3 : 2);
 		expect(storage.database.prepare("SELECT value_json FROM runtime_state WHERE key = 'pending_tool_v3'").get()).toBeUndefined();
+	});
+
+	it('rolls back request linking with a failed recovery write', () => {
+		const logs = new AgentLogStore(storage);
+		const id = logs.begin({ runId: 'run', eventSeq: 1, purpose: 'loop' });
+		logs.settle(logs.startAttempt(id, '{}'), { kind: 'success', response: 'Reply' });
+		logs.finish(id, 'succeeded');
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), { state: { storage, getWebSockets: () => [] } });
+		runtime.setPendingTool(botText('en'), 'run', call('pending'), {}, { role: 'assistant', content: 'Reply' }, null, { id, eventSeq: 1 });
+		storage.database.exec("CREATE TRIGGER fail_recovery BEFORE INSERT ON loop_messages WHEN NEW.role = 'tool' BEGIN SELECT RAISE(ABORT, 'recovery failed'); END");
+		expect(() => runtime.settlePendingTool(testResultContext, 'run')).toThrow('recovery failed');
+		expect(logs.request(id).messageSeq).toBeNull();
+		expect(store.activeLoopMessageRows()).toEqual([]);
+		expect(storage.sql.exec("SELECT key FROM runtime_state WHERE key = 'pending_tool_v3'").toArray()).toHaveLength(1);
+		storage.database.exec('DROP TRIGGER fail_recovery');
+		runtime.settlePendingTool(testResultContext, 'run');
+		const row = store.loopMessagesAfter(testResultContext, 0)[0]!;
+		expect(logs.requestForMessage(row.seq)?.id).toBe(id);
 	});
 
 	it('settles legacy pending calls once without inventing provider reasoning', () => {
@@ -124,7 +143,7 @@ describe('provider response groups', () => {
 		const original = Object.assign(Object.create(BotRuntime.prototype), { state: { storage, getWebSockets: () => [] }, appendEvent: vi.fn() });
 		const text = botText('ja');
 		const assistant: ChatMessage = { role: 'assistant', content: 'Authored {{opaque}} reasoning.', reasoning_details: reasoning };
-		original.setPendingTool(text, 'run', call('native'), {}, assistant, null);
+		original.setPendingTool(text, 'run', call('native'), {}, assistant, null, { id: 'request', eventSeq: 1 });
 		if (stage === 'dispatched') original.markPendingToolDispatched('run', 'native');
 		if (stage === 'reading') original.markPendingToolReading('run', 'native');
 		// Recovery receives the current language through its explicit context.

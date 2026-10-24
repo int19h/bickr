@@ -1,13 +1,14 @@
 import { testResultContext } from './result-render-context.test-support';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { BotInferenceSubmissionMessage, BotLoopMessage } from '@bickr/shared/model';
 import {
 	runtimeDiagnosticLoopMessageRetentionCount,
 	runtimeMonitorInitialBackfillLimit,
+	loopMessageLogChunkLength,
 } from '../constants';
 import { loopMessageContributesToProviderHistory } from '../provider/sanitize';
 import type { ProviderToolCallDropReason } from '../types';
-import { loopMessageFromRow, RuntimeMessageStore } from './message-store';
+import { loopMessageFromRow, RuntimeMessageStore, rawLogDeltaDepthLimit } from './message-store';
 import { createRuntimeTestStorage, type RuntimeTestStorage } from './sqlite-test-helper';
 
 describe('RuntimeMessageStore', () => {
@@ -59,6 +60,21 @@ describe('RuntimeMessageStore', () => {
 		expect(store.loopMessagesPage(testResultContext, { page: 2 }).messages.map((message) => message.seq)).toEqual([1, 2]);
 	});
 
+	it('names the session of the starting summary after a later compaction replaces only that summary', () => {
+		insertMessage(storage, 1, 1, { compactedBy: 10 });
+		insertMessage(storage, 2, 2, { compactedBy: 20 });
+		insertMessage(storage, 10, 1, { origin: 'compaction' });
+		insertMessage(storage, 20, 2, { origin: 'compaction' });
+		storage.sql.exec('UPDATE loop_messages SET session_id = ? WHERE seq IN (10, 20)', 'older-batch-session');
+		expect(store.loopMessagesPage(testResultContext, { page: 1 }).page.pages[0]?.compactionSessionId).toBe('older-batch-session');
+		insertMessage(storage, 30, 1, { origin: 'compaction' });
+		storage.sql.exec('UPDATE loop_messages SET compacted_by = ? WHERE seq = ?', 30, 10);
+		storage.sql.exec('UPDATE loop_messages SET session_id = ? WHERE seq = ?', 'new-partial-session', 30);
+		const current = store.loopMessagesPage(testResultContext, { page: 1 });
+		expect(current.messages.map(message => message.seq)).toEqual([30, 20]);
+		expect(current.page.pages[0]?.compactionSessionId).toBe('new-partial-session');
+	});
+
 	it('restores compacted children before soft-deleting their summary', () => {
 		insertMessage(storage, 1, 1, { compactedBy: 10 });
 		insertMessage(storage, 2, 2, { compactedBy: 10, origin: 'compaction' });
@@ -82,7 +98,7 @@ describe('RuntimeMessageStore', () => {
 			.flatMap((descriptor) => store.loopMessagesPage(testResultContext, { page: descriptor.page }).messages.map((message) => message.seq))
 			.sort((left, right) => left - right);
 		const liveSeqs = storage.database
-			.prepare(`SELECT seq FROM loop_messages WHERE deleted_at IS NULL ORDER BY seq ASC`)
+			.prepare(`SELECT seq FROM loop_messages WHERE deleted_at IS NULL AND seq < 10000 ORDER BY seq ASC`)
 			.all()
 			.map((row) => row.seq as number);
 		expect(reachableSeqs).toEqual(liveSeqs);
@@ -116,6 +132,7 @@ describe('RuntimeMessageStore', () => {
 			insertMessage(storage, 7, 7, { createdAt: daysAgo(13), deletedAt: daysAgo(1) });
 			insertMessage(storage, 30, 30, { createdAt: daysAgo(10), origin: 'compaction' });
 
+			archiveRecentPages(storage);
 			const result = store.pruneExpiredLoopMessages({ now });
 
 			// 3 goes with its own child 1; 4 is a summary inside its retention window;
@@ -129,6 +146,7 @@ describe('RuntimeMessageStore', () => {
 			insertMessage(storage, 2, 2, { createdAt: daysAgo(20), compactedBy: 10 });
 			insertMessage(storage, 10, 10, { createdAt: daysAgo(20), origin: 'compaction' });
 
+			archiveRecentPages(storage);
 			expect(store.pruneExpiredLoopMessages({ now })).toMatchObject({ deletedMessages: 2, stampedSummaries: 1 });
 			expect(ledgerPrunedAt(storage, 10)).toBe(now.toISOString());
 
@@ -137,7 +155,7 @@ describe('RuntimeMessageStore', () => {
 			// A stamped summary stays reactivatable: only deleting it is refused.
 			storage.database.prepare(`UPDATE loop_messages SET compacted_by = 99 WHERE seq = 10`).run();
 			storage.database.prepare(`UPDATE loop_messages SET compacted_by = NULL WHERE seq = 10`).run();
-			expect(store.activeLoopMessageRows().map((row) => row.seq)).toEqual([10]);
+			expect(store.loopMessageRow(10)?.compacted_by).toBeNull();
 		});
 
 		it('keeps the first prune stamp and still allows deleting an intact summary', () => {
@@ -162,6 +180,7 @@ describe('RuntimeMessageStore', () => {
 			insertMessage(storage, 2, 2, { createdAt: daysAgo(150), compactedBy: 10 });
 			insertMessage(storage, 20, 20, { createdAt: daysAgo(1), origin: 'compaction' });
 
+			archiveRecentPages(storage);
 			const first = store.pruneExpiredLoopMessages({ now, limit: 2 });
 
 			// The batch stopped below the summary, so the summary is held back rather
@@ -423,6 +442,38 @@ describe('RuntimeMessageStore', () => {
 		expect(logs[1]?.baseLogId).toBe(logs[0]?.id);
 		expect(logs[3]?.baseLogId).toBe(logs[2]?.id);
 		expect(logs[3]?.prefixLength).toBe(320);
+	});
+
+	it('preserves emoji at raw log prefix and chunk cuts', () => {
+		insertMessage(storage, 1, 1);
+		const prefix = 'a'.repeat(400);
+		store.recordLoopMessageLog(1, 'message', prefix + '😀 first');
+		store.recordLoopMessageLog(1, 'message', prefix + '😁 second');
+		const huge = 'b'.repeat(loopMessageLogChunkLength - 1) + '😀 tail';
+		store.recordLoopMessageLog(1, 'message', huge);
+		expect(store.loopMessageLogsForSeq(testResultContext, 1).logs.map(log => log.text)).toEqual([prefix + '😀 first', prefix + '😁 second', huge]);
+	});
+
+	it('bounds raw log chains across distinct message rows', () => {
+		let deepest = 0;
+		for (let seq = 1; seq <= 300; seq++) {
+			insertMessage(storage, seq, seq);
+			const text = 'Common message prefix '.repeat(40) + seq;
+			store.recordLoopMessageLog(seq, 'message', text);
+			const log = storage.sql.exec<{ id: number; base_log_id: number | null }>('SELECT id, base_log_id FROM loop_message_logs WHERE message_seq = ?', seq).one();
+			let next = log.base_log_id;
+			let depth = 0;
+			while (next !== null) { depth++; next = storage.sql.exec<{ base_log_id: number | null }>('SELECT base_log_id FROM loop_message_logs WHERE id = ?', next).one().base_log_id; }
+			deepest = Math.max(deepest, depth);
+			expect(depth).toBeLessThanOrEqual(rawLogDeltaDepthLimit);
+			expect(store.reconstructLoopMessageLogText(log.id)).toBe(text);
+		}
+		expect(deepest).toBe(rawLogDeltaDepthLimit);
+		insertMessage(storage, 301, 301);
+		const sql = vi.spyOn(storage.sql, 'exec');
+		store.recordLoopMessageLog(301, 'message', 'Common message prefix '.repeat(40) + 'last');
+		expect(sql.mock.calls.length).toBeLessThan(80);
+		sql.mockRestore();
 	});
 
 	it('physically caps diagnostic rows and safely removes their dependent logs and chunks', () => {
@@ -730,7 +781,7 @@ function countingStore(storage: RuntimeTestStorage): { store: RuntimeMessageStor
 }
 
 function liveSeqs(storage: RuntimeTestStorage): number[] {
-	return storage.database.prepare(`SELECT seq FROM loop_messages ORDER BY seq ASC`).all().map((row) => row.seq as number);
+	return storage.database.prepare(`SELECT seq FROM loop_messages WHERE seq < 10000 ORDER BY seq ASC`).all().map((row) => row.seq as number);
 }
 
 function ledgerPrunedAt(storage: RuntimeTestStorage, seq: number): string | null {
@@ -754,4 +805,11 @@ function messageCompactedBy(storage: RuntimeTestStorage, seq: number): number | 
 
 function range(start: number, end: number): number[] {
 	return Array.from({ length: Math.max(0, end - start + 1) }, (_, index) => start + index);
+}
+
+function archiveRecentPages(storage: RuntimeTestStorage): void {
+	for (const seq of [10000, 10001, 10002]) {
+		insertMessage(storage, seq, seq, { origin: 'compaction' });
+		storage.sql.exec('UPDATE loop_messages SET compacted_by = ? WHERE compacted_by IS NULL AND seq != ?', seq, seq);
+	}
 }

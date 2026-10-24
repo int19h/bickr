@@ -1,3 +1,5 @@
+import { AgentLogStore } from './agent-log-store';
+import type { AgentLogSource } from '@bickr/shared/model';
 import { renderToolResultView, type ResultRenderContext } from './tool-result-views';
 import { renderStoredLoopMessage, toolResultViewForMessage } from './result-messages';
 import { approximateTextTokens } from '@bickr/shared/text-token-estimate';
@@ -22,7 +24,6 @@ import {
 	dayMs,
 	deletedLoopMessageRetentionDays,
 	loopMessageLogChunkLength,
-	loopMessageLogRetentionCount,
 	loopMessagePageIndexLimit,
 	loopMessageRetentionBatchSize,
 	runtimeDiagnosticLoopMessageOrigins,
@@ -67,6 +68,8 @@ type LoopMessageRetentionBatch = LoopMessageRetentionResult & {
 
 export type RuntimeStorage = Pick<DurableObjectStorage, 'sql' | 'transactionSync'>;
 
+export const rawLogDeltaDepthLimit = 16;
+
 export class RuntimeMessageStore {
 	private readonly storage: RuntimeStorage;
 	private readonly broadcastLoopMessage: (message: BotLoopMessage) => void;
@@ -88,7 +91,7 @@ export class RuntimeMessageStore {
 		message: ChatMessage,
 		origin: LoopMessageGroupEntry['origin'],
 		status: BotLoopMessageStatus = 'complete',
-		options: { streamSeq?: number; displayEventSeq?: number } = {},
+		options: { streamSeq?: number; displayEventSeq?: number; source?: AgentLogSource } = {},
 	): BotLoopMessage {
 		const inserted = this.appendLoopMessageGroup(context, [{
 			runId,
@@ -107,14 +110,17 @@ export class RuntimeMessageStore {
 	// reasoning once preserves both thinking-mode requirements and opaque signatures;
 	// persisting only settled calls keeps interrupted histories protocol-complete.
 	appendProviderToolResult(context: ResultRenderContext, assistant: LoopMessageGroupEntry, result: LoopMessageGroupEntry, assistantSeq: number | null, commit?: () => void): BotLoopMessage {
-		const call = assistant.message.tool_calls?.[0];
-		if (assistant.origin !== 'provider_response' || assistant.message.role !== 'assistant' || result.message.role !== 'tool' || assistant.runId !== result.runId || !call || assistant.message.tool_calls?.length !== 1 || result.message.tool_call_id !== call.id) {
-			throw new Error('A provider group extension requires one matching tool request and result.');
-		}
-		const written = this.writeLoopMessageGroup(context, assistantSeq === null ? [assistant, result] : [result], {
+		return this.appendProviderToolResults(context, assistant, [result], assistantSeq, commit);
+	}
+
+	appendProviderToolResults(context: ResultRenderContext, assistant: LoopMessageGroupEntry, results: LoopMessageGroupEntry[], assistantSeq: number | null, commit?: () => void): BotLoopMessage {
+		const calls = assistant.message.tool_calls ?? [];
+		if (assistant.origin !== 'provider_response' || assistant.message.role !== 'assistant' || calls.length === 0 || calls.length !== results.length || results.some((result, index) => result.message.role !== 'tool' || assistant.runId !== result.runId || result.message.tool_call_id !== calls[index]?.id)) throw new Error('A provider group extension requires matching tool requests and results.');
+		const written = this.writeLoopMessageGroup(context, assistantSeq === null ? [assistant, ...results] : results, {
 			clearPendingRunId: assistant.runId,
+			publication: { runId: assistant.runId, callIds: calls.map(call => call.id) },
 			commit,
-			...(assistantSeq === null ? {} : { extend: { seq: assistantSeq, call, runId: assistant.runId } }),
+			...(assistantSeq === null ? {} : { extend: { seq: assistantSeq, calls, runId: assistant.runId } }),
 		});
 		return written[0]!;
 	}
@@ -124,7 +130,8 @@ export class RuntimeMessageStore {
 	}
 
 	private writeLoopMessageGroup(context: ResultRenderContext, entries: LoopMessageGroupEntry[], options: {
-		extend?: { seq: number; call: ToolCall; runId: string };
+		extend?: { seq: number; calls: ToolCall[]; runId: string };
+		publication?: { runId: string; callIds: string[] };
 		clearPendingRunId?: string;
 		commit?: () => void;
 	} = {}): BotLoopMessage[] {
@@ -139,7 +146,9 @@ export class RuntimeMessageStore {
 					origin: entry.origin,
 					status: entry.status,
 					streamSeq: entry.options?.streamSeq,
+					requestId: entry.options?.requestId,
 					displayEventSeq: entry.options?.displayEventSeq,
+					source: entry.options?.source,
 					broadcast: false,
 				});
 				this.recordLoopMessageLog(loopMessage.seq, 'message', JSON.stringify(entry.message));
@@ -147,6 +156,15 @@ export class RuntimeMessageStore {
 					this.recordLoopMessageLog(loopMessage.seq, log.kind, log.text);
 				}
 				inserted.push(loopMessage);
+			}
+			const log = new AgentLogStore(this.storage);
+			if (options.publication) log.completeResponsePublication(options.publication.runId, inserted[0]!.seq, options.publication.callIds);
+			else for (let index = 0; index < entries.length; index++) {
+				const entry = entries[index]!;
+				if (entry.origin === 'provider_response' && entry.options?.streamSeq !== undefined) {
+					const publication = log.responsePublication(entry.runId);
+					if (publication?.eventSeq === entry.options.streamSeq) log.completeResponsePublication(entry.runId, inserted[index]!.seq, []);
+				}
 			}
 			if (options.clearPendingRunId) {
 				this.storage.sql.exec(`DELETE FROM runtime_state WHERE key IN ('pending_tool_v1', 'pending_tool_v2', 'pending_tool_v3') AND json_extract(value_json, '$.runId') = ?`, options.clearPendingRunId);
@@ -166,14 +184,14 @@ export class RuntimeMessageStore {
 		return inserted;
 	}
 
-	private extendProviderResponseGroup(context: ResultRenderContext, extension: { seq: number; call: ToolCall; runId: string }): BotLoopMessage {
+	private extendProviderResponseGroup(context: ResultRenderContext, extension: { seq: number; calls: ToolCall[]; runId: string }): BotLoopMessage {
 		const row = this.loopMessageRow(extension.seq);
 		if (!row || row.run_id !== extension.runId || row.origin !== 'provider_response' || row.compacted_by !== null || row.deleted_at !== null) {
 			throw new Error('Cannot extend an inactive or unrelated provider response group.');
 		}
 		const message = loopMessageFromRow(row, context);
 		const calls = message.message.tool_calls ?? [];
-		if (message.role !== 'assistant' || calls.length === 0 || calls.some((call) => call.id === extension.call.id)) {
+		if (message.role !== 'assistant' || calls.length === 0 || extension.calls.some(next => calls.some(call => call.id === next.id))) {
 			throw new Error('Cannot extend an invalid or already settled provider response group.');
 		}
 		// Bound the scan by this response plus the bounded diagnostic retention.
@@ -186,7 +204,7 @@ export class RuntimeMessageStore {
 		if (following.length !== calls.length || following.some((item, index) => item.role !== 'tool' || item.message.tool_call_id !== calls[index]?.id)) {
 			throw new Error('Provider response results must remain contiguous when extending their group.');
 		}
-		const updated = { ...message.message, tool_calls: [...calls, extension.call] };
+		const updated = { ...message.message, tool_calls: [...calls, ...extension.calls] };
 		const json = JSON.stringify(updated);
 		this.storage.sql.exec(`UPDATE loop_messages SET message_json = ?, token_estimate = ? WHERE seq = ?`, json, estimateTextTokens(json), row.seq);
 		this.recordLoopMessageLog(row.seq, 'message', json);
@@ -199,11 +217,15 @@ export class RuntimeMessageStore {
 		origin: LoopMessageGroupEntry['origin'];
 		status?: BotLoopMessageStatus;
 		streamSeq?: number;
+		requestId?: string;
 		displayEventSeq?: number;
 		position?: number;
 		createdAt?: string;
 		broadcast: boolean;
+		source?: AgentLogSource;
 	}): BotLoopMessage {
+		new AgentLogStore(this.storage).assertCanWrite();
+		if (input.origin === 'synthetic_context' && input.message.role === 'assistant' && !input.source) throw new Error('Synthetic assistant content requires a source.');
 		const now = input.createdAt ?? new Date().toISOString();
 		const view = toolResultViewForMessage(input.message);
 		const viewJson = view ? JSON.stringify(view) : null;
@@ -228,6 +250,10 @@ export class RuntimeMessageStore {
 			now,
 		);
 		const seq = this.storage.sql.exec<{ seq: number }>(`SELECT last_insert_rowid() AS seq`).one().seq;
+		const log = new AgentLogStore(this.storage);
+		log.writeAuthor(seq, input.origin, input.message.role, input.source);
+		if (input.requestId) log.linkRequest(seq, input.runId, input.requestId, input.origin);
+		else log.link(seq, input.runId, input.streamSeq, input.origin);
 		const message = loopMessageFromRow({
 			seq,
 			position,
@@ -294,7 +320,7 @@ export class RuntimeMessageStore {
 				if (row.origin === 'compaction') {
 					// Compaction summaries are page-index anchors. Restore their children
 					// so deleting an anchor cannot make otherwise-live history unreachable.
-					this.storage.sql.exec(`UPDATE loop_messages SET compacted_by = NULL WHERE compacted_by = ?`, seq);
+					this.storage.sql.exec(`UPDATE loop_messages SET compacted_by = ? WHERE compacted_by = ?`, row.compacted_by, seq);
 				}
 				this.storage.sql.exec(
 					`UPDATE loop_messages
@@ -346,7 +372,9 @@ export class RuntimeMessageStore {
 
 	loopMessagesPage(context: ResultRenderContext, input: { page: number; after?: number }): BotLoopMessagesResponse {
 		const { rows, page } = this.loopMessagePageRows(input);
-		return { messages: rows.map(row => loopMessageFromRow(row, context)), page };
+		const messages = rows.map(row => loopMessageFromRow(row, context));
+		const source = page.pages.find(item => item.page === page.currentPage)?.sourceCompactionSeq ?? null;
+		return { messages, entries: new AgentLogStore(this.storage).entries(messages, source), page };
 	}
 
 	loopMessagePageRows(input: { page: number; after?: number }): { rows: LoopMessageRow[]; page: BotLoopMessagesResponse['page'] } {
@@ -551,48 +579,23 @@ export class RuntimeMessageStore {
 				chunks[index] ?? '',
 			);
 		}
-		this.pruneLoopMessageLogs();
 	}
 
-	reconstructLoopMessageLogText(logId: number, seen = new Set<number>()): string {
-		if (seen.has(logId)) {
-			throw new RepositoryError('server_error', 'Loop message log chain is cyclic.', 500);
+	reconstructLoopMessageLogText(logId: number): string {
+		const chain: Array<{ row: LoopMessageLogRow; suffix: string }> = [];
+		let id = logId;
+		for (;;) {
+			const row = this.storage.sql.exec<LoopMessageLogRow>('SELECT * FROM loop_message_logs WHERE id = ? LIMIT 1', id).toArray()[0];
+			if (!row) throw new RepositoryError('not_found', 'Loop message log was not found.', 404);
+			const suffix = this.storage.sql.exec<LoopMessageLogChunkRow>('SELECT * FROM loop_message_log_chunks WHERE log_id = ? ORDER BY chunk_index LIMIT 10000', id).toArray().map(chunk => chunk.text).join('');
+			chain.push({ row, suffix });
+			if (row.encoding === 'full') break;
+			if (!row.base_log_id || row.base_log_id >= row.id) throw new RepositoryError('server_error', 'The log chain is invalid.', 500);
+			id = row.base_log_id;
 		}
-		seen.add(logId);
-		const row = this.storage.sql
-			.exec<LoopMessageLogRow>(
-				`SELECT id, message_seq, kind, encoding, base_log_id, prefix_length, text_length, chunk_count, created_at
-				 FROM loop_message_logs
-				 WHERE id = ?
-				 LIMIT 1`,
-				logId,
-			)
-			.toArray()[0];
-		if (!row) {
-			throw new RepositoryError('not_found', 'Loop message log was not found.', 404);
-		}
-		const encoded = this.storage.sql
-			.exec<LoopMessageLogChunkRow>(
-				`SELECT log_id, chunk_index, text
-				 FROM loop_message_log_chunks
-				 WHERE log_id = ?
-				 ORDER BY chunk_index ASC`,
-				logId,
-			)
-			.toArray()
-			.map((chunk) => chunk.text)
-			.join('');
-		if (row.encoding === 'full') {
-			return encoded;
-		}
-		if (!row.base_log_id) {
-			throw new RepositoryError('server_error', 'Delta log is missing its base.', 500);
-		}
-		const base = this.reconstructLoopMessageLogText(row.base_log_id, seen);
-		if (row.encoding === 'append') {
-			return `${base}${encoded}`;
-		}
-		return `${base.slice(0, row.prefix_length ?? 0)}${encoded}`;
+		let text = '';
+		for (const { row, suffix } of chain.reverse()) text = row.encoding === 'full' ? suffix : row.encoding === 'append' ? text + suffix : text.slice(0, row.prefix_length ?? 0) + suffix;
+		return text;
 	}
 
 	private loopMessageDisplayEventRow(
@@ -629,6 +632,8 @@ export class RuntimeMessageStore {
 			const olderPage = pageIndex.descriptors.find((item) => item.newerPage === descriptor.page)?.page;
 			return {
 				page: descriptor.page,
+				isNewest: descriptor.page === 1,
+				compactionSessionId: this.storage.sql.exec<{ session_id: string | null }>("SELECT session_id FROM loop_messages WHERE compacted_by IS ? AND origin = 'compaction' AND deleted_at IS NULL ORDER BY position, seq LIMIT 1", descriptor.sourceCompactionSeq).toArray()[0]?.session_id ?? null,
 				messageCount: summary.messageCount,
 				...(summary.fromSeq !== null ? { fromSeq: summary.fromSeq } : {}),
 				...(summary.toSeq !== null ? { toSeq: summary.toSeq } : {}),
@@ -673,41 +678,28 @@ export class RuntimeMessageStore {
 		const row = this.storage.sql
 			.exec<{ id: number }>(`SELECT id FROM loop_message_logs WHERE kind = ? ORDER BY id DESC LIMIT 1`, kind)
 			.toArray()[0];
-		return row ? { id: row.id, text: this.reconstructLoopMessageLogText(row.id) } : null;
+		if (!row) return null;
+		let id: number | null = row.id;
+		let depth = 0;
+		while (id !== null && depth < rawLogDeltaDepthLimit) {
+			const base: { base_log_id: number | null } | undefined = this.storage.sql.exec<{ base_log_id: number | null }>('SELECT base_log_id FROM loop_message_logs WHERE id = ? LIMIT 1', id).toArray()[0];
+			id = base?.base_log_id ?? null;
+			if (id !== null) depth++;
+		}
+		return depth < rawLogDeltaDepthLimit ? { id: row.id, text: this.reconstructLoopMessageLogText(row.id) } : null;
 	}
 
-	private pruneLoopMessageLogs(): void {
-		const retainedMessageSeqs = new Set(
-			this.storage.sql
-				.exec<{ seq: number }>(
-					`SELECT seq FROM loop_messages WHERE compacted_by IS NULL ORDER BY position DESC, seq DESC LIMIT ?`,
-					loopMessageLogRetentionCount,
-				)
-				.toArray()
-				.map((row) => row.seq),
-		);
-		if (retainedMessageSeqs.size === 0) {
-			this.storage.sql.exec(`DELETE FROM loop_message_log_chunks`);
-			this.storage.sql.exec(`DELETE FROM loop_message_logs`);
-			return;
-		}
-		const retainedLogRows = this.storage.sql
-			.exec<LoopMessageLogRow>(
-				`SELECT id, message_seq, kind, encoding, base_log_id, prefix_length, text_length, chunk_count, created_at
-				 FROM loop_message_logs ORDER BY id ASC`,
-			)
-			.toArray();
-		const deleteIds = new Set(retainedLogRows.filter((row) => !retainedMessageSeqs.has(row.message_seq)).map((row) => row.id));
-		for (const row of retainedLogRows) {
-			if (!retainedMessageSeqs.has(row.message_seq) || !row.base_log_id || !deleteIds.has(row.base_log_id)) {
-				continue;
-			}
-			this.materializeLoopMessageLog(row.id);
-		}
-		for (const id of deleteIds) {
-			this.storage.sql.exec(`DELETE FROM loop_message_log_chunks WHERE log_id = ?`, id);
-			this.storage.sql.exec(`DELETE FROM loop_message_logs WHERE id = ?`, id);
-		}
+	removeLog(id: number): void {
+		const dependents = this.storage.sql.exec<{ id: number }>('SELECT id FROM loop_message_logs WHERE base_log_id = ? ORDER BY id LIMIT 1000', id).toArray();
+		for (const row of dependents) this.materializeLoopMessageLog(row.id);
+		this.storage.sql.exec('DELETE FROM loop_message_log_chunks WHERE log_id = ?', id);
+		this.storage.sql.exec('DELETE FROM loop_message_logs WHERE id = ?', id);
+	}
+
+	pruneExpiredRawLogs(cutoff: string, pages: number[]): void {
+		const protectedPage = `m.compacted_by IS NULL${pages.length ? ` OR m.compacted_by IN (${pages.map(() => '?').join(',')})` : ''}`;
+		const rows = this.storage.sql.exec<{ id: number }>(`SELECT l.id FROM loop_message_logs l JOIN loop_messages m ON m.seq = l.message_seq WHERE l.created_at < ? AND NOT (${protectedPage}) ORDER BY l.id LIMIT 100`, cutoff, ...pages).toArray();
+		this.storage.transactionSync(() => { for (const row of rows) this.removeLog(row.id); });
 	}
 
 	/**
@@ -747,6 +739,8 @@ export class RuntimeMessageStore {
 		// No continuation means starting at the bottom of the index. The empty
 		// string sorts below every ISO timestamp, so the sentinel needs no separate
 		// branch in the statement.
+		const protectedPages = this.loopMessagePageIndex().descriptors.slice(0, 3).flatMap(page => page.sourceCompactionSeq === null ? [] : [page.sourceCompactionSeq]);
+		const exemption = protectedPages.length ? ` AND compacted_by NOT IN (${protectedPages.map(() => '?').join(',')})` : '';
 		const afterCreatedAt = options.after?.createdAt ?? '';
 		const afterSeq = options.after?.seq ?? 0;
 		const selected = this.storage.sql
@@ -762,7 +756,7 @@ export class RuntimeMessageStore {
 				   AND created_at >= ?
 				   AND (created_at > ? OR (created_at = ? AND seq > ?))
 				   AND (
-					(compacted_by IS NOT NULL AND origin != 'compaction' AND created_at < ?)
+					(compacted_by IS NOT NULL AND origin != 'compaction' AND created_at < ?${exemption})
 					OR (compacted_by IS NOT NULL AND origin = 'compaction' AND created_at < ?)
 					OR (deleted_at IS NOT NULL AND created_at < ?)
 				   )
@@ -774,6 +768,7 @@ export class RuntimeMessageStore {
 				afterCreatedAt,
 				afterSeq,
 				compactedCutoff,
+				...protectedPages,
 				summaryCutoff,
 				deletedCutoff,
 				limit,
@@ -1091,38 +1086,13 @@ export class RuntimeMessageStore {
 	}
 
 	private deleteLoopMessageLogs(deletedSeqs: readonly number[]): number {
-		// The materialization pass below has to read every log row, because a
-		// surviving delta can be based on any log that came before it. That whole
-		// scan is wasted when this batch's messages own no logs at all, which is the
-		// common case for a text-only backlog — and a sweep visit runs it once per
-		// batch, up to the full allowance, against a table that only grows.
-		if (!this.hasLoopMessageLogsFor(deletedSeqs)) {
-			return 0;
+		if (!this.hasLoopMessageLogsFor(deletedSeqs)) return 0;
+		let count = 0;
+		for (const seq of deletedSeqs) {
+			const rows = this.storage.sql.exec<{ id: number }>('SELECT id FROM loop_message_logs WHERE message_seq = ? ORDER BY id LIMIT 10000', seq).toArray();
+			for (const row of rows) { this.removeLog(row.id); count++; }
 		}
-		const deleting = new Set(deletedSeqs);
-		const logRows = this.storage.sql
-			.exec<LoopMessageLogRow>(
-				`SELECT id, message_seq, kind, encoding, base_log_id, prefix_length, text_length, chunk_count, created_at
-				 FROM loop_message_logs ORDER BY id ASC`,
-			)
-			.toArray();
-		const deleteIds = new Set(logRows.filter((row) => deleting.has(row.message_seq)).map((row) => row.id));
-		for (const row of logRows) {
-			// Delta logs may cross message ownership. Materialize every surviving
-			// direct dependent before its expired base and chunks are removed. Log id
-			// order guarantees a base is materialized before anything built on it.
-			if (deleteIds.has(row.id) || !row.base_log_id || !deleteIds.has(row.base_log_id)) {
-				continue;
-			}
-			this.materializeLoopMessageLog(row.id);
-		}
-		const ids = [...deleteIds];
-		for (const chunk of chunked(ids, loopMessageDeleteStatementWidth)) {
-			const placeholders = sqlPlaceholders(chunk.length);
-			this.storage.sql.exec(`DELETE FROM loop_message_log_chunks WHERE log_id IN (${placeholders})`, ...chunk);
-			this.storage.sql.exec(`DELETE FROM loop_message_logs WHERE id IN (${placeholders})`, ...chunk);
-		}
-		return ids.length;
+		return count;
 	}
 
 	private materializeLoopMessageLog(logId: number): void {
@@ -1249,7 +1219,13 @@ function commonPrefixLength(left: string, right: string): number {
 	while (index < limit && left.charCodeAt(index) === right.charCodeAt(index)) {
 		index += 1;
 	}
-	return index;
+	return unicodeBoundary(left, index);
+}
+
+function unicodeBoundary(text: string, offset: number): number {
+	const previous = text.charCodeAt(offset - 1);
+	const next = text.charCodeAt(offset);
+	return previous >= 0xd800 && previous <= 0xdbff && next >= 0xdc00 && next <= 0xdfff ? offset - 1 : offset;
 }
 
 function chunkText(text: string, chunkLength: number): string[] {
@@ -1257,8 +1233,10 @@ function chunkText(text: string, chunkLength: number): string[] {
 		return [''];
 	}
 	const chunks: string[] = [];
-	for (let index = 0; index < text.length; index += chunkLength) {
-		chunks.push(text.slice(index, index + chunkLength));
+	for (let index = 0; index < text.length;) {
+		const end = unicodeBoundary(text, Math.min(text.length, index + chunkLength));
+		chunks.push(text.slice(index, end));
+		index = end;
 	}
 	return chunks;
 }

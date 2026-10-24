@@ -6,3 +6,4 @@ export * from "./model/entities.ts";
 export * from "./model/api.ts";
 export * from "./model/runtime.ts";
 export * from "./model/openrouter.ts";
+export * from "./model/agent-log.ts";
