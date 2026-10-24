@@ -8735,6 +8735,9 @@ button.inference-model-name:hover { text-decoration: underline; }
 .agent-log-modal .submission-json-block > span {
 	color: var(--ink-3);
 }
+.agent-log-modal .submission-meta {
+	flex-shrink: 0;
+}
 .agent-log-modal .submission-meta .v {
 	white-space: normal;
 	overflow-wrap: anywhere;
