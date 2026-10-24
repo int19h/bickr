@@ -232,8 +232,11 @@ describe('Loop cards', () => {
 });
 
 describe('Loop detail views', () => {
-	it('keeps R8 metadata behind the adapter until the runtime rebase', () => {
-		expect(attemptRequestMetadata(requestFixture.attempts[0])).toBeNull();
+	it('renders R8 metadata from the selected stored attempt', () => {
+		act(() => root.render(attemptRequestMetadata(requestFixture.attempts[2])));
+		expect(container.querySelector('.request-usage-line')).not.toBeNull();
+		expect(container.querySelector('.inference-attribution-fields')).not.toBeNull();
+		expect([...container.querySelectorAll('.cache-status')].map((node) => node.textContent)).toEqual(['cached', 'partially cached']);
 	});
 	it('shows the stored request, the selected response, and earlier attempt bodies', () => {
 		act(() => root.render(<AgentLogRequestModal request={requestFixture} errors={false} onClose={() => {}} />));
@@ -249,7 +252,18 @@ describe('Loop detail views', () => {
 		const request: AgentLogRequest = {
 			...requestFixture,
 			state: 'pending',
-			attempts: [{ id: 1, startedAt: requestFixture.createdAt, body: null, partialResponse: 'partial words', outcome: null }],
+			attempts: [
+				{
+					id: 1,
+					startedAt: requestFixture.createdAt,
+					body: null,
+					usage: null,
+					attribution: null,
+					messages: [],
+					partialResponse: 'partial words',
+					outcome: null,
+				},
+			],
 		};
 		act(() => root.render(<AgentLogRequestModal request={request} errors={false} onClose={() => {}} />));
 		expect(container.textContent).toContain('The exact request is not retained.');

@@ -1,8 +1,9 @@
 import type { AgentLogAttempt, AgentLogAttemptOutcome, AgentLogCompactionSession, AgentLogRequest } from '@bickr/shared/model';
 import type { ReactNode } from 'react';
+import { InferenceAttributionFields } from '../../components/inference-attribution';
 import { TimeAgoLabel } from '../../components/record-display';
 import { Modal } from '../../ui';
-import { RawInferenceSubmissionMessageView, SubmissionJsonBlock } from './loop-log-formatting';
+import { RawInferenceSubmissionMessageView, LoopMessageRequestUsageLine, SubmissionJsonBlock } from './loop-log-formatting';
 
 export function attemptCause(outcome: AgentLogAttemptOutcome | null): string {
 	if (!outcome) return 'In progress';
@@ -34,15 +35,8 @@ function AttemptDetails({ attempt, number }: { attempt: AgentLogAttempt; number:
 				<summary>Raw outcome</summary>
 				<SubmissionJsonBlock label="Outcome" value={attempt.outcome} />
 			</details>
-			{attempt.body ? (
-				<details>
-					<summary>Request as sent</summary>
-					<StoredRequestBody body={attempt.body} />
-				</details>
-			) : (
-				<p>The exact request is not retained.</p>
-			)}
-			{attempt.partialResponse && <SubmissionJsonBlock label="Partial response" value={attempt.partialResponse} />}
+			{attemptRequestMetadata(attempt)}
+			<AttemptResponse attempt={attempt} />
 		</details>
 	);
 }
@@ -69,54 +63,66 @@ export function AgentLogAttempts({ request }: { request: AgentLogRequest }) {
 	);
 }
 
-// This adapter reads only the stored request. It never rebuilds history from current rows.
-function StoredRequestBody({ body }: { body: string }) {
-	let parsed;
-	try {
-		parsed = JSON.parse(body);
-	} catch {
-		return <SubmissionJsonBlock label="Request as sent" value={body} />;
-	}
+export function attemptRequestMetadata(attempt: AgentLogAttempt | undefined): ReactNode {
+	if (!attempt) return null;
 	return (
 		<>
-			{Array.isArray(parsed?.messages) &&
-				parsed.messages.map((message: Parameters<typeof RawInferenceSubmissionMessageView>[0]['message'], index: number) =>
-					message.role === 'system' ? (
-						<details key={index}>
-							<summary>Message {index + 1} · system prompt</summary>
-							<RawInferenceSubmissionMessageView position={index + 1} message={message} />
-						</details>
-					) : (
-						<RawInferenceSubmissionMessageView key={index} position={index + 1} message={message} />
-					),
-				)}
-			<details>
-				<summary>Exact request body</summary>
-				<pre>{body}</pre>
-			</details>
+			{attempt.usage && <LoopMessageRequestUsageLine usage={attempt.usage} />}
+			{attempt.attribution && <InferenceAttributionFields attribution={attempt.attribution} />}
+			{attempt.messages.map((item) =>
+				item.message.role === 'system' ? (
+					<details key={item.position}>
+						<summary>Message {item.position} · system prompt</summary>
+						<RawInferenceSubmissionMessageView position={item.position} message={item.message} cacheStatus={item.cacheStatus} />
+					</details>
+				) : (
+					<RawInferenceSubmissionMessageView
+						key={item.position}
+						position={item.position}
+						message={item.message}
+						cacheStatus={item.cacheStatus}
+					/>
+				),
+			)}
+			{attempt.body === null ? (
+				<p>The exact request is not retained.</p>
+			) : attempt.messages.length === 0 ? (
+				<SubmissionJsonBlock label="Request as sent" value={attempt.body} />
+			) : (
+				<details>
+					<summary>Exact request body</summary>
+					<pre>{attempt.body}</pre>
+				</details>
+			)}
 		</>
 	);
 }
 
-export function attemptRequestMetadata(_attempt: AgentLogAttempt | undefined): ReactNode {
-	// R8 will supply usage, attribution, and messages after the runtime rebase.
-	return null;
+function AttemptResponse({ attempt }: { attempt: AgentLogAttempt }) {
+	const response = attempt.outcome?.kind === 'success' || attempt.outcome?.kind === 'interrupted' ? attempt.outcome.response : null;
+	return response ? (
+		<SubmissionJsonBlock label="Response" value={response} />
+	) : attempt.partialResponse ? (
+		<SubmissionJsonBlock label="Partial response" value={attempt.partialResponse} />
+	) : null;
 }
 
 export function AgentLogRequestDetails({ request }: { request: AgentLogRequest }) {
-	const selected = request.attempts.find((attempt) => attempt.outcome?.kind === 'success') ?? request.attempts.at(-1);
-	const response = selected?.outcome?.kind === 'success' || selected?.outcome?.kind === 'interrupted' ? selected.outcome.response : null;
+	const selected =
+		request.attempts.find((attempt) => attempt.outcome?.kind === 'success') ??
+		request.attempts.findLast((attempt) => attempt.outcome === null);
+	if (!selected)
+		return (
+			<div className="submission-chat-log">
+				{request.attempts.length === 0 && <p>The exact request is not retained.</p>}
+				<AgentLogAttempts request={request} />
+			</div>
+		);
 	return (
 		<div className="submission-chat-log">
-			{attemptRequestMetadata(selected) ??
-				(selected?.body ? <StoredRequestBody body={selected.body} /> : <p>The exact request is not retained.</p>)}
-			{response ? (
-				<SubmissionJsonBlock label="Response" value={response} />
-			) : selected?.partialResponse ? (
-				<SubmissionJsonBlock label="Partial response" value={selected.partialResponse} />
-			) : (
-				<p>{request.state === 'pending' ? 'No response yet.' : 'No response was retained.'}</p>
-			)}
+			{attemptRequestMetadata(selected)}
+			<AttemptResponse attempt={selected} />
+			{selected.outcome === null && !selected.partialResponse && <p>No response yet.</p>}
 			{request.attempts.length > 1 && (
 				<section>
 					<h3>Earlier attempts</h3>
@@ -171,7 +177,6 @@ export function AgentLogSessionModal({ session, onClose }: { session: AgentLogCo
 						Call {index + 1} · {request.attempts.length} {request.attempts.length === 1 ? 'attempt' : 'attempts'} · {request.state}
 					</summary>
 					<AgentLogAttempts request={request} />
-					<AgentLogRequestDetails request={request} />
 				</details>
 			))}
 			<p className={success ? 'agent-log-success' : outcome.kind === 'pending' ? '' : 'agent-log-error'}>

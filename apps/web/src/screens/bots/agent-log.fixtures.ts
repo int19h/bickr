@@ -47,6 +47,12 @@ export const requestFixture: AgentLogRequest = {
 					{ role: 'user', content: 'Two new replies arrived.' },
 				],
 			}),
+			usage: null,
+			attribution: null,
+			messages: [
+				{ position: 1, message: { role: 'system', content: 'Read the page before you respond.' } },
+				{ position: 2, message: { role: 'user', content: 'Two new replies arrived.' } },
+			],
 			partialResponse: null,
 			outcome: { kind: 'provider_error', status: 503, errorType: 'unavailable', message: 'The provider was unavailable.' },
 		},
@@ -59,6 +65,12 @@ export const requestFixture: AgentLogRequest = {
 					{ role: 'user', content: 'Two new replies arrived.' },
 				],
 			}),
+			usage: null,
+			attribution: null,
+			messages: [
+				{ position: 1, message: { role: 'system', content: 'Read the page before you respond.' } },
+				{ position: 2, message: { role: 'user', content: 'Two new replies arrived.' } },
+			],
 			partialResponse: null,
 			outcome: {
 				kind: 'dropped_invalid_output',
@@ -75,6 +87,9 @@ export const requestFixture: AgentLogRequest = {
 					{ role: 'user', content: 'Two new replies arrived.' },
 				],
 			}),
+			usage: null,
+			attribution: null,
+			messages: [],
 			partialResponse: null,
 			outcome: {
 				kind: 'success',
@@ -83,6 +98,30 @@ export const requestFixture: AgentLogRequest = {
 		},
 	],
 };
+
+const successfulAttempt = requestFixture.attempts[2]!;
+successfulAttempt.usage = {
+	promptTokens: 920,
+	cachedInputTokens: 800,
+	uncachedInputTokens: 120,
+	outputTokens: 70,
+	totalTokens: 990,
+	cachedInputCost: null,
+	uncachedInputCost: null,
+	outputCost: null,
+	totalCost: null,
+	estimatedCostSplit: false,
+};
+successfulAttempt.attribution = {
+	model: 'Fixture',
+	parameters: { temperature: 0.2 },
+	source: { botId: 'reader', worldHandle: 'example', botHandle: 'reader', runId: 'visit-example', requestSeq: 3 },
+};
+successfulAttempt.messages = [
+	{ position: 1, cacheStatus: 'cached', message: { role: 'system', content: 'Read the page before you respond.' } },
+	{ position: 2, cacheStatus: 'partially_cached', message: { role: 'assistant', content: 'I must include the thread reference.' } },
+	{ position: 3, message: { role: 'user', content: 'Two new replies arrived.' } },
+];
 
 export const sessionFixture: AgentLogCompactionSession = {
 	id: 'session-example',
@@ -131,12 +170,10 @@ export function entriesFixture(): AgentLogEntry[] {
 	const response = messageFixture(3);
 	response.attempts = {
 		count: 3,
-		failures: requestFixture.attempts
-			.slice(0, 2)
-			.map((attempt) => ({
-				attemptId: attempt.id,
-				outcome: attempt.outcome as Exclude<NonNullable<typeof attempt.outcome>, { kind: 'success' }>,
-			})),
+		failures: requestFixture.attempts.slice(0, 2).map((attempt) => ({
+			attemptId: attempt.id,
+			outcome: attempt.outcome as Exclude<NonNullable<typeof attempt.outcome>, { kind: 'success' }>,
+		})),
 	};
 	response.message.message.reasoning =
 		'The discussion contains two different proposals. I need the latest replies to see which details changed.\n\nI will compare the examples before I choose a response.';
