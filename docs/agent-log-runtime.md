@@ -41,3 +41,11 @@ Live entries carry the request ID. During an active visit, a completed response 
 `GET /bots/<id>/compaction-sessions/<session-id>` returns a session and its retained requests. `GET /bots/<id>/submissions` reads the new request store. Page summaries identify the newest page and its starting session. Delete responses include `changedContext`.
 
 The web page keeps its current message rows and page controls. It handles all entry kinds and shows a plain notice for unknown kinds. An unknown stored author becomes an explicit `unknown` author for that entry. Other entries remain visible. Single-request and single-session details reject unsupported stored shapes. The new visual design remains a separate task.
+
+## Response publication
+
+The runtime stores one unfinished response reference in `runtime_state` under `pending_response_v1`. The same transaction settles its request and records its pending calls. This reference points to the stored response chunks. It does not copy the response body. History writes retire each call and link the assistant row in the same transaction. Recovery creates interrupted results for all remaining calls.
+
+The runtime removes the reference after publication, recovery, or history deletion. It retains at most one reference per participant.
+
+Live entries and stream events carry an attempt ID and a delta revision. The revision counts updates within that attempt. A page snapshot replaces older live entries. The client adds only updates that arrive after the snapshot request starts and exceed its revision. Terminal run events remove the live entry.

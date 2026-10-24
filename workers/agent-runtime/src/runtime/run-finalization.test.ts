@@ -241,6 +241,98 @@ it('removes an empty completed response from live entries when its run ends', as
 	h.storage.database.close();
 });
 
+it.each(['lease', 'usage', 'events'] as const)('retains a completed response when Stop arrives during the %s wait', async (window) => {
+	await completedResponseWait(window, false);
+});
+
+it.each(['lease', 'usage', 'events'] as const)('recovers a completed response after restart during the %s wait', async (window) => {
+	await completedResponseWait(window, true);
+});
+
+it.each(['usage', 'events'] as const)('retains a text response when Stop arrives during the %s wait', async window => {
+	await completedResponseWait(window, false, false);
+});
+
+it.each(['usage', 'events'] as const)('recovers a text response after restart during the %s wait', async window => {
+	await completedResponseWait(window, true, false);
+});
+
+async function completedResponseWait(window: 'lease' | 'usage' | 'events', restart: boolean, withTools = true): Promise<void> {
+	const h = await harness();
+	h.runtime.initializeRuntimeStorage();
+	const logs = new AgentLogStore(h.storage);
+	let reached = false;
+	let resume!: () => void;
+	const gate = new Promise<void>(resolve => { resume = resolve; });
+	const wait = async () => { reached = true; await gate; };
+	const calls = (withTools ? ['first', 'second'] : []).map(id => ({ id, type: 'function', function: { name: 'view_profiles', arguments: '{}' } }));
+	let requestId = '';
+	Object.assign(h.runtime, {
+		providerLoopInitialSuccessfulToolCallCount: () => 0,
+		successfulMutatingToolCallSinceLastLogOff: () => true,
+		prematureLogOffCorrectedSinceLastLogOff: () => false,
+		loopGeneratedTokenCountSinceLastLogOff: () => 0,
+		ensureProviderPromptWithinBudget: async () => ({ renderContext: testResultContext, allowedPromptTokens: 13_500, providerTools: toolDefinitionsForProviderRound(text), promptTokens: 100, requestMessages: [] }),
+		callProvider: async (_settings: unknown, _messages: unknown, _tools: unknown, runId: string, eventSeq: number) => {
+			requestId = logs.byEvent(runId, eventSeq)!.id;
+			logs.startAttempt(requestId, '{"exact":"completed request"}');
+			return { content: 'The completed response before either tool.', reasoning: 'Retained reasoning.', reasoningDetails: [], toolCalls: calls, usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 } };
+		},
+		recordProviderUsage: window === 'usage' ? wait : async () => {},
+		appendProviderMessages: window === 'events' ? wait : async () => {},
+		renewProgressLease: async () => { if (window === 'lease' && logs.responsePublication('run')) await wait(); },
+		executeTool: vi.fn(),
+	});
+	const pending = h.runtime.withRunExecution('run', () => h.runtime.runProviderLoop(bot, { baseUrl: 'https://provider.test', model: 'test', temperature: 0.2, toolCalls: 'at_will' }, 'run', [], { mode: 'normal', signal: h.runtime.activeAbortController.signal })).catch((error: unknown) => error);
+	await vi.waitFor(() => expect(reached).toBe(true));
+	expect(logs.request(requestId)).toMatchObject({ state: 'succeeded', messageSeq: null });
+	expect(h.storage.sql.exec("SELECT key FROM runtime_state WHERE key = 'pending_tool_v3'").toArray()).toEqual([]);
+	let recovery = h.runtime;
+	if (restart) {
+		recovery = Object.assign(Object.create(BotRuntime.prototype), { ...h.runtime, liveness: new RunLiveness(h.storage), agentLogs: undefined, activeRunId: null, activeAbortController: null });
+		const now = Date.now();
+		vi.spyOn(Date, 'now').mockReturnValue(now + 10 * 60_000);
+		await recovery.reconcileRunJournal();
+		vi.mocked(Date.now).mockRestore();
+	} else await recovery.stopTick('bot');
+	const page: BotLoopMessagesResponse = recovery.loopMessagesPage(testResultContext, { page: 1 });
+	expect(page.messages.slice(0, withTools ? 3 : 1).map(row => row.role)).toEqual(withTools ? ['assistant', 'tool', 'tool'] : ['assistant']);
+	expect(page.messages[0]).toMatchObject({ status: 'interrupted', message: { content: 'The completed response before either tool.', reasoning: 'Retained reasoning.', ...(withTools ? { tool_calls: [{ id: 'first' }, { id: 'second' }] } : {}) } });
+	expect(page.entries[0]).toMatchObject({ kind: 'message', requestId, attempts: { count: 1 } });
+	for (const row of page.messages.slice(1, withTools ? 3 : 1)) expect(row.message.content).toBe(text.format('recovery.notDispatched'));
+	expect(recovery.loopMessageLogsForSeq(testResultContext, page.messages[0]!.seq).request).toMatchObject({ id: requestId, attempts: [{ body: '{"exact":"completed request"}' }] });
+	expect(logs.responsePublication('run')).toBeNull();
+	expect(h.runtime.executeTool).not.toHaveBeenCalled();
+	resume();
+	expect(await pending).toMatchObject({ name: 'TickStoppedError' });
+	expect(recovery.loopMessagesPage(testResultContext, { page: 1 }).messages).toHaveLength((withTools ? 3 : 1) + (restart ? 1 : 0));
+	h.storage.database.close();
+}
+
+it('rolls back the response, request link, and journal together if recovery fails', async () => {
+	const h = await harness();
+	h.runtime.initializeRuntimeStorage();
+	const logs = new AgentLogStore(h.storage);
+	const id = logs.begin({ runId: 'run', eventSeq: 1, purpose: 'loop' });
+	const attemptId = logs.startAttempt(id, '{}');
+	const calls = ['first', 'second'].map(id => ({ id, type: 'function', function: { name: 'view_profiles', arguments: '{}' } }));
+	logs.settle(attemptId, { kind: 'success', response: JSON.stringify({ message: { role: 'assistant', content: 'Completed response', tool_calls: calls } }) });
+	logs.stageResponsePublication({ kind: 'provider_response', runId: 'run', requestId: id, eventSeq: 1, attemptId, assistantSeq: null, pendingCallIds: calls.map(call => call.id) });
+	logs.finish(id, 'succeeded');
+	h.storage.database.exec("CREATE TRIGGER fail_recovery BEFORE INSERT ON loop_messages WHEN NEW.role = 'tool' AND json_extract(NEW.message_json, '$.tool_call_id') = 'second' BEGIN SELECT RAISE(ABORT, 'recovery failed'); END");
+	expect(() => h.runtime.settlePendingTool(testResultContext, 'run')).toThrow('recovery failed');
+	expect(h.runtime.loopMessagesPage(testResultContext, { page: 1 }).messages).toEqual([]);
+	expect(logs.request(id)).toMatchObject({ state: 'succeeded', messageSeq: null });
+	expect(logs.responsePublication('run')).toMatchObject({ assistantSeq: null, pendingCallIds: ['first', 'second'] });
+	h.storage.database.exec('DROP TRIGGER fail_recovery');
+	h.runtime.settlePendingTool(testResultContext, 'run');
+	const page = h.runtime.loopMessagesPage(testResultContext, { page: 1 });
+	expect(page.messages).toHaveLength(3);
+	expect(page.entries[0]).toMatchObject({ kind: 'message', requestId: id });
+	expect(logs.responsePublication('run')).toBeNull();
+	h.storage.database.close();
+});
+
 it('retains required pause before release through timeout and retires a superseded retry', async () => {
  vi.useFakeTimers();
  const h = await harness();

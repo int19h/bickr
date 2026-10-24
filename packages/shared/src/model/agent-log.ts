@@ -47,7 +47,7 @@ export type AgentLogNotice =
 	| { kind: 'compaction_started'; sessionId: string; outcome: AgentLogCompactionOutcome };
 export type AgentLogEntry =
 	| { kind: 'message'; position: number; message: BotLoopMessage; author: AgentLogAuthor; requestId: string | null; sessionId: string | null; attempts: AgentLogAttemptSummary | null }
-	| { kind: 'live'; position: number; requestId: string; runId: string; attempts: AgentLogAttemptSummary; partialResponse: string | null; response: string | null }
+	| { kind: 'live'; position: number; requestId: string; runId: string; attempts: AgentLogAttemptSummary; partialResponse: string | null; response: string | null; deltaRevision?: number; attemptId?: number }
 	| { kind: 'notice'; position: number; notice: AgentLogNotice };
 
 export type AgentLogSource = 'recurring_prompt' | 'spotlight_focus' | 'synthetic_tool_call';

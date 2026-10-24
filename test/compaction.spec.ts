@@ -1,5 +1,5 @@
 import { RuntimeMessageStore } from "../workers/agent-runtime/src/runtime/message-store";
-import { agentLogStoreStub } from "../workers/agent-runtime/src/runtime/agent-log-store.test-support";
+import { agentLogStoreStub, protocolStorageTransaction } from "../workers/agent-runtime/src/runtime/agent-log-store.test-support";
 import type { LegacyHistoryCost } from '../workers/agent-runtime/src/runtime/legacy-history-maintenance';
 import { testResultContext } from '../workers/agent-runtime/src/runtime/result-render-context.test-support';
 import type { RuntimeBotDocument } from "../workers/agent-runtime/src/types";
@@ -84,7 +84,7 @@ describe("Compaction", () => {
 			const fetchMock = vi.fn(async () => Response.json(invalidResponse));
 			vi.stubGlobal("fetch", fetchMock);
 			try {
-				const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, activeLoopMessageRows: () => [], env: testEnv,
+				const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction, activeLoopMessageRows: () => [], env: testEnv,
 					appendEvent: vi.fn(),
 					throwIfStopped: vi.fn(),
 				});
@@ -156,7 +156,7 @@ describe("Compaction", () => {
 				loopMessageRowForMessage(4, { role: "assistant", content: large("d") }),
 				loopMessageRowForMessage(5, { role: "assistant", content: large("e") }),
 			];
-			const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, env: testEnv,
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction, env: testEnv,
 				activeLoopMessageRows: () => rows,
 				textTokenCalibration: () => ({ tokensPerCharacter: 0.25, sampleCount: 0 }),
 			});
@@ -195,7 +195,7 @@ describe("Compaction", () => {
 				loopMessageRowForMessage(3, { role: "assistant", content: large("c") }),
 				loopMessageRowForMessage(4, { role: "assistant", content: large("d") }),
 			];
-			const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, env: testEnv,
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction, env: testEnv,
 				activeLoopMessageRows: () => rows,
 				textTokenCalibration: () => ({ tokensPerCharacter: 0.25, sampleCount: 0 }),
 			});
@@ -234,7 +234,7 @@ describe("Compaction", () => {
 				loopMessageRowForMessage(3, { role: "tool", tool_call_id: "call-read", content: huge("c") }, "tool_result"),
 				loopMessageRowForMessage(4, { role: "assistant", content: huge("d") }),
 			];
-			const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, env: testEnv,
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction, env: testEnv,
 				activeLoopMessageRows: () => rows,
 				textTokenCalibration: () => ({ tokensPerCharacter: 0.25, sampleCount: 0 }),
 			});
@@ -276,7 +276,7 @@ describe("Compaction", () => {
 				loopMessageRowForMessage(3, { role: "tool", tool_call_id: "call-read", content: large("c") }, "tool_result"),
 				loopMessageRowForMessage(4, { role: "assistant", content: large("d") }),
 			];
-			const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, env: testEnv,
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction, env: testEnv,
 				activeLoopMessageRows: () => rows,
 				textTokenCalibration: () => ({ tokensPerCharacter: 0.25, sampleCount: 0 }),
 			});
@@ -302,7 +302,7 @@ describe("Compaction", () => {
 			const rows = [
 				loopMessageRowForMessage(1, { role: "assistant", content: "I remember a short summary." }, "compaction"),
 			];
-			const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, env: testEnv,
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction, env: testEnv,
 				activeLoopMessageRows: () => rows,
 				textTokenCalibration: () => ({ tokensPerCharacter: 0.25, sampleCount: 0 }),
 			});
@@ -386,7 +386,7 @@ describe("Compaction", () => {
 					"tool_result",
 				),
 			];
-			const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, env: testEnv,
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction, env: testEnv,
 				activeLoopMessageRows: () => rows,
 				textTokenCalibration: () => calibration,
 			});
@@ -425,7 +425,7 @@ describe("Compaction", () => {
 				loopMessageRowForMessage(3, { role: "assistant", content: defaultReasoningPrefill(englishInstructions, "budget-bot") }, "synthetic_context"),
 				loopMessageRowForMessage(4, { role: "assistant", content: "Provider-visible newer context." }),
 			];
-			const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, env: testEnv,
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction, env: testEnv,
 				activeLoopMessageRows: () => rows,
 				textTokenCalibration: () => ({ tokensPerCharacter: 0.25, sampleCount: 0 }),
 			});
@@ -484,7 +484,7 @@ describe("Compaction", () => {
 
 			it("uses only requested-model calibration samples for prompt estimates", () => {
 				const queries: Array<{ sql: string; params: unknown[] }> = [];
-				const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, env: testEnv,
+				const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction, env: testEnv,
 					state: {
 						storage: {
 							sql: {
@@ -528,7 +528,7 @@ describe("Compaction", () => {
 
 			it("backfills calibration samples from retained legacy submissions by requested model", () => {
 				const inserted: unknown[][] = [];
-				const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, env: testEnv,
+				const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction, env: testEnv,
 					state: {
 						storage: {
 							sql: {
@@ -615,7 +615,7 @@ describe("Compaction", () => {
 					"{}",
 					learnedMinimalCompactionReasoning,
 				);
-				const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub,
+				const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction,
 					env: {},
 					state: {
 						storage: {
@@ -694,7 +694,7 @@ describe("Compaction", () => {
 				tokenEstimate: 1,
 				createdAt: "2026-05-01T00:00:01.000Z",
 			}));
-			const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub,
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction,
 				env: {},
 				state: {
 					storage: {
@@ -756,7 +756,7 @@ describe("Compaction", () => {
 		});
 
 		it("adds request usage and cache badges to retained loop message logs", () => {
-			const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, env: testEnv,
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction, env: testEnv,
 				state: {
 					storage: {
 						sql: memoryLoopMessageLogSql({
@@ -827,7 +827,7 @@ describe("Compaction", () => {
 		it("soft-deletes loop messages without removing retained raw logs", async () => {
 			const sql = memoryLoopMessageLogSql();
 			const broadcastControl = vi.fn();
-			const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, env: testEnv,
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction, env: testEnv,
 				state: { storage: { sql } },
 				readStatus: async () => ({ status: "idle" }),
 				broadcastControl,
@@ -866,7 +866,7 @@ describe("Compaction", () => {
 				{ ...loopMessageRowForTest(20, "run-compact-2", "Current summary"), origin: "compaction" as BotLoopMessage["origin"] },
 				loopMessageRowForTest(21, "run-current", "Current event"),
 			];
-			const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, env: testEnv,
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction, env: testEnv,
 				state: { storage: { sql: memoryLoopMessagePageSql(rows) } },
 			});
 			const loopMessagesPage = (BotRuntime.prototype as unknown as {
@@ -898,7 +898,7 @@ describe("Compaction", () => {
 				{ ...loopMessageRowForTest(20, "run-compact-2", "Current summary"), origin: "compaction" as BotLoopMessage["origin"] },
 				loopMessageRowForTest(21, "run-current", "Current event"),
 			];
-			const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, env: testEnv,
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction, env: testEnv,
 				state: { storage: { sql: memoryLoopMessagePageSql(rows) } },
 			});
 			const loopMessagesPage = (BotRuntime.prototype as unknown as {
@@ -928,7 +928,7 @@ describe("Compaction", () => {
 				{ ...loopMessageRowForTest(20, "run-current", "Current event"), position: 10 },
 				{ ...loopMessageRowForTest(100, "run-compact", "Current summary"), position: 5, origin: "compaction" as BotLoopMessage["origin"] },
 			];
-			const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, env: testEnv,
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction, env: testEnv,
 				state: { storage: { sql: memoryLoopMessagePageSql(rows) } },
 			});
 			const loopMessagesPage = (BotRuntime.prototype as unknown as {
@@ -949,7 +949,7 @@ describe("Compaction", () => {
 				{ ...loopMessageRowForTest(10, "run-compact", "Current summary"), origin: "compaction" as BotLoopMessage["origin"] },
 				loopMessageRowForTest(11, "run-current", "Current event"),
 			];
-			const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, env: testEnv,
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction, env: testEnv,
 				state: { storage: { sql: memoryLoopMessagePageSql(rows) } },
 			});
 			const loopMessagesPage = (BotRuntime.prototype as unknown as {
@@ -991,7 +991,7 @@ describe("Compaction", () => {
 				},
 				loopMessageRowForMessage(2, { role: "tool", tool_call_id: "call-legacy", content: "{}" }, "tool_result"),
 			];
-			const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, env: testEnv,
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction, env: testEnv,
 				state: { storage: { sql: memoryLoopMessagePageSql(rows) } },
 			});
 			const loopMessagesPage = (BotRuntime.prototype as unknown as {
@@ -1028,7 +1028,7 @@ describe("Compaction", () => {
 				{ ...loopMessageRowForTest(10, "run-compact", "Current summary"), origin: "compaction" as BotLoopMessage["origin"] },
 				loopMessageRowForTest(11, "run-current", "Current event"),
 			];
-			const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, env: testEnv,
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction, env: testEnv,
 				state: { storage: { sql: memoryLoopMessagePageSql(rows) } },
 			});
 			const loopMessagesPage = (BotRuntime.prototype as unknown as {
@@ -1044,7 +1044,7 @@ describe("Compaction", () => {
 		});
 
 		it("uses the latest successful compaction summary after a failed compaction row", () => {
-			const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, env: testEnv,
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction, env: testEnv,
 				state: {
 					storage: {
 						sql: {
@@ -1103,7 +1103,7 @@ describe("Compaction", () => {
 				});
 			});
 			const replaceEventPayloadWithoutBroadcast = vi.fn();
-			const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub,
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction,
 				env: {},
 				state: {
 					storage: {
@@ -1213,7 +1213,7 @@ describe("Compaction", () => {
 			let activeSeqs = [1, 2];
 			let summaryVisible = false;
 			const broadcastControl = vi.fn();
-			const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub,
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction,
 				env: {},
 				state: {
 					storage: {
@@ -1359,7 +1359,7 @@ describe("Compaction", () => {
 				requestBody: "{}",
 				rawResponse: "{}",
 			}));
-			const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub,
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction,
 				env: {},
 				state: {
 					storage: {
@@ -1466,7 +1466,7 @@ describe("Compaction", () => {
 				try {
 					const replaceEventPayloadWithoutBroadcast = vi.fn();
 					const recordProviderTokenCalibrationSample = vi.fn();
-					const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub,
+					const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction,
 						env: { BICKR_SIMULATION_MODE: "provider" },
 					state: {
 						storage: {
@@ -1600,7 +1600,7 @@ describe("Compaction", () => {
 			vi.stubGlobal("fetch", fetchMock);
 			try {
 				const replaceEventPayloadWithoutBroadcast = vi.fn();
-				const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub,
+				const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction,
 					env: { BICKR_SIMULATION_MODE: "provider" },
 					state: {
 					storage: {
@@ -1696,7 +1696,7 @@ describe("Compaction", () => {
 				calibration,
 			);
 			let promptTokens = expectedLimits.nextCompactionTokens;
-			const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, activeLoopMessageRows: () => [], env: testEnv,
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction, activeLoopMessageRows: () => [], env: testEnv,
 				activeProviderRequestMessages: () => [{ role: "system", content: "System." }, { role: "assistant", content: "Old context." }],
 				currentCompactionContextEstimate: () => ({ totalTokens: 4, rowTokens: 4, rows: [{ row, tokens: 4 }], calibration }),
 				compactionRowsForEstimatedBudget: () => [row],
@@ -1797,7 +1797,7 @@ describe("Compaction", () => {
 				}),
 			};
 			const recordLoopMessageLog = vi.fn();
-			const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, env: testEnv,
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction, env: testEnv,
 				state: { storage: { sql } },
 				recordLoopMessageLog,
 			});
@@ -1939,7 +1939,7 @@ describe("Compaction", () => {
 		const callProviderForTokenProbe = vi.fn();
 		const recordInferenceSubmission = vi.fn();
 		const compactedRows: unknown[][] = [];
-		const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, activeLoopMessageRows: () => [], env: testEnv,
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction, activeLoopMessageRows: () => [], env: testEnv,
 			activeLoopMessagesForProvider: () => activeMessages,
 			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) => {
 				events.push({ type, payload });
@@ -2022,7 +2022,7 @@ describe("Compaction", () => {
 		const providerRequests: Array<Array<Record<string, unknown>>> = [];
 		let compactionSelectionCalls = 0;
 		const compactionMetrics: Array<Record<string, unknown>> = [];
-		const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, activeLoopMessageRows: () => [], env: testEnv,
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction, activeLoopMessageRows: () => [], env: testEnv,
 			activeLoopMessagesForProvider: () => activeMessages,
 			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) => {
 				events.push({ type, payload });
@@ -2157,7 +2157,7 @@ describe("Compaction", () => {
 		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
 		const compactedSeqs: number[][] = [];
 		let compacted = false;
-		const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, env: testEnv,
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction, env: testEnv,
 			activeLoopMessageRows: () => rows,
 			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) => {
 				events.push({ type, payload });
@@ -2211,7 +2211,7 @@ describe("Compaction", () => {
 		const currentBot = fakeBotDocument({ contextWindowTokens: 64_000 });
 		const calibration = { tokensPerCharacter: 0.25, sampleCount: 0 };
 		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
-		const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, activeLoopMessageRows: () => [], env: testEnv,
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction, activeLoopMessageRows: () => [], env: testEnv,
 			activeLoopMessagesForProvider: () => [],
 			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) => {
 				events.push({ type, payload });
@@ -2256,7 +2256,7 @@ describe("Compaction", () => {
 		const calibration = { tokensPerCharacter: 0.25, sampleCount: 0 };
 		const limits = providerCompactionSummaryLimitsForChat(bot, [], calibration, toolDefinitionsForProviderRound(englishInstructions));
 		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
-		const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, activeLoopMessageRows: () => [], env: testEnv,
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction, activeLoopMessageRows: () => [], env: testEnv,
 			activeLoopMessagesForProvider: () => [],
 			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) => {
 				events.push({ type, payload });
@@ -2308,7 +2308,7 @@ describe("Compaction", () => {
 		const row = loopMessageRowForTest(1, "run-stuck-compaction", "Old summary that still cannot fit.");
 		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
 		let compactCalls = 0;
-		const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, activeLoopMessageRows: () => [], env: testEnv,
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction, activeLoopMessageRows: () => [], env: testEnv,
 			activeLoopMessagesForProvider: () => [{ role: "assistant", content: "Still too large after compaction." }],
 			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) => {
 				events.push({ type, payload });
@@ -2364,7 +2364,7 @@ describe("Compaction", () => {
 			const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
 		const callProvider = vi.fn();
 		const recordInferenceSubmission = vi.fn();
-		const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, activeLoopMessageRows: () => [], env: testEnv,
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction, activeLoopMessageRows: () => [], env: testEnv,
 			activeLoopMessagesForProvider: () => [{ role: "assistant", content: "Current setup is already too large." }],
 			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) => {
 				events.push({ type, payload });

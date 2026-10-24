@@ -421,6 +421,33 @@ describe('agent log storage', () => {
 		expect(store.migrationStatus().legacyPendingRequestsRemain).toBe(false);
 	});
 
+	it('identifies each stream attempt and counts its deltas in live entries', () => {
+		const id = request();
+		const first = store.startAttempt(id, '{}');
+		store.partial('run', 1, { kind: 'content', text: 'A' });
+		store.partial('run', 1, { kind: 'content', text: 'B' });
+		expect(store.streamState('run', 1)).toEqual({ kind: 'stream', attemptId: first, revision: 2 });
+		expect(store.entries([], null)).toMatchObject([{ kind: 'live', attemptId: first, deltaRevision: 2 }]);
+		store.settle(first, { kind: 'provider_error', status: null, errorType: null, message: 'Retry' });
+		const second = store.startAttempt(id, '{}');
+		store.partial('run', 1, { kind: 'content', text: 'New attempt' });
+		expect(store.streamState('run', 1)).toEqual({ kind: 'stream', attemptId: second, revision: 1 });
+		expect(store.entries([], null)).toMatchObject([{ kind: 'live', attemptId: second, deltaRevision: 1 }]);
+	});
+
+	it('rolls back request completion if the response journal cannot be written', () => {
+		const id = request();
+		const attemptId = store.startAttempt(id, '{}');
+		storage.database.exec("CREATE TRIGGER fail_publication BEFORE INSERT ON runtime_state WHEN NEW.key = 'pending_response_v1' BEGIN SELECT RAISE(ABORT, 'publication failed'); END");
+		expect(() => storage.transactionSync(() => {
+			store.settle(attemptId, { kind: 'success', response: '{"message":{"role":"assistant","content":"Retained"}}' });
+			store.stageResponsePublication({ kind: 'provider_response', requestId: id, attemptId, runId: 'run', eventSeq: 1, assistantSeq: null, pendingCallIds: [] });
+			store.finish(id, 'succeeded');
+		})).toThrow('publication failed');
+		expect(store.request(id)).toMatchObject({ state: 'pending', messageSeq: null, attempts: [{ outcome: null }] });
+		expect(store.responsePublication('run')).toBeNull();
+	});
+
 	it('keeps structured provider status and error type', () => {
 		expect(agentLogFailure(new ProviderRequestError(429, 'test', 'https://example.test', 'Refused', { providerError: { kind: 'provider_error', status: 429, errorType: 'rate_limit' } }))).toMatchObject({ kind: 'provider_error', status: 429, errorType: 'rate_limit' });
 	});

@@ -1,4 +1,4 @@
-import { agentLogStoreStub } from "../workers/agent-runtime/src/runtime/agent-log-store.test-support";
+import { agentLogStoreStub, protocolStorageTransaction } from "../workers/agent-runtime/src/runtime/agent-log-store.test-support";
 import { testResultContext } from '../workers/agent-runtime/src/runtime/result-render-context.test-support';
 import { ResultContextScope } from "../workers/agent-runtime/src/runtime/result-context-scope";
 import { botText as testBotText } from "../workers/agent-runtime/src/localization";
@@ -1268,7 +1268,7 @@ describe("Provider requests", () => {
 			displayContext: { worldHandle: "sandbox" },
 		};
 		const sql = memoryLoopMessageInsertSql(42, displayPayload);
-		const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub,
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction,
 			state: { storage: { sql } },
 		});
 		const insertLoopMessage = (BotRuntime.prototype as unknown as {
@@ -1679,7 +1679,7 @@ describe("Provider requests", () => {
 				toolDefinitionsForProviderRound(englishInstructions).find((definition) => definition.function.name === metaCompactionToolName)!,
 				{ type: "openrouter:web_search" } as ProviderToolDefinition,
 			];
-			const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub,
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction,
 				activeLoopMessagesForProvider: () => [],
 			});
 			const activeProviderRequestMessages = (BotRuntime.prototype as unknown as {
@@ -2428,7 +2428,7 @@ describe("Provider requests", () => {
 					},
 					"[DONE]",
 				]));
-			const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub,
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction,
 				appendEvent: (_runId: string, type: string, payload: Record<string, unknown>) => {
 					events.push({ type, payload });
 					return {
@@ -2519,7 +2519,7 @@ describe("Provider requests", () => {
 					},
 					"[DONE]",
 				]));
-			const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub,
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction,
 				appendEvent: (_runId: string, type: string, payload: Record<string, unknown>) => {
 					events.push({ type, payload });
 					return {
@@ -2590,7 +2590,7 @@ describe("Provider requests", () => {
 				},
 				"[DONE]",
 			]));
-		const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub,
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction,
 			appendEvent: (_runId: string, type: string, payload: Record<string, unknown>) => {
 				events.push({ type, payload });
 				return {
@@ -2682,7 +2682,7 @@ describe("Provider requests", () => {
 					},
 					"[DONE]",
 				]));
-			const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub,
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction,
 				appendEvent: (_runId: string, type: string, payload: Record<string, unknown>) => {
 					events.push({ type, payload });
 					return {
@@ -2760,7 +2760,7 @@ describe("Provider requests", () => {
 				},
 				"[DONE]",
 			]));
-		const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub,
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction,
 			appendEvent: () => ({
 				seq: 1,
 				runId: "run-stream-provider-rate-limit-accumulate",
@@ -2817,7 +2817,7 @@ describe("Provider requests", () => {
 			.fn<(_settings: unknown, _endpoint: string, _body: string, _signal: AbortSignal) => Promise<ReadableStream<Uint8Array>>>()
 			.mockResolvedValueOnce(sseStream([streamedProviderRateLimit("gen-limit-first", "DeepInfra")]))
 			.mockResolvedValueOnce(sseStream([streamedProviderRateLimit("gen-limit-second", "DeepInfra")]));
-		const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub,
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction,
 			appendEvent: () => ({
 				seq: 1,
 				runId: "run-stream-provider-rate-limit-repeat",
@@ -2889,7 +2889,7 @@ describe("Provider requests", () => {
 				},
 			};
 			const fetchProviderResponse = vi.fn(async () => sseStream([streamedProviderError]));
-			const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub,
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction,
 				appendEvent: (_runId: string, type: string, payload: Record<string, unknown>) => {
 					events.push({ type, payload });
 					return {
@@ -2965,7 +2965,7 @@ describe("Provider requests", () => {
 			responseProviderName?: string;
 			toolCalls: Array<Record<string, unknown>>;
 		};
-		const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub,
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction,
 			broadcastProviderDelta: () => {},
 			throwIfStopped: (_runId: string, signal: AbortSignal) => {
 				if (signal.aborted) {
@@ -3026,7 +3026,7 @@ describe("Provider requests", () => {
 			status: string | undefined;
 			streamSeq: number | undefined;
 		}> = [];
-		const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub,
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction,
 			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) => {
 				const seq = type === "provider_request" ? 123 : 123 + events.length + 1;
 				events.push({ seq, type, payload });
@@ -3521,7 +3521,7 @@ describe("Provider requests", () => {
 
 		it("returns only included notification IDs for delivery marking", async () => {
 			const appendedMessages: Array<Record<string, unknown>> = [];
-		const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub,
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction,
 			env: testEnv,
  notes: { read: () => null },
 			readCommentTreeTokenBudget: async () => 90,
@@ -3579,7 +3579,7 @@ describe("Provider requests", () => {
 
 		it("renders the participant's own notification post in the first person", async () => {
 			const appendedMessages: Array<Record<string, unknown>> = [];
-			const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub,
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction,
 				env: testEnv,
  notes: { read: () => null },
 				readCommentTreeTokenBudget: async () => 4_000,

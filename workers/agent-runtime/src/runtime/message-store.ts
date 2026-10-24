@@ -110,14 +110,17 @@ export class RuntimeMessageStore {
 	// reasoning once preserves both thinking-mode requirements and opaque signatures;
 	// persisting only settled calls keeps interrupted histories protocol-complete.
 	appendProviderToolResult(context: ResultRenderContext, assistant: LoopMessageGroupEntry, result: LoopMessageGroupEntry, assistantSeq: number | null, commit?: () => void): BotLoopMessage {
-		const call = assistant.message.tool_calls?.[0];
-		if (assistant.origin !== 'provider_response' || assistant.message.role !== 'assistant' || result.message.role !== 'tool' || assistant.runId !== result.runId || !call || assistant.message.tool_calls?.length !== 1 || result.message.tool_call_id !== call.id) {
-			throw new Error('A provider group extension requires one matching tool request and result.');
-		}
-		const written = this.writeLoopMessageGroup(context, assistantSeq === null ? [assistant, result] : [result], {
+		return this.appendProviderToolResults(context, assistant, [result], assistantSeq, commit);
+	}
+
+	appendProviderToolResults(context: ResultRenderContext, assistant: LoopMessageGroupEntry, results: LoopMessageGroupEntry[], assistantSeq: number | null, commit?: () => void): BotLoopMessage {
+		const calls = assistant.message.tool_calls ?? [];
+		if (assistant.origin !== 'provider_response' || assistant.message.role !== 'assistant' || calls.length === 0 || calls.length !== results.length || results.some((result, index) => result.message.role !== 'tool' || assistant.runId !== result.runId || result.message.tool_call_id !== calls[index]?.id)) throw new Error('A provider group extension requires matching tool requests and results.');
+		const written = this.writeLoopMessageGroup(context, assistantSeq === null ? [assistant, ...results] : results, {
 			clearPendingRunId: assistant.runId,
+			publication: { runId: assistant.runId, callIds: calls.map(call => call.id) },
 			commit,
-			...(assistantSeq === null ? {} : { extend: { seq: assistantSeq, call, runId: assistant.runId } }),
+			...(assistantSeq === null ? {} : { extend: { seq: assistantSeq, calls, runId: assistant.runId } }),
 		});
 		return written[0]!;
 	}
@@ -127,7 +130,8 @@ export class RuntimeMessageStore {
 	}
 
 	private writeLoopMessageGroup(context: ResultRenderContext, entries: LoopMessageGroupEntry[], options: {
-		extend?: { seq: number; call: ToolCall; runId: string };
+		extend?: { seq: number; calls: ToolCall[]; runId: string };
+		publication?: { runId: string; callIds: string[] };
 		clearPendingRunId?: string;
 		commit?: () => void;
 	} = {}): BotLoopMessage[] {
@@ -153,6 +157,15 @@ export class RuntimeMessageStore {
 				}
 				inserted.push(loopMessage);
 			}
+			const log = new AgentLogStore(this.storage);
+			if (options.publication) log.completeResponsePublication(options.publication.runId, inserted[0]!.seq, options.publication.callIds);
+			else for (let index = 0; index < entries.length; index++) {
+				const entry = entries[index]!;
+				if (entry.origin === 'provider_response' && entry.options?.streamSeq !== undefined) {
+					const publication = log.responsePublication(entry.runId);
+					if (publication?.eventSeq === entry.options.streamSeq) log.completeResponsePublication(entry.runId, inserted[index]!.seq, []);
+				}
+			}
 			if (options.clearPendingRunId) {
 				this.storage.sql.exec(`DELETE FROM runtime_state WHERE key IN ('pending_tool_v1', 'pending_tool_v2', 'pending_tool_v3') AND json_extract(value_json, '$.runId') = ?`, options.clearPendingRunId);
 			}
@@ -171,14 +184,14 @@ export class RuntimeMessageStore {
 		return inserted;
 	}
 
-	private extendProviderResponseGroup(context: ResultRenderContext, extension: { seq: number; call: ToolCall; runId: string }): BotLoopMessage {
+	private extendProviderResponseGroup(context: ResultRenderContext, extension: { seq: number; calls: ToolCall[]; runId: string }): BotLoopMessage {
 		const row = this.loopMessageRow(extension.seq);
 		if (!row || row.run_id !== extension.runId || row.origin !== 'provider_response' || row.compacted_by !== null || row.deleted_at !== null) {
 			throw new Error('Cannot extend an inactive or unrelated provider response group.');
 		}
 		const message = loopMessageFromRow(row, context);
 		const calls = message.message.tool_calls ?? [];
-		if (message.role !== 'assistant' || calls.length === 0 || calls.some((call) => call.id === extension.call.id)) {
+		if (message.role !== 'assistant' || calls.length === 0 || extension.calls.some(next => calls.some(call => call.id === next.id))) {
 			throw new Error('Cannot extend an invalid or already settled provider response group.');
 		}
 		// Bound the scan by this response plus the bounded diagnostic retention.
@@ -191,7 +204,7 @@ export class RuntimeMessageStore {
 		if (following.length !== calls.length || following.some((item, index) => item.role !== 'tool' || item.message.tool_call_id !== calls[index]?.id)) {
 			throw new Error('Provider response results must remain contiguous when extending their group.');
 		}
-		const updated = { ...message.message, tool_calls: [...calls, extension.call] };
+		const updated = { ...message.message, tool_calls: [...calls, ...extension.calls] };
 		const json = JSON.stringify(updated);
 		this.storage.sql.exec(`UPDATE loop_messages SET message_json = ?, token_estimate = ? WHERE seq = ?`, json, estimateTextTokens(json), row.seq);
 		this.recordLoopMessageLog(row.seq, 'message', json);

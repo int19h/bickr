@@ -49,7 +49,7 @@ export const agentLogDeltaDepthLimit = 16;
 const partialFlushBytes = 4_096;
 const partialFlushMs = 1_000;
 type PartialText = { content: string; reasoning: string; toolCalls: ReturnType<typeof logToolDelta>[] };
-type LiveAttempt = { requestId: string; attemptId: number; text: PartialText; unflushedBytes: number; flushedAt: number };
+type LiveAttempt = { requestId: string; attemptId: number; text: PartialText; unflushedBytes: number; flushedAt: number; revision: number };
 
 // SQLite encodes strings as UTF-8. Keep both halves of each surrogate pair together.
 function textBoundary(text: string, offset: number): number {
@@ -65,6 +65,11 @@ export function agentLogFailure(error: unknown): AgentLogFailure {
 	if (error instanceof ProviderResponseInterruptedError || error instanceof TickStoppedError || (error instanceof Error && error.name === 'AbortError')) return { kind: 'interrupted' };
 	return { kind: 'provider_error', status: error instanceof ProviderRequestError ? error.status : null, errorType: error instanceof ProviderRequestError ? error.providerError?.errorType ?? null : null, message: error instanceof Error ? error.message : String(error) };
 }
+
+// Retention: one unfinished response per participant. History writes or recovery
+// remove this marker. History erasure and full storage erasure remove it too.
+const responsePublicationKey = 'pending_response_v1';
+export type ResponsePublication = { kind: 'provider_response'; runId: string; requestId: string; eventSeq: number; attemptId: number; assistantSeq: number | null; pendingCallIds: string[] };
 
 export class AgentLogStore {
 	private readonly storage: RuntimeStorage;
@@ -120,7 +125,7 @@ export class AgentLogStore {
 			this.writeChunks(attempt, useBase ? body.slice(prefix) : body);
 			this.storage.sql.exec("UPDATE inference_requests SET state = 'pending' WHERE id = ?", requestId);
 			const request = this.storage.sql.exec<RequestRow>('SELECT * FROM inference_requests WHERE id = ? LIMIT 1', requestId).one();
-			this.liveAttempts.set(JSON.stringify([request.run_id, request.event_seq]), { requestId, attemptId: attempt, text: { content: '', reasoning: '', toolCalls: [] }, unflushedBytes: 0, flushedAt: Date.now() });
+			this.liveAttempts.set(JSON.stringify([request.run_id, request.event_seq]), { requestId, attemptId: attempt, text: { content: '', reasoning: '', toolCalls: [] }, unflushedBytes: 0, flushedAt: Date.now(), revision: 0 });
 			return attempt;
 		});
 	}
@@ -175,6 +180,44 @@ export class AgentLogStore {
 		});
 	}
 
+	stageResponsePublication(publication: ResponsePublication): void {
+		this.assertCanWrite();
+		const current = this.storage.sql.exec<{ value_json: string }>('SELECT value_json FROM runtime_state WHERE key = ? LIMIT 1', responsePublicationKey).toArray()[0];
+		if (current && (JSON.parse(current.value_json) as ResponsePublication).requestId !== publication.requestId) throw new RepositoryError('conflict', 'The previous response still needs a history row.', 409);
+		this.storage.sql.exec('INSERT INTO runtime_state(key, value_json) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json', responsePublicationKey, JSON.stringify(publication));
+	}
+
+	responsePublication(runId: string): ResponsePublication | null {
+		const row = this.storage.sql.exec<{ value_json: string }>("SELECT value_json FROM runtime_state WHERE key = ? AND json_extract(value_json, '$.runId') = ? LIMIT 1", responsePublicationKey, runId).toArray()[0];
+		if (!row) return null;
+		const value = JSON.parse(row.value_json) as ResponsePublication;
+		if (value.kind !== 'provider_response') throw new RepositoryError('conflict', 'The pending response has an unsupported kind.', 409);
+		return value;
+	}
+
+	completeResponsePublication(runId: string, assistantSeq: number | null, callIds: string[]): void {
+		this.assertCanWrite();
+		const publication = this.responsePublication(runId);
+		if (!publication) return;
+		publication.assistantSeq = assistantSeq ?? publication.assistantSeq;
+		publication.pendingCallIds = publication.pendingCallIds.filter(id => !callIds.includes(id));
+		if (publication.assistantSeq !== null && publication.pendingCallIds.length === 0) this.discardResponsePublication(runId);
+		else this.stageResponsePublication(publication);
+	}
+
+	discardResponsePublication(runId: string): void {
+		this.assertCanWrite();
+		this.storage.sql.exec("DELETE FROM runtime_state WHERE key = ? AND json_extract(value_json, '$.runId') = ?", responsePublicationKey, runId);
+	}
+
+	completedResponse(attemptId: number): string {
+		const row = this.storage.sql.exec<{ outcome_json: string | null }>('SELECT outcome_json FROM inference_attempts WHERE id = ? LIMIT 1', attemptId).toArray()[0];
+		const outcome = row?.outcome_json ? this.outcome(attemptId, row.outcome_json) : null;
+		if (outcome?.kind === 'success') return outcome.response;
+		if (outcome?.kind === 'interrupted' && outcome.response !== undefined) return outcome.response;
+		throw new RepositoryError('conflict', 'The completed response is not retained.', 409);
+	}
+
 	finish(requestId: string, state: 'succeeded' | 'failed'): void {
 		this.assertCanWrite();
 		this.storage.sql.exec('UPDATE inference_requests SET state = ? WHERE id = ?', state, requestId);
@@ -188,6 +231,7 @@ export class AgentLogStore {
 		this.assertCanWrite();
 		const live = this.liveAttempts.get(JSON.stringify([runId, eventSeq]));
 		if (!live) return null;
+		live.revision++;
 		let added = '';
 		if (payload.kind === 'content' && typeof payload.text === 'string') {
 			live.text.content += payload.text;
@@ -205,6 +249,11 @@ export class AgentLogStore {
 		live.unflushedBytes += new TextEncoder().encode(added).byteLength;
 		if (live.unflushedBytes >= partialFlushBytes || Date.now() - live.flushedAt >= partialFlushMs) this.flushAttempt(live.attemptId);
 		return live.requestId;
+	}
+
+	streamState(runId: string, eventSeq: number): { kind: 'stream'; attemptId: number; revision: number } | { kind: 'none' } {
+		const live = this.liveAttempts.get(JSON.stringify([runId, eventSeq]));
+		return live ? { kind: 'stream', attemptId: live.attemptId, revision: live.revision } : { kind: 'none' };
 	}
 
 	private flushAttempt(id: number): void {
@@ -248,6 +297,7 @@ export class AgentLogStore {
 		this.assertCanWrite();
 		this.storage.transactionSync(() => {
 			this.liveAttempts.clear();
+			this.storage.sql.exec('DELETE FROM runtime_state WHERE key = ?', responsePublicationKey);
 			for (const table of ['inference_body_chunks', 'inference_attempts', 'inference_requests', 'compaction_sessions']) this.storage.sql.exec(`DELETE FROM ${table}`);
 		});
 	}
@@ -411,7 +461,7 @@ export class AgentLogStore {
 			if ((row.state === 'pending' || row.state === 'succeeded') && source === null) {
 				const outcome = row.state === 'succeeded' && row.outcome_json ? logAttemptOutcome(storedLogValue(responses.get(row.attempt_id!) || row.outcome_json)) : null;
 				const response = outcome?.kind === 'success' ? outcome.response : outcome?.kind === 'interrupted' ? outcome.response ?? null : null;
-				entries.push({ kind: 'live', position: Number.MAX_SAFE_INTEGER, requestId: row.id, runId: row.run_id, attempts: summary(row.id), partialResponse: row.attempt_id !== null ? this.partialText(row.attempt_id, row.partial_response, partials.get(row.attempt_id)) : null, response });
+				entries.push({ kind: 'live', position: Number.MAX_SAFE_INTEGER, requestId: row.id, runId: row.run_id, attempts: summary(row.id), partialResponse: row.attempt_id !== null ? this.partialText(row.attempt_id, row.partial_response, partials.get(row.attempt_id)) : null, response, attemptId: row.attempt_id ?? undefined, deltaRevision: [...this.liveAttempts.values()].find(attempt => attempt.attemptId === row.attempt_id)?.revision ?? 0 });
 			} else if (row.state === 'failed') entries.push({ kind: 'notice', position: row.position, notice: { kind: 'request_failed', requestId: row.id, attempts: summary(row.id) } });
 		}
 		for (const row of this.storage.sql.exec<SessionRow>(`SELECT s.* FROM compaction_sessions s LEFT JOIN loop_messages m ON m.seq = s.anchor_seq WHERE ${pagePredicate} ORDER BY s.position, s.created_at LIMIT 2000`, ...bindings).toArray()) entries.push({ kind: 'notice', position: row.position, notice: { kind: 'compaction_started', sessionId: row.id, outcome: logCompactionOutcome(storedLogValue(row.outcome_json)) } });

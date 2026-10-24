@@ -3012,11 +3012,17 @@ export class BotRuntime {
 	}
 
 	private clearPendingTool(runId: string): void {
+		const row = this.state.storage.sql.exec<{ value_json: string }>("SELECT value_json FROM runtime_state WHERE key = 'pending_tool_v3' AND json_extract(value_json, '$.runId') = ? LIMIT 1", runId).toArray()[0];
+		if (row) this.agentLogStore().completeResponsePublication(runId, null, [(JSON.parse(row.value_json) as PendingProviderTool).toolCall.id]);
 		this.state.storage.sql.exec(`DELETE FROM runtime_state WHERE key IN ('pending_tool_v1', 'pending_tool_v2', 'pending_tool_v3') AND json_extract(value_json, '$.runId') = ?`, runId);
 	}
 
 	private settlePendingTool(context: ResultRenderContext, runId: string): void {
 		const row = this.state.storage.sql.exec<{ key: string; value_json: string }>(`SELECT key, value_json FROM runtime_state WHERE key IN ('pending_tool_v1', 'pending_tool_v2', 'pending_tool_v3') AND json_extract(value_json, '$.runId') = ? ORDER BY key DESC LIMIT 1`, runId).toArray()[0];
+		if (this.agentLogStore().responsePublication(runId)) {
+			this.settleResponsePublication(context, runId, row ? pendingToolFromStoredRow(row) : null);
+			return;
+		}
 		if (!row) return;
 		// One compatibility adapter consumes old journals. Old requests used English.
 		// The same adapter accepts old v3 journals without request references.
@@ -3046,6 +3052,38 @@ export class BotRuntime {
 			() => { event = this.runtimeEventsStore().appendEventWithoutBroadcast(runId, 'tool_result', { name: pending.toolCall.function.name, args: pending.args, mutationIdentity: pending.mutationIdentity, arguments: pending.toolCall.function.arguments, result: outcome, outcome: settlement.outcome }); },
 		);
 		if (event) this.broadcast(event);
+	}
+
+	private settleResponsePublication(context: ResultRenderContext, runId: string, active: PendingProviderTool | null): void {
+		const log = this.agentLogStore();
+		const publication = log.responsePublication(runId);
+		if (!publication) return;
+		// This journal kind points only to payloads from providerResponseLogPayload.
+		const raw = log.completedResponse(publication.attemptId);
+		const payload = JSON.parse(raw) as { message: ChatMessage };
+		const message = providerResponseMessageForHistory({ content: payload.message.content ?? '', reasoning: payload.message.reasoning ?? '', reasoningDetails: (payload.message.reasoning_details ?? []).map(runtimeRecord), toolCalls: payload.message.tool_calls ?? [] });
+		const calls = (message?.tool_calls ?? []).filter(call => publication.pendingCallIds.includes(call.id));
+		if (calls.length !== publication.pendingCallIds.length) throw new RepositoryError('conflict', 'The pending response calls are not retained.', 409);
+		if (calls.length === 0) {
+			const textOnly = message ? providerResponseMessageForHistory({ content: message.content ?? '', reasoning: message.reasoning ?? '', reasoningDetails: (message.reasoning_details ?? []).map(runtimeRecord), toolCalls: [] }) : null;
+			const entries: LoopMessageGroupEntry[] = publication.assistantSeq === null && textOnly ? [{ runId, message: textOnly, origin: 'provider_response', status: 'interrupted', options: { requestId: publication.requestId, streamSeq: publication.eventSeq }, extraLogs: [{ kind: 'provider_response', text: raw }] }] : [];
+			this.runtimeMessageStore().appendLoopMessageGroup(context, entries, () => { log.discardResponsePublication(runId); this.clearPendingTool(runId); });
+			return;
+		}
+		const settlements = calls.map(call => interruptedToolSettlement(context.text, call.function.name, active?.toolCall.id === call.id ? active.stage : 'prepared'));
+		const results: LoopMessageGroupEntry[] = calls.map((call, index) => {
+			const settlement = settlements[index]!;
+			return { runId, origin: 'tool_failure', status: 'interrupted', message: attachToolResultView({ role: 'tool', tool_call_id: call.id, content: JSON.stringify(settlement.result) }, settlementResultView(settlement.outcome === 'unknown' ? 'outcome_unknown' : settlement.outcome, settlement.outcome === 'not_dispatched' ? resultMessage('recovery.notDispatched') : settlement.outcome === 'interrupted' ? resultMessage('recovery.interrupted') : unknownOutcomeText(call.function.name), context.text)) };
+		});
+		const events: BotRuntimeEvent[] = [];
+		this.runtimeMessageStore().appendProviderToolResults(context, { runId, message: { ...message!, tool_calls: calls }, origin: 'provider_response', status: 'interrupted', options: { requestId: publication.requestId, streamSeq: publication.eventSeq }, extraLogs: [{ kind: 'provider_response', text: raw }] }, results, publication.assistantSeq, () => {
+			for (let index = 0; index < calls.length; index++) {
+				const call = calls[index]!;
+				const settlement = settlements[index]!;
+				events.push(this.runtimeEventsStore().appendEventWithoutBroadcast(runId, 'tool_result', { name: call.function.name, args: active?.toolCall.id === call.id ? active.args : {}, ...(active?.toolCall.id === call.id ? { mutationIdentity: active.mutationIdentity } : {}), arguments: call.function.arguments, result: settlement.result, outcome: settlement.outcome }));
+			}
+		});
+		for (const event of events) this.broadcast(event);
 	}
 
 	private withRunExecution<T>(runId: string, operation: () => T): T {
@@ -3702,6 +3740,15 @@ export class BotRuntime {
 				const malformedArgumentsOnlyResponse = allToolCallsDroppedResponse
 					? allToolCallsHaveMalformedArguments(sanitized.dropped, sanitized.originalToolCallCount)
 					: null;
+				if (!allToolCallsDroppedResponse) this.runStorageTransactionSync(() => {
+					const log = this.agentLogStore();
+					const attemptId = log.latestAttempt(logicalRequestId!);
+					if (attemptId !== null) {
+						log.settle(attemptId, responseStatus === 'interrupted' ? { kind: 'interrupted', response: JSON.stringify(providerResponseLogPayload(response, responseStatus)) } : { kind: 'success', response: JSON.stringify(providerResponseLogPayload(response, responseStatus)) });
+						if (providerResponseMessageForHistory(response)) log.stageResponsePublication({ kind: 'provider_response', runId, requestId: logicalRequestId!, eventSeq: requestEvent.seq, attemptId, assistantSeq: null, pendingCallIds: response.toolCalls.map(call => call.id) });
+					}
+					log.finish(logicalRequestId!, 'succeeded');
+				});
 				await this.recordDroppedProviderToolCalls(
 					runId,
 					requestEvent.seq,
@@ -3733,12 +3780,7 @@ export class BotRuntime {
 						throw error;
 					}
 				}
-				if (!allToolCallsDroppedResponse) {
-					const attemptId = this.agentLogStore().latestAttempt(logicalRequestId);
-					if (attemptId !== null) this.agentLogStore().settle(attemptId, responseStatus === 'interrupted' ? { kind: 'interrupted', response: JSON.stringify(providerResponseLogPayload(response, responseStatus)) } : { kind: 'success', response: JSON.stringify(providerResponseLogPayload(response, responseStatus)) });
-					this.agentLogStore().finish(logicalRequestId, 'succeeded');
-					break;
-				}
+				if (!allToolCallsDroppedResponse) break;
 				const droppedAttemptId = this.agentLogStore().latestAttempt(logicalRequestId);
 				if (droppedAttemptId !== null) this.agentLogStore().settle(droppedAttemptId, { kind: 'dropped_invalid_output', droppedCalls: sanitized.dropped.map(call => ({ id: call.id, name: call.name, reason: call.reason, argumentsPreview: call.argumentsPreview })) });
 				this.appendDroppedProviderResponseAttempt(
@@ -4169,6 +4211,12 @@ export class BotRuntime {
 					);
 					break;
 				}
+			}
+			const publication = this.agentLogStore().responsePublication(runId);
+			if (publication && publication.pendingCallIds.length === 0 && publication.assistantSeq === null) {
+				const textOnly = providerResponseMessageForHistory({ content: response.content, reasoning: response.reasoning, reasoningDetails: response.reasoningDetails, toolCalls: [] });
+				if (textOnly) this.appendLoopMessageGroup(context, [{ runId, origin: 'provider_response', status: responseStatus, message: textOnly, options: { streamSeq: requestEvent.seq }, extraLogs: consumeProviderResponseLogs() }]);
+				else this.agentLogStore().discardResponsePublication(runId);
 			}
 			if (toolFailureAcknowledgements.length > 0) {
 				const acknowledgementContent = toolFailureAcknowledgements.join('\n\n');
@@ -4789,6 +4837,7 @@ export class BotRuntime {
 		toolCall: ToolCall,
 		reason: ProviderToolCallDropReason,
 	): Promise<void> {
+		this.agentLogStore().completeResponsePublication(runId, null, [toolCall.id]);
 		await this.recordDroppedProviderToolCalls(
 			runId,
 			streamSeq,
@@ -4814,6 +4863,7 @@ export class BotRuntime {
 			dropped.push(droppedProviderToolCall(toolCall.id, toolCall.function.name, reason, toolCall.function.arguments));
 		}
 		if (dropped.length > 0) {
+			this.agentLogStore().completeResponsePublication(runId, null, dropped.map(call => call.id));
 			await this.recordDroppedProviderToolCalls(runId, streamSeq, dropped, 'generated_response', false);
 		}
 	}
@@ -5883,6 +5933,7 @@ export class BotRuntime {
 		assertExecutionPublication();
 		this.liveness.stream(runId);
 		const requestId = this.agentLogStore().partial(runId, streamSeq, payload);
+		const stream = this.agentLogStore().streamState(runId, streamSeq);
 		const latestSeq = this.latestEventSeq();
 		this.ephemeralStreamSeq = (this.ephemeralStreamSeq % 100_000) + 1;
 		const event: BotRuntimeEvent = {
@@ -5893,6 +5944,8 @@ export class BotRuntime {
 				...payload,
 				streamSeq,
 				requestId,
+				deltaRevision: stream.kind === 'stream' ? stream.revision : undefined,
+				attemptId: stream.kind === 'stream' ? stream.attemptId : undefined,
 				ephemeral: true,
 			},
 			tokenEstimate: 0,

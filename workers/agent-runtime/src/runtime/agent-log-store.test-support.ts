@@ -12,10 +12,16 @@ export function agentLogStoreStub(this: { state?: { storage?: RuntimeStorage } }
 	}
 	return {
 		begin: () => 'request', startAttempt: () => 1, latestAttempt: () => 1,
-		settle: () => {}, finish: () => {}, partial: () => 'request',
+		stageResponsePublication: () => {}, responsePublication: () => null, completeResponsePublication: () => {}, discardResponsePublication: () => {},
+		settle: () => {}, finish: () => {}, partial: () => 'request', streamState: () => ({ kind: 'none' }),
 		failPending: () => {}, migrate: () => {}, prune: () => {}, body: () => null,
 		anchorUnattachedNotices: () => {}, clear: () => {}, migrationStatus: () => ({}),
 		startSession: () => 'session', settleSession: () => {}, requestForMessage: () => null,
 		entries: (messages: BotLoopMessage[]) => messages.map(message => ({ kind: 'message', position: message.position ?? message.seq, message, author: agentLogAuthor(message.origin, message.role), requestId: null, sessionId: null, attempts: null })),
 	};
+}
+
+// Protocol fixtures do not use SQLite. Store tests use real transactions.
+export function protocolStorageTransaction<T>(this: { state?: { storage?: RuntimeStorage } }, operation: () => T): T {
+	return this.state?.storage?.transactionSync ? this.state.storage.transactionSync(operation) : operation();
 }
