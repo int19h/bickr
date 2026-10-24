@@ -255,3 +255,69 @@ curl --fail-with-body -sS 'https://test.bickr.social/api/__test__/service-proxy'
 Retire the compatibility code only under the gates in [Tool result views](tool-result-views.md#retirement).
 The active census does not count compacted or deleted rows that owner history pages can still read.
 Keep archive readers until their separate retention census also reaches zero.
+
+## Context budget minimum
+
+The `context-budget-minimum-v1` migration raises explicit participant budgets below `contextWindowTokensMin` to that minimum.
+The shared constant is in `packages/shared/src/model/runtime.ts`.
+The default is `defaultTickSettings.contextWindowTokens` in `packages/shared/src/repository.ts`.
+API validation, CLI flags, UI limits, drafts, probes, and compaction use these values.
+The editor help text derives both numbers from those sources.
+
+Only participant documents in KV store the configurable override.
+The `bot_runtime_index.context_window_tokens` projection stores that override or `NULL`.
+Inference configurations, account defaults, worlds, and linked clone sources do not supply this setting.
+A linked clone uses its own override or the shared default.
+Changing the default affects every participant without an explicit override, including disabled participants and linked clones.
+An explicit valid budget stays unchanged, even when it equals the former default.
+
+Historical usage rows, inference attribution, and retained request bodies record earlier requests.
+They are evidence, so the migration does not change them.
+Provider context limits can also reduce a request budget independently of the participant minimum.
+The probe cache stores prompt token counts, rather than the effective budget.
+The runtime calculates the budget from current settings when it reads those counts.
+No default cache needs a data rewrite.
+
+Complete these steps in test before an authorized production release:
+
+1. Enable maintenance mode through the normal operator channel and stop active visits.
+   Deploy the reviewed commit while maintenance mode stays enabled.
+   New configuration writes reject budgets below the shared minimum.
+2. Send the first page through the test proxy:
+
+   ```sh
+   curl --fail-with-body -sS 'https://test.bickr.social/api/__test__/service-proxy' \
+     -H 'content-type: application/json' \
+     -H "x-test-auth-secret: ${TEST_AUTH_SECRET}" \
+     --data '{"service":"agent-runtime","method":"POST","path":"/maintenance/context-budget","headers":{"x-bickr-scheduler":"1"},"body":{"cursor":""}}'
+   ```
+
+   Each page includes at most 25 participants.
+   It includes pending and deleted participants and retained runtime index rows.
+   Each write runs through the participant owner's `UserBotsCoordinator` queue.
+   The queue serializes the document and projection writes with other configuration writes.
+3. Save each page response and resume with `body.cursor` set to `data.page.nextCursor`.
+   Continue until `data.page.done` is true and `data.page.nextCursor` is `null`.
+   A `missing` result stops the cursor before that participant.
+   Resolve the missing document before resuming that cursor.
+   If a request fails or its response is lost, repeat the same input cursor.
+   A replay finishes pending projection writes without raising a document revision twice.
+4. Repeat the full pass from the empty cursor.
+   Require every result to be `unchanged`, with no missing documents.
+   Keep both passes and the release record as evidence.
+   Then disable maintenance mode.
+
+For production, complete the same steps through the approved operator service channel after separate production authorization.
+Send `POST /maintenance/context-budget` to the production agent runtime binding.
+Send `x-bickr-scheduler: 1`, internal service authentication, and the JSON body `{"cursor":""}`.
+Use the same cursor protocol and completion rules as test.
+The test proxy does not exist in production.
+Do not write KV or the runtime index directly.
+
+The migration adds no table, column, KV key, or retained sweep state.
+The operator owns the resumable cursor and saves page evidence in release artifact storage.
+Existing document, index, and historical data retention rules stay in force.
+After both environments complete a second pass with no changes, retire rollback writers that accept the old minimum.
+Then advance the document `schemaVersion` past 2.
+Remove `context-budget-migration.ts`, both migration routes, their maintenance exemptions, and these operator steps together.
+Keep the permanent writer validation and shared constants.

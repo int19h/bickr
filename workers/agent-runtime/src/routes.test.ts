@@ -70,6 +70,8 @@ const routeCases = [
 	{ method: 'DELETE', path: '/users/user-1/worlds/world-1/groups/group-1', handlerId: 'delete-bot-group' },
 	{ method: 'POST', path: '/users/user-1/worlds/world-1/groups/group-1/bots', handlerId: 'add-bot-group-members' },
 	{ method: 'DELETE', path: '/users/user-1/worlds/world-1/groups/group-1/bots/bot-1', handlerId: 'remove-bot-group-member' },
+	{ method: 'POST', path: '/maintenance/context-budget', handlerId: 'context-budget-migration-sweep' },
+	{ method: 'POST', path: '/users/user-1/bots/bot-1/context-budget-migration', handlerId: 'migrate-owned-context-budget' },
 	{ method: 'POST', path: '/maintenance/participant-time', handlerId: 'participant-time-sweep' },
 	{ method: 'POST', path: '/users/user-1/bots/bot-1/normalize-time', handlerId: 'normalize-bot-time' },
 	{ method: 'PATCH', path: '/users/user-1/bots/bot-1', handlerId: 'update-bot' },

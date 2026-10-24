@@ -84,6 +84,7 @@ export function isSafeHttpMethod(method: string): boolean {
 export function isExplicitMaintenanceRequest(request: Request): boolean {
 	if (request.method !== 'POST') return false;
 	const pathname = new URL(request.url).pathname;
+	if (pathname === '/maintenance/context-budget' || /^\/users\/[^/]+\/bots\/[^/]+\/context-budget-migration$/.test(pathname)) return true;
 	return /^\/maintenance\/legacy-history\/(?:census|compact)$/.test(pathname) || /^\/bots\/[^/]+\/maintenance\/legacy-history\/compact$/.test(pathname) || pathname === "/maintenance/participant-time" || /^\/users\/[^/]+\/bots\/[^/]+\/normalize-time$/.test(pathname) || /^\/maintenance\/instruction-localization\/(?:runtime|bootstrap)$/.test(pathname) || pathname === '/auth/maintenance' || /^\/users\/[^/]+\/inference-graph\/(?:migrate|rollback|reactivate|provider-default-barrier-sweep)$/.test(pathname) ||
 		/^\/users\/[^/]+\/inference-translation-role\/migrate$/.test(pathname) ||
 		/^\/inference-graph\/(?:cleanup|activate-lifecycle|provider-default-barrier-sweep)$/.test(pathname);
