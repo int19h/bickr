@@ -1,4 +1,4 @@
-import { createContext, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { createContext, useId, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { localizedTextString, type AvatarCrop, type LocalizedText } from "@bickr/shared/model";
 import { avatarCropImageStyle } from "./avatar-crop";
 import { useUiText } from "./components/ui-text";
@@ -45,6 +45,11 @@ export type IconName =
 	| "sun"
 	| "moon"
 	| "monitor"
+	| "spotlight"
+	| "think"
+	| "pause"
+	| "alert"
+	| "compaction"
 	| "sparkles"
 	| "translate"
 	| "original"
@@ -70,6 +75,31 @@ export function Modal({
 	title: string;
 	wide?: boolean;
 }) {
+	const titleId = useId();
+	const dialogRef = useRef<HTMLDivElement>(null);
+	useLayoutEffect(() => {
+		if (!open) return;
+		const previous = document.activeElement;
+		const dialog = dialogRef.current;
+		if (!dialog) return;
+		const focusable = () => Array.from(dialog.querySelectorAll<HTMLElement>('button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), summary, [tabindex="0"]')).filter(node => {
+			for (let ancestor = node.parentElement; ancestor && ancestor !== dialog; ancestor = ancestor.parentElement) {
+				if (ancestor.tagName === "DETAILS" && !ancestor.hasAttribute("open") && !(node.tagName === "SUMMARY" && node.parentElement === ancestor)) return false;
+			}
+			return node.getAttribute("tabindex") !== "-1";
+		});
+		focusable()[0]?.focus();
+		const trapFocus = (event: KeyboardEvent) => {
+			if (event.key !== "Tab") return;
+			const nodes = focusable();
+			const first = nodes[0];
+			const last = nodes.at(-1);
+			if (event.shiftKey && (document.activeElement === first || !dialog.contains(document.activeElement))) { event.preventDefault(); last?.focus(); }
+			if (!event.shiftKey && (document.activeElement === last || !dialog.contains(document.activeElement))) { event.preventDefault(); first?.focus(); }
+		};
+		dialog.addEventListener("keydown", trapFocus);
+		return () => { dialog.removeEventListener("keydown", trapFocus); if (previous instanceof HTMLElement && previous.isConnected) previous.focus(); };
+	}, [open]);
 	useEffect(() => {
 		if (!open) {
 			return undefined;
@@ -96,9 +126,9 @@ export function Modal({
 				}
 			}}
 		>
-			<div className={["modal", wide ? "wide" : "", className ?? ""].filter(Boolean).join(" ")}>
+			<div role="dialog" aria-modal="true" aria-labelledby={titleId} ref={dialogRef} className={["modal", wide ? "wide" : "", className ?? ""].filter(Boolean).join(" ")}>
 				<div className="modal-head">
-					<h2>{title}</h2>
+					<h2 id={titleId}>{title}</h2>
 					<button aria-label="Close" className="x" onClick={onClose} type="button">
 						<svg
 							fill="none"
@@ -439,6 +469,11 @@ export function Icon({ className, name, size = 16 }: { className?: string; name:
 				<path d="M8 20h8M12 16v4" />
 			</svg>
 		),
+		spotlight: <svg height={size} viewBox="0 0 24 24" width={size} {...stroke}><path d="m4 4 7 2 2 7-7-2zM8 8l-4 9M13 8l7-3M15 12l6 3M11 15l3 6" /><path d="m2 19 5 2" /></svg>,
+		think: <svg height={size} viewBox="0 0 24 24" width={size} {...stroke}><path d="M9 18h6M9 21h6M8 14a7 7 0 1 1 8 0l-1 2H9zM12 5v4" /></svg>,
+		pause: <svg height={size} viewBox="0 0 24 24" width={size} {...stroke}><path d="M8 5v14M16 5v14" /></svg>,
+		alert: <svg height={size} viewBox="0 0 24 24" width={size} {...stroke}><path d="m12 3 10 18H2zM12 9v4M12 17h.01" /></svg>,
+		compaction: <svg height={size} viewBox="0 0 24 24" width={size} {...stroke}><path d="M4 3h16M4 21h16M7 7l5 4 5-4M7 17l5-4 5 4" /></svg>,
 		sparkles: (
 			<svg height={size} viewBox="0 0 24 24" width={size} {...stroke}>
 				<path d="M12 3l1.7 5.3L19 10l-5.3 1.7L12 17l-1.7-5.3L5 10l5.3-1.7z" />

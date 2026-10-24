@@ -13,22 +13,20 @@ import type {
 	BotTokenUsageStats,
 	UpdateBotInput,
 } from "@bickr/shared/model";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../../api";
 import { NextDueAtLabel } from "../../components/record-display";
-import { Reference, type WorldView } from "../../components/content";
-import { SpaLink } from "../../components/navigation";
 import {
 	isLiveProviderLoopMessage,
 	removeLiveProviderLoopMessagesForFinalizedMessage,
 	removeLiveProviderLoopMessagesForRun,
 	upsertLiveProviderLoopMessage,
 } from "../../loop-message-streams";
-import { loopContinuationRowsForPage } from "../../loop-page-continuations";
-import { Avatar, Confirm, Icon, Modal, textValue } from "../../ui";
+import { Confirm, textValue } from "../../ui";
 import { useBotEffectiveModels } from "../../inference/bot-models";
-import { loopToolCallsById } from "../../readable/loop-message-values";
-import { AgentLogRequestView, LoopContinuationRow, LoopMessageLogsModal, LoopMessagePager, LoopMessageRow } from "./loop-messages";
+import { LoopMessageLogsModal, LoopMessagePager } from "./loop-messages";
+import { AgentLogView } from "./agent-log-view";
+import { AgentLogRequestModal, AgentLogSessionModal } from "./agent-log-details";
 import { RuntimeRow } from "./runtime-row";
 import {
 	formatTickIntervalMinutes,
@@ -70,14 +68,18 @@ export function BotRuntimePanel({
 	busy: boolean;
 	onSave: (botId: string, draft: UpdateBotInput) => Promise<boolean>;
 }) {
+	const detailGenerationRef = useRef(0);
 	const [status, setStatus] = useState<BotRuntimeStatus | null>(null);
 	const [events, setEvents] = useState<BotRuntimeEvent[]>([]);
 	const [loopEntries, setLoopEntries] = useState<AgentLogEntry[]>([]);
 	const [requestDetail, setRequestDetail] = useState<AgentLogRequest | null>(null);
+	const [requestErrors, setRequestErrors] = useState(false);
+	const [sessions, setSessions] = useState(new Map<string, AgentLogCompactionSession>());
 	const [sessionDetail, setSessionDetail] = useState<AgentLogCompactionSession | null>(null);
 	useEffect(() => {
 		if (!requestDetail || requestDetail.state !== 'pending') return;
 		const id = requestDetail.id;
+		const generation = detailGenerationRef.current;
 		let closed = false;
 		let fetching = false;
 		const timer = window.setInterval(async () => {
@@ -85,11 +87,38 @@ export function BotRuntimePanel({
 			fetching = true;
 			try {
 				const result = await api<{ request: AgentLogRequest }>(`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/requests/${encodeURIComponent(id)}`);
-				if (!closed && result.ok) setRequestDetail(current => current?.id === id ? result.data.request : current);
+				if (!closed && generation === detailGenerationRef.current && result.ok) setRequestDetail(current => current?.id === id ? result.data.request : current);
 			} finally { fetching = false; }
 		}, 500);
 		return () => { closed = true; window.clearInterval(timer); };
 	}, [bot.id, requestDetail?.id, requestDetail?.state]);
+	useEffect(() => {
+		if (!sessionDetail || sessionDetail.outcome.kind !== "pending") return;
+		const id = sessionDetail.id;
+		const generation = detailGenerationRef.current;
+		let closed = false;
+		let fetching = false;
+		const timer = window.setInterval(async () => {
+			if (fetching) return;
+			fetching = true;
+			try {
+				const result = await api<{ session: AgentLogCompactionSession }>(`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/compaction-sessions/${encodeURIComponent(id)}`);
+				if (!closed && generation === detailGenerationRef.current && result.ok) setSessionDetail(current => current?.id === id ? result.data.session : current);
+			} finally { fetching = false; }
+		}, 1000);
+		return () => { closed = true; window.clearInterval(timer); };
+	}, [bot.id, sessionDetail?.id, sessionDetail?.outcome.kind]);
+	const sessionIds = loopEntries.flatMap(entry => entry.kind === "notice" && entry.notice.kind === "compaction_started" ? [entry.notice.sessionId] : []).join("\n");
+	useEffect(() => {
+		let closed = false;
+		void Promise.all([...new Set(sessionIds.split("\n").filter(Boolean))].map(async id => {
+			const result = await api<{ session: AgentLogCompactionSession }>(`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/compaction-sessions/${encodeURIComponent(id)}`);
+			return result.ok ? result.data.session : null;
+		})).then(values => {
+			if (!closed) setSessions(new Map(values.flatMap(session => session ? [[session.id, session] as const] : [])));
+		});
+		return () => { closed = true; };
+	}, [bot.id, sessionIds, loopEntries.filter(entry => entry.kind === "notice" && entry.notice.kind === "compaction_started").map(entry => JSON.stringify(entry)).join("\n")]);
 	const [loopMessages, setLoopMessages] = useState<BotLoopMessage[]>([]);
 	const [loopMessagePage, setLoopMessagePage] = useState<BotLoopMessagePage | null>(null);
 	const [openLoopMessageLogs, setOpenLoopMessageLogs] = useState<BotLoopMessageLogsResponse | null>(null);
@@ -104,6 +133,7 @@ export function BotRuntimePanel({
 	const [clearConfirm, setClearConfirm] = useState(false);
 	const [compactConfirm, setCompactConfirm] = useState(false);
 	const logRef = useRef<HTMLDivElement | null>(null);
+	const sessionAnchorRef = useRef<string | null>(null);
 	const sourceMessageRef = useRef<HTMLDivElement | null>(null);
 	const sourceMessageScrolledRef = useRef(false);
 	const sourceMessageRetriedRef = useRef(false);
@@ -127,7 +157,6 @@ export function BotRuntimePanel({
 	const trailingRefreshTimerRef = useRef<number | undefined>(undefined);
 	const reconnectAttemptRef = useRef(0);
 	const runtimeEnabled = status?.enabled ?? bot.tickSettings.enabled;
-	const toolCallsById = useMemo(() => loopToolCallsById(loopMessages), [loopMessages]);
 	const currentLoopPage = loopMessagePage?.currentPage ?? 1;
 	// The model this participant actually runs is resolved by the server from
 	// its configuration, so the panel and the token-usage breakdown agree with
@@ -141,6 +170,7 @@ export function BotRuntimePanel({
 		let socket: WebSocket | null = null;
 		let lastMonitorMessageAt = Date.now();
 		shouldStickToBottomRef.current = !new URLSearchParams(window.location.search).has("inference");
+		closeDetails();
 		setSourceMessage(null);
 		sourceMessageScrolledRef.current = false;
 		sourceMessageRetriedRef.current = false;
@@ -161,6 +191,8 @@ export function BotRuntimePanel({
 		setLoopMessages([]);
 		streamSnapshotEntriesRef.current.clear();
 		setLoopEntries([]);
+		setRequestDetail(null);
+		setSessionDetail(null);
 		setLoopMessagePage(null);
 		setOpenLoopMessageLogs(null);
 		setLoopMessageLogLoadingSeq(null);
@@ -415,7 +447,17 @@ export function BotRuntimePanel({
 		}
 		const frame = scrollLogToBottom(logRef);
 		return () => window.cancelAnimationFrame(frame);
-	}, [loopMessages]);
+	}, [loopMessages, loopEntries]);
+
+	useEffect(() => {
+		const id = sessionAnchorRef.current;
+		if (!id || !logRef.current) return;
+		const notice = document.getElementById(`loop-session-${id}`);
+		if (!notice || !logRef.current.contains(notice)) return;
+		sessionAnchorRef.current = null;
+		shouldStickToBottomRef.current = false;
+		notice.scrollIntoView({ block: "center" });
+	}, [loopEntries, loopMessagePage]);
 
 	useEffect(() => {
 		if (!sourceMessage || sourceMessage.botId !== bot.id || sourceMessageScrolledRef.current || sourceLookupPendingRef.current || !loopMessagePage) {
@@ -456,7 +498,7 @@ export function BotRuntimePanel({
 		observer.observe(log);
 		Array.from(log.children).forEach((child) => observer.observe(child));
 		return () => observer.disconnect();
-	}, [loopMessages]);
+	}, [loopMessages, loopEntries]);
 
 	useEffect(() => {
 		latestPersistentEventSeqRef.current = latestPersistentEventSeq(events);
@@ -495,9 +537,7 @@ export function BotRuntimePanel({
 
 	function refreshAuthoritativeCurrentPage(): Promise<void> {
 		const sourceCompactionSeq = currentLoopSourceCompactionSeqRef.current;
-		return sourceCompactionSeq === null ?
-			refresh({ page: currentLoopPageRef.current })
-		: refresh({ sourceCompactionSeq });
+		return refresh({ sourceCompactionSeq });
 	}
 
 	function scheduleTrailingRefresh(options?: { page?: number }): void {
@@ -513,7 +553,7 @@ export function BotRuntimePanel({
 	async function refresh(options: {
 		page?: number;
 		sourceCompactionSeq?: number | null;
-		expectedSourceCompactionSeq?: number;
+		expectedSourceCompactionSeq?: number | null;
 		resolverAttempt?: number;
 	} = {}): Promise<void> {
 		const anchoredSource = options.sourceCompactionSeq;
@@ -566,14 +606,12 @@ export function BotRuntimePanel({
 				}
 				return;
 			}
-			if (anchoredSource !== undefined && anchoredSource !== null) {
-				const anchoredPage = page.compactionPageBySeq[String(anchoredSource)];
-				if (anchoredPage && anchoredPage !== 1) {
-					void refresh({
-						page: anchoredPage,
-						expectedSourceCompactionSeq: anchoredSource,
-						resolverAttempt: options.resolverAttempt ?? 0,
-					});
+			if (anchoredSource !== undefined) {
+				const anchoredPage = anchoredSource === null
+					? page.pages.find(item => (item.sourceCompactionSeq ?? null) === null)?.page
+					: page.compactionPageBySeq[String(anchoredSource)];
+				if (anchoredPage && anchoredPage !== page.currentPage) {
+					void refresh({ page: anchoredPage, expectedSourceCompactionSeq: anchoredSource, resolverAttempt: options.resolverAttempt ?? 0 });
 					return;
 				}
 			}
@@ -789,15 +827,26 @@ export function BotRuntimePanel({
 		void refresh({ sourceCompactionSeq: target.compactedBy ?? null });
 	}
 
+	function closeDetails(): void {
+		detailGenerationRef.current += 1;
+		setRequestDetail(null);
+		setSessionDetail(null);
+		setOpenLoopMessageLogs(null);
+		setLoopMessageLogLoadingSeq(null);
+	}
+
 	async function viewLoopMessageLogs(loopMessage: BotLoopMessage): Promise<void> {
 		if (isLiveProviderLoopMessage(loopMessage)) {
 			return;
 		}
+		closeDetails();
+		const generation = detailGenerationRef.current;
 		setLoopMessageLogLoadingSeq(loopMessage.seq);
 		setLoopMessageLogError("");
 		const result = await api<BotLoopMessageLogsResponse>(
 			`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/messages/${encodeURIComponent(String(loopMessage.seq))}/logs`,
 		);
+		if (generation !== detailGenerationRef.current) return;
 		setLoopMessageLogLoadingSeq(null);
 		if (result.ok) {
 			setOpenLoopMessageLogs(result.data);
@@ -806,14 +855,21 @@ export function BotRuntimePanel({
 		setLoopMessageLogError(result.message);
 	}
 
-	async function viewRequest(id: string): Promise<void> {
+	async function viewRequest(id: string, errors = false): Promise<void> {
+		closeDetails();
+		const generation = detailGenerationRef.current;
+		setRequestErrors(errors);
 		const result = await api<{ request: AgentLogRequest }>(`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/requests/${encodeURIComponent(id)}`);
+		if (generation !== detailGenerationRef.current) return;
 		if (result.ok) setRequestDetail(result.data.request);
 		else setLoopMessageLogError(result.message);
 	}
 
 	async function viewSession(id: string): Promise<void> {
+		closeDetails();
+		const generation = detailGenerationRef.current;
 		const result = await api<{ session: AgentLogCompactionSession }>(`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/compaction-sessions/${encodeURIComponent(id)}`);
+		if (generation !== detailGenerationRef.current) return;
 		if (result.ok) setSessionDetail(result.data.session);
 		else setLoopMessageLogError(result.message);
 	}
@@ -852,14 +908,7 @@ export function BotRuntimePanel({
 			invalidateRefreshes({ messages: true });
 			const count = result.data.compacted.messageCount;
 			setMessage(count > 0 ? `Compacted ${count} loop chat message${count === 1 ? "" : "s"}.` : "There were no loop chat messages to compact.");
-			setLoopMessages([]);
-			streamSnapshotEntriesRef.current.clear();
-			setLoopEntries([]);
-			setLoopMessagePage(null);
-			latestLoopMessageSeqRef.current = 0;
-			currentLoopPageRef.current = 1;
-			currentLoopSourceCompactionSeqRef.current = null;
-			await refresh({ page: 1 });
+			await refreshAuthoritativeCurrentPage();
 			return;
 		}
 		setMessage(result.message);
@@ -891,11 +940,10 @@ export function BotRuntimePanel({
 		}
 	}
 
-	const continuationRows = loopContinuationRowsForPage(loopMessagePage);
 
 	return (
 		<>
-			<div className="card runtime-card live-runtime">
+			<div className="runtime-card live-runtime loop-runtime">
 				<label className="switch-row runtime-switch">
 					<input
 						checked={runtimeEnabled}
@@ -973,6 +1021,7 @@ export function BotRuntimePanel({
 					<input
 						className="input"
 						onChange={(event) => setInjection(event.target.value)}
+						aria-label="Inject a thought or focus"
 						placeholder="Inject a thought or focus"
 						value={injection}
 					/>
@@ -982,65 +1031,22 @@ export function BotRuntimePanel({
 				</form>
 				{message && <div className="runtime-message">{message}</div>}
 				{loopMessageLogError && <div className="runtime-message">{loopMessageLogError}</div>}
-				<div className="event-log" onScroll={trackLogScroll} ref={logRef}>
-					{continuationRows.filter((row) => row.position === "start").map((row) => (
-						<LoopContinuationRow
-							key={`${row.position}-${row.page}`}
-							label={row.label}
-							onPageSelect={(page) => void switchLoopPage(page)}
-							page={row.page}
-						/>
-					))}
-					{loopEntries.length === 0 && <div className="empty compact-empty">No loop chat messages yet.</div>}
-					{loopEntries.map((entry, index) => {
-						if (entry.kind === 'notice') {
-							const notice = entry.notice;
-							switch (notice.kind) {
-								case 'runtime_error': case 'dropped_output': return <p key={`notice-${index}`}>{notice.message}</p>;
-								case 'request_failed': return <p key={notice.requestId}><button className="btn" onClick={() => void viewRequest(notice.requestId)}>No response after {notice.attempts.count} attempts</button></p>;
-								case 'compaction_started': return <p key={notice.sessionId}><button className="btn" onClick={() => void viewSession(notice.sessionId)}>Compaction: {notice.outcome.kind}{notice.outcome.kind === 'partial' ? ` (${notice.outcome.failedBatchCount} ${notice.outcome.failedBatchCount === 1 ? 'batch' : 'batches'} failed)` : ''}</button></p>;
-								default: return <p key={`unknown-notice-${index}`}>Unknown runtime notice.</p>;
-							}
-						}
-						if (entry.kind === 'live') return <div className="event-row activity-assistant" key={entry.requestId}><button className="btn" onClick={() => void viewRequest(entry.requestId)}>Live request</button><pre>{entry.response ?? entry.partialResponse ?? ''}</pre></div>;
-						if (entry.kind !== 'message') return <p key={`unknown-${index}`}>Unknown log entry.</p>;
-						if (entry.author.kind === 'unknown') return <p key={`unknown-author-${entry.message.seq}`}>Unknown message author.</p>;
-						const loopMessage = loopMessages.find(message => message.seq === entry.message.seq) ?? entry.message;
-						return <div key={`${loopMessage.runId}-${loopMessage.seq}`}>
-						{entry.attempts && entry.attempts.count > 1 && entry.requestId && <button className="btn" onClick={() => void viewRequest(entry.requestId!)}>{entry.attempts.count} attempts</button>}
-						{entry.sessionId && <button className="btn" onClick={() => void viewSession(entry.sessionId!)}>Compaction session</button>}
-
-						<LoopMessageRow
-							key={`${loopMessage.runId}-${loopMessage.seq}`}
-							deleting={deletingLoopMessageSeq === loopMessage.seq}
-							highlighted={sourceMessage?.botId === bot.id && sourceMessage.seq === loopMessage.seq && sourceMessage.runId === loopMessage.runId}
-							rowRef={sourceMessage?.botId === bot.id && sourceMessage.seq === loopMessage.seq && sourceMessage.runId === loopMessage.runId ? sourceMessageRef : undefined}
-							loadingLogs={loopMessageLogLoadingSeq === loopMessage.seq}
-							message={loopMessage}
-							onDelete={() => void deleteLoopMessage(loopMessage)}
-							onViewLogs={() => void viewLoopMessageLogs(loopMessage)}
-							toolCallsById={toolCallsById}
-						/>
-						</div>;
-					})}
-					{continuationRows.filter((row) => row.position === "end").map((row) => (
-						<LoopContinuationRow
-							key={`${row.position}-${row.page}`}
-							label={row.label}
-							onPageSelect={(page) => void switchLoopPage(page)}
-							page={row.page}
-						/>
-					))}
+				<div className="event-log agent-log-scroll" onScroll={trackLogScroll} ref={logRef}>
+					<AgentLogView entries={loopEntries} page={loopMessagePage} participantName={textValue(bot.displayName)}
+						onDelete={message => void deleteLoopMessage(message)} onLogs={message => void viewLoopMessageLogs(message)}
+						onRequest={(id, errors) => void viewRequest(id, errors)} onSession={id => void viewSession(id)} onPage={(page, sessionId) => { sessionAnchorRef.current = sessionId ?? null; void switchLoopPage(page); }}
+						sessions={sessions} deletingSeq={deletingLoopMessageSeq} loadingSeq={loopMessageLogLoadingSeq}
+						source={sourceMessage?.botId === bot.id ? sourceMessage : null} sourceRef={sourceMessageRef} />
 				</div>
 				<LoopMessagePager
 					onPageSelect={(page) => void switchLoopPage(page)}
 					page={loopMessagePage}
 				/>
 			</div>
-			{requestDetail && <Modal onClose={() => setRequestDetail(null)} open title="Inference request" wide><AgentLogRequestView request={requestDetail} /></Modal>}
-			{sessionDetail && <Modal onClose={() => setSessionDetail(null)} open title="Compaction session" wide><pre>{JSON.stringify(sessionDetail.outcome, null, 2)}</pre>{sessionDetail.requests.map(request => <AgentLogRequestView key={request.id} request={request} />)}</Modal>}
+			<AgentLogRequestModal request={requestDetail} errors={requestErrors} onClose={closeDetails} />
+			<AgentLogSessionModal session={sessionDetail} onClose={closeDetails} />
 			<LoopMessageLogsModal
-				onClose={() => setOpenLoopMessageLogs(null)}
+				onClose={closeDetails}
 				open={Boolean(openLoopMessageLogs)}
 				payload={openLoopMessageLogs}
 			/>
