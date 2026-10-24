@@ -59,3 +59,7 @@ Old attempts keep null references. The runtime does not infer ownership from an 
 The attempt API returns usage, attribution, and request messages from this store. Each message has its provider position and an optional cache status. The modal uses these attempt fields. It does not read request messages, usage, or attribution from raw logs. The exact body stays unchanged.
 
 The runtime stores response usage before any lookup for a provider name. That lookup updates only the provider name on the same usage row. It cannot delay usage or change the usage returned for a final request. The store rejects new usage links after request completion.
+
+## Failure causes
+
+Persistent compaction reduction failures retain the `non_reducing_compaction` validation issue and the error message. Other typed validation, timeout, and interruption errors keep their matching failure kinds. Local failures use `runtime_error`. Only provider request errors use `provider_error`. Existing stored outcomes keep their original values.

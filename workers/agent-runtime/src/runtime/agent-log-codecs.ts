@@ -23,6 +23,7 @@ export function logFailure(value: unknown): AgentLogFailure {
 	const item = record(value);
 	switch (item.kind) {
 		case 'provider_error': return { kind: 'provider_error', status: item.status === null ? null : number(item.status), errorType: item.errorType === null ? null : text(item.errorType), message: text(item.message) };
+		case 'runtime_error': return { kind: 'runtime_error', message: text(item.message) };
 		case 'validation': return { kind: 'validation', issue: item.issue === null ? null : text(item.issue), message: text(item.message) };
 		case 'dropped_invalid_output': return { kind: 'dropped_invalid_output', droppedCalls: array(item.droppedCalls).map(value => {
 			const call = record(value);
@@ -42,7 +43,7 @@ export function logAttemptOutcome(value: unknown): AgentLogAttemptOutcome {
 export function logAttemptKind(value: unknown): AgentLogAttemptOutcome['kind'] {
 	const item = record(value);
 	switch (item.kind) {
-		case 'success': case 'provider_error': case 'validation': case 'dropped_invalid_output': case 'interrupted': case 'timeout': return item.kind;
+		case 'success': case 'runtime_error': case 'provider_error': case 'validation': case 'dropped_invalid_output': case 'interrupted': case 'timeout': return item.kind;
 		default: return invalid();
 	}
 }

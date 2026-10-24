@@ -6,6 +6,7 @@ export type AgentLogAuthor =
 	| { kind: 'unknown' };
 
 export type AgentLogFailure =
+	| { kind: 'runtime_error'; message: string }
 	| { kind: 'provider_error'; status: number | null; errorType: string | null; message: string }
 	| { kind: 'dropped_invalid_output'; droppedCalls: Array<{ id: string; name: string; reason: string; argumentsPreview: string }> }
 	| { kind: 'validation'; issue: string | null; message: string }

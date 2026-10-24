@@ -122,3 +122,11 @@ it('keeps failed attempt usage separate from the selected response', async () =>
 	const system = [...host.querySelectorAll('details')].find((node) => node.querySelector('summary')?.textContent?.includes('Message 1'))!;
 	expect(system.open).toBe(false);
 });
+
+it('labels a local request failure as a runtime error', async () => {
+	const failed: AgentLogAttempt = { ...selected, outcome: { kind: 'runtime_error', message: 'Storage is unavailable.' } };
+	await act(async () => root.render(<AgentLogRequestView request={{ ...request([failed]), state: 'failed' }} />));
+	expect(host.textContent).toContain('Runtime error');
+	expect(host.textContent).toContain('Storage is unavailable.');
+	expect(host.textContent).not.toContain('Provider error');
+});

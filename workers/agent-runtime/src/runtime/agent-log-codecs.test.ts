@@ -3,6 +3,7 @@ import { RepositoryError } from '@bickr/shared/repository';
 import { logAttemptOutcome, logAuthor, logCompactionOutcome, logFailure, logPartial, logToolDelta, logTrigger } from './agent-log-codecs';
 
 const failures = [
+	{ kind: 'runtime_error', message: 'Storage is unavailable.' },
 	{ kind: 'provider_error', status: 429, errorType: 'rate_limit', message: 'Busy.' },
 	{ kind: 'validation', issue: 'invalid', message: 'Invalid.' },
 	{ kind: 'dropped_invalid_output', droppedCalls: [{ id: 'call', name: 'action', reason: 'invalid', argumentsPreview: '{}' }] },
@@ -30,8 +31,8 @@ describe('agent log API boundaries', () => {
 	it.each([
 		{ kind: 'pending' },
 		{ kind: 'succeeded', summarySeq: 4 },
-		{ kind: 'failed', error: failures[0] },
-		{ kind: 'partial', summarySeqs: [4, 5], failedBatchCount: 1, error: failures[1] },
+		{ kind: 'failed', error: failures[1] },
+		{ kind: 'partial', summarySeqs: [4, 5], failedBatchCount: 1, error: failures[2] },
 	])('selects nested fields for $kind compaction outcomes', outcome => {
 		expect(logCompactionOutcome(extraFields(outcome))).toEqual(outcome);
 	});

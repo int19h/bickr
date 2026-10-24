@@ -6,7 +6,16 @@ import { assertExecutionPublication } from './execution-scope';
 import { agentLogAuthor, type AgentLogAuthor, type AgentLogAttempt, type AgentLogAttemptOutcome, type AgentLogAttemptSummary, type AgentLogCompactionOutcome, type AgentLogCompactionSession, type AgentLogCompactionTrigger, type AgentLogEntry, type AgentLogFailure, type AgentLogRequest, type AgentLogSource, type AgentLogRequestSummary, type BotLoopMessage } from '@bickr/shared/model';
 import { loopMessageContributesToProviderHistory } from '../provider/sanitize';
 import { RepositoryError } from '@bickr/shared/repository';
-import { ProviderCompactionRequestError, ProviderLoopRequestError, ProviderRequestError, ProviderRequestTimeoutError, ProviderResponseBodyTimeoutError, ProviderResponseInterruptedError, ProviderStreamIdleTimeoutError, ProviderStructuredOutputValidationError, TickStoppedError } from '../errors';
+import { InputError } from '@bickr/shared/validation';
+import {
+	CompactionReasoningRefusalError, PersistentCompactionReductionFailureError,
+	PromptContextBudgetExceededError, PromptContextCompactionLimitError,
+	ProviderCompactionOutputLimitError, ProviderCompactionRequestError, ProviderEmptyResponseError,
+	ProviderLoopRequestError, ProviderRequestError, ProviderRequestTimeoutError,
+	ProviderResponseBodyTimeoutError, ProviderResponseInterruptedError, ProviderStreamIdleTimeoutError,
+	ProviderStreamIncompleteError, ProviderStructuredOutputValidationError, ResponseBodySizeLimitError,
+	RuntimeOperationTimeoutError, TickStoppedError,
+} from '../errors';
 import type { RuntimeStorage, RuntimeMessageStore } from './message-store';
 
 // Requests, attempts, and body chunks stay for the newest three pages.
@@ -64,10 +73,17 @@ function textBoundary(text: string, offset: number): number {
 
 export function agentLogFailure(error: unknown): AgentLogFailure {
 	if (error instanceof ProviderCompactionRequestError || error instanceof ProviderLoopRequestError) return agentLogFailure(error.originalError);
+	if (error instanceof PersistentCompactionReductionFailureError) return { kind: 'validation', issue: 'non_reducing_compaction', message: error.message };
 	if (error instanceof ProviderStructuredOutputValidationError) return { kind: 'validation', issue: error.validationIssue ?? null, message: error.message };
-	if (error instanceof ProviderRequestTimeoutError || error instanceof ProviderResponseBodyTimeoutError || error instanceof ProviderStreamIdleTimeoutError) return { kind: 'timeout' };
-	if (error instanceof ProviderResponseInterruptedError || error instanceof TickStoppedError || (error instanceof Error && error.name === 'AbortError')) return { kind: 'interrupted' };
-	return { kind: 'provider_error', status: error instanceof ProviderRequestError ? error.status : null, errorType: error instanceof ProviderRequestError ? error.providerError?.errorType ?? null : null, message: error instanceof Error ? error.message : String(error) };
+	if (error instanceof CompactionReasoningRefusalError) return { kind: 'validation', issue: error.refusal.kind, message: error.message };
+	if (error instanceof PromptContextBudgetExceededError || error instanceof PromptContextCompactionLimitError || error instanceof ProviderCompactionOutputLimitError || error instanceof ProviderEmptyResponseError) return { kind: 'validation', issue: error.kind, message: error.message };
+	if (error instanceof ResponseBodySizeLimitError) return { kind: 'validation', issue: 'response_body_size_limit', message: error.message };
+	if (error instanceof InputError) return { kind: 'validation', issue: null, message: error.message };
+	if (error instanceof RepositoryError && error.code === 'bad_request') return { kind: 'validation', issue: error.code, message: error.message };
+	if (error instanceof ProviderRequestTimeoutError || error instanceof ProviderResponseBodyTimeoutError || error instanceof ProviderStreamIdleTimeoutError || error instanceof RuntimeOperationTimeoutError) return { kind: 'timeout' };
+	if (error instanceof ProviderResponseInterruptedError || error instanceof ProviderStreamIncompleteError || error instanceof TickStoppedError || (error instanceof Error && error.name === 'AbortError')) return { kind: 'interrupted' };
+	if (error instanceof ProviderRequestError) return { kind: 'provider_error', status: error.status, errorType: error.providerError?.errorType ?? null, message: error.message };
+	return { kind: 'runtime_error', message: error instanceof Error ? error.message : String(error) };
 }
 
 // Retention: one unfinished response per participant. History writes or recovery
@@ -536,7 +552,7 @@ export class AgentLogStore {
 					// This adapter reads the former diagnostic shape once, before removing it.
 					const payload = response ? JSON.parse(messages.reconstructLoopMessageLogText(response.id)) as { droppedToolCalls?: Array<{ id?: string; name?: string; reason?: string; argumentsPreview?: string }> } : {};
 					this.settle(attempt, { kind: 'dropped_invalid_output', droppedCalls: (payload.droppedToolCalls ?? []).map(call => ({ id: call.id ?? '', name: call.name ?? '', reason: call.reason ?? 'legacy_invalid_output', argumentsPreview: call.argumentsPreview ?? '' })) });
-				} else if (message.origin === 'runtime_error') this.settle(attempt, { kind: 'provider_error', status: null, errorType: null, message: 'This historical request failed.' });
+				} else if (message.origin === 'runtime_error') this.settle(attempt, { kind: 'runtime_error', message: 'This historical request failed.' });
 				else if (response) this.settle(attempt, { kind: 'success', response: messages.reconstructLoopMessageLogText(response.id) });
 				else this.settle(attempt, { kind: 'interrupted' });
 				this.link(log.message_seq, log.run_id, log.stream_seq ?? -log.id, message.origin);
