@@ -478,6 +478,7 @@ export function readableToolCallSummary(name: string, args: JsonRecord, result?:
 					{usernames.length > 0 ?
 						<>
 							<span>{name === "view_profiles" ? "Opening" : name === "follow_profile" ? "Following" : "Unfollowing"}</span>
+							{" "}
 							{joinReadable(usernames.map((username) => (
 								<ProfileReference allowActiveWorldFallback={displayContext.allowActiveWorldFallback} key={username} username={username} worldHandle={worldHandle} />
 							)))}

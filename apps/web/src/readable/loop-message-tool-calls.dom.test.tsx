@@ -32,3 +32,14 @@ it('preserves spaces inside supplied text', () => {
 	act(() => root.render(readableToolCallSummary('log_off', { reason: 'Keep  these spaces' })));
 	expect(host.textContent).toContain('Reason Keep  these spaces');
 });
+
+it.each([
+	['view_profiles', 'Opening'],
+	['follow_profile', 'Following'],
+	['unfollow_profile', 'Unfollowing'],
+])('separates the verb and profiles for %s', (name, verb) => {
+	act(() => root.render(readableToolCallSummary(name, { targets: ['alice'] })));
+	expect(host.textContent).toBe(`${verb} u/alice`);
+	act(() => root.render(readableToolCallSummary(name, { targets: ['alice', 'bob', 'carol'] })));
+	expect(host.textContent).toBe(`${verb} u/alice, u/bob and u/carol`);
+});
