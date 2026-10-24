@@ -286,7 +286,7 @@ function AgentLogNoticeView({
 			return (
 				<p className="agent-log-notice">
 					<button className="agent-log-error" type="button" onClick={() => onRequest(notice.requestId, true)}>
-						No response after {notice.attempts.count} attempts
+						No response after {notice.attempts.count} {notice.attempts.count === 1 ? 'attempt' : 'attempts'}
 					</button>
 				</p>
 			);
@@ -295,7 +295,7 @@ function AgentLogNoticeView({
 			const attempts = session?.requests.reduce((count, request) => count + request.attempts.length, 0);
 			const failed = outcome.kind === 'failed';
 			const label = failed
-				? `Compaction failed${attempts !== undefined ? ` after ${attempts} attempts` : ''}`
+				? `Compaction failed${attempts !== undefined ? ` after ${attempts} ${attempts === 1 ? 'attempt' : 'attempts'}` : ''}`
 				: outcome.kind === 'partial'
 					? `Compaction partly succeeded · ${outcome.failedBatchCount} ${outcome.failedBatchCount === 1 ? 'batch' : 'batches'} failed`
 					: outcome.kind === 'pending' || outcome.kind === 'succeeded'
@@ -312,7 +312,7 @@ function AgentLogNoticeView({
 						{session && (
 							<>
 								{' '}
-								· <TimeAgoLabel value={session.createdAt} /> · {session.requests.length} calls
+								· <TimeAgoLabel value={session.createdAt} /> · {session.requests.length} {session.requests.length === 1 ? 'call' : 'calls'}
 							</>
 						)}{' '}
 						· open the session log

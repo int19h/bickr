@@ -26,7 +26,7 @@ export function LoopMessageLogsModal({
 	const { message, logs } = payload;
 
 	return (
-		<Modal className="submission-modal" onClose={onClose} open={open} title="Loop Message Logs" wide>
+		<Modal className="submission-modal agent-log-modal" onClose={onClose} open={open} title="Loop Message Logs" wide>
 			<div className="submission-meta">
 				<RuntimeRow label="Message" value={`#${message.seq}`} />
 				<RuntimeRow label="Role" value={message.role} />

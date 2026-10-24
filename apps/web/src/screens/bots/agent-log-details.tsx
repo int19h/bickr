@@ -48,6 +48,7 @@ function AttemptDetails({ attempt, number }: { attempt: AgentLogAttempt; number:
 }
 
 export function AgentLogAttempts({ request }: { request: AgentLogRequest }) {
+	const succeeded = request.attempts.findIndex((attempt) => attempt.outcome?.kind === 'success');
 	return (
 		<div className="agent-log-attempts">
 			{request.attempts.map((attempt, index) => (
@@ -55,9 +56,11 @@ export function AgentLogAttempts({ request }: { request: AgentLogRequest }) {
 			))}
 			<p className={request.state === 'succeeded' ? 'agent-log-success' : request.state === 'failed' ? 'agent-log-error' : ''}>
 				{request.state === 'succeeded'
-					? `Attempt ${request.attempts.findIndex((attempt) => attempt.outcome?.kind === 'success') + 1 || request.attempts.length} succeeded`
+					? succeeded >= 0
+						? `Attempt ${succeeded + 1} succeeded`
+						: 'Request succeeded'
 					: request.state === 'failed'
-						? `Gave up after ${request.attempts.length} attempts`
+						? `Gave up after ${request.attempts.length} ${request.attempts.length === 1 ? 'attempt' : 'attempts'}`
 						: request.state === 'pending'
 							? 'Request in progress'
 							: 'Unknown request state'}
@@ -112,7 +115,7 @@ export function AgentLogRequestDetails({ request }: { request: AgentLogRequest }
 			) : selected?.partialResponse ? (
 				<SubmissionJsonBlock label="Partial response" value={selected.partialResponse} />
 			) : (
-				<p>No response yet.</p>
+				<p>{request.state === 'pending' ? 'No response yet.' : 'No response was retained.'}</p>
 			)}
 			{request.attempts.length > 1 && (
 				<section>
@@ -159,12 +162,13 @@ export function AgentLogSessionModal({ session, onClose }: { session: AgentLogCo
 	return (
 		<Modal className="submission-modal agent-log-modal" open onClose={onClose} title="Compaction session log" wide>
 			<p>
-				<TimeAgoLabel value={session.createdAt} /> · {session.trigger.kind} · {session.requests.length} calls
+				<TimeAgoLabel value={session.createdAt} /> · {session.trigger.kind} · {session.requests.length}{' '}
+				{session.requests.length === 1 ? 'call' : 'calls'}
 			</p>
 			{session.requests.map((request, index) => (
 				<details key={request.id} className="agent-log-session-call">
 					<summary>
-						Call {index + 1} · {request.attempts.length} attempts · {request.state}
+						Call {index + 1} · {request.attempts.length} {request.attempts.length === 1 ? 'attempt' : 'attempts'} · {request.state}
 					</summary>
 					<AgentLogAttempts request={request} />
 					<AgentLogRequestDetails request={request} />

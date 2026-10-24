@@ -8587,6 +8587,11 @@ button.inference-model-name:hover { text-decoration: underline; }
 	border-radius: 7px;
 	margin-top: 8px;
 }
+.agent-log-card.faded .agent-log-call {
+	background: color-mix(in oklch, var(--loop-tool) calc(100% * var(--card-opacity) * var(--source-opacity)), transparent);
+	border-color: color-mix(in oklch, var(--loop-tool-border) calc(100% * var(--card-opacity) * var(--source-opacity)), transparent);
+	transition: background-color 400ms, border-color 400ms;
+}
 .agent-log-call > .tool-block,
 .agent-log-body .tool-block {
 	border: 0;
@@ -8714,6 +8719,28 @@ button.inference-model-name:hover { text-decoration: underline; }
 	white-space: pre-wrap;
 	overflow-wrap: anywhere;
 }
+.agent-log-modal .submission-json-block pre,
+.agent-log-modal .json-view {
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	min-width: 0;
+}
+.agent-log-modal .submission-message,
+.agent-log-modal .submission-chat-log,
+.agent-log-modal .submission-meta,
+.agent-log-modal .kvrow {
+	min-width: 0;
+}
+.agent-log-modal .submission-message-head span,
+.agent-log-modal .submission-json-block > span {
+	color: var(--ink-3);
+}
+.agent-log-modal .submission-meta .v {
+	white-space: normal;
+	overflow-wrap: anywhere;
+	min-width: 0;
+	color: var(--ink-2);
+}
 .agent-log-modal summary {
 	cursor: pointer;
 }
@@ -8733,6 +8760,9 @@ button.inference-model-name:hover { text-decoration: underline; }
 	flex-wrap: wrap;
 }
 @media (max-width: 600px) {
+	.agent-log-modal .submission-meta { grid-template-columns: minmax(0, 1fr); }
+	.agent-log-modal .submission-meta .kvrow { border-right: 0; gap: 12px; }
+
 	.agent-log {
 		gap: 12px;
 	}
