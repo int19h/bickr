@@ -178,7 +178,7 @@ describe('legacy history runtime maintenance', () => {
 		f.runtime.recordProviderTokenCalibrationSampleFromError = vi.fn();
 		f.runtime.fetchProviderCompactionResponse = fail
 			? vi.fn().mockRejectedValue(new ProviderRequestError(503, 'vendor/model', 'endpoint', 'Unavailable'))
-			: vi.fn().mockResolvedValue({ content: 'Summary.', usage: { promptTokens: 100, completionTokens: 10, totalTokens: 110 } });
+			: vi.fn().mockResolvedValue({ content: 'Summary.', usage: { promptTokens: 100, completionTokens: 10, totalTokens: 110, cachedTokens: 0, reasoningTokens: 0, cost: null, raw: {} } });
 		const cost = emptyCost();
 		const call = f.runtime.callProviderForCompaction(settings, [], 'run', new AbortController().signal, undefined, undefined, undefined, 7, '2026-10-23', bot as unknown as BotDocument, undefined, 10000, cost);
 		if (fail) await expect(call).rejects.toBeInstanceOf(ProviderRequestError);

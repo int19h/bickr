@@ -155,6 +155,8 @@ export type BotLoopMessage = {
 };
 
 export type BotLoopMessagePageSummary = {
+	isNewest?: boolean;
+	compactionSessionId?: string | null;
 	page: number;
 	messageCount: number;
 	fromSeq?: number;
@@ -174,6 +176,7 @@ export type BotLoopMessagePage = {
 };
 
 export type BotLoopMessagesResponse = {
+	entries: import("./agent-log.ts").AgentLogEntry[];
 	messages: BotLoopMessage[];
 	page: BotLoopMessagePage;
 };
@@ -224,11 +227,9 @@ export type BotLoopMessageRequestUsage = {
 };
 
 export type BotLoopMessageLogsResponse = {
-	inferenceAttribution?: InferenceAttribution;
+	request?: import("./agent-log.ts").AgentLogRequest | null;
 	message: BotLoopMessage;
 	logs: BotLoopMessageLog[];
-	requestMessages?: BotLoopMessageRequestLogMessage[];
-	requestUsage?: BotLoopMessageRequestUsage;
 };
 
 export type BotTokenUsageTotals = {

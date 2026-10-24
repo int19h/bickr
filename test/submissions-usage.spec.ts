@@ -1,3 +1,5 @@
+import { providerChatCompletionRequest } from "../workers/agent-runtime/src/runtime/bot-runtime";
+import { agentLogStoreStub } from "../workers/agent-runtime/src/runtime/agent-log-store.test-support";
 import { testResultContext } from '../workers/agent-runtime/src/runtime/result-render-context.test-support';
 import type { RuntimeBotDocument } from "../workers/agent-runtime/src/types";
 import type { LocalizedProviderSettings } from "../workers/agent-runtime/src/provider-requests";
@@ -15,7 +17,6 @@ import {
 	globalInferenceCostStatsFromUsage,
 	it,
 	listOwnerBotTokenSpendSummaries,
-	memoryInferenceSubmissionSql,
 	promptContextBudgetCacheFingerprint,
 	promptContextBudgetFromCounts,
 	providerCompactionSummaryLimitsForChat,
@@ -81,7 +82,7 @@ describe("Submissions and usage", () => {
 				total_tokens: 550,
 			},
 		];
-		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub,
 			providerUsageRows: () => rows,
 			tokenUsageChangeMarkers: () => [],
 			latestActiveLoopCompactionBoundary: () => null,
@@ -123,7 +124,7 @@ describe("Submissions and usage", () => {
 				cost: 0.25,
 			},
 		];
-		const runtime = Object.assign(Object.create(BotRuntime.prototype), {});
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub,});
 		const tokenSpendSummaryForRows = (BotRuntime.prototype as unknown as {
 			tokenSpendSummaryForRows: (
 				botId: string,
@@ -154,7 +155,7 @@ describe("Submissions and usage", () => {
 				cost: 0.25,
 			},
 		];
-		const runtime = Object.assign(Object.create(BotRuntime.prototype), {});
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub,});
 		const tokenSpendSummaryForRows = (BotRuntime.prototype as unknown as {
 			tokenSpendSummaryForRows: (
 				botId: string,
@@ -184,7 +185,7 @@ describe("Submissions and usage", () => {
 				cost: null,
 			},
 		];
-		const runtime = Object.assign(Object.create(BotRuntime.prototype), {});
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub,});
 		const tokenSpendSummaryForRows = (BotRuntime.prototype as unknown as {
 			tokenSpendSummaryForRows: (
 				botId: string,
@@ -468,7 +469,7 @@ describe("Submissions and usage", () => {
 
 	it("stores routed OpenRouter provider names with provider usage", async () => {
 		const sql = capturingProviderUsageSql();
-		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub,
 			state: { storage: { sql, transactionSync: <T>(run: () => T): T => run() } },
 		});
 		const recordProviderUsage = (BotRuntime.prototype as unknown as {
@@ -502,7 +503,7 @@ describe("Submissions and usage", () => {
 
 	it("stores OpenRouter router metadata provider names without generation lookup", async () => {
 		const sql = capturingProviderUsageSql();
-		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub,
 			state: { storage: { sql, transactionSync: <T>(run: () => T): T => run() } },
 		});
 		const recordProviderUsage = (BotRuntime.prototype as unknown as {
@@ -525,7 +526,7 @@ describe("Submissions and usage", () => {
 	});
 
 	it("opts OpenRouter streaming requests into router metadata and keeps the generation id header", async () => {
-		const runtime = Object.assign(Object.create(BotRuntime.prototype), {});
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub,});
 		const fetchProviderResponse = (BotRuntime.prototype as unknown as {
 			fetchProviderResponse: (
 				settings: Record<string, unknown>,
@@ -570,7 +571,7 @@ describe("Submissions and usage", () => {
 
 	it("keeps provider usage when OpenRouter provider metadata is unavailable", async () => {
 		const sql = capturingProviderUsageSql();
-		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub,
 			state: { storage: { sql, transactionSync: <T>(run: () => T): T => run() } },
 		});
 		const recordProviderUsage = (BotRuntime.prototype as unknown as {
@@ -593,7 +594,7 @@ describe("Submissions and usage", () => {
 
 	it("stores direct provider hosts without OpenRouter metadata lookups", async () => {
 		const sql = capturingProviderUsageSql();
-		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub,
 			state: { storage: { sql, transactionSync: <T>(run: () => T): T => run() } },
 		});
 		const recordProviderUsage = (BotRuntime.prototype as unknown as {
@@ -624,7 +625,7 @@ describe("Submissions and usage", () => {
 		const providerTools = toolDefinitionsForProviderRound(englishInstructions);
 		const interruptedUsage = providerUsageForTest(23, 7);
 		let eventSeq = 0;
-		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub,
 			state: { storage: { sql, transactionSync: <T>(run: () => T): T => run() } },
 			appendEvent: (runId: string, type: BotRuntimeEvent["type"], payload: unknown) => {
 				eventSeq += 1;
@@ -723,7 +724,7 @@ describe("Submissions and usage", () => {
 			const bot = fakeBotDocument({ contextWindowTokens: 20_000 });
 			const calibration = { tokensPerCharacter: 0.25, sampleCount: 0 };
 			const expectedLimits = providerCompactionSummaryLimitsForChat(bot, [], calibration, toolDefinitionsForProviderRound(englishInstructions));
-			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub,
 				providerUsageRows: () => [],
 				tokenUsageChangeMarkers: () => [],
 				textTokenCalibration: () => calibration,
@@ -753,7 +754,7 @@ describe("Submissions and usage", () => {
 		});
 
 		it("omits context window breakdown when the latest normal inference predates active compaction", () => {
-			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub,
 				providerUsageRows: () => [],
 				tokenUsageChangeMarkers: () => [],
 				textTokenCalibration: () => ({ tokensPerCharacter: 0.25, sampleCount: 0 }),
@@ -773,7 +774,7 @@ describe("Submissions and usage", () => {
 
 		it("uses the first normal inference after active compaction as the context baseline", () => {
 			const firstLoopProviderUsageAfterSeq = vi.fn(() => providerLoopUsageRowForTest(121, "2026-05-01T00:06:00.000Z", 5_500));
-			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub,
 				providerUsageRows: () => [],
 				tokenUsageChangeMarkers: () => [],
 				textTokenCalibration: () => ({ tokensPerCharacter: 0.25, sampleCount: 0 }),
@@ -798,7 +799,7 @@ describe("Submissions and usage", () => {
 
 		it("queries context window usage from normal loop submissions only", () => {
 			const queries: string[] = [];
-			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub,
 				state: {
 					storage: {
 						sql: {
@@ -875,89 +876,6 @@ describe("Submissions and usage", () => {
 		);
 	});
 
-		it("retains, reads, deletes, and clears bounded inference submissions", () => {
-			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
-				state: {
-					storage: {
-						sql: memoryInferenceSubmissionSql(),
-					},
-				},
-			});
-			const recordInferenceSubmission = (BotRuntime.prototype as unknown as {
-				recordInferenceSubmission: (input: {
-					seq: number;
-					runId: string;
-					purpose: "loop" | "compaction";
-					settings: LocalizedProviderSettings;
-					messages: Array<{ role: "assistant" | "user"; content: string }>;
-					displayMessages?: Array<{ role: "user" | "assistant"; content: string }>;
-					createdAt: string;
-				}) => void;
-			}).recordInferenceSubmission.bind(runtime);
-			const updateInferenceSubmissionDisplayMessages = (BotRuntime.prototype as unknown as {
-				updateInferenceSubmissionDisplayMessages: (
-					seq: number,
-					messages: Array<{ role: "user" | "assistant"; content: string }>,
-				) => void;
-			}).updateInferenceSubmissionDisplayMessages.bind(runtime);
-			const inferenceSubmissionSummaries = (BotRuntime.prototype as unknown as {
-				inferenceSubmissionSummaries: () => Array<{ seq: number; purpose: string; messageCount: number }>;
-			}).inferenceSubmissionSummaries.bind(runtime);
-			const inferenceSubmissionForSeq = (BotRuntime.prototype as unknown as {
-				inferenceSubmissionForSeq: (seq: number) => {
-					seq: number;
-					messages: Array<{ content: string }>;
-					displayMessages?: Array<{ content: string }>;
-				};
-			}).inferenceSubmissionForSeq.bind(runtime);
-			const deleteInferenceSubmissionsForSeq = (BotRuntime.prototype as unknown as {
-				deleteInferenceSubmissionsForSeq: (seq: number) => number;
-			}).deleteInferenceSubmissionsForSeq.bind(runtime);
-			const clearInferenceSubmissions = (BotRuntime.prototype as unknown as {
-				clearInferenceSubmissions: () => number;
-			}).clearInferenceSubmissions.bind(runtime);
-
-			for (let seq = 1; seq <= 55; seq += 1) {
-				recordInferenceSubmission({
-					seq,
-					runId: "run-submissions",
-					purpose: seq === 55 ? "compaction" : "loop",
-					settings: {
-						baseUrl: "https://openrouter.ai/api/v1",
-						model: "test/model",
-						...(seq === 55 ? { text: englishInstructions, supportsPrefill: false } : { text: englishInstructions,}),
-						temperature: 0.7,
-					},
-					messages: seq === 55 ?
-						[{ role: "assistant", content: "Trailing participant narration." }]
-					:	[{ role: "user", content: `Müller message ${seq}` }],
-					createdAt: `2026-05-01T00:00:${String(seq).padStart(2, "0")}.000Z`,
-				});
-			}
-
-			const summaries = inferenceSubmissionSummaries();
-			expect(summaries).toHaveLength(50);
-			expect(summaries[0]?.seq).toBe(6);
-			expect(summaries.at(-1)).toMatchObject({ seq: 55, purpose: "compaction", messageCount: 2 });
-			expect(inferenceSubmissionForSeq(55).messages.map((message) => message.content)).toEqual([
-				"Trailing participant narration.",
-				"The Bickr app is ready for your next step.",
-			]);
-			expect(inferenceSubmissionForSeq(55).displayMessages).toBeUndefined();
-			updateInferenceSubmissionDisplayMessages(55, [
-				{ role: "user", content: "Submitted compaction chat." },
-				{ role: "assistant", content: "Compacted continuity summary." },
-			]);
-			expect(inferenceSubmissionForSeq(55).displayMessages?.map((message) => message.content)).toEqual([
-				"Submitted compaction chat.",
-				"Compacted continuity summary.",
-			]);
-			expect(deleteInferenceSubmissionsForSeq(55)).toBe(1);
-			expect(inferenceSubmissionSummaries().map((submission) => submission.seq)).not.toContain(55);
-			expect(clearInferenceSubmissions()).toBe(49);
-			expect(inferenceSubmissionSummaries()).toEqual([]);
-		});
-
 		it("emits baseline-plus-delta prompt estimates for stored sanitized tool-call prefixes", async () => {
 			const sql = promptEstimateSqlForTest();
 			const baselineLoopMessages = notificationToolPrefixMessages("synthetic_run_baseline_0");
@@ -967,7 +885,7 @@ describe("Submissions and usage", () => {
 			];
 			let activeLoopMessages = baselineLoopMessages;
 			const events: BotRuntimeEvent[] = [];
-			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub,
 				env: { BICKR_D1: {} },
 				activeLoopMessageRows: () => [],
 				state: {
@@ -989,16 +907,7 @@ describe("Submissions and usage", () => {
 			const activeProviderRequestMessages = (BotRuntime.prototype as unknown as {
 				activeProviderRequestMessages: (_context: typeof testResultContext, bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>) => BotInferenceSubmissionMessage[];
 			}).activeProviderRequestMessages.bind(runtime, testResultContext);
-			const recordInferenceSubmission = (BotRuntime.prototype as unknown as {
-				recordInferenceSubmission: (input: {
-					seq: number;
-					runId: string;
-					purpose: "loop" | "compaction";
-					settings: ReturnType<typeof promptEstimateSettings>;
-					messages: BotInferenceSubmissionMessage[];
-					createdAt: string;
-				}) => void;
-			}).recordInferenceSubmission.bind(runtime);
+			const recordInferenceSubmission = (input: LegacySubmissionInput) => recordLegacySubmissionFixture(sql, input);
 			const ensureProviderPromptWithinBudget = (BotRuntime.prototype as unknown as {
 				ensureProviderPromptWithinBudget: (
 					bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
@@ -1035,7 +944,7 @@ describe("Submissions and usage", () => {
 
 		it("falls back to full prompt estimates for incompatible stored histories", () => {
 			const sql = promptEstimateSqlForTest();
-			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub,
 				state: {
 					storage: {
 						sql,
@@ -1065,7 +974,7 @@ describe("Submissions and usage", () => {
 
 		it("matches sanitized prefixes when live messages keep null content and synthetic tool-call ids", () => {
 			const sql = promptEstimateSqlForTest();
-			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub,
 				state: {
 					storage: {
 						sql,
@@ -1112,7 +1021,7 @@ describe("Submissions and usage", () => {
 			};
 		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
 		const deltas: Array<Record<string, unknown>> = [];
-		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub,
 			appendEvent: (_runId: string, type: string, payload: Record<string, unknown>) => {
 				events.push({ type, payload });
 				return runtimeEvent(events.length, _runId, type as BotRuntimeEvent["type"], payload);
@@ -1240,16 +1149,8 @@ function recordPromptEstimateBaseline(
 		promptTokens: number;
 	},
 ): void {
-	const recordInferenceSubmission = (BotRuntime.prototype as unknown as {
-		recordInferenceSubmission: (record: {
-			seq: number;
-			runId: string;
-			purpose: "loop" | "compaction";
-			settings: ReturnType<typeof promptEstimateSettings>;
-			messages: BotInferenceSubmissionMessage[];
-			createdAt: string;
-		}) => void;
-	}).recordInferenceSubmission.bind(runtime);
+	const recordInferenceSubmission = (input: LegacySubmissionInput) => recordLegacySubmissionFixture(sql, input);
+	void runtime;
 	recordInferenceSubmission({
 		seq: input.seq,
 		runId: input.runId,
@@ -1383,4 +1284,11 @@ function deeplyNestedToolResultContent(): string {
 		value = { nested: value };
 	}
 	return JSON.stringify(value);
+}
+
+
+type LegacySubmissionInput = { seq: number; runId: string; purpose: string; settings: LocalizedProviderSettings; messages: BotInferenceSubmissionMessage[]; createdAt: string };
+function recordLegacySubmissionFixture(sql: ReturnType<typeof promptEstimateSqlForTest>, input: LegacySubmissionInput): void {
+	const messages = providerChatCompletionRequest(input.settings, input.messages, []).messages;
+	sql.exec(`INSERT INTO inference_submissions (id, event_seq, run_id, purpose, model, provider_base_url, message_count, messages_json, display_messages_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, 'legacy', input.seq, input.runId, input.purpose, input.settings.model, input.settings.baseUrl, messages.length, JSON.stringify(messages), null, input.createdAt);
 }

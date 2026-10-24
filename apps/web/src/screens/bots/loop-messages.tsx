@@ -1,3 +1,4 @@
+import type { AgentLogRequest, AgentLogAttempt } from "@bickr/shared/model";
 import { InferenceAttributionFields } from "../../components/inference-attribution";
 import type { Ref } from "react";
 import type {
@@ -32,7 +33,7 @@ export function LoopMessageLogsModal({
 		return null;
 	}
 
-	const { message, logs, requestMessages, requestUsage } = payload;
+	const { message, logs } = payload;
 
 	return (
 		<Modal className="submission-modal" onClose={onClose} open={open} title="Loop Message Logs" wide>
@@ -43,11 +44,7 @@ export function LoopMessageLogsModal({
 				<RuntimeRow label="Run" value={message.runId} />
 			</div>
 			<div className="submission-chat-log">
-				{requestUsage && <LoopMessageRequestUsageLine usage={requestUsage} />}
-				{payload.inferenceAttribution && <InferenceAttributionFields attribution={payload.inferenceAttribution} />}
-				{requestMessages && requestMessages.length > 0 ?
-					requestMessages.map((item) => <RequestLogMessageView item={item} key={item.position} />)
-				:	<RawInferenceSubmissionMessageView message={message.message} position={message.seq} />}
+				{payload.request ? <AgentLogRequestView request={payload.request} /> : <p>The exact request is not retained.</p>}
 				{logs.length === 0 ?
 					<div className="empty compact-empty">No retained raw logs for this message.</div>
 				:	logs.filter(log => log.kind !== "inference_attribution").map((log) => (
@@ -96,9 +93,9 @@ export function LoopMessageRow({
 			<button
 				aria-label={`Open raw logs for loop message ${message.seq}`}
 				className="raw-json-button"
-				disabled={loadingLogs || !message.hasLogs || isLive}
+				disabled={loadingLogs || isLive}
 				onClick={onViewLogs}
-				title={message.hasLogs ? "Open exact provider and tool logs" : "No retained logs"}
+				title="Open retained provider and tool logs"
 				type="button"
 			>
 				{loadingLogs ? <span className="spinner" /> : <Icon name="info" size={13} />}
@@ -281,4 +278,34 @@ export function SubmissionJsonBlock({ label, value }: { label: string; value: un
 			:	<pre>{prettyJsonText(value)}</pre>}
 		</div>
 	);
+}
+
+export function AgentLogRequestView({ request }: { request: AgentLogRequest }) {
+	const selected = request.attempts.find(attempt => attempt.outcome?.kind === 'success') ?? request.attempts.findLast(attempt => attempt.outcome === null);
+	return <div>
+		<p>{request.state}. Attempts: {request.attempts.length}.</p>
+		{selected && <AgentLogAttemptDetails attempt={selected} />}
+		{selected && <AgentLogAttemptResponse attempt={selected} />}
+		{request.attempts.filter(attempt => attempt.outcome && attempt.outcome.kind !== 'success').map(attempt => <details key={attempt.id}>
+			<summary>Attempt {attempt.id}: {attempt.outcome?.kind}</summary>
+			<pre>{JSON.stringify(attempt.outcome, null, 2)}</pre>
+			<AgentLogAttemptDetails attempt={attempt} />
+			<AgentLogAttemptResponse attempt={attempt} />
+		</details>)}
+	</div>;
+}
+
+function AgentLogAttemptDetails({ attempt }: { attempt: AgentLogAttempt }) {
+	return <div>
+		{attempt.usage && <LoopMessageRequestUsageLine usage={attempt.usage} />}
+		{attempt.attribution && <InferenceAttributionFields attribution={attempt.attribution} />}
+		{attempt.messages.map(item => <RequestLogMessageView key={item.position} item={item} />)}
+		{attempt.body !== null ? <details><summary>Request body</summary><pre>{attempt.body}</pre></details> : <p>The exact request is not retained.</p>}
+	</div>;
+}
+
+function AgentLogAttemptResponse({ attempt }: { attempt: AgentLogAttempt }) {
+	const outcome = attempt.outcome;
+	const response = outcome?.kind === 'success' || outcome?.kind === 'interrupted' ? outcome.response : null;
+	return response ? <pre>{response}</pre> : attempt.partialResponse ? <pre>{attempt.partialResponse}</pre> : null;
 }

@@ -1,3 +1,6 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
+import { AgentLogStore, agentLogSchema, agentLogFailure } from './agent-log-store';
+import type { AgentLogSource, AgentLogCompactionTrigger } from '@bickr/shared/model';
 import { legacyHistoryRateLimit, legacyHistoryRetryDelay, LegacyHistoryRateLimitError } from './legacy-history-maintenance';
 import type { LegacyHistoryCompactionResult, LegacyHistoryCost } from './legacy-history-maintenance';
 import { buildResultRenderContext, contextWithProducedReferences, resultViewsFromRows } from './result-render-context';
@@ -149,17 +152,11 @@ import {
 	type BotContextWindowBreakdown,
 	defaultReasoningPrefill,
 	defaultTextGenerationTemperature,
-	type BotInferenceSubmission,
-	type BotInferenceSubmissionMessage,
 	type BotInferenceSubmissionPurpose,
-	type BotInferenceSubmissionSummary,
 	type BotLoopMessage,
 	type BotLoopMessagesResponse,
-	type BotLoopMessageLog,
 	type BotLoopMessageLogKind,
 	type BotLoopMessageLogsResponse,
-	type BotLoopMessageRequestLogMessage,
-	type BotLoopMessageRequestUsage,
 	type BotLoopMessageOrigin,
 	type BotLoopMessageStatus,
 	type BotDocument,
@@ -417,7 +414,6 @@ import {
 	providerTranslationToolName,
 	providerSelfAuthor,
 	providerStructuredOutputRepairAttempts,
-	inferenceSubmissionRetentionCount,
 	providerTokenCalibrationRetentionCount,
 	runtimeMonitorInitialBackfillLimit,
 	dayMs,
@@ -431,7 +427,6 @@ import type {
 	RuntimeBotDocument,
 	RuntimeRow,
 	CompactionMetrics,
-	InferenceSubmissionRow,
 	LoopMessageRow,
 	RuntimeFailureLog,
 	LoopMessageAppendLog,
@@ -450,7 +445,6 @@ import type {
 	ProviderUsageRow,
 	ProviderUsageExportRow,
 	ProviderTokenCalibrationSampleRow,
-	ProviderUsageLogRow,
 	ProviderLoopUsageRow,
 	ProviderTokenCalibrationLegacyBackfillRow,
 	PromptTokenBaselineRow,
@@ -1748,6 +1742,8 @@ CREATE TABLE IF NOT EXISTS provider_token_calibration_samples (
 	created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS provider_token_calibration_samples_model ON provider_token_calibration_samples (requested_model, id);
+-- Retirement: no new writes. The agent log sweep removes rows after seven days.
+-- After the fleet census reaches zero, advance schemaVersion to 2 and remove this table and its readers.
 CREATE TABLE IF NOT EXISTS inference_submissions (
 	id TEXT PRIMARY KEY,
 	event_seq INTEGER NOT NULL UNIQUE,
@@ -1763,7 +1759,7 @@ CREATE TABLE IF NOT EXISTS inference_submissions (
 CREATE INDEX IF NOT EXISTS inference_submissions_created_at ON inference_submissions (created_at);
 CREATE INDEX IF NOT EXISTS inference_submissions_run ON inference_submissions (run_id, event_seq);
 -- Retention: rows a compaction has absorbed are deleted after
--- ${compactedLoopMessageRetentionDays} days (${compactionSummaryLoopMessageRetentionDays} days for the summaries themselves) and
+-- ${compactedLoopMessageRetentionDays} days outside the newest three pages (${compactionSummaryLoopMessageRetentionDays} days for the summaries themselves) and
 -- owner-deleted rows after ${deletedLoopMessageRetentionDays} days. The active context — compacted_by IS NULL AND
 -- deleted_at IS NULL — is never pruned by age.
 CREATE TABLE IF NOT EXISTS loop_messages (
@@ -1793,6 +1789,7 @@ CREATE INDEX IF NOT EXISTS loop_messages_active ON loop_messages (compacted_by, 
 CREATE INDEX IF NOT EXISTS loop_messages_run ON loop_messages (run_id, seq);
 -- Owner-visible non-history diagnostics are physically capped by RuntimeMessageStore at append time.
 CREATE INDEX IF NOT EXISTS loop_messages_diagnostic_retention ON loop_messages (origin, seq DESC);
+-- Raw logs and their chunks stay for the newest three pages, then expire after seven days.
 CREATE TABLE IF NOT EXISTS loop_message_logs (
 	id INTEGER PRIMARY KEY AUTOINCREMENT,
 	message_seq INTEGER NOT NULL,
@@ -1837,13 +1834,13 @@ CREATE INDEX IF NOT EXISTS note_links_entity ON note_links (entity_kind, entity_
  * Every table in `runtimeSchema`, read out of the schema itself so a table added
  * later cannot be silently left behind by a full storage clear.
  */
-const runtimeStorageTables: readonly string[] = [...runtimeSchema.matchAll(/CREATE TABLE IF NOT EXISTS (\w+)/g)]
+const runtimeStorageTables: readonly string[] = [...(runtimeSchema + agentLogSchema).matchAll(/CREATE TABLE IF NOT EXISTS (\w+)/g)]
 	.map((match) => match[1])
 	.filter((name): name is string => Boolean(name));
 
 type LegacyPendingProviderTool = { runId: string; toolCall: ToolCall; args: Record<string, unknown> };
 type PendingProviderTool = LegacyPendingProviderTool & (
-	| { kind: 'provider_group'; assistant: ChatMessage; assistantSeq: number | null }
+	| { kind: 'provider_group'; assistant: ChatMessage; assistantSeq: number | null; requestId?: string; requestEventSeq?: number }
 	| { kind: 'legacy_single_call' }
 ) & { instructionLocale: InstructionLocale; stage: ToolDispatchStage; mutationIdentity?: MutationIdentity };
 
@@ -1857,6 +1854,10 @@ function pendingToolFromStoredRow(row: { key: string; value_json: string }): Pen
 	}
 	return { ...value, ...(row.key === 'pending_tool_v1' ? { kind: 'legacy_single_call' as const } : {}), instructionLocale: 'en', stage: 'dispatched' };
 }
+
+type CompactionSessionContext = { id: string };
+// Each async session keeps its own identity when an older call outlives Stop.
+const compactionSessionScope = new AsyncLocalStorage<CompactionSessionContext>();
 
 export class BotRuntime {
 	private readonly state: DurableObjectState;
@@ -1901,6 +1902,8 @@ export class BotRuntime {
 				this.setRuntimeState(instructionLocalizationStateKey, { schemaVersion: instructionLocalizationVersion });
 				this.observeProviderToolCallHistoryInvariantAfterStartupMigration();
 				this.backfillProviderTokenCalibrationSamples();
+				this.migrateAgentLog();
+				this.agentLogStore().recoverInterrupted();
 				const journal = this.liveness.read();
 				if (journal) await this.state.storage.setAlarm(journal.kind === 'active' ? journal.lastProgressAt + runInactivityMs : Date.now());
 			}
@@ -1941,6 +1944,7 @@ export class BotRuntime {
 		this.ensureProviderUsageColumns();
 		this.ensureInferenceSubmissionColumns();
 		this.ensureLoopMessageColumns();
+		this.agentLogStore().initialize();
 		this.state.storage.sql.exec('CREATE INDEX IF NOT EXISTS loop_messages_request ON loop_messages (stream_seq, seq)');
 		this.ensureNoteColumns();
 	}
@@ -2296,7 +2300,7 @@ export class BotRuntime {
 		}
 		if (request.method === 'GET' && url.pathname.endsWith('/status')) {
 			await this.requireOwnerOrInternal(request, botId);
-			return ok({ status: { ...await this.readStatus(botId), legacyToolRows: this.legacyToolRowCount() } });
+			return ok({ status: { ...await this.readStatus(botId), legacyToolRows: this.legacyToolRowCount(), agentLogMigrations: this.agentLogStore().migrationStatus() } });
 		}
 
 		if (request.method === 'GET' && url.pathname.endsWith('/events')) {
@@ -2339,15 +2343,28 @@ export class BotRuntime {
 			return ok(response);
 		}
 
+		const requestDetail = url.pathname.match(/\/requests\/([^/]+)$/);
+		if (request.method === 'GET' && requestDetail) {
+			await this.requireOwnerOrInternal(request, botId);
+			return ok({ request: this.agentLogStore().request(decodeURIComponent(requestDetail[1]!)) });
+		}
+		const sessionDetail = url.pathname.match(/\/compaction-sessions\/([^/]+)$/);
+		if (request.method === 'GET' && sessionDetail) {
+			await this.requireOwnerOrInternal(request, botId);
+			return ok({ session: this.agentLogStore().session(decodeURIComponent(sessionDetail[1]!)) });
+		}
+
 		if (request.method === 'GET' && url.pathname.endsWith('/submissions')) {
 			await this.requireOwnerOrInternal(request, botId);
-			return ok({ submissions: this.inferenceSubmissionSummaries() });
+			return ok({ submissions: this.agentLogStore().list() });
 		}
 
 		const submissionSeq = submissionSeqFromPath(url.pathname);
 		if (request.method === 'GET' && submissionSeq !== null) {
 			await this.requireOwnerOrInternal(request, botId);
-			return ok({ submission: this.inferenceSubmissionForSeq(submissionSeq) });
+			const row = this.state.storage.sql.exec<{ id: string }>('SELECT id FROM inference_requests WHERE event_seq = ? ORDER BY created_at DESC LIMIT 1', submissionSeq).toArray()[0];
+			if (!row) throw new RepositoryError('not_found', 'The exact request is not retained.', 404);
+			return ok({ submission: this.agentLogStore().request(row.id) });
 		}
 
 		if (request.method === 'GET' && url.pathname.endsWith('/token-usage')) {
@@ -2467,7 +2484,8 @@ export class BotRuntime {
 		const messageSeq = messageSeqFromPath(url.pathname);
 		if (request.method === 'DELETE' && messageSeq !== null) {
 			await this.requireOwnerOrInternal(request, botId);
-			return ok({ deleted: await this.deleteLoopMessage(botId, messageSeq) });
+			const deleted = await this.deleteLoopMessage(botId, messageSeq);
+			return ok({ deleted, changedContext: deleted.changedContext });
 		}
 
 		if (request.method === 'POST' && url.pathname.endsWith('/context-budget')) {
@@ -2970,9 +2988,9 @@ export class BotRuntime {
 
 	// Retention: one in-flight call per object, removed atomically with its result
 	// on success, failure or recovery. It never contains a queue of old calls.
-	private setPendingTool(text: BotText, runId: string, toolCall: ToolCall, args: Record<string, unknown>, assistant: ChatMessage, assistantSeq: number | null): void {
+	private setPendingTool(text: BotText, runId: string, toolCall: ToolCall, args: Record<string, unknown>, assistant: ChatMessage, assistantSeq: number | null, request: { id: string; eventSeq: number }): void {
 		assertExecutionPublication();
-		this.setRuntimeState('pending_tool_v3', { kind: 'provider_group', instructionLocale: text.locale, stage: 'prepared', runId, toolCall, args, assistant, assistantSeq } satisfies PendingProviderTool);
+		this.setRuntimeState('pending_tool_v3', { kind: 'provider_group', instructionLocale: text.locale, stage: 'prepared', runId, toolCall, args, assistant, assistantSeq, requestId: request.id, requestEventSeq: request.eventSeq } satisfies PendingProviderTool);
 	}
 
 	private markPendingToolDispatched(runId: string, toolCallId: string): void {
@@ -2989,14 +3007,21 @@ export class BotRuntime {
 	}
 
 	private clearPendingTool(runId: string): void {
+		const row = this.state.storage.sql.exec<{ value_json: string }>("SELECT value_json FROM runtime_state WHERE key = 'pending_tool_v3' AND json_extract(value_json, '$.runId') = ? LIMIT 1", runId).toArray()[0];
+		if (row) this.agentLogStore().completeResponsePublication(runId, null, [(JSON.parse(row.value_json) as PendingProviderTool).toolCall.id]);
 		this.state.storage.sql.exec(`DELETE FROM runtime_state WHERE key IN ('pending_tool_v1', 'pending_tool_v2', 'pending_tool_v3') AND json_extract(value_json, '$.runId') = ?`, runId);
 	}
 
 	private settlePendingTool(context: ResultRenderContext, runId: string): void {
 		const row = this.state.storage.sql.exec<{ key: string; value_json: string }>(`SELECT key, value_json FROM runtime_state WHERE key IN ('pending_tool_v1', 'pending_tool_v2', 'pending_tool_v3') AND json_extract(value_json, '$.runId') = ? ORDER BY key DESC LIMIT 1`, runId).toArray()[0];
+		if (this.agentLogStore().responsePublication(runId)) {
+			this.settleResponsePublication(context, runId, row ? pendingToolFromStoredRow(row) : null);
+			return;
+		}
 		if (!row) return;
 		// One compatibility adapter consumes old journals. Old requests used English.
-		// Retire v1/v2 after the bounded fleet sweep and rollback window end.
+		// The same adapter accepts old v3 journals without request references.
+		// After the fleet sweep settles old journals, advance schemaVersion to 2 and remove these cases.
 		const pending = pendingToolFromStoredRow(row);
 		const text = context.text;
 		const settlement = interruptedToolSettlement(text, pending.toolCall.function.name, pending.stage);
@@ -3016,12 +3041,44 @@ export class BotRuntime {
 		let event: BotRuntimeEvent | undefined;
 		this.runtimeMessageStore().appendProviderToolResult(
 			context,
-			{ runId, message: { ...assistant, tool_calls: [pending.toolCall] }, origin: 'provider_response', status: 'interrupted' },
+			{ runId, message: { ...assistant, tool_calls: [pending.toolCall] }, origin: 'provider_response', status: 'interrupted', ...(pending.kind === 'provider_group' ? { options: { streamSeq: pending.requestEventSeq, requestId: pending.requestId } } : {}) },
 			{ runId, message: attachToolResultView({ role: 'tool', tool_call_id: pending.toolCall.id, content: JSON.stringify(outcome) }, settlementResultView(settlement.outcome === 'unknown' ? 'outcome_unknown' : settlement.outcome, settlement.outcome === 'not_dispatched' ? resultMessage('recovery.notDispatched') : settlement.outcome === 'interrupted' ? resultMessage('recovery.interrupted') : unknownOutcomeText(pending.toolCall.function.name), text)), origin: 'tool_failure', status: 'interrupted' },
 			assistantSeq,
 			() => { event = this.runtimeEventsStore().appendEventWithoutBroadcast(runId, 'tool_result', { name: pending.toolCall.function.name, args: pending.args, mutationIdentity: pending.mutationIdentity, arguments: pending.toolCall.function.arguments, result: outcome, outcome: settlement.outcome }); },
 		);
 		if (event) this.broadcast(event);
+	}
+
+	private settleResponsePublication(context: ResultRenderContext, runId: string, active: PendingProviderTool | null): void {
+		const log = this.agentLogStore();
+		const publication = log.responsePublication(runId);
+		if (!publication) return;
+		// This journal kind points only to payloads from providerResponseLogPayload.
+		const raw = log.completedResponse(publication.attemptId);
+		const payload = JSON.parse(raw) as { message: ChatMessage };
+		const message = providerResponseMessageForHistory({ content: payload.message.content ?? '', reasoning: payload.message.reasoning ?? '', reasoningDetails: (payload.message.reasoning_details ?? []).map(runtimeRecord), toolCalls: payload.message.tool_calls ?? [] });
+		const calls = (message?.tool_calls ?? []).filter(call => publication.pendingCallIds.includes(call.id));
+		if (calls.length !== publication.pendingCallIds.length) throw new RepositoryError('conflict', 'The pending response calls are not retained.', 409);
+		if (calls.length === 0) {
+			const textOnly = message ? providerResponseMessageForHistory({ content: message.content ?? '', reasoning: message.reasoning ?? '', reasoningDetails: (message.reasoning_details ?? []).map(runtimeRecord), toolCalls: [] }) : null;
+			const entries: LoopMessageGroupEntry[] = publication.assistantSeq === null && textOnly ? [{ runId, message: textOnly, origin: 'provider_response', status: 'interrupted', options: { requestId: publication.requestId, streamSeq: publication.eventSeq }, extraLogs: [{ kind: 'provider_response', text: raw }] }] : [];
+			this.runtimeMessageStore().appendLoopMessageGroup(context, entries, () => { log.discardResponsePublication(runId); this.clearPendingTool(runId); });
+			return;
+		}
+		const settlements = calls.map(call => interruptedToolSettlement(context.text, call.function.name, active?.toolCall.id === call.id ? active.stage : 'prepared'));
+		const results: LoopMessageGroupEntry[] = calls.map((call, index) => {
+			const settlement = settlements[index]!;
+			return { runId, origin: 'tool_failure', status: 'interrupted', message: attachToolResultView({ role: 'tool', tool_call_id: call.id, content: JSON.stringify(settlement.result) }, settlementResultView(settlement.outcome === 'unknown' ? 'outcome_unknown' : settlement.outcome, settlement.outcome === 'not_dispatched' ? resultMessage('recovery.notDispatched') : settlement.outcome === 'interrupted' ? resultMessage('recovery.interrupted') : unknownOutcomeText(call.function.name), context.text)) };
+		});
+		const events: BotRuntimeEvent[] = [];
+		this.runtimeMessageStore().appendProviderToolResults(context, { runId, message: { ...message!, tool_calls: calls }, origin: 'provider_response', status: 'interrupted', options: { requestId: publication.requestId, streamSeq: publication.eventSeq }, extraLogs: [{ kind: 'provider_response', text: raw }] }, results, publication.assistantSeq, () => {
+			for (let index = 0; index < calls.length; index++) {
+				const call = calls[index]!;
+				const settlement = settlements[index]!;
+				events.push(this.runtimeEventsStore().appendEventWithoutBroadcast(runId, 'tool_result', { name: call.function.name, args: active?.toolCall.id === call.id ? active.args : {}, ...(active?.toolCall.id === call.id ? { mutationIdentity: active.mutationIdentity } : {}), arguments: call.function.arguments, result: settlement.result, outcome: settlement.outcome }));
+			}
+		});
+		for (const event of events) this.broadcast(event);
 	}
 
 	private withRunExecution<T>(runId: string, operation: () => T): T {
@@ -3078,6 +3135,7 @@ export class BotRuntime {
 		const current = this.liveness.read();
 		if (!current || current.runId !== runId || current.kind !== 'active') return false;
 		settleOutsideExecution(() => this.state.storage.transactionSync(() => {
+			this.agentLogStore().failPending(runId, type === 'tick_stopped' ? { kind: 'interrupted' } : { kind: 'provider_error', status: null, errorType: null, message: stringValue(payload.message) ?? 'This Bickr visit ended.' });
 			const finished = this.liveness.finish(runId, type === 'tick_failed' ? 'failed' : 'idle', stringValue(payload.message) ?? null, type);
 			if (finished?.kind === 'finalizing' && pause) this.liveness.write({ ...finished, pause });
 			if (!this.hasTerminalEvent(runId)) {
@@ -3122,6 +3180,7 @@ export class BotRuntime {
 			const runId = journal.runId;
 			const context = await this.resultRenderContextForRows(journal.botId, this.activeLoopMessageRows());
 			settleOutsideExecution(() => this.state.storage.transactionSync(() => {
+				this.agentLogStore().failPending(runId, stopped ? { kind: 'interrupted' } : { kind: 'timeout' });
 				journal = this.liveness.finish(runId, stopped ? 'idle' : 'failed', message, stopped ? 'tick_stopped' : 'tick_failed')!;
 				if (!this.hasTerminalEvent(runId)) {
 					this.settlePendingTool(context, runId);
@@ -3189,6 +3248,7 @@ export class BotRuntime {
 		if (journal?.kind === 'active') {
 			const message = 'This Bickr visit closed because a runtime transition did not finish.';
 			settleOutsideExecution(() => this.state.storage.transactionSync(() => {
+				this.agentLogStore().failPending(journal.runId, { kind: 'timeout' });
 				this.liveness.finish(journal.runId, 'failed', message, 'tick_failed');
 				// Recovery loads a fresh render context before it publishes the pending result.
 			}));
@@ -3601,6 +3661,7 @@ export class BotRuntime {
 			let interruptedError: ProviderResponseInterruptedError | null = null;
 			let requestEvent: BotRuntimeEvent;
 			let allToolCallsDroppedRetried = false;
+			let logicalRequestId: string | undefined;
 			for (;;) {
 				const budgetCheck = await this.ensureProviderPromptWithinBudget(bot, settings, runId, runContext.signal, providerTools);
 				context = budgetCheck.renderContext;
@@ -3625,14 +3686,7 @@ export class BotRuntime {
 					tickSettings,
 					toolCallsMode,
 				}));
-				this.recordInferenceSubmission({
-					seq: requestEvent.seq,
-					runId,
-					purpose: 'loop',
-					settings,
-					messages: requestMessages,
-					createdAt: requestEvent.createdAt,
-				});
+				logicalRequestId = this.agentLogStore().begin({ runId, eventSeq: requestEvent.seq, purpose: 'loop', existingId: logicalRequestId, createdAt: requestEvent.createdAt });
 				responseStatus = 'complete';
 				interruptedError = null;
 				try {
@@ -3657,6 +3711,7 @@ export class BotRuntime {
 						responseStatus = 'interrupted';
 						interruptedError = error;
 					} else {
+						this.agentLogStore().finish(logicalRequestId, 'failed');
 						throw error;
 					}
 				}
@@ -3680,16 +3735,21 @@ export class BotRuntime {
 				const malformedArgumentsOnlyResponse = allToolCallsDroppedResponse
 					? allToolCallsHaveMalformedArguments(sanitized.dropped, sanitized.originalToolCallCount)
 					: null;
-				await this.recordDroppedProviderToolCalls(
-					runId,
-					requestEvent.seq,
-					sanitized.dropped,
-					'generated_response',
-					allToolCallsDroppedResponse && !allToolCallsDroppedRetried,
-				);
-				this.recordRepairedProviderToolCalls(runId, requestEvent.seq, sanitized.repaired);
+				const publishResponse = () => {
+					if (allToolCallsDroppedResponse) return;
+					this.runStorageTransactionSync(() => {
+						const log = this.agentLogStore();
+						const attemptId = log.latestAttempt(logicalRequestId!);
+						if (attemptId !== null) {
+							log.settle(attemptId, responseStatus === 'interrupted' ? { kind: 'interrupted', response: JSON.stringify(providerResponseLogPayload(response, responseStatus)) } : { kind: 'success', response: JSON.stringify(providerResponseLogPayload(response, responseStatus)) });
+							if (providerResponseMessageForHistory(response)) log.stageResponsePublication({ kind: 'provider_response', runId, requestId: logicalRequestId!, eventSeq: requestEvent.seq, attemptId, assistantSeq: null, pendingCallIds: response.toolCalls.map(call => call.id) });
+						}
+						log.finish(logicalRequestId!, 'succeeded');
+					});
+				};
 				if (response.usage) {
 					await this.recordProviderUsage({
+						attemptId: response.inferenceAttemptId,
 						contextWindowTokens: requestContextWindowTokens,
 						createdAt: requestEvent.createdAt,
 						providerName: response.responseProviderName,
@@ -3699,8 +3759,18 @@ export class BotRuntime {
 						runId,
 						settings,
 						usage: response.usage,
-					});
+					}, publishResponse);
+				} else {
+					publishResponse();
 				}
+				await this.recordDroppedProviderToolCalls(
+					runId,
+					requestEvent.seq,
+					sanitized.dropped,
+					'generated_response',
+					allToolCallsDroppedResponse && !allToolCallsDroppedRetried,
+				);
+				this.recordRepairedProviderToolCalls(runId, requestEvent.seq, sanitized.repaired);
 				try {
 					this.throwIfStopped(runId, runContext.signal);
 				} catch (error) {
@@ -3711,9 +3781,9 @@ export class BotRuntime {
 						throw error;
 					}
 				}
-				if (!allToolCallsDroppedResponse) {
-					break;
-				}
+				if (!allToolCallsDroppedResponse) break;
+				const droppedAttemptId = this.agentLogStore().latestAttempt(logicalRequestId);
+				if (droppedAttemptId !== null) this.agentLogStore().settle(droppedAttemptId, { kind: 'dropped_invalid_output', droppedCalls: sanitized.dropped.map(call => ({ id: call.id, name: call.name, reason: call.reason, argumentsPreview: call.argumentsPreview })) });
 				this.appendDroppedProviderResponseAttempt(
 					context,
 					runId,
@@ -3722,6 +3792,7 @@ export class BotRuntime {
 					sanitized.dropped,
 				);
 				if (allToolCallsDroppedRetried) {
+					this.agentLogStore().finish(logicalRequestId, 'failed');
 					throw new Error(
 						malformedArgumentsOnlyResponse
 							? 'Inference provider returned only malformed page-control requests after retry.'
@@ -3752,9 +3823,6 @@ export class BotRuntime {
 					return [];
 				}
 				const logs: LoopMessageAppendLog[] = [];
-				if (response.requestBody) {
-					logs.push({ kind: 'provider_request', text: response.requestBody });
-				}
 				if (response.inferenceAttribution) logs.push({ kind: 'inference_attribution', text: JSON.stringify(response.inferenceAttribution) });
 				logs.push({ kind: 'provider_response', text: JSON.stringify(providerResponseLogPayload(response, responseStatus)) });
 				providerResponseLogsRecorded = true;
@@ -3971,7 +4039,7 @@ export class BotRuntime {
 				let result: ToolResult;
 				try {
 					await this.renewProgressLease(bot.id, runId, runContext.signal);
-					this.setPendingTool(bot.text, runId, toolCall, args, assistantMessage!, providerResponseGroup.current?.seq ?? null);
+					this.setPendingTool(bot.text, runId, toolCall, args, assistantMessage!, providerResponseGroup.current?.seq ?? null, { id: logicalRequestId!, eventSeq: requestEvent.seq });
 					result = await this.executeTool(bot, runId, toolCall.function.name, args, { ...runContext, inferenceAttribution: response.inferenceAttribution, toolInvocationId: `${runId}:${requestEvent.seq}:${toolCall.id}`, toolCallId: toolCall.id }, (success) => {
 						const recordedToolCall = success.effectiveArgs ? toolCallWithArguments(toolCall, JSON.stringify(providerToolArgs(success.name, success.effectiveArgs))) : toolCall;
 						appendAssistantToolResultPair(toolCall, success.view ? attachToolResultView({ role: 'tool', tool_call_id: toolCall.id, content: typeof success.providerResult === 'string' ? success.providerResult : JSON.stringify(success.providerResult) }, success.view) : { role: 'tool', tool_call_id: toolCall.id, content: typeof success.providerResult === 'string' ? success.providerResult : JSON.stringify(success.providerResult) }, 'tool_result', 'complete', { displayEventSeq: success.displayEventSeq }, recordedToolCall);
@@ -4145,6 +4213,12 @@ export class BotRuntime {
 					break;
 				}
 			}
+			const publication = this.agentLogStore().responsePublication(runId);
+			if (publication && publication.pendingCallIds.length === 0 && publication.assistantSeq === null) {
+				const textOnly = providerResponseMessageForHistory({ content: response.content, reasoning: response.reasoning, reasoningDetails: response.reasoningDetails, toolCalls: [] });
+				if (textOnly) this.appendLoopMessageGroup(context, [{ runId, origin: 'provider_response', status: responseStatus, message: textOnly, options: { streamSeq: requestEvent.seq }, extraLogs: consumeProviderResponseLogs() }]);
+				else this.agentLogStore().discardResponsePublication(runId);
+			}
 			if (toolFailureAcknowledgements.length > 0) {
 				const acknowledgementContent = toolFailureAcknowledgements.join('\n\n');
 				this.appendEvent(runId, 'assistant_message', {
@@ -4287,10 +4361,13 @@ export class BotRuntime {
 			const inferenceAttribution = bot ? this.recordInferenceAttribution(request, bot, runId, streamSeq, requestContextWindowTokens) : undefined;
 			calibrationAttempt += 1;
 			lastBody = body;
+			const requestId = this.agentLogStore().begin({ runId, eventSeq: streamSeq, purpose: 'loop', createdAt });
+			const attemptId = this.agentLogStore().startAttempt(requestId, body);
 
 			try {
 				const streamResponse = providerStreamFetchResponse(await this.fetchProviderResponse(requestSettings, endpoint, body, signal));
 				const response = await this.consumeProviderResponse(runId, streamSeq, streamResponse.stream, signal, streamResponse.responseId);
+				this.agentLogStore().recordAttribution(attemptId, inferenceAttribution);
 				if (response.usage) {
 					this.recordProviderTokenCalibrationSample({
 						attempt: calibrationAttempt,
@@ -4304,8 +4381,10 @@ export class BotRuntime {
 						usage: response.usage,
 					});
 				}
-				return { ...response, requestBody: body, inferenceAttribution };
+				return { ...response, requestBody: body, inferenceAttribution, inferenceAttemptId: attemptId };
 			} catch (error) {
+				this.agentLogStore().recordAttribution(attemptId, inferenceAttribution);
+				this.agentLogStore().settle(attemptId, agentLogFailure(error));
 				this.recordProviderTokenCalibrationSampleFromError({
 					attempt: calibrationAttempt,
 					createdAt,
@@ -4317,7 +4396,7 @@ export class BotRuntime {
 					settings: requestSettings,
 				});
 				if (error instanceof ProviderResponseInterruptedError) {
-					throw new ProviderResponseInterruptedError({ ...error.response, requestBody: body, inferenceAttribution }, error.originalError);
+					throw new ProviderResponseInterruptedError({ ...error.response, requestBody: body, inferenceAttribution, inferenceAttemptId: attemptId }, error.originalError);
 				}
 				if (error instanceof TickStoppedError || isAbortError(error)) {
 					throw error;
@@ -4471,7 +4550,7 @@ export class BotRuntime {
 		requestContextWindowTokens?: number,
 		legacyCost?: LegacyHistoryCost,
 	): Promise<
-		Pick<ProviderResponse, 'usage' | 'responseId' | 'responseModel' | 'responseProviderName' | 'requestBody' | 'rawResponse' | 'inferenceAttribution'> & {
+		Pick<ProviderResponse, 'usage' | 'responseId' | 'responseModel' | 'responseProviderName' | 'requestBody' | 'rawResponse' | 'inferenceAttribution' | 'inferenceAttemptId'> & {
 			compactionReasoning: CompactionAttemptReasoningState;
 			content: string;
 		}
@@ -4531,10 +4610,13 @@ export class BotRuntime {
 				sessionId,
 			);
 			const body = stringifyProviderRequest(request);
+			const requestId = this.agentLogStore().begin({ runId, eventSeq: requestSeq, purpose: 'compaction', sessionId: compactionSessionScope.getStore()?.id, createdAt });
+			const attemptId = this.agentLogStore().startAttempt(requestId, body);
 			const inferenceAttribution = bot ? this.recordInferenceAttribution(request, bot, runId, requestSeq, requestContextWindowTokens) : undefined;
 			try {
 				if (legacyCost) { legacyCost.providerCalls += 1; legacyCost.usageMissingCalls += 1; }
 				const response = await this.fetchProviderCompactionResponse(requestSettings, endpoint, body, signal, limits, mode);
+				this.agentLogStore().recordAttribution(attemptId, inferenceAttribution);
 				if (response.usage && legacyCost) {
 					legacyCost.usageMissingCalls -= 1;
 					legacyCost.promptTokens += response.usage.promptTokens;
@@ -4554,14 +4636,38 @@ export class BotRuntime {
 						usage: response.usage,
 					});
 				}
+				const publishResponse = () => this.runStorageTransactionSync(() => {
+					this.agentLogStore().settle(attemptId, { kind: 'success', response: response.rawResponse ?? JSON.stringify({ content: response.content }) });
+					this.agentLogStore().finish(requestId, 'succeeded');
+				});
+				if (response.usage) {
+					await this.recordProviderUsage({
+						attemptId,
+						contextWindowTokens: requestContextWindowTokens ?? effectiveContextWindowTokensForModel(settings, effectiveTickSettings(bot?.tickSettings).contextWindowTokens),
+						createdAt,
+						providerName: response.responseProviderName,
+						providerResponseId: response.responseId,
+						requestSeq,
+						responseModel: response.responseModel,
+						runId,
+						settings,
+						usage: response.usage,
+					}, publishResponse);
+				} else {
+					publishResponse();
+				}
 				plan = plan.transition({ kind: 'success' });
 				return {
 					...response,
 					compactionReasoning: attemptState.reasoning,
+					inferenceAttemptId: attemptId,
 					requestBody: body,
 					inferenceAttribution,
 				};
 			} catch (error) {
+				this.agentLogStore().recordAttribution(attemptId, inferenceAttribution);
+				this.agentLogStore().settle(attemptId, agentLogFailure(error));
+				this.agentLogStore().finish(requestId, 'failed');
 				this.recordProviderTokenCalibrationSampleFromError({
 					attempt: attemptState.calibrationAttempt,
 					createdAt,
@@ -4690,7 +4796,6 @@ export class BotRuntime {
 				status: 'invalid',
 				options: { streamSeq },
 				extraLogs: [
-					...(response.requestBody ? [{ kind: 'provider_request' as const, text: response.requestBody }] : []),
 					...(response.inferenceAttribution ? [{ kind: 'inference_attribution' as const, text: JSON.stringify(response.inferenceAttribution) }] : []),
 					{
 						kind: 'provider_response',
@@ -4756,6 +4861,7 @@ export class BotRuntime {
 		toolCall: ToolCall,
 		reason: ProviderToolCallDropReason,
 	): Promise<void> {
+		this.agentLogStore().completeResponsePublication(runId, null, [toolCall.id]);
 		await this.recordDroppedProviderToolCalls(
 			runId,
 			streamSeq,
@@ -4781,6 +4887,7 @@ export class BotRuntime {
 			dropped.push(droppedProviderToolCall(toolCall.id, toolCall.function.name, reason, toolCall.function.arguments));
 		}
 		if (dropped.length > 0) {
+			this.agentLogStore().completeResponsePublication(runId, null, dropped.map(call => call.id));
 			await this.recordDroppedProviderToolCalls(runId, streamSeq, dropped, 'generated_response', false);
 		}
 	}
@@ -4824,6 +4931,13 @@ export class BotRuntime {
 		]);
 	}
 
+	private agentLogs?: AgentLogStore;
+	private agentLogStore(): AgentLogStore { return this.agentLogs ??= new AgentLogStore(this.state.storage, () => this.requireWritableRuntimeStorage()); }
+
+	private migrateAgentLog(): void {
+		this.agentLogStore().migrate(this.runtimeMessageStore());
+	}
+
 	private runtimeMessageStore(): RuntimeMessageStore {
 		return new RuntimeMessageStore(
 			this.state.storage,
@@ -4838,7 +4952,7 @@ export class BotRuntime {
 		message: ChatMessage,
 		origin: BotLoopMessageOrigin,
 		status: BotLoopMessageStatus = 'complete',
-		options: { streamSeq?: number; displayEventSeq?: number } = {},
+		options: { streamSeq?: number; displayEventSeq?: number; source?: AgentLogSource } = {},
 	): BotLoopMessage {
 		assertExecutionPublication();
 		return this.runtimeMessageStore().appendLoopMessage(context, runId, message, origin, status, options);
@@ -4962,7 +5076,10 @@ export class BotRuntime {
 	}
 
 	private loopMessagesPage(context: ResultRenderContext, input: { page: number; after?: number }, page = this.runtimeMessageStore().loopMessagePageRows(input)): BotLoopMessagesResponse {
-		return { messages: page.rows.map(row => loopMessageFromRow(row, context)), page: page.page };
+		const messages = page.rows.map(row => loopMessageFromRow(row, context));
+		const source = page.page.pages.find(item => item.page === page.page.currentPage)?.sourceCompactionSeq ?? null;
+		const journal = this.liveness?.read();
+		return { messages, entries: this.agentLogStore().entries(messages, source, journal?.kind === 'active' ? journal.runId : null), page: page.page };
 	}
 
 	private latestActiveLoopCompactionBoundary(): { messageSeq: number; requestSeq: number; created_at: string } | null {
@@ -4971,20 +5088,7 @@ export class BotRuntime {
 
 	private loopMessageLogsForSeq(context: ResultRenderContext, seq: number): BotLoopMessageLogsResponse {
 		const response = this.runtimeMessageStore().loopMessageLogsForSeq(context, seq);
-		const row = this.runtimeMessageStore().loopMessageRow(seq);
-		if (!row) {
-			throw new RepositoryError('not_found', 'Loop message was not found.', 404);
-		}
-		const requestUsage = row.stream_seq ? this.loopMessageRequestUsage(row.run_id, row.stream_seq) : undefined;
-		const requestMessages = this.loopMessageRequestMessages(response.logs, requestUsage);
-		const attributionLog = response.logs.find(log => log.kind === 'inference_attribution');
-		const inferenceAttribution = attributionLog ? JSON.parse(attributionLog.text) as InferenceAttribution : row.stream_seq ? this.eventInferenceAttribution(row.stream_seq) : undefined;
-		return {
-			...response,
-			...(requestMessages.length > 0 ? { requestMessages } : {}),
-			...(requestUsage ? { requestUsage } : {}),
-			...(inferenceAttribution ? { inferenceAttribution } : {}),
-		};
+		return { message: response.message, logs: response.logs, request: this.agentLogStore().requestForMessage(seq) };
 	}
 
 	private recordInferenceAttribution(request: unknown, bot: BotDocument, runId: string, requestSeq: number, requestContextWindowTokens?: number): InferenceAttribution {
@@ -5003,99 +5107,15 @@ export class BotRuntime {
 		return row?.attribution ? JSON.parse(row.attribution) as InferenceAttribution : undefined;
 	}
 
-	private loopMessageRequestUsage(runId: string, requestSeq: number): BotLoopMessageRequestUsage | undefined {
-		const row = this.state.storage.sql
-			.exec<ProviderUsageLogRow>(
-				`SELECT created_at, run_id, model, requested_model, response_model, provider_name, context_window_tokens,
-				        prompt_tokens, completion_tokens, total_tokens, cached_tokens, reasoning_tokens, cost, usage_json
-				 FROM provider_usage
-				 WHERE run_id = ?
-				   AND request_seq = ?
-				 ORDER BY id DESC
-				 LIMIT 1`,
-				runId,
-				requestSeq,
-			)
-			.toArray()[0];
-		if (!row) {
-			return undefined;
-		}
-		let raw: Record<string, unknown> = {};
-		try {
-			raw = runtimeRecord(JSON.parse(row.usage_json));
-		} catch {
-			raw = {};
-		}
-		const costDetails = runtimeRecord(raw.cost_details);
-		const totalCost = row.cost ?? numberValue(raw.cost) ?? null;
-		let promptCost = numberValue(costDetails.upstream_inference_prompt_cost) ?? null;
-		let outputCost = numberValue(costDetails.upstream_inference_completions_cost) ?? null;
-		if (promptCost === null && totalCost !== null && outputCost !== null) {
-			promptCost = Math.max(0, totalCost - outputCost);
-		}
-		if (outputCost === null && totalCost !== null && promptCost !== null) {
-			outputCost = Math.max(0, totalCost - promptCost);
-		}
-		const cachedInputTokens = Math.min(row.prompt_tokens, Math.max(0, row.cached_tokens));
-		const uncachedInputTokens = Math.max(0, row.prompt_tokens - cachedInputTokens);
-		const cachedInputCost = promptCost === null ? null : row.prompt_tokens > 0 ? promptCost * (cachedInputTokens / row.prompt_tokens) : 0;
-		const uncachedInputCost =
-			promptCost === null ? null : row.prompt_tokens > 0 ? promptCost * (uncachedInputTokens / row.prompt_tokens) : 0;
-		return {
-			promptTokens: row.prompt_tokens,
-			cachedInputTokens,
-			uncachedInputTokens,
-			outputTokens: row.completion_tokens,
-			totalTokens: row.total_tokens,
-			cachedInputCost,
-			uncachedInputCost,
-			outputCost,
-			totalCost,
-			estimatedCostSplit: promptCost !== null && cachedInputTokens > 0 && uncachedInputTokens > 0,
-		};
-	}
-
-	private loopMessageRequestMessages(
-		logs: readonly BotLoopMessageLog[],
-		usage: BotLoopMessageRequestUsage | undefined,
-	): BotLoopMessageRequestLogMessage[] {
-		const requestLog = logs.find((log) => log.kind === 'provider_request' || log.kind === 'compaction_request');
-		if (!requestLog) {
-			return [];
-		}
-		let messages: BotInferenceSubmissionMessage[];
-		try {
-			const record = runtimeRecord(JSON.parse(requestLog.text));
-			messages = Array.isArray(record.messages) ? (record.messages as BotInferenceSubmissionMessage[]) : [];
-		} catch {
-			return [];
-		}
-		if (messages.length === 0) {
-			return [];
-		}
-		const calibration = this.textTokenCalibration();
-		let consumed = 0;
-		const cachedTokens = usage?.cachedInputTokens ?? 0;
-		return messages.map((message, index) => {
-			const tokens = estimateChatMessageTokens(message, calibration);
-			const start = consumed;
-			const end = consumed + tokens;
-			consumed = end;
-			const cacheStatus = cachedTokens <= start ? undefined : cachedTokens >= end ? 'cached' : 'partially_cached';
-			return {
-				message,
-				position: index + 1,
-				...(cacheStatus ? { cacheStatus } : {}),
-			};
-		});
-	}
 
 	private recordLoopMessageLog(messageSeq: number, kind: BotLoopMessageLogKind, text: string): void {
 		assertExecutionPublication();
+		if (kind === 'provider_request' || kind === 'compaction_request') return;
 		this.runtimeMessageStore().recordLoopMessageLog(messageSeq, kind, text);
 	}
 
 	private async recordProviderUsage(input: {
+		attemptId?: number;
 		contextWindowTokens: number;
 		createdAt: string;
 		providerName?: string;
@@ -5105,34 +5125,51 @@ export class BotRuntime {
 		runId: string;
 		settings: LocalizedProviderSettings;
 		usage: ProviderUsage;
-	}): Promise<void> {
+	}, publishResponse?: () => void): Promise<void> {
 		const model = input.responseModel?.trim() || input.settings.model;
-		const providerName = await this.providerUsageProviderName(input.settings, input.providerName, input.providerResponseId);
-		this.state.storage.sql.exec(
-			`INSERT INTO provider_usage (
-				run_id, request_seq, provider_response_id, requested_model, response_model, model,
-				context_window_tokens, provider_base_url, provider_name, prompt_tokens, completion_tokens, total_tokens,
-				cached_tokens, reasoning_tokens, cost, usage_json, created_at
-			)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			input.runId,
-			input.requestSeq,
-			input.providerResponseId ?? null,
-			input.settings.model,
-			input.responseModel ?? null,
-			model,
-			input.contextWindowTokens,
-			input.settings.baseUrl,
-			providerName,
-			input.usage.promptTokens,
-			input.usage.completionTokens,
-			input.usage.totalTokens,
-			input.usage.cachedTokens,
-			input.usage.reasoningTokens,
-			input.usage.cost,
-			JSON.stringify(input.usage.raw),
-			input.createdAt,
-		);
+		const providerName = isOpenRouterProviderBaseUrl(input.settings.baseUrl)
+			? normalizedProviderName(input.providerName)
+			: providerNameFromBaseUrl(input.settings.baseUrl);
+		const usageId = this.runStorageTransactionSync(() => {
+			if (input.attemptId !== undefined) this.agentLogStore().assertCanWrite();
+			const usageRow = this.state.storage.sql.exec<{ id: number }>(
+				`INSERT INTO provider_usage (
+					run_id, request_seq, provider_response_id, requested_model, response_model, model,
+					context_window_tokens, provider_base_url, provider_name, prompt_tokens, completion_tokens, total_tokens,
+					cached_tokens, reasoning_tokens, cost, usage_json, created_at
+				)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+				input.runId,
+				input.requestSeq,
+				input.providerResponseId ?? null,
+				input.settings.model,
+				input.responseModel ?? null,
+				model,
+				input.contextWindowTokens,
+				input.settings.baseUrl,
+				providerName,
+				input.usage.promptTokens,
+				input.usage.completionTokens,
+				input.usage.totalTokens,
+				input.usage.cachedTokens,
+				input.usage.reasoningTokens,
+				input.usage.cost,
+				JSON.stringify(input.usage.raw),
+				input.createdAt,
+			);
+			const id = usageRow.one().id;
+			if (input.attemptId !== undefined) this.agentLogStore().linkUsage(input.attemptId, id);
+			publishResponse?.();
+			return id;
+		});
+		// Usage and request completion commit before the optional provider-name lookup.
+		if (!providerName) {
+			const resolvedName = await this.providerUsageProviderName(input.settings, input.providerName, input.providerResponseId);
+			if (resolvedName) {
+				this.agentLogStore().assertCanWrite();
+				this.state.storage.sql.exec('UPDATE provider_usage SET provider_name = ? WHERE id = ? AND run_id = ? AND request_seq = ? AND provider_name IS NULL', resolvedName, usageId, input.runId, input.requestSeq);
+			}
+		}
 	}
 
 	private async providerUsageProviderName(
@@ -5281,102 +5318,8 @@ export class BotRuntime {
 		this.setRuntimeState('provider_token_calibration_samples_backfilled', true);
 	}
 
-	private recordInferenceSubmission(input: {
-		seq: number;
-		runId: string;
-		purpose: BotInferenceSubmissionPurpose;
-		settings: LocalizedProviderSettings;
-		messages: ChatMessage[];
-		displayMessages?: ChatMessage[];
-		createdAt: string;
-	}): void {
-		const messages = prepareInferenceSubmissionMessages(input.settings, input.messages).storedMessages;
-		const displayMessages = input.displayMessages ? sanitizeProviderMessagesForRequest(input.displayMessages) : undefined;
-		this.state.storage.sql.exec(
-			`INSERT INTO inference_submissions (
-				id, event_seq, run_id, purpose, model, provider_base_url, message_count, messages_json, display_messages_json, created_at
-			)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-			ON CONFLICT(event_seq) DO UPDATE SET
-				run_id = excluded.run_id,
-				purpose = excluded.purpose,
-				model = excluded.model,
-				provider_base_url = excluded.provider_base_url,
-				message_count = excluded.message_count,
-				messages_json = excluded.messages_json,
-				display_messages_json = excluded.display_messages_json,
-				created_at = excluded.created_at`,
-			crypto.randomUUID(),
-			input.seq,
-			input.runId,
-			input.purpose,
-			input.settings.model,
-			input.settings.baseUrl,
-			messages.length,
-			JSON.stringify(messages),
-			displayMessages ? JSON.stringify(displayMessages) : null,
-			input.createdAt,
-		);
-		this.pruneInferenceSubmissions();
-	}
 
-	private updateInferenceSubmissionDisplayMessages(seq: number, messages: ChatMessage[]): void {
-		const sanitizedMessages = sanitizeProviderMessagesForRequest(messages);
-		this.state.storage.sql.exec(
-			`UPDATE inference_submissions
-			 SET display_messages_json = ?
-			 WHERE event_seq = ?`,
-			JSON.stringify(sanitizedMessages),
-			seq,
-		);
-	}
 
-	private pruneInferenceSubmissions(): void {
-		this.state.storage.sql.exec(
-			`DELETE FROM inference_submissions
-			 WHERE id NOT IN (
-				SELECT id
-				FROM inference_submissions
-				ORDER BY event_seq DESC
-				LIMIT ?
-			 )`,
-			inferenceSubmissionRetentionCount,
-		);
-	}
-
-	private inferenceSubmissionSummaries(): BotInferenceSubmissionSummary[] {
-		return this.state.storage.sql
-			.exec<Omit<InferenceSubmissionRow, 'messages_json' | 'display_messages_json'>>(
-				`SELECT id, event_seq, run_id, purpose, model, provider_base_url, message_count, created_at
-				 FROM inference_submissions
-				 ORDER BY event_seq ASC`,
-			)
-			.toArray()
-			.map(inferenceSubmissionSummaryFromRow);
-	}
-
-	private inferenceSubmissionForSeq(seq: number): BotInferenceSubmission {
-		if (!Number.isInteger(seq) || seq <= 0) {
-			throw new RepositoryError('bad_request', 'Inference submission sequence is invalid.', 400);
-		}
-		const row = this.state.storage.sql
-			.exec<InferenceSubmissionRow>(
-				`SELECT id, event_seq, run_id, purpose, model, provider_base_url, message_count, messages_json, display_messages_json, created_at
-				 FROM inference_submissions
-				 WHERE event_seq = ?
-				 LIMIT 1`,
-				seq,
-			)
-			.toArray()[0];
-		if (!row) {
-			throw new RepositoryError('not_found', 'Inference submission was not found.', 404);
-		}
-		return {
-			...inferenceSubmissionSummaryFromRow(row),
-			messages: inferenceSubmissionMessagesFromRow(row),
-			...inferenceSubmissionDisplayMessagesFromRow(row),
-		};
-	}
 
 	private deleteInferenceSubmissionsForSeq(seq: number): number {
 		this.state.storage.sql.exec(`DELETE FROM inference_submissions WHERE event_seq = ?`, seq);
@@ -5856,10 +5799,9 @@ export class BotRuntime {
 				        u.context_window_tokens, u.prompt_tokens, u.completion_tokens, u.total_tokens,
 				        u.cached_tokens, u.reasoning_tokens, u.cost
 				 FROM provider_usage u
-				 JOIN inference_submissions s
-				   ON s.event_seq = u.request_seq
-				  AND s.run_id = u.run_id
-				 WHERE s.purpose = 'loop'
+				 LEFT JOIN inference_submissions s ON s.event_seq = u.request_seq AND s.run_id = u.run_id
+				 LEFT JOIN inference_requests r ON r.id = (SELECT request_id FROM inference_attempts WHERE event_seq = u.request_seq ORDER BY id DESC LIMIT 1) AND r.run_id = u.run_id
+				 WHERE (s.purpose = 'loop' OR r.purpose = 'loop')
 				   AND u.prompt_tokens > 0
 				 ORDER BY u.request_seq DESC, u.id DESC
 				 LIMIT 1`,
@@ -5879,10 +5821,9 @@ export class BotRuntime {
 				        u.context_window_tokens, u.prompt_tokens, u.completion_tokens, u.total_tokens,
 				        u.cached_tokens, u.reasoning_tokens, u.cost
 				 FROM provider_usage u
-				 JOIN inference_submissions s
-				   ON s.event_seq = u.request_seq
-				  AND s.run_id = u.run_id
-				 WHERE s.purpose = 'loop'
+				 LEFT JOIN inference_submissions s ON s.event_seq = u.request_seq AND s.run_id = u.run_id
+				 LEFT JOIN inference_requests r ON r.id = (SELECT request_id FROM inference_attempts WHERE event_seq = u.request_seq ORDER BY id DESC LIMIT 1) AND r.run_id = u.run_id
+				 WHERE (s.purpose = 'loop' OR r.purpose = 'loop')
 				   AND u.prompt_tokens > 0
 				   ${seqFilter}
 				 ORDER BY u.request_seq ASC, u.id ASC
@@ -5933,6 +5874,8 @@ export class BotRuntime {
 	private broadcastProviderDelta(runId: string, streamSeq: number, payload: Record<string, unknown>): void {
 		assertExecutionPublication();
 		this.liveness.stream(runId);
+		const requestId = this.agentLogStore().partial(runId, streamSeq, payload);
+		const stream = this.agentLogStore().streamState(runId, streamSeq);
 		const latestSeq = this.latestEventSeq();
 		this.ephemeralStreamSeq = (this.ephemeralStreamSeq % 100_000) + 1;
 		const event: BotRuntimeEvent = {
@@ -5942,6 +5885,9 @@ export class BotRuntime {
 			payload: {
 				...payload,
 				streamSeq,
+				requestId,
+				deltaRevision: stream.kind === 'stream' ? stream.revision : undefined,
+				attemptId: stream.kind === 'stream' ? stream.attemptId : undefined,
 				ephemeral: true,
 			},
 			tokenEstimate: 0,
@@ -6399,7 +6345,7 @@ export class BotRuntime {
 		}
 		const recurringPrompt = effectiveLoopRecurringPrompt(bot);
 		if (setupMode === 'new_iteration' && recurringPrompt) {
-			prepared.push({ runId, message: { role: 'assistant', content: recurringPrompt }, origin: 'synthetic_context' });
+			prepared.push({ runId, message: { role: 'assistant', content: recurringPrompt }, origin: 'synthetic_context', options: { source: 'recurring_prompt' } });
 		}
 		const pendingInjections = options.pendingInjections ?? [];
 		const views = prepared.flatMap(entry => { const view = toolResultViewForMessage(entry.message); return view ? [view] : []; });
@@ -6537,7 +6483,7 @@ export class BotRuntime {
 		}
 		const focusContent = spotlightFocusAssistantContent(bot.text, contexts);
 		if (focusContent) {
-			const entries: LoopMessageGroupEntry[] = [{ runId, message: { role: 'assistant', content: focusContent }, origin: 'synthetic_context' }];
+			const entries: LoopMessageGroupEntry[] = [{ runId, message: { role: 'assistant', content: focusContent }, origin: 'synthetic_context', options: { source: 'spotlight_focus' } }];
 			if (collect) collect(entries);
 			else {
 				const context = await buildResultRenderContext(this.env.BICKR_D1, bot, []);
@@ -6566,6 +6512,7 @@ export class BotRuntime {
 				message: syntheticToolCallMessage(text, toolCall, index === 0 ? firstAssistantContent : null),
 				origin,
 				status,
+				options: origin === 'synthetic_context' ? { source: 'synthetic_tool_call' } : {},
 			});
 			const result = results[index];
 			if (result) {
@@ -6574,6 +6521,7 @@ export class BotRuntime {
 					message: result,
 					origin,
 					status,
+					options: origin === 'synthetic_context' ? { source: 'synthetic_tool_call' } : {},
 				});
 			}
 		}
@@ -6748,10 +6696,9 @@ export class BotRuntime {
 			.exec<{ tokens: number }>(
 				`SELECT COALESCE(SUM(u.completion_tokens), 0) AS tokens
 				 FROM provider_usage u
-				 JOIN inference_submissions s
-				   ON s.event_seq = u.request_seq
-				  AND s.run_id = u.run_id
-				 WHERE s.purpose = 'loop'
+				 LEFT JOIN inference_submissions s ON s.event_seq = u.request_seq AND s.run_id = u.run_id
+				 LEFT JOIN inference_requests r ON r.id = (SELECT request_id FROM inference_attempts WHERE event_seq = u.request_seq ORDER BY id DESC LIMIT 1) AND r.run_id = u.run_id
+				 WHERE (s.purpose = 'loop' OR r.purpose = 'loop')
 				   AND u.request_seq > ?`,
 				lastLogOffSeq,
 			)
@@ -6820,6 +6767,8 @@ export class BotRuntime {
 	}
 
 	private pruneRuntimeStorageAfterTick(activeRunId: string, now = new Date()): RuntimeStorageRetentionResult {
+		this.migrateAgentLog();
+		this.agentLogStore().prune(this.runtimeMessageStore(), now);
 		const { events, providerUsage } = this.pruneExpiredEventsAndProviderUsage(activeRunId, now);
 
 		// Loop history is the object's largest store, so its retention rides the
@@ -6900,6 +6849,8 @@ export class BotRuntime {
 		// A run in flight keeps its own rows exempt exactly as the post-visit pass
 		// does. With no run there is nothing to exempt, and the empty string cannot
 		// collide: every run id is a generated non-empty value.
+		this.migrateAgentLog();
+		this.agentLogStore().prune(this.runtimeMessageStore(), now);
 		const { events, providerUsage } = this.pruneExpiredEventsAndProviderUsage(activeRunId ?? '', now);
 		const injections = this.spotlightTickQueue().pruneExpiredInjections({ now });
 		// Where the last budget-truncated pass stopped, if there was one. Read before
@@ -7303,6 +7254,19 @@ export class BotRuntime {
 		settings: LocalizedProviderSettings,
 		requestMessages: ChatMessage[],
 	): { messages: ChatMessage[]; promptTokens: number } | null {
+		const retained = this.state.storage.sql.exec<{ id: number; prompt_tokens: number }>(
+			`SELECT a.id, u.prompt_tokens FROM inference_attempts a
+			 JOIN inference_requests r ON r.id = a.request_id
+			 JOIN provider_usage u ON u.request_seq = a.event_seq AND u.run_id = r.run_id
+			 WHERE r.purpose = 'loop' AND u.requested_model = ? AND u.provider_base_url = ? AND u.prompt_tokens > 0
+			 ORDER BY a.id DESC LIMIT 20`, settings.model, settings.baseUrl,
+		).toArray();
+		for (const row of retained) {
+			const body = this.agentLogStore().body(row.id);
+			if (!body) continue;
+			const messages = parseChatMessagesJson(JSON.stringify(runtimeRecord(JSON.parse(body)).messages));
+			if (messages && chatMessagesArePrefix(messages, requestMessages)) return { messages, promptTokens: row.prompt_tokens };
+		}
 		const rows = this.state.storage.sql
 			.exec<PromptTokenBaselineRow>(
 				`SELECT s.event_seq, s.run_id, s.purpose, s.messages_json, s.model, s.provider_base_url, u.prompt_tokens
@@ -7457,7 +7421,7 @@ export class BotRuntime {
 			const rateLimit = legacyHistoryRateLimit(error);
 			if (rateLimit) return { kind: 'deferred', reason: 'rate_limit', ...rateLimit, before, remaining: this.legacyToolRowCount(), ...cost };
 			const cause = runtimeErrorCause(error);
-			return { kind: 'failed', errorKind: typeof cause === 'string' ? error instanceof RepositoryError ? error.code : 'runtime_error' : cause.kind,
+			return { kind: 'failed', error: agentLogFailure(error), errorKind: typeof cause === 'string' ? error instanceof RepositoryError ? error.code : 'runtime_error' : cause.kind,
 				before, remaining: this.legacyToolRowCount(), ...cost };
 		} finally {
 			this.finishMaintenanceOperation('manual_compaction');
@@ -7498,6 +7462,22 @@ export class BotRuntime {
 		mode: 'auto' | 'manual',
 		metrics: CompactionMetrics,
 		legacyCost?: LegacyHistoryCost,
+	): Promise<void> {
+		const sessionId = this.agentLogStore().startSession(runId, { kind: legacyCost ? 'legacy_forced' : mode === 'manual' ? 'manual' : 'visit' });
+		return compactionSessionScope.run({ id: sessionId }, async () => {
+			try {
+				await this.compactLoopMessageBatchesForSession(context, bot, settings, runId, signal, rows, mode, metrics, legacyCost);
+				const summary = this.state.storage.sql.exec<{ seq: number }>("SELECT seq FROM loop_messages WHERE session_id = ? AND origin = 'compaction' ORDER BY seq DESC LIMIT 1", sessionId).toArray()[0];
+				if (summary) this.agentLogStore().settleSession(sessionId, { kind: 'succeeded', summarySeq: summary.seq });
+			} catch (error) {
+				this.agentLogStore().settleSession(sessionId, { kind: 'failed', error: agentLogFailure(error) });
+				throw error;
+			}
+		});
+	}
+
+	private async compactLoopMessageBatchesForSession(
+		context: ResultRenderContext, bot: RuntimeBotDocument, settings: LocalizedProviderSettings, runId: string, signal: AbortSignal, rows: LoopMessageRow[], mode: 'auto' | 'manual', metrics: CompactionMetrics, legacyCost?: LegacyHistoryCost,
 	): Promise<void> {
 		let remaining = rows;
 		let batchIndex = 0;
@@ -7551,7 +7531,8 @@ export class BotRuntime {
 				...(selection.overBudgetFallback ? { compactionOverBudgetFallback: true } : {}),
 			}, legacyCost);
 			const selectedSeqs = new Set((compactedRows.length > 0 ? compactedRows : selected).map((row) => row.seq));
-			remaining = remaining.filter((row) => !selectedSeqs.has(row.seq));
+			// A committed batch can hydrate tool results in the remaining rows.
+			remaining = remaining.filter((row) => !selectedSeqs.has(row.seq)).map(row => this.runtimeMessageStore().loopMessageRow(row.seq) ?? row);
 			batchIndex += 1;
 		}
 	}
@@ -7580,7 +7561,29 @@ export class BotRuntime {
 		metrics: CompactionMetrics,
 		legacyCost?: LegacyHistoryCost,
 	): Promise<LoopMessageRow[]> {
+		if (compactionSessionScope.getStore()) return this.compactLoopMessageRowsForSession(context, bot, settings, runId, signal, compacted, mode, metrics, legacyCost);
+		const store = this.agentLogStore();
+		const trigger: AgentLogCompactionTrigger = { kind: legacyCost ? 'legacy_forced' : mode === 'manual' ? 'manual' : metrics.allowedPromptTokens !== undefined ? 'admission' : 'visit' };
+		const sessionId = store.startSession(runId, trigger);
+		return compactionSessionScope.run({ id: sessionId }, async () => {
+			try {
+				const result = await this.compactLoopMessageRowsForSession(context, bot, settings, runId, signal, compacted, mode, metrics, legacyCost);
+				const summary = this.state.storage.sql.exec<{ seq: number }>("SELECT seq FROM loop_messages WHERE session_id = ? AND origin = 'compaction' ORDER BY seq DESC LIMIT 1", sessionId).toArray()[0];
+				if (summary) store.settleSession(sessionId, { kind: 'succeeded', summarySeq: summary.seq });
+				else store.settleSession(sessionId, { kind: 'failed', error: { kind: 'provider_error', status: null, errorType: null, message: 'Compaction produced no summary.' } });
+				return result;
+			} catch (error) {
+				store.settleSession(sessionId, { kind: 'failed', error: agentLogFailure(error) });
+				throw error;
+			}
+		});
+	}
+
+	private async compactLoopMessageRowsForSession(
+		context: ResultRenderContext, bot: RuntimeBotDocument, settings: LocalizedProviderSettings, runId: string, signal: AbortSignal, compacted: LoopMessageRow[], mode: 'auto' | 'manual', metrics: CompactionMetrics, legacyCost?: LegacyHistoryCost,
+	): Promise<LoopMessageRow[]> {
 		await this.renewProgressLease(bot.id, runId, signal);
+		const session = compactionSessionScope.getStore();
 		let providerRows = compacted.filter((row) => loopMessageContributesToCompactionProviderInput(row));
 		if (providerRows.length === 0) {
 			return [];
@@ -7588,7 +7591,7 @@ export class BotRuntime {
 		const providerTools = providerToolsForBotRound(bot, settings).tools;
 		const providerActive = Boolean(settings.apiKey || settings.usesCustomBaseUrl || this.env.BICKR_SIMULATION_MODE === 'provider');
 		let response:
-			| (Pick<ProviderResponse, 'usage' | 'responseId' | 'responseModel' | 'responseProviderName' | 'requestBody' | 'rawResponse' | 'inferenceAttribution'> & {
+			| (Pick<ProviderResponse, 'usage' | 'responseId' | 'responseModel' | 'responseProviderName' | 'requestBody' | 'rawResponse' | 'inferenceAttribution' | 'inferenceAttemptId'> & {
 					compactionReasoning: CompactionAttemptReasoningState;
 					content: string;
 			  })
@@ -7681,16 +7684,7 @@ export class BotRuntime {
 					status: 'pending',
 				});
 			}
-			if (providerActive) {
-				this.recordInferenceSubmission({
-					seq: summaryEvent.seq,
-					runId,
-					purpose: 'compaction',
-					settings,
-					messages: compactionMessages,
-					createdAt: summaryEvent.createdAt,
-				});
-			}
+
 			try {
 				response = providerActive
 					? await this.callProviderForCompaction(
@@ -7738,25 +7732,11 @@ export class BotRuntime {
 		}
 		const summary = response.content ? storedCompactionSummary(response.content) : deterministicCompactionSummary('', recentActivity);
 		const summaryPosition = providerRows[providerRows.length - 1]?.position ?? this.nextLoopMessagePosition();
-		if (response.usage) {
-			await this.recordProviderUsage({
-				contextWindowTokens: effectiveContextWindowTokensForModel(
-					settings,
-					effectiveTickSettings(bot.tickSettings).contextWindowTokens,
-				),
-				createdAt: summaryEvent.createdAt,
-				providerName: response.responseProviderName,
-				providerResponseId: response.responseId,
-				requestSeq: summaryEvent.seq,
-				responseModel: response.responseModel,
-				runId,
-				settings,
-				usage: response.usage,
-			});
-		}
 		await this.renewProgressLease(bot.id, runId, signal);
 		let summaryMessage!: BotLoopMessage;
-		this.runStorageTransactionSync(() => {
+		const commit = () => {
+			if (ledgerRows[0]) this.agentLogStore().anchorUnattachedNotices(ledgerRows[0].seq, summaryPosition, summaryEvent.createdAt);
+			if (session) this.state.storage.sql.exec("UPDATE compaction_sessions SET anchor_seq = ? WHERE id = ? AND NOT EXISTS (SELECT 1 FROM loop_messages WHERE session_id = ? AND origin = 'compaction')", ledgerRows.at(-1)?.seq ?? null, session.id, session.id);
 			summaryMessage = this.insertLoopMessage(context, {
 				runId,
 				message: { role: 'assistant', content: summary },
@@ -7766,6 +7746,7 @@ export class BotRuntime {
 				streamSeq: summaryEvent.seq,
 				broadcast: false,
 			});
+			if (session) this.state.storage.sql.exec('UPDATE loop_messages SET session_id = ? WHERE seq = ?', session.id, summaryMessage.seq);
 			for (const row of ledgerRows) {
 				this.state.storage.sql.exec(
 					`UPDATE loop_messages
@@ -7778,9 +7759,6 @@ export class BotRuntime {
 			}
 			this.recordLoopMessageLog(summaryMessage.seq, 'message', JSON.stringify(summaryMessage.message));
 			if (response.inferenceAttribution) this.recordLoopMessageLog(summaryMessage.seq, 'inference_attribution', JSON.stringify(response.inferenceAttribution));
-			if (response.requestBody) {
-				this.recordLoopMessageLog(summaryMessage.seq, 'compaction_request', response.requestBody);
-			}
 			if (response.rawResponse) {
 				this.recordLoopMessageLog(summaryMessage.seq, 'compaction_response', response.rawResponse);
 			}
@@ -7792,12 +7770,6 @@ export class BotRuntime {
 				summary,
 				summaryMessageSeq: summaryMessage.seq,
 			});
-			if (providerActive) {
-				this.updateInferenceSubmissionDisplayMessages(summaryEvent.seq, [
-					{ role: 'user', content: 'The Bickr app condenses older memory notes.' },
-					{ role: 'assistant', content: summary },
-				]);
-			}
 			this.hydrateResultViewsAfterCompaction(context, compactedFacets);
 			this.repairDanglingCommentReferencesAfterCompaction(
 				summaryMessage.seq,
@@ -7805,7 +7777,8 @@ export class BotRuntime {
 				summaryMessage.message,
 				compactedCommentBodies,
 			);
-		});
+		};
+		this.runStorageTransactionSync(commit);
 		this.broadcastControl({ type: 'loop_messages_reset' });
 		return providerRows;
 	}
@@ -8075,6 +8048,7 @@ export class BotRuntime {
 		try {
 			await boundedCleanup('Follower activity acknowledgement', () => new RuntimeFollowerActivityDelivery(this.state.storage).acknowledge(this.env.BICKR_D1));
 			const submissions = this.clearInferenceSubmissions();
+			this.agentLogStore().clear();
 			this.state.storage.sql.exec(`DELETE FROM loop_message_log_chunks`);
 			this.state.storage.sql.exec(`DELETE FROM loop_message_logs`);
 			const logs = this.state.storage.sql.exec<{ count: number }>(`SELECT changes() AS count`).one().count;
@@ -8096,7 +8070,7 @@ export class BotRuntime {
 	private async deleteLoopMessage(
 		botId: string,
 		seq: number,
-	): Promise<{ seq: number; runId: string; origin: BotLoopMessageOrigin; deletedAt: string }> {
+	): Promise<{ seq: number; runId: string; origin: BotLoopMessageOrigin; deletedAt: string; changedContext: boolean }> {
 		if (!Number.isInteger(seq) || seq <= 0) {
 			throw new RepositoryError('bad_request', 'Loop message sequence is invalid.', 400);
 		}
@@ -8115,7 +8089,7 @@ export class BotRuntime {
 		}
 		const { deletedAt } = deleted;
 		this.broadcastControl({ type: 'loop_message_deleted', seq, deletedAt });
-		return { seq, runId: row.run_id, origin: row.origin, deletedAt };
+		return { seq, runId: deleted.row.run_id, origin: deleted.row.origin, deletedAt, changedContext: deleted.row.deleted_at === null && deleted.row.compacted_by === null && loopMessageContributesToProviderHistory(deleted.row.origin, loopMessageStructureFromRow(deleted.row)) };
 	}
 
 	private async deleteEvent(botId: string, seq: number): Promise<{ seq: number; runId: string; type: BotRuntimeEventType }> {
@@ -10384,32 +10358,6 @@ function loopMessageContextLine(text: BotText, message: ChatMessage): string {
 		return message.tool_call_id ? text.format('compaction.history.toolResult', { callId: message.tool_call_id, content: markdownQuoteForContext(content, 1_500) }) : text.format('compaction.history.toolResultUnnamed', { content: markdownQuoteForContext(content, 1_500) });
 	}
 	return text.format('compaction.history.other', { role: message.role, content: markdownQuoteForContext(content, 1_000) });
-}
-
-function inferenceSubmissionSummaryFromRow(row: Omit<InferenceSubmissionRow, 'messages_json' | 'display_messages_json'>): BotInferenceSubmissionSummary {
-	return {
-		submissionId: row.id,
-		seq: row.event_seq,
-		runId: row.run_id,
-		purpose: row.purpose === 'compaction' ? 'compaction' : 'loop',
-		model: row.model,
-		providerBaseUrl: row.provider_base_url,
-		messageCount: row.message_count,
-		createdAt: row.created_at,
-	};
-}
-
-function inferenceSubmissionMessagesFromRow(row: InferenceSubmissionRow): BotInferenceSubmissionMessage[] {
-	const parsed = JSON.parse(row.messages_json) as unknown;
-	return Array.isArray(parsed) ? (parsed as BotInferenceSubmissionMessage[]) : [];
-}
-
-function inferenceSubmissionDisplayMessagesFromRow(row: InferenceSubmissionRow): Pick<BotInferenceSubmission, 'displayMessages'> | {} {
-	if (!row.display_messages_json) {
-		return {};
-	}
-	const parsed = JSON.parse(row.display_messages_json) as unknown;
-	return Array.isArray(parsed) ? { displayMessages: parsed as BotInferenceSubmissionMessage[] } : {};
 }
 
 function retentionPruneChangeCount(pruned: RuntimeStorageRetentionResult): number {

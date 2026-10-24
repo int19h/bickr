@@ -213,7 +213,7 @@ export type LoopMessageGroupEntry = {
 	message: ChatMessage;
 	origin: BotLoopMessageOrigin;
 	status?: BotLoopMessageStatus;
-	options?: { streamSeq?: number; displayEventSeq?: number };
+	options?: { streamSeq?: number; requestId?: string; displayEventSeq?: number; source?: import('@bickr/shared/model').AgentLogSource };
 	extraLogs?: LoopMessageAppendLog[];
 };
 
@@ -303,6 +303,7 @@ export type ProviderUsage = {
 };
 
 export type ProviderResponse = {
+	inferenceAttemptId?: number;
 	inferenceAttribution?: import('@bickr/shared/model').InferenceAttribution;
 	content: string;
 	reasoning: string;

@@ -1,3 +1,5 @@
+import { providerChatCompletionRequest } from "../workers/agent-runtime/src/runtime/bot-runtime";
+import { AgentLogStore } from "../workers/agent-runtime/src/runtime/agent-log-store";
 import { testResultContext } from '../workers/agent-runtime/src/runtime/result-render-context.test-support';
 import { runInDurableObject } from 'cloudflare:test';
 import { describe, expect, it, vi, testEnv, fakeBotDocument } from './helpers/index-harness';
@@ -74,7 +76,9 @@ describe('token estimates in a constructed SQLite Durable Object', () => {
 			const uncalibrated = runtime.estimateProviderPromptTokens(settings, compacted, []);
 			expect(uncalibrated.calibrationSampleCount).toBe(0);
 			expect(uncalibrated.promptTokens).toBeLessThan(12_000);
-			runtime.recordInferenceSubmission({ seq: 1, runId: 'measured', purpose: 'loop', settings, messages: original, createdAt });
+			const log = new AgentLogStore(state.storage);
+			const requestId = log.begin({ eventSeq: 1, runId: 'measured', purpose: 'loop', createdAt });
+			log.startAttempt(requestId, JSON.stringify(providerChatCompletionRequest(settings, original, [])));
 			runtime.recordProviderTokenCalibrationSample({ attempt: 1, createdAt, purpose: 'loop', request: { messages: original, tools: [] }, requestSeq: 1,
 				runId: 'measured', settings, usage: { promptTokens: 12_123, completionTokens: 1, totalTokens: 12_124 } });
 			state.storage.sql.exec(`INSERT INTO provider_usage (run_id, request_seq, requested_model, model, context_window_tokens, provider_base_url,

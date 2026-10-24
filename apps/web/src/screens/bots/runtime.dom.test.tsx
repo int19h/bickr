@@ -1,4 +1,4 @@
-import type { BotLoopMessage, BotLoopMessagePage, BotRuntimeEvent, BotSummary } from '@bickr/shared/model';
+import type { AgentLogEntry, BotLoopMessage, BotLoopMessagePage, BotRuntimeEvent, BotSummary } from '@bickr/shared/model';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -7,7 +7,7 @@ import * as runtimeUtils from './runtime-utils';
 
 type PendingMessages = {
 	path: string;
-	resolve: (response: { messages: BotLoopMessage[]; page: BotLoopMessagePage }) => void;
+	resolve: (response: { messages: BotLoopMessage[]; entries: AgentLogEntry[]; page: BotLoopMessagePage }) => void;
 };
 
 type PendingEvents = {
@@ -114,9 +114,9 @@ beforeEach(async () => {
 		}
 		if (path.includes('/runtime/messages')) {
 			return new Promise<Response>((resolve) => {
-				pendingMessages.push({ path, resolve: ({ messages, page }) => resolve(json({
+				pendingMessages.push({ path, resolve: ({ messages, entries, page }) => resolve(json({
 					ok: true,
-					data: { messages, page },
+					data: { messages, entries, page },
 				})) });
 			});
 		}
@@ -332,7 +332,7 @@ describe('runtime monitor authoritative reconciliation', () => {
 						seq: 30 + index / 1000,
 						runId: 'run-live',
 						type: 'provider_delta',
-						payload: { kind: 'content', text: '.', streamSeq: 7 },
+						payload: { requestId: 'live-request', kind: 'content', text: '.', streamSeq: 7 },
 						tokenEstimate: 0,
 						createdAt: '2026-08-23T00:00:01.000Z',
 					},
@@ -449,10 +449,164 @@ describe('runtime monitor authoritative reconciliation', () => {
 	});
 });
 
+function liveEntry(id: string, content: string, deltaRevision = 0, attemptId?: number): Extract<AgentLogEntry, { kind: 'live' }> {
+	return { kind: 'live', requestId: id, runId: `run-${id}`, position: 1, attempts: { count: 1, failures: [] }, partialResponse: JSON.stringify({ content, reasoning: '' }), response: null, deltaRevision, attemptId };
+}
+
+function streamDelta(socket: MonitorSocket, id: string, text: string, deltaRevision: number, attemptId?: number): void {
+	socket.emit({ type: 'stream_delta', event: { seq: 1 + deltaRevision / 1000, runId: `run-${id}`, type: 'provider_delta', payload: { requestId: id, kind: 'content', text, deltaRevision, attemptId, streamSeq: 1 }, tokenEstimate: 0, createdAt: '2026-08-23T00:00:01.000Z' } });
+}
+
+async function refreshLog(): Promise<void> {
+	const button = Array.from(container.querySelectorAll('button')).find(item => item.textContent?.trim() === 'Refresh log');
+	await act(async () => button?.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+}
+
+it('removes stale live entries and keeps only stream updates after the snapshot starts', async () => {
+	await act(async () => pendingMessages[0]?.resolve({ messages: [], entries: [liveEntry('old', 'Stale snapshot response')], page: page(1, {}, [{ page: 1, messageCount: 0 }]) }));
+	const socket = MonitorSocket.instances[0]!;
+	await act(async () => socket.open());
+	await answerMessages(1, []);
+	expect(container.textContent).not.toContain('Stale snapshot response');
+	await act(async () => streamDelta(socket, 'old', 'Stale stream response', 1));
+	await refreshLog();
+	await act(async () => streamDelta(socket, 'new', 'Fresh stream response', 1));
+	await answerMessages(2, [loopMessage(10, 'New page summary')], page(1, { 10: 2 }, [{ page: 1, messageCount: 1 }, { page: 2, sourceCompactionSeq: 10, messageCount: 1 }]));
+	expect(container.textContent).not.toContain('Stale stream response');
+	expect(container.textContent).toContain('Fresh stream response');
+});
+
+it('merges missed snapshot text and skips deltas that the snapshot already contains', async () => {
+	await act(async () => pendingMessages[0]?.resolve({ messages: [], entries: [liveEntry('same', 'A', 1)], page: page(1, {}, [{ page: 1, messageCount: 0 }]) }));
+	const socket = MonitorSocket.instances[0]!;
+	await refreshLog();
+	await act(async () => streamDelta(socket, 'same', 'C', 3));
+	await act(async () => pendingMessages[1]?.resolve({ messages: [], entries: [liveEntry('same', 'AB', 2)], page: page(1, {}, [{ page: 1, messageCount: 0 }]) }));
+	expect(container.textContent).toContain('ABC');
+	await refreshLog();
+	await act(async () => streamDelta(socket, 'same', 'D', 4));
+	await act(async () => pendingMessages[2]?.resolve({ messages: [], entries: [liveEntry('same', 'ABCD', 4)], page: page(1, {}, [{ page: 1, messageCount: 0 }]) }));
+	expect(container.textContent).toContain('ABCD');
+	expect(container.textContent).not.toContain('ABCDD');
+});
+
+it('ignores delayed deltas at or below the revision in a snapshot', async () => {
+	await act(async () => pendingMessages[0]?.resolve({ messages: [], entries: [liveEntry('delayed', 'AB', 2, 2)], page: page(1, {}, [{ page: 1, messageCount: 0 }]) }));
+	const socket = MonitorSocket.instances[0]!;
+	await act(async () => streamDelta(socket, 'delayed', 'B', 2, 2));
+	await act(async () => streamDelta(socket, 'delayed', 'A', 1, 2));
+	await act(async () => streamDelta(socket, 'delayed', 'Old attempt', 9, 1));
+	expect(container.textContent).toContain('AB');
+	expect(container.textContent).not.toContain('ABB');
+	expect(container.textContent).not.toContain('ABA');
+	expect(container.textContent).not.toContain('Old attempt');
+	await act(async () => streamDelta(socket, 'delayed', 'C', 3, 2));
+	expect(container.textContent).toContain('ABC');
+	expect(container.textContent).not.toContain('ABCC');
+});
+
+it('keeps a completed response when a delayed delta from the same attempt arrives', async () => {
+	const entry: AgentLogEntry = { ...liveEntry('completed', 'AB', 2, 2), response: '{"content":"Completed response"}' };
+	await act(async () => pendingMessages[0]?.resolve({ messages: [], entries: [entry], page: page(1, {}, [{ page: 1, messageCount: 0 }]) }));
+	const socket = MonitorSocket.instances[0]!;
+	await act(async () => streamDelta(socket, 'completed', 'B', 2, 2));
+	await act(async () => streamDelta(socket, 'completed', 'C', 3, 2));
+	await act(async () => streamDelta(socket, 'completed', 'Old attempt', 9, 1));
+	expect(container.textContent).toContain('Completed response');
+	expect(container.textContent).not.toContain('ABC');
+	expect(container.textContent).not.toContain('Old attempt');
+	await act(async () => streamDelta(socket, 'completed', 'New attempt', 1, 3));
+	expect(container.textContent).toContain('New attempt');
+	expect(container.textContent).not.toContain('Completed response');
+});
+
+it('ignores a delayed delta after the response has a history row', async () => {
+	const message = loopMessage(3, 'Committed response');
+	const entry: AgentLogEntry = { kind: 'message', position: 1, message, author: { kind: 'model' }, requestId: 'stored', sessionId: null, attempts: { count: 1, failures: [] } };
+	await act(async () => pendingMessages[0]?.resolve({ messages: [message], entries: [entry], page: page(1, {}, [{ page: 1, messageCount: 1 }]) }));
+	await act(async () => streamDelta(MonitorSocket.instances[0]!, 'stored', 'Delayed text', 1, 2));
+	expect(container.textContent).toContain('Committed response');
+	expect(container.textContent).not.toContain('Live request');
+	expect(container.textContent).not.toContain('Delayed text');
+});
+
+it('keeps rejected deltas out of the refresh buffer', async () => {
+	await act(async () => pendingMessages[0]?.resolve({ messages: [], entries: [liveEntry('archived', 'AB', 2, 2)], page: page(1, {}, [{ page: 1, messageCount: 0 }]) }));
+	await refreshLog();
+	await act(async () => streamDelta(MonitorSocket.instances[0]!, 'archived', 'B', 2, 2));
+	await answerMessages(1, [loopMessage(10, 'New page summary')]);
+	expect(container.textContent).toContain('New page summary');
+	expect(container.textContent).not.toContain('Live request');
+});
+
+it('keeps the current attempt when a snapshot contains the previous attempt', async () => {
+	await act(async () => pendingMessages[0]?.resolve({ messages: [], entries: [liveEntry('retry', 'Failed attempt', 8, 1)], page: page(1, {}, [{ page: 1, messageCount: 0 }]) }));
+	const socket = MonitorSocket.instances[0]!;
+	await refreshLog();
+	await act(async () => streamDelta(socket, 'retry', 'New attempt', 1, 2));
+	await act(async () => pendingMessages[1]?.resolve({ messages: [], entries: [liveEntry('retry', 'Failed attempt', 8, 1)], page: page(1, {}, [{ page: 1, messageCount: 0 }]) }));
+	expect(container.textContent).toContain('New attempt');
+	expect(container.textContent).not.toContain('Failed attempt');
+});
+
+it('applies a delta once when it arrives just after the snapshot resolves', async () => {
+	await act(async () => pendingMessages[0]?.resolve({ messages: [], entries: [liveEntry('ordered', 'A', 1)], page: page(1, {}, [{ page: 1, messageCount: 0 }]) }));
+	const socket = MonitorSocket.instances[0]!;
+	await refreshLog();
+	await act(async () => {
+		pendingMessages[1]?.resolve({ messages: [], entries: [liveEntry('ordered', 'AB', 2)], page: page(1, {}, [{ page: 1, messageCount: 0 }]) });
+		await Promise.resolve();
+		await Promise.resolve();
+		streamDelta(socket, 'ordered', 'C', 3);
+	});
+	expect(container.textContent).toContain('ABC');
+	expect(container.textContent).not.toContain('ABCC');
+});
+
+it('removes ended runs even when their last delta arrives after snapshot start', async () => {
+	await act(async () => pendingMessages[0]?.resolve({ messages: [], entries: [liveEntry('ended', 'Old live response', 1)], page: page(1, {}, [{ page: 1, messageCount: 0 }]) }));
+	holdEventSnapshots = true;
+	const socket = MonitorSocket.instances[0]!;
+	await act(async () => socket.open());
+	await act(async () => streamDelta(socket, 'ended', 'Late text', 2));
+	await answerEvents(0, [runtimeEvent(10, 'run-ended', 'tick_completed')]);
+	await act(async () => pendingMessages[1]?.resolve({ messages: [], entries: [liveEntry('ended', 'Old live response', 1)], page: page(1, {}, [{ page: 1, messageCount: 0 }]) }));
+	expect(container.textContent).not.toContain('Live request');
+	await act(async () => streamDelta(socket, 'ended', 'Later stale text', 3));
+	expect(container.textContent).not.toContain('Live request');
+});
+
+it('renders an unknown entry as a plain notice', async () => {
+	await act(async () => pendingMessages[0]?.resolve({ messages: [], entries: [{ kind: 'future_entry' } as unknown as AgentLogEntry], page: page(1, {}, [{ page: 1, messageCount: 0 }]) }));
+	expect(container.textContent).toContain('Unknown log entry.');
+});
+
+it('renders a generic notice for an unknown author without hiding valid messages', async () => {
+	const rows = [loopMessage(1, 'Before the unknown author'), loopMessage(2, 'Hidden unknown content'), loopMessage(3, 'After the unknown author')];
+	const entries: AgentLogEntry[] = rows.map((message, index) => ({ kind: 'message', position: index + 1, message, author: { kind: index === 1 ? 'unknown' : 'model' }, requestId: null, sessionId: null, attempts: null }));
+	await act(async () => pendingMessages[0]?.resolve({ messages: rows, entries, page: page(1, {}, [{ page: 1, messageCount: 3 }]) }));
+	expect(container.textContent).toContain('Before the unknown author');
+	expect(container.textContent).toContain('Unknown message author.');
+	expect(container.textContent).toContain('After the unknown author');
+	expect(container.textContent).not.toContain('Hidden unknown content');
+});
+
+it('shows the full response while a live entry waits for its first tool', async () => {
+	const entry: AgentLogEntry = { kind: 'live', position: 2, requestId: 'waiting-request', runId: 'run', attempts: { count: 1, failures: [] }, partialResponse: null, response: '{"content":"The full response before the tool result"}' };
+	await act(async () => pendingMessages[0]?.resolve({ messages: [], entries: [entry], page: page(1, {}, [{ page: 1, messageCount: 0 }]) }));
+	expect(container.textContent).toContain('The full response before the tool result');
+});
+
+it('names the failed batch count for a partly successful compaction', async () => {
+	const entry: AgentLogEntry = { kind: 'notice', position: 2, notice: { kind: 'compaction_started', sessionId: 'partial-session', outcome: { kind: 'partial', summarySeqs: [3], failedBatchCount: 1, error: { kind: 'timeout' } } } };
+	await act(async () => pendingMessages[0]?.resolve({ messages: [], entries: [entry], page: page(1, {}, [{ page: 1, messageCount: 0 }]) }));
+	expect(container.textContent).toContain('Compaction: partial (1 batch failed)');
+});
+
 async function answerMessages(index: number, messages: BotLoopMessage[], responsePage = page(1, {}, [
 	{ page: 1, messageCount: messages.length },
 ])): Promise<void> {
-	await act(async () => pendingMessages[index]?.resolve({ messages, page: responsePage }));
+	await act(async () => pendingMessages[index]?.resolve({ messages, entries: messages.map(message => ({ kind: 'message' as const, position: message.position ?? message.seq, message, author: { kind: 'model' as const }, requestId: null, sessionId: null, attempts: null })), page: responsePage }));
 }
 
 async function answerEvents(index: number, events: BotRuntimeEvent[]): Promise<void> {
