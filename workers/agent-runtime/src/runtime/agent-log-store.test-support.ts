@@ -25,3 +25,9 @@ export function agentLogStoreStub(this: { state?: { storage?: RuntimeStorage } }
 export function protocolStorageTransaction<T>(this: { state?: { storage?: RuntimeStorage } }, operation: () => T): T {
 	return this.state?.storage?.transactionSync ? this.state.storage.transactionSync(operation) : operation();
 }
+
+// Protocol tests publish responses without a usage table.
+export function protocolProviderUsage(_input: unknown, publishResponse?: () => void): Promise<void> {
+	publishResponse?.();
+	return Promise.resolve();
+}

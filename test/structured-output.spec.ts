@@ -1,4 +1,4 @@
-import { agentLogStoreStub } from "../workers/agent-runtime/src/runtime/agent-log-store.test-support";
+import { agentLogStoreStub, protocolStorageTransaction, protocolProviderUsage } from "../workers/agent-runtime/src/runtime/agent-log-store.test-support";
 import type { LocalizedProviderSettings } from "../workers/agent-runtime/src/provider-requests";
 import { botText as testBotText } from "../workers/agent-runtime/src/localization";
 const englishInstructions = testBotText("en");
@@ -356,7 +356,7 @@ describe("Structured output", () => {
 			const fetchMock = vi.fn(async () => new Response(responseBody, { status: 400 }));
 			vi.stubGlobal("fetch", fetchMock);
 			try {
-				const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub,
+				const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction, recordProviderUsage: protocolProviderUsage,
 					appendEvent: vi.fn(),
 					throwIfStopped: vi.fn(),
 				});
@@ -407,7 +407,7 @@ describe("Structured output", () => {
 				[compactionReasoningFallbackStateKey, frozenRecord],
 			]);
 			const deleteRuntimeState = vi.fn((key: string) => runtimeState.delete(key));
-			const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub,
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction, recordProviderUsage: protocolProviderUsage,
 				runtimeStateRecord: (key: string) => {
 					const value = runtimeState.get(key);
 					return value && typeof value === "object" && !Array.isArray(value)
@@ -476,7 +476,7 @@ describe("Structured output", () => {
 			);
 			vi.stubGlobal("fetch", fetchMock);
 			try {
-				const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub,
+				const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction, recordProviderUsage: protocolProviderUsage,
 					appendEvent: vi.fn(),
 					deleteRuntimeState: (key: string) => runtimeState.delete(key),
 					runtimeStateRecord: (key: string) => {
@@ -565,7 +565,7 @@ describe("Structured output", () => {
 			vi.stubGlobal("fetch", fetchMock);
 			try {
 				const appendEvent = vi.fn();
-				const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub,
+				const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction, recordProviderUsage: protocolProviderUsage,
 					appendEvent,
 					deleteRuntimeState: (key: string) => runtimeState.delete(key),
 					runtimeStateRecord: (key: string) => {
@@ -668,7 +668,7 @@ describe("Structured output", () => {
 			fetchMock.mockResolvedValueOnce(new Response(unsupportedBody, { status: 400 }));
 			vi.stubGlobal("fetch", fetchMock);
 			try {
-				const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub,
+				const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction, recordProviderUsage: protocolProviderUsage,
 						appendEvent: (_runId: string, type: string, payload: Record<string, unknown>) => {
 							events.push({ type, payload });
 							return {
@@ -810,7 +810,7 @@ describe("Structured output", () => {
 				.mockResolvedValueOnce(new Response(unsupportedBody, { status: 400 }));
 			vi.stubGlobal("fetch", fetchMock);
 			try {
-				const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub,
+				const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction, recordProviderUsage: protocolProviderUsage,
 					appendEvent: (_runId: string, type: string, payload: Record<string, unknown>) => {
 						events.push({ type, payload });
 						return {
@@ -892,7 +892,7 @@ describe("Structured output", () => {
 				.mockResolvedValueOnce(Response.json(validResponse));
 			vi.stubGlobal("fetch", fetchMock);
 			try {
-				const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub,
+				const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction, recordProviderUsage: protocolProviderUsage,
 					appendEvent: (_runId: string, type: string, payload: Record<string, unknown>) => {
 						events.push({ type, payload });
 						return {
@@ -982,7 +982,7 @@ describe("Structured output", () => {
 			);
 			vi.stubGlobal("fetch", fetchMock);
 			try {
-				const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub,
+				const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction, recordProviderUsage: protocolProviderUsage,
 					appendEvent: vi.fn(),
 					throwIfStopped: vi.fn(),
 				});
@@ -1036,7 +1036,7 @@ describe("Structured output", () => {
 				.mockResolvedValueOnce(Response.json(validResponse));
 			vi.stubGlobal("fetch", fetchMock);
 			try {
-				const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub,
+				const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction, recordProviderUsage: protocolProviderUsage,
 					appendEvent: (_runId: string, type: string, payload: Record<string, unknown>) => {
 						events.push({ type, payload });
 						return {
@@ -1098,7 +1098,7 @@ describe("Structured output", () => {
 				}));
 			vi.stubGlobal("fetch", fetchMock);
 			try {
-				const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub,
+				const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction, recordProviderUsage: protocolProviderUsage,
 					appendEvent: vi.fn(),
 					throwIfStopped: vi.fn(),
 				});
@@ -1139,7 +1139,7 @@ describe("Structured output", () => {
 			const responseBody = `data: ${JSON.stringify(emptyChunk)}\n\ndata: [DONE]\n\n`;
 			const fetchProviderResponse = vi.fn(async () => sseStream([emptyChunk, "[DONE]"]));
 			const recordProviderTokenCalibrationSample = vi.fn();
-			const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub,
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction, recordProviderUsage: protocolProviderUsage,
 				broadcastProviderDelta: () => {},
 				fetchProviderResponse,
 				recordProviderTokenCalibrationSample,
@@ -1214,7 +1214,7 @@ describe("Structured output", () => {
 				.mockResolvedValueOnce(Response.json(validResponse));
 			vi.stubGlobal("fetch", fetchMock);
 			try {
-				const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub,
+				const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction, recordProviderUsage: protocolProviderUsage,
 					appendEvent: (_runId: string, type: string, payload: Record<string, unknown>) => {
 						events.push({ type, payload });
 						return {
@@ -1279,7 +1279,7 @@ describe("Structured output", () => {
 			const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => Response.json(validResponse));
 			vi.stubGlobal("fetch", fetchMock);
 			try {
-				const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub,
+				const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction, recordProviderUsage: protocolProviderUsage,
 					appendEvent: vi.fn(),
 					throwIfStopped: vi.fn(),
 				});
@@ -1318,7 +1318,7 @@ describe("Structured output", () => {
 			const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => Response.json(validResponse));
 			vi.stubGlobal("fetch", fetchMock);
 			try {
-				const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub,
+				const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction, recordProviderUsage: protocolProviderUsage,
 					appendEvent: vi.fn(),
 					recordProviderTokenCalibrationSample: vi.fn(),
 					throwIfStopped: vi.fn(),
@@ -1383,7 +1383,7 @@ describe("Structured output", () => {
 				.mockResolvedValueOnce(Response.json(validResponse));
 			vi.stubGlobal("fetch", fetchMock);
 			try {
-				const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub,
+				const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction, recordProviderUsage: protocolProviderUsage,
 					appendEvent: vi.fn(),
 					recordProviderTokenCalibrationSample: vi.fn(),
 					throwIfStopped: vi.fn(),
@@ -1467,7 +1467,7 @@ describe("Structured output", () => {
 			const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(Response.json(invalidResponse)));
 			vi.stubGlobal("fetch", fetchMock);
 			try {
-				const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub,
+				const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction, recordProviderUsage: protocolProviderUsage,
 					appendEvent: vi.fn(),
 					recordProviderTokenCalibrationSampleFromError: vi.fn(),
 					throwIfStopped: vi.fn(),
@@ -1563,7 +1563,7 @@ describe("Structured output", () => {
 			vi.stubGlobal("fetch", fetchMock);
 			try {
 				const recordProviderTokenCalibrationSample = vi.fn();
-				const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub,
+				const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction, recordProviderUsage: protocolProviderUsage,
 					appendEvent: vi.fn(),
 					recordProviderTokenCalibrationSample,
 					throwIfStopped: vi.fn(),
@@ -1626,7 +1626,7 @@ describe("Structured output", () => {
 				.mockResolvedValueOnce(Response.json(validResponse));
 			vi.stubGlobal("fetch", fetchMock);
 			try {
-				const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub,
+				const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction, recordProviderUsage: protocolProviderUsage,
 					appendEvent: vi.fn(),
 					throwIfStopped: vi.fn(),
 				});
@@ -1682,7 +1682,7 @@ describe("Structured output", () => {
 			const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => Response.json(validResponse));
 			vi.stubGlobal("fetch", fetchMock);
 			try {
-				const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub,
+				const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction, recordProviderUsage: protocolProviderUsage,
 					appendEvent: vi.fn(),
 					throwIfStopped: vi.fn(),
 				});
@@ -1740,7 +1740,7 @@ describe("Structured output", () => {
 				.mockResolvedValueOnce(Response.json(validResponse));
 			vi.stubGlobal("fetch", fetchMock);
 			try {
-				const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub,
+				const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction, recordProviderUsage: protocolProviderUsage,
 					appendEvent: vi.fn(),
 					throwIfStopped: vi.fn(),
 				});
@@ -1812,7 +1812,7 @@ describe("Structured output", () => {
 			vi.stubGlobal("fetch", fetchMock);
 			try {
 				const recordProviderTokenCalibrationSample = vi.fn();
-				const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub,
+				const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction, recordProviderUsage: protocolProviderUsage,
 					appendEvent: vi.fn(),
 					recordProviderTokenCalibrationSample,
 					throwIfStopped: vi.fn(),
@@ -1907,7 +1907,7 @@ describe("Structured output", () => {
 				.mockResolvedValueOnce(Response.json(validResponse));
 			vi.stubGlobal("fetch", fetchMock);
 			try {
-				const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub,
+				const runtime = Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction, recordProviderUsage: protocolProviderUsage,
 					appendEvent: vi.fn(),
 					throwIfStopped: vi.fn(),
 				});
