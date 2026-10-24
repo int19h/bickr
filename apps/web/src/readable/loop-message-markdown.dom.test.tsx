@@ -5,7 +5,8 @@ import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { describe, expect, it } from 'vitest';
 import { type BotLoopMessage } from '@bickr/shared/model';
-import { LoopMessageRow, RawInferenceSubmissionMessageView } from '../screens/bots/loop-messages';
+import { RawInferenceSubmissionMessageView } from '../screens/bots/loop-log-formatting';
+import { AgentLogView } from '../screens/bots/agent-log-view';
 import { LoopMessageReadableView } from './loop-message-readable';
 
 const note = '## Note `PLAN`\n\n- keep PLAN up-to-date';
@@ -24,7 +25,7 @@ function render(element: React.ReactNode) {
 
 describe('Loop Markdown', () => {
 	it('renders a synthetic note as a heading and a list in its Loop row', () => {
-		const view = render(<LoopMessageRow message={row} deleting={false} loadingLogs={false} onDelete={() => {}} onViewLogs={() => {}} toolCallsById={new Map()} />);
+		const view = render(<AgentLogView entries={[{ kind: "message", position: 1, message: row, author: { kind: "tool_result", synthetic: true }, requestId: null, sessionId: null, attempts: null }]} page={null} participantName="Reader" onDelete={() => {}} onLogs={() => {}} onRequest={() => {}} onSession={() => {}} onPage={() => {}} />);
 		try {
 			expect(view.container.querySelector('h3')?.textContent).toBe('Note PLAN');
 			expect(view.container.querySelector('li')?.textContent).toBe('keep PLAN up-to-date');
@@ -88,7 +89,7 @@ describe('Loop Markdown', () => {
 			...row, contentFormat: 'json', display: fixture.display,
 			message: { role: 'tool', tool_call_id: 'old', content: JSON.stringify(fixture.display.result) },
 		};
-		const view = render(<LoopMessageRow message={legacy} deleting={false} loadingLogs={false} onDelete={() => {}} onViewLogs={() => {}} toolCallsById={new Map()} />);
+		const view = render(<AgentLogView entries={[{ kind: "message", position: 1, message: legacy, author: { kind: "tool_result", synthetic: true }, requestId: null, sessionId: null, attempts: null }]} page={null} participantName="Reader" onDelete={() => {}} onLogs={() => {}} onRequest={() => {}} onSession={() => {}} onPage={() => {}} />);
 		try {
 			expect(view.container.querySelector('.readable-thread-card')).not.toBeNull();
 			expect(view.container.textContent).toContain('Full event data');

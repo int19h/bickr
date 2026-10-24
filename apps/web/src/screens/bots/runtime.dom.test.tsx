@@ -3,6 +3,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BotRuntimePanel } from './runtime';
+import { requestFixture } from './agent-log.fixtures';
 import * as runtimeUtils from './runtime-utils';
 
 type PendingMessages = {
@@ -76,6 +77,7 @@ let pendingMessages: PendingMessages[];
 let pendingEvents: PendingEvents[];
 let holdEventSnapshots: boolean;
 let pendingInference: Array<{ path: string; resolve: (response: Response) => void }>;
+let pendingRequests: Array<{ path: string; resolve: (response: Response) => void }>;
 let pendingLogs: Array<{ path: string; resolve: (response: Response) => void }>;
 
 beforeEach(async () => {
@@ -85,6 +87,7 @@ beforeEach(async () => {
 	holdEventSnapshots = false;
 	pendingInference = [];
 	pendingLogs = [];
+	pendingRequests = [];
 	MonitorSocket.instances = [];
 	vi.stubGlobal('WebSocket', MonitorSocket);
 	vi.stubGlobal('fetch', (input: RequestInfo | URL) => {
@@ -105,6 +108,9 @@ beforeEach(async () => {
 		}
 		if (path.endsWith('/runtime/token-usage')) {
 			return Promise.resolve(json({ ok: false, error: 'unavailable', message: 'usage unavailable' }, 503));
+		}
+		if (path.includes('/runtime/requests/')) {
+			return new Promise<Response>(resolve => pendingRequests.push({ path, resolve }));
 		}
 		if (path.includes('/runtime/inference-logs')) {
 			return new Promise<Response>(resolve => pendingInference.push({ path, resolve }));
@@ -581,14 +587,14 @@ it('renders an unknown entry as a plain notice', async () => {
 	expect(container.textContent).toContain('Unknown log entry.');
 });
 
-it('renders a generic notice for an unknown author without hiding valid messages', async () => {
+it('keeps content from an unknown author visible with its source chip', async () => {
 	const rows = [loopMessage(1, 'Before the unknown author'), loopMessage(2, 'Hidden unknown content'), loopMessage(3, 'After the unknown author')];
 	const entries: AgentLogEntry[] = rows.map((message, index) => ({ kind: 'message', position: index + 1, message, author: { kind: index === 1 ? 'unknown' : 'model' }, requestId: null, sessionId: null, attempts: null }));
 	await act(async () => pendingMessages[0]?.resolve({ messages: rows, entries, page: page(1, {}, [{ page: 1, messageCount: 3 }]) }));
 	expect(container.textContent).toContain('Before the unknown author');
-	expect(container.textContent).toContain('Unknown message author.');
+	expect(container.textContent).toContain('Unknown source');
 	expect(container.textContent).toContain('After the unknown author');
-	expect(container.textContent).not.toContain('Hidden unknown content');
+	expect(container.textContent).toContain('Hidden unknown content');
 });
 
 it('shows the full response while a live entry waits for its first tool', async () => {
@@ -600,7 +606,7 @@ it('shows the full response while a live entry waits for its first tool', async 
 it('names the failed batch count for a partly successful compaction', async () => {
 	const entry: AgentLogEntry = { kind: 'notice', position: 2, notice: { kind: 'compaction_started', sessionId: 'partial-session', outcome: { kind: 'partial', summarySeqs: [3], failedBatchCount: 1, error: { kind: 'timeout' } } } };
 	await act(async () => pendingMessages[0]?.resolve({ messages: [], entries: [entry], page: page(1, {}, [{ page: 1, messageCount: 0 }]) }));
-	expect(container.textContent).toContain('Compaction: partial (1 batch failed)');
+	expect(container.textContent).toContain('Compaction partly succeeded · 1 batch failed');
 });
 
 async function answerMessages(index: number, messages: BotLoopMessage[], responsePage = page(1, {}, [
@@ -651,3 +657,43 @@ function runtimeEvent(seq: number, runId: string, type: BotRuntimeEvent['type'])
 function json(body: unknown, status = 200): Response {
 	return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 }
+
+it.each([false, true])('keeps the watched generation after compaction with pinned=%s', async pinned => {
+	const bottom = vi.spyOn(runtimeUtils, 'scrollLogToBottom');
+	const original = loopMessage(41, 'Keep the watched message');
+	await answerMessages(0, [original], page(1, { 40: 1 }, [{ page: 1, messageCount: 1, sourceCompactionSeq: 40 }]));
+	await act(async () => new Promise<void>(resolve => window.requestAnimationFrame(() => resolve())));
+	const log = container.querySelector<HTMLDivElement>('.event-log')!;
+	Object.defineProperties(log, { scrollHeight: { configurable: true, value: 1000 }, clientHeight: { configurable: true, value: 400 }, scrollTop: { configurable: true, writable: true, value: pinned ? 600 : 100 } });
+	act(() => log.dispatchEvent(new Event('scroll', { bubbles: true })));
+	const callsBefore = bottom.mock.calls.length;
+	await act(async () => MonitorSocket.instances.at(-1)!.emit({ type: 'loop_messages_reset' }));
+	await act(async () => new Promise(resolve => window.setTimeout(resolve, 120)));
+	const pages = [{ page: 1, messageCount: 1, sourceCompactionSeq: 80, isNewest: true }, { page: 2, messageCount: 1, sourceCompactionSeq: 40, isNewest: false }];
+	await answerMessages(1, [loopMessage(80, 'New summary')], page(1, { 40: 2, 80: 1 }, pages));
+	expect(pendingMessages[2]?.path).toContain('page=2');
+	const archivedPage = { ...page(2, { 40: 2, 80: 1 }, pages), newerPage: 1 };
+	await act(async () => pendingMessages[2]!.resolve({ messages: [original], entries: [{ kind: 'message', position: 41, message: original, author: { kind: 'model' }, requestId: null, sessionId: null, attempts: null }, { kind: 'notice', position: 42, notice: { kind: 'compaction_started', sessionId: 'watch-session', outcome: { kind: 'succeeded', summarySeq: 80 } } }], page: archivedPage }));
+	await act(async () => new Promise<void>(resolve => window.requestAnimationFrame(() => resolve())));
+	expect(container.querySelector('.agent-log-archive')).not.toBeNull();
+	expect(container.textContent).toContain('Keep the watched message');
+	expect(container.textContent).not.toContain('New summary');
+	expect(container.textContent).toContain('Remove from archive');
+	expect(container.querySelector('[aria-current="page"]')?.textContent).toBe('2');
+	expect([...container.querySelectorAll('button')].find(button => button.textContent === 'Compact chat')?.disabled).toBe(true);
+	expect(container.textContent).toContain('Compaction began here');
+	if (pinned) expect(bottom.mock.calls.length).toBeGreaterThan(callsBefore);
+	else { expect(bottom.mock.calls.length).toBe(callsBefore); expect(log.scrollTop).toBe(100); }
+});
+
+
+it('keeps the latest selected request when detail responses arrive out of order', async () => {
+	const first = loopMessage(1, 'First response'); const second = loopMessage(2, 'Second response');
+	await act(async () => pendingMessages[0]!.resolve({ messages: [first, second], entries: [first, second].map((message, index) => ({ kind: 'message', position: index + 1, message, author: { kind: 'model' }, requestId: `request-${index}`, sessionId: null, attempts: null })), page: page(1, {}, [{ page: 1, messageCount: 2 }]) }));
+	const buttons = container.querySelectorAll<HTMLButtonElement>('.agent-log-info');
+	await act(async () => { buttons[0]!.click(); buttons[1]!.click(); });
+	await act(async () => pendingRequests[1]!.resolve(json({ ok: true, data: { request: { ...requestFixture, id: 'request-1' } } })));
+	await act(async () => pendingRequests[0]!.resolve(json({ ok: true, data: { request: { ...requestFixture, id: 'request-0', attempts: [] } } })));
+	expect(container.querySelector('.modal')?.textContent).toContain('I must include the thread reference.');
+	expect(container.querySelector('.modal')?.textContent).not.toContain('The exact request is not retained.');
+});
