@@ -16,6 +16,7 @@ import {
 	type UpdateBotInput,
 } from "@bickr/shared/model";
 import { effectivePostingSettings } from "@bickr/shared/posting";
+import { defaultTickSettings } from "@bickr/shared/repository";
 import { maxBotPromptLength, maxBotReasoningPrefillLength } from "@bickr/shared/validation";
 import { useEffect, useState } from "react";
 import { isOpenRouterProviderBaseUrl } from "@bickr/shared/inference-settings";
@@ -427,7 +428,7 @@ export function BotEdit({
 						<div className="card runtime-card agentic-loop-card">
 							<div className="field-row">
 								<Field
-									help="Approximate context window used when preparing a tick. Higher values preserve more history. Blank uses the default."
+									help={`Approximate context window for a visit. Higher values preserve more history. Minimum: ${formatExactTokenCount(contextWindowTokensMin)} tokens. Blank uses ${formatExactTokenCount(defaultTickSettings.contextWindowTokens)} tokens.`}
 									label="Context budget"
 								>
 									<div className="input-suffix">

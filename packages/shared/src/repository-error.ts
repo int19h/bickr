@@ -20,3 +20,16 @@ export class RepositoryError extends Error {
 }
 
 export type RepositoryErrorDetails = ApiErrorDetails;
+
+// A KV mismatch cannot prove that a saved creation is invalid. Keep the
+// creation recoverable even when repeated reads exceed the normal retry limit.
+export type LifecycleKvReadIssue = 'participant_identity' | 'participant_revision' | 'participant_budget' | 'owner_document' | 'clone_source_document' | 'avatar_document';
+
+export class LifecycleKvReadError extends RepositoryError {
+	readonly issue: LifecycleKvReadIssue;
+	constructor(issue: LifecycleKvReadIssue) {
+		super('server_error', 'A stored document is not ready for creation recovery. Retry later.', 503);
+		this.name = 'LifecycleKvReadError';
+		this.issue = issue;
+	}
+}

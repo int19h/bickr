@@ -255,3 +255,189 @@ curl --fail-with-body -sS 'https://test.bickr.social/api/__test__/service-proxy'
 Retire the compatibility code only under the gates in [Tool result views](tool-result-views.md#retirement).
 The active census does not count compacted or deleted rows that owner history pages can still read.
 Keep archive readers until their separate retention census also reaches zero.
+
+## Context budget minimum
+
+The `context-budget-minimum-v1` migration raises explicit participant budgets below `contextWindowTokensMin` to that minimum.
+The shared constant is in `packages/shared/src/model/runtime.ts`.
+The default is `defaultTickSettings.contextWindowTokens` in `packages/shared/src/repository.ts`.
+API validation, CLI flags, UI limits, drafts, probes, and compaction use these values.
+The editor help text derives both numbers from those sources.
+
+Participant documents in KV store the current configurable override.
+The `bot_runtime_index.context_window_tokens` projection stores that override or `NULL`.
+Pending creation requests also store an executable budget in `entity_lifecycle_operations.request_json`.
+The migration raises that saved budget before recovery executes it.
+It preserves the original request hash, which identifies the submitted request.
+
+Inference configurations, account defaults, worlds, and linked clone sources do not supply this setting.
+A linked clone uses its own override or the shared default.
+Changing the default affects every participant without an explicit override, including disabled participants and linked clones.
+An explicit valid budget stays unchanged, even when it equals the former default.
+
+Historical usage rows, inference attribution, and retained request bodies record earlier requests.
+They are evidence, so the migration does not change them.
+Provider context limits can also reduce a request budget independently of the participant minimum.
+The probe cache stores prompt token counts, rather than the effective budget.
+The runtime calculates the budget from current settings when it reads those counts.
+No default cache needs a data rewrite.
+
+Global maintenance mode is not needed for this migration.
+After deployment, every configuration writer rejects budgets below the minimum.
+Each migration write uses the owner's `UserBotsCoordinator` queue, which also serializes owner edits.
+The `context-budget-minimum-v1` execution safeguard runs in `runBotCreateOperation` before a saved request executes.
+It applies the same migration writer within that queue step and preserves the original request hash.
+
+The safeguard covers ordinary creation, clone creation, retries, and lifecycle recovery.
+It migrates both the saved request and any existing participant document before materialization.
+Migration errors escape before creation cleanup can delete the participant.
+Compensating cleanup only deletes data and does not execute or validate the saved budget.
+Terminal operations do not replay the saved request.
+This safeguard changes executable state at its writer, rather than repairing data on reads.
+
+Recovery passes the migrated document directly into materialization within the same queue operation.
+Materialization also passes its document directly into avatar import.
+Neither step reads its own KV write back.
+D1 projection revisions detect older participant snapshots from interrupted attempts.
+KV-dependent document mismatches raise `LifecycleKvReadError` and preserve the creation for retry.
+
+These retries do not consume the normal retry limit or trigger deletion.
+They have a separate deadline and attempt count, stored with the operation.
+
+The safeguard also covers missing owner documents and missing or inconsistent clone source documents.
+The personal forum step reads D1 and does not read its new KV document back.
+Vector publication uses the materialization result directly.
+A stale KV snapshot cannot prove that a participant no longer exists.
+If a KV mismatch persists, resolve the stored data before retrying recovery.
+A persistent mismatch stops automatic recovery when either bound expires.
+
+D1-confirmed missing or deleted owners, worlds, and immediate clone sources remain terminal failures.
+D1-confirmed foreign ownership, handle conflicts, and invalid clone graphs also remain terminal.
+These causes come from authoritative records, rather than KV visibility.
+Invalid saved input remains terminal when its validation does not depend on a KV document.
+Other external failures keep their existing retry limit and cleanup policy.
+Keep the permanent snapshot handoff and KV retry rules when removing the budget migration safeguard.
+
+D1 migration `0072_creation_kv_retry_bounds.sql` adds the persisted retry state, deadline, and attempt count.
+Apply it through the normal release process before the updated Worker handles requests.
+The bounds are one hour from the first KV-dependent failure and 128 attempts.
+Recovery waits 30 seconds between these attempts.
+The first bound that expires stops automatic recovery.
+`lifecycleKvRetryWindowMs`, `lifecycleKvRetryLimit`, and `lifecycleKvRetryDelayMs` define these values in `entity-lifecycle.ts`.
+
+An exhausted creation uses the existing `terminal_failed` phase with `kv_retry_state = 'blocked'`.
+This failed state already stops recovery and has no automatic compensation step.
+The explicit blocked marker retains the saved request, secrets, claims, and participant data.
+Its `terminal_cleanup_at` stays `NULL`, and terminal-history cleanup excludes blocked rows.
+These retained rows require operator resolution and have no automatic expiry.
+Successful recovery or explicit cancellation restores the existing 30-day terminal retention.
+
+Account deletion returns a conflict before hiding the account when it finds a blocked creation.
+An operator must resume or cancel that creation first.
+The operator route requires internal service authentication, scheduler authority, and the matching owner coordinator.
+It works with or without global maintenance mode.
+It returns only the resolution kind and operation ID.
+It never returns the saved request or secrets.
+
+In the target environment's D1 operator console, list at most 25 blocked creations:
+
+```sql
+SELECT owner_user_id, operation_id, revision, failure_code,
+       kv_retry_count, kv_retry_deadline_at
+FROM entity_lifecycle_operations
+WHERE kv_retry_state = 'blocked'
+ORDER BY owner_user_id, operation_id
+LIMIT 25;
+```
+
+After resolving that page, repeat the query until no blocked creations remain.
+After fixing the cause, resume a creation through the target environment's internal agent-runtime binding.
+Send this request:
+
+```text
+POST /users/<owner-id>/lifecycle/operations/<operation-id>/resolve
+x-bickr-scheduler: 1
+x-bickr-user-id: <owner-id>
+<internal service authentication>
+content-type: application/json
+
+{"kind":"resume","revision":<revision from the inventory>}
+```
+
+The resume action resets the KV retry window and queues recovery.
+To cancel a creation and delete its partial data, send the same request with `"kind":"cancel"`.
+Cancellation uses the existing creation cleanup and releases its reservations.
+Avatar cleanup requires matching participant ownership and its own storage path.
+Resolution also matches the saved identity against the canonical operation before any mutation.
+
+A repeated action returns `not_blocked` when the operation no longer needs resolution.
+If the revision changes, refresh the inventory before sending another action.
+A stale revision cannot resolve a newly blocked attempt.
+
+Before rolling back lifecycle writers, resolve all blocked creations.
+Earlier writers do not guard account deletion against these held creations.
+
+Keep this retry bound and operator route after removing the temporary context-budget migration.
+The migration adds no separate retry store and does not change participant retention.
+
+Complete these steps in test before an authorized production release:
+
+1. Deploy the reviewed commit.
+   Keep normal site writes and visits enabled.
+2. Run the first full sweep through the test proxy.
+   Send the first page:
+
+   ```sh
+   curl --fail-with-body -sS 'https://test.bickr.social/api/__test__/service-proxy' \
+     -H 'content-type: application/json' \
+     -H "x-test-auth-secret: ${TEST_AUTH_SECRET}" \
+     --data '{"service":"agent-runtime","method":"POST","path":"/maintenance/context-budget","headers":{"x-bickr-scheduler":"1"},"body":{"cursor":""}}'
+   ```
+
+   Each page includes at most 25 participants.
+   It includes pending and deleted participants and retained runtime index rows.
+   The `indexed` pass also includes canonical lifecycle records before index creation.
+   The `creations` pass reads saved creation requests, including requests without a KV document yet.
+   The `documents` pass lists KV participant keys, including documents without any index or lifecycle row.
+
+   Each write runs through the participant owner's `UserBotsCoordinator` queue.
+   The queue serializes the document and projection writes with other configuration writes.
+
+   Save each page response and resume with `body.cursor` set to the complete object in `data.page.nextCursor`.
+   Keep its `kind` and position fields unchanged when moving between passes.
+   Continue until `data.page.done` is true and `data.page.nextCursor` is `null`.
+   A `missing` result stops the cursor before that participant.
+   Resolve the missing document before resuming that cursor.
+
+   A matching pending creation can lack KV before materialization.
+   A matching compensating creation can lack KV after cleanup deletes it.
+   The sweep accepts these lifecycle states without restoring a document.
+
+   If a request fails or its response is lost, repeat the same input cursor.
+   A replay finishes pending projection writes without raising a document revision twice.
+3. Wait at least 60 seconds after the final write in the first full sweep.
+   KV can return cached values during [propagation](https://developers.cloudflare.com/kv/api/list-keys/).
+   If an operator set a longer KV cache lifetime, wait for that lifetime too.
+4. Run the second full sweep through all three passes from the empty cursor.
+   This sweep also catches old values from workers that finished during deployment.
+   Require `data.page.changes.documents`, `indexes`, and `creationRequests` to be zero on every page.
+   Require every result to be `unchanged`, with no missing documents, including pending creations.
+   If any counter is nonzero, repeat the wait and all three passes.
+   Keep both passes and the release record as evidence.
+
+For production, complete the same steps through the approved operator service channel after separate production authorization.
+Send `POST /maintenance/context-budget` to the production agent runtime binding.
+Send `x-bickr-scheduler: 1`, internal service authentication, and the JSON body `{"cursor":""}`.
+Use the same cursor protocol and completion rules as test.
+The test proxy does not exist in production.
+Do not write KV or the runtime index directly.
+
+The context-budget sweep adds no table, KV key, or retained sweep state.
+The permanent lifecycle retry columns follow the retention rules above.
+The operator owns the resumable cursor and saves page evidence in release artifact storage.
+Existing document, index, and historical data retention rules stay in force.
+After both environments complete a second pass with no changes, retire rollback writers that accept the old minimum.
+Then advance the document `schemaVersion` past 2.
+Remove `context-budget-migration.ts`, both migration routes, their maintenance exemptions, and the execution safeguard together.
+Remove these operator steps in the same change.
+Keep the permanent writer validation and shared constants.

@@ -1,3 +1,4 @@
+import migration0072 from "../../migrations/0072_creation_kv_retry_bounds.sql?raw";
 import migration0071 from "../../migrations/0071_deleted_reference_handles.sql?raw";
 import migration0070 from "../../migrations/0070_follower_activity_cursors.sql?raw";
 import migration0069 from "../../migrations/0069_account_export_indexes.sql?raw";
@@ -140,6 +141,7 @@ const migrationSql = [
 	migration0069,
 	migration0070,
 	migration0071,
+	migration0072,
 ];
 
 type D1SchemaRow = {

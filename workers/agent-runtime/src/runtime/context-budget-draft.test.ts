@@ -1,10 +1,18 @@
 import { describe, expect, it } from 'vitest';
-import type { EffectiveBotDocument } from '@bickr/shared/model';
+import { contextWindowTokensMin, type EffectiveBotDocument } from '@bickr/shared/model';
+import { defaultTickSettings, effectiveTickSettings } from '@bickr/shared/repository';
 import { parseLanguageTag } from '@bickr/shared/validation';
 import { contextBudgetDraft } from './context-budget-draft';
 const current = { instructionLocale: 'en', language: 'en', includeLanguageInSystemPrompt: true, prompt: { lang: 'en', text: 'Original' } } as EffectiveBotDocument;
 
 describe('context budget draft', () => {
+	it('uses the shared default after clearing an override and accepts the shared minimum', () => {
+		const draft = contextBudgetDraft(current, { prompt: 'Original', tickSettings: { contextWindowTokens: contextWindowTokensMin } });
+		expect(effectiveTickSettings(draft.tickSettings).contextWindowTokens).toBe(contextWindowTokensMin);
+		const cleared = contextBudgetDraft(draft, { prompt: 'Original', tickSettings: { contextWindowTokens: null } });
+		expect(cleared.tickSettings).not.toHaveProperty('contextWindowTokens');
+		expect(effectiveTickSettings(cleared.tickSettings).contextWindowTokens).toBe(defaultTickSettings.contextWindowTokens);
+	});
 	it('uses the edited language both for language instructions and edited text', () => {
 		expect(contextBudgetDraft(current, { language: parseLanguageTag('jbo'), prompt: 'coi' })).toMatchObject({ language: 'jbo', prompt: { lang: 'jbo', text: 'coi' } });
 		expect(current.language).toBe('en');

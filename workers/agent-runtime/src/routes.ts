@@ -1,4 +1,5 @@
 import { legacyHistoryCursor, legacyHistoryFleetPage } from './runtime/legacy-history-maintenance';
+import { contextBudgetMigrationResult, contextBudgetMigrationCursor, migrateContextBudgetPage, migrateOwnedContextBudget } from './context-budget-migration';
 import { backfillDeletedReferenceHandles, type DeletedHandleBackfillCursor } from '@bickr/shared/deleted-reference-handles';
 import { migrateParticipantTime } from "@bickr/shared/participant-time-migration";
 import { normalizeKvDocuments, isDocumentNormalizationOutcome, isWithinKvNormalizationQuietPeriod } from "@bickr/shared/kv-normalization-sweep";
@@ -224,6 +225,7 @@ import {
 } from './lifecycle/account-bootstrap-reservation';
 import {
 	reserveBotCreate,
+	resolveBlockedBotCreation,
 	reserveBotDelete,
 	runBotCreateOperation,
 	runBotDeleteOperation,
@@ -537,6 +539,24 @@ export const agentRuntimeRouteTable = [
 		method: 'POST',
 		pattern: /^\/accounts\/bootstrap$/,
 		dispatch: 'account-bootstrap',
+	},
+	{
+		id: 'resolve-blocked-creation',
+		method: 'POST',
+		pattern: /^\/users\/([^/]+)\/lifecycle\/operations\/([^/]+)\/resolve$/,
+		dispatch: 'user-coordinator',
+		handler: async context => {
+			if (!isTrustedInternalServiceRequest(context.request, context.env.INTERNAL_SERVICE_SECRET)) throw new RepositoryError('unauthorized', 'Authentication is required.', 401);
+			requireSchedulerServiceRequest(context.request);
+			const userId = requireUserMatch(context.request, decodeURIComponent(context.match[1] ?? ''));
+			if (context.coordinator.ownerUserId !== userId || !context.coordinator.queue) throw new RepositoryError('forbidden', 'The owner coordinator must resolve this operation.', 403);
+			const input = requiredRecord(await readJsonBody(context.request));
+			if (input.kind !== 'resume' && input.kind !== 'cancel') throw new InputError('The action must be resume or cancel.');
+			const revision = requiredPositiveInteger(input.revision, 'revision');
+			try {
+				return ok({ resolution: await resolveBlockedBotCreation(context, decodeURIComponent(context.match[2] ?? ''), revision, { kind: input.kind }) });
+			} finally { await armNextUserLifecycleAlarm(context.env.BICKR_D1, context.coordinator); }
+		},
 	},
 	{
 		id: 'lifecycle-recovery',
@@ -1764,6 +1784,32 @@ export const agentRuntimeRouteTable = [
 				botId: decodeURIComponent(context.match[4] ?? ''),
 			});
 			return ok({ group: requiredBotGroupMutationResult(result, 'bot_group_updated'), coordinator: context.objectId });
+		},
+	},
+	{
+		id: 'context-budget-migration-sweep',
+		method: 'POST',
+		pattern: /^\/maintenance\/context-budget$/,
+		dispatch: 'direct',
+		handler: async context => {
+			if (!isTrustedInternalServiceRequest(context.request, context.env.INTERNAL_SERVICE_SECRET)) throw new RepositoryError('unauthorized', 'Authentication is required.', 401);
+			requireSchedulerServiceRequest(context.request);
+			const body = requiredRecord(await readOptionalJsonBody(context.request));
+			if (!context.env.USER_BOTS) throw new RepositoryError('server_error', 'Owner coordinator binding is unavailable.', 500);
+			return ok({ page: await migrateContextBudgetPage({ ...context.env, USER_BOTS: context.env.USER_BOTS }, contextBudgetMigrationCursor(body.cursor)) });
+		},
+	},
+	{
+		id: 'migrate-owned-context-budget',
+		method: 'POST',
+		pattern: /^\/users\/([^/]+)\/bots\/([^/]+)\/context-budget-migration$/,
+		dispatch: 'user-coordinator',
+		handler: async context => {
+			if (!isTrustedInternalServiceRequest(context.request, context.env.INTERNAL_SERVICE_SECRET)) throw new RepositoryError('unauthorized', 'Authentication is required.', 401);
+			requireSchedulerServiceRequest(context.request);
+			const userId = requireUserMatch(context.request, decodeURIComponent(context.match[1] ?? ''));
+			if (context.coordinator.ownerUserId !== userId || !context.coordinator.queue) throw new RepositoryError('forbidden', 'The owner coordinator must run this migration.', 403);
+			return ok({ migration: contextBudgetMigrationResult(await migrateOwnedContextBudget(context.env.BICKR_KV, context.env.BICKR_D1, decodeURIComponent(context.match[2] ?? ''), userId)) });
 		},
 	},
 	{
