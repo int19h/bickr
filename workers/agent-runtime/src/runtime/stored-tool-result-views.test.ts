@@ -1,8 +1,9 @@
+import { prunedLoopThreadFixture } from '../../../../test/fixtures/loop-markdown-runtime';
 import { botById } from '@bickr/shared/repository';
 import type { EffectiveBotDocument } from '@bickr/shared/model';
 import { resultMessage } from './result-text';
 import { contextWithProducedReferences } from './result-render-context';
-import { settlementResultView, type ResultRenderContext } from './tool-result-views';
+import { failureResultView, settlementResultView, type ResultRenderContext } from './tool-result-views';
 import { testViewRenderContext, testResultContext, testResultTime } from './result-render-context.test-support';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { approximateTextTokens } from '@bickr/shared/text-token-estimate';
@@ -24,6 +25,78 @@ const context = (scope = new ResultContextScope()) => ({ time: testResultTime, t
 function fixture() { const storage = createRuntimeTestStorage(); databases.push(storage); return { storage, store: new RuntimeMessageStore(storage) }; }
 
 describe('stored tool result views', () => {
+	it('marks message formats from stored evidence in the messages response', () => {
+		const { store } = fixture();
+		const view: ToolResultView = { ...resultViewBase(text), kind: 'read_note', id: 'PLAN', content: '- Keep the plan current.', links: [] };
+		store.appendLoopMessageGroup(testResultContext, [
+			{ runId: 'formats', origin: 'provider_response', message: { role: 'assistant', content: '## My narration', tool_calls: [{ id: 'stored', type: 'function', function: { name: 'read_note', arguments: '{}' } }, { id: 'legacy', type: 'function', function: { name: 'old_tool', arguments: '{}' } }] } },
+			{ runId: 'formats', origin: 'tool_result', message: attachToolResultView({ role: 'tool', tool_call_id: 'stored', content: '' }, view) },
+			{ runId: 'formats', origin: 'tool_result', message: { role: 'tool', tool_call_id: 'legacy', content: '{"old":true}' } },
+			{ runId: 'formats', origin: 'synthetic_context', message: { role: 'assistant', content: '## Context' } },
+			{ runId: 'formats', origin: 'input', message: { role: 'user', content: '## Bickr report' } },
+			{ runId: 'formats', origin: 'runtime_error', message: { role: 'user', content: '## Unknown old row' } },
+		]);
+		const response = store.loopMessagesPage(testResultContext, { page: 1 });
+		expect(response.messages.map(row => row.contentFormat)).toEqual(['text', 'markdown', 'json', 'text', 'markdown', 'json']);
+		expect(store.loopMessagesAfter(testResultContext, 0).map(row => row.contentFormat)).toEqual(response.messages.map(row => row.contentFormat));
+		expect(response.messages[1]?.message.content).toContain('PLAN');
+	});
+
+	it('keeps legacy synthetic tool rows as JSON and synthetic assistant rows as text', () => {
+		const { storage, store } = fixture();
+		const legacyJson = '{"threadId":"thr_old","content":[]}';
+		store.appendLoopMessage(testResultContext, 'legacy', { role: 'tool', tool_call_id: 'old', content: legacyJson }, 'synthetic_context');
+		store.appendLoopMessage(testResultContext, 'legacy', { role: 'assistant', content: legacyJson }, 'synthetic_context');
+		store.appendLoopMessage(testResultContext, 'legacy', { role: 'assistant', content: '## Focus text' }, 'synthetic_context');
+		const view: ToolResultView = { ...resultViewBase(text), kind: 'read_note', id: 'PLAN', content: '- Keep the plan current.', links: [] };
+		store.appendLoopMessage(testResultContext, 'current', attachToolResultView({ role: 'tool', tool_call_id: 'new', content: '' }, view), 'synthetic_context');
+		const response = store.loopMessagesPage(testResultContext, { page: 1 });
+		expect(response.messages.map(row => row.contentFormat)).toEqual(['json', 'text', 'text', 'markdown']);
+		expect(response.messages[0]?.message.content).toBe(legacyJson);
+		expect(response.messages[1]?.message.content).toBe(legacyJson);
+		expect(store.loopMessagesAfter(testResultContext, 0).map(row => row.contentFormat)).toEqual(['json', 'text', 'text', 'markdown']);
+		const summary = store.appendLoopMessage(testResultContext, 'compaction', { role: 'assistant', content: 'Older history summary' }, 'compaction');
+		storage.sql.exec('UPDATE loop_messages SET compacted_by = ? WHERE seq <= ?', summary.seq, response.messages[2]!.seq);
+		expect(store.loopMessagesPage(testResultContext, { page: 2 }).messages.map(row => row.contentFormat)).toEqual(['json', 'text', 'text']);
+	});
+
+	it('keeps the browser fixture equal to the stored render', async () => {
+		const fixture = await prunedLoopThreadFixture();
+		const failure = failureResultView({ ok: false, code: 'refused', toolName: 'read_thread', args: {}, message: 'Old diagnostic' }, text,
+			{ message: { kind: 'literal', value: '### Refused\n\n- Try later.' } });
+		const settlement = settlementResultView('not_dispatched', resultMessage('recovery.notDispatched'), text);
+		const data = {
+			storedView: fixture.view,
+			providerText: renderStoredLoopMessage({ message_json: '{"role":"tool","tool_call_id":"read"}', tool_result_view_json: JSON.stringify(fixture.view), tool_result_view_version: 1 }, fixture.context).content,
+			fullBody: fixture.fullBody, hiddenBody: fixture.hiddenBody, shortenedBody: fixture.shortenedBody, display: fixture.display,
+			failureText: renderToolResultView(failure, testResultContext), settlementText: renderToolResultView(settlement, testResultContext),
+		};
+		await expect('import type { BotLoopMessageDisplay } from "@bickr/shared/model";\n\nexport const loopMarkdownFixture: ' +
+			'{ storedView: unknown; providerText: string; fullBody: string; hiddenBody: string; shortenedBody: string; display: BotLoopMessageDisplay; failureText: string; settlementText: string } = ' +
+			JSON.stringify(data, null, 2) + ';\n').toMatchFileSnapshot('../../../../test/fixtures/loop-markdown.ts');
+	});
+
+	it('returns the provider text for stored pruned reads and failures', async () => {
+		const { storage, store } = fixture();
+		const thread = await prunedLoopThreadFixture();
+		const failure = failureResultView({ ok: false, code: 'refused', toolName: 'read_thread', args: {}, message: 'Old diagnostic' }, text,
+			{ message: { kind: 'literal', value: '### Refused\n\n- Try later.' } });
+		for (const [index, view] of [thread.view, failure].entries()) {
+			store.appendLoopMessage(thread.context, 'run', attachToolResultView({ role: 'tool', tool_call_id: String(index), content: 'STALE WRITE TIME' }, view), index === 0 ? 'tool_result' : 'tool_failure');
+		}
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), { state: { storage } });
+		const provider = runtime.activeLoopMessagesForProvider(thread.context);
+		const api = runtime.loopMessagesPage(thread.context, { page: 1 }).messages;
+		expect(api.map((row: import('@bickr/shared/model').BotLoopMessage) => row.message.content)).toEqual(provider.map((row: import('../types').ChatMessage) => row.content));
+		expect(api[0].message.content).toContain(thread.shortenedBody);
+		expect(api[0].message.content).toContain('1 more reply');
+		expect(api[0].message.content).toContain('I read this text earlier');
+		expect(api[0].message.content).not.toContain(thread.fullBody.trim());
+		expect(api[0].message.content).not.toContain(thread.hiddenBody);
+		expect(api[1].message.content).toContain('### Refused');
+		expect(JSON.stringify(api)).not.toContain('STALE WRITE TIME');
+	});
+
 	it('renders current handles and language through a fresh runtime after restart', async () => {
 		const { storage, store } = fixture();
 		const note = await buildToolResultView({ kind: 'note_read', id: 'one', content: 'Authored u/before stays unchanged', links: [
@@ -151,6 +224,11 @@ describe('stored tool result views', () => {
 		expect(JSON.parse(rows[1]!.message_json)).not.toHaveProperty('content');
 		const restored = toolResultViewFromRow(rows[1]!)!;
 		expect(restored.facets.some(facet => facet.state === 'shown' && facet.value === 'A body')).toBe(true);
+		const current = testViewRenderContext(first!, text);
+		const api = store.loopMessagesPage(current, { page: 1 }).messages;
+		const provider = runtime.activeLoopMessagesForProvider(current);
+		expect(api.map(row => row.message.content)).toEqual(provider.map((row: import('../types').ChatMessage) => row.content));
+		expect(api.at(-1)?.message.content).toContain('A body');
 	});
 	it('keeps skipped profile facets on the triggering view for hydration', async () => {
 		const profile = { id: 'alice', handle: 'before', homeWorldId: 'world', homeWorldHandle: 'world', language: null, displayName: { text: 'Alice', lang: null }, shortBio: { text: 'A bio', lang: null }, createdAt: '2026-10-23T00:00:00Z', updatedAt: '2026-10-23T00:00:00Z', isFollowedByMe: false, isFollowingMe: false, followers: 0 };

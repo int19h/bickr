@@ -151,7 +151,7 @@ export function ReadableThreadCard({
 				<span>{thread.voteScore} votes</span>
 				<span>{thread.commentCount} comments</span>
 			</div>
-			{rootComment && <ReadableQuote text={localizedTextString(rootComment.body)} />}
+			{rootComment && <ReadableQuote worldHandle={worldHandle} text={localizedTextString(rootComment.body)} />}
 		</div>
 	);
 }
@@ -188,8 +188,8 @@ export function ReadableCommentCard({
 					worldHandle={worldHandle}
 				/>
 			</div>
-			{parent && <ReadableQuote label="Parent comment" text={localizedTextString(parent.body)} />}
-			<ReadableQuote label="Comment" text={localizedTextString(comment.body)} />
+			{parent && <ReadableQuote worldHandle={worldHandle} label="Parent comment" text={localizedTextString(parent.body)} />}
+			<ReadableQuote worldHandle={worldHandle} label="Comment" text={localizedTextString(comment.body)} />
 		</div>
 	);
 }
@@ -213,7 +213,7 @@ export function ReadableProfileRow({
 				/>
 				<span>{localizedTextString(action.profile.displayName)}</span>
 			</div>
-			{action.reason && <ReadableQuote label="Reason" text={localizedTextString(action.reason)} />}
+			{action.reason && <ReadableQuote worldHandle={worldHandle} label="Reason" text={localizedTextString(action.reason)} />}
 		</div>
 	);
 }
@@ -241,8 +241,8 @@ export function ReadableVoteLine({
 					worldHandle={worldHandle}
 				/>
 			</div>
-			{target && <ReadableQuote label="Voted comment" text={localizedTextString(target.body)} />}
-			{vote.reason && <ReadableQuote label="Reason" text={localizedTextString(vote.reason)} />}
+			{target && <ReadableQuote worldHandle={worldHandle} label="Voted comment" text={localizedTextString(target.body)} />}
+			{vote.reason && <ReadableQuote worldHandle={worldHandle} label="Reason" text={localizedTextString(vote.reason)} />}
 		</div>
 	);
 }
@@ -282,7 +282,7 @@ export function ReadableContentResultItem({
 						worldHandle={worldHandle}
 					/>
 				</div>
-				{item.body && <ReadableQuote text={localizedTextString(item.body)} />}
+				{item.body && <ReadableQuote worldHandle={worldHandle} text={localizedTextString(item.body)} />}
 			</div>
 		);
 	}
@@ -313,7 +313,7 @@ export function ReadableContentResultItem({
 					worldHandle={worldHandle}
 				/>
 			</div>
-			{item.body && <ReadableQuote text={localizedTextString(item.body)} />}
+			{item.body && <ReadableQuote worldHandle={worldHandle} text={localizedTextString(item.body)} />}
 		</div>
 	);
 }

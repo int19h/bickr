@@ -18,6 +18,7 @@ describe("invalid provider Loop rows", () => {
 					function: { name: "read_thread", arguments: "[]" },
 				}],
 			},
+			contentFormat: "text",
 			origin: "dropped_provider_response",
 			status: "invalid",
 			tokenEstimate: 1,

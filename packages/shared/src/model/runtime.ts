@@ -134,12 +134,15 @@ export type BotLoopMessageDisplay = {
 	};
 };
 
+export type BotLoopContentFormat = "markdown" | "json" | "text";
+
 export type BotLoopMessage = {
 	seq: number;
 	position?: number;
 	runId: string;
 	role: BotInferenceSubmissionMessage["role"];
 	message: BotInferenceSubmissionMessage;
+	contentFormat: BotLoopContentFormat;
 	display?: BotLoopMessageDisplay;
 	origin: BotLoopMessageOrigin;
 	tokenEstimate: number;

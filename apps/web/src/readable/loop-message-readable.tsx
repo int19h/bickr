@@ -1,3 +1,4 @@
+import { LoopMarkdown } from "./loop-markdown";
 import { formatThreadRef } from "@bickr/shared/ids";
 import type { BotInferenceSubmissionMessage, BotLoopMessage } from "@bickr/shared/model";
 import type { ReactNode } from "react";
@@ -46,13 +47,28 @@ export type ReadableDisplayContext = {
 	allowActiveWorldFallback: boolean;
 };
 
+function isMarkdownContent(format: BotLoopMessage['contentFormat']): boolean {
+	switch (format) {
+		case 'markdown': return true;
+		case 'json':
+		case 'text': return false;
+		default: {
+			// A newer server can add a format before this client updates.
+			format satisfies never;
+			return false;
+		}
+	}
+}
+
 export function LoopMessageReadableView({
+	contentFormat = "json",
 	display,
 	message,
 	origin,
 	toolCall,
 	toolCallsById,
 }: {
+	contentFormat?: BotLoopMessage["contentFormat"];
 	display?: BotLoopMessage["display"];
 	message: BotInferenceSubmissionMessage;
 	origin?: BotLoopMessage["origin"];
@@ -64,7 +80,9 @@ export function LoopMessageReadableView({
 	return (
 		<div className={`loop-readable role-${message.role}`}>
 			{message.role === "tool" ?
-				<ReadableToolResult content={content} display={display} toolCall={toolCall} />
+				<ReadableToolResult contentFormat={contentFormat} content={content} display={display} toolCall={toolCall} />
+			: isMarkdownContent(contentFormat) ?
+				<LoopMarkdown text={content} worldHandle={display?.context?.worldHandle} />
 			: content ?
 				<div className="loop-readable-text">
 					{normalizeReadableText(content)}
@@ -200,14 +218,26 @@ export function ReadableToolCall({ context, toolCall }: { context?: LoopToolCall
 }
 
 export function ReadableToolResult({
+	contentFormat = "json",
 	content,
 	display,
 	toolCall,
 }: {
 	content: string;
+	contentFormat?: BotLoopMessage["contentFormat"];
 	display?: BotLoopMessage["display"];
 	toolCall?: LoopToolCallContext;
 }) {
+	if (isMarkdownContent(contentFormat)) {
+		const name = canonicalDisplayToolName(display?.name ?? toolCall?.name ?? '');
+		return (
+			<div className="tool-block readable">
+				<span>{readableToolResultTitle(name)}</span>
+				<LoopMarkdown text={content} worldHandle={display?.context?.worldHandle} />
+			</div>
+		);
+	}
+	if (contentFormat === 'text') return <div className="loop-readable-text">{normalizeReadableText(content)}</div>;
 	const parsed = display?.kind === "tool_result" ? display.result : parseJsonValue(content);
 	const inferredName = display?.name ?? toolCall?.name ?? inferToolNameFromResult(parsed);
 	const name = canonicalDisplayToolName(inferredName);

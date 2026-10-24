@@ -887,7 +887,7 @@ export function RichText({
 	worldHandle,
 }: {
 	interactive?: boolean;
-	onReference: OpenReference;
+	onReference?: OpenReference;
 	text: string;
 	verticalScriptHandling?: VerticalScriptHandling;
 	worldHandle?: string;
@@ -916,7 +916,7 @@ export function RichText({
 						key={`${refStart}:${handlePrefix}:${name}`}
 						kind={kind}
 						name={name}
-						onOpen={() => onReference(kind, name, { worldHandle })}
+						onOpen={onReference ? () => onReference(kind, name, { worldHandle }) : undefined}
 						worldHandle={worldHandle}
 					/>
 				:	<ReferenceLabel isBot={kind === "bot"} key={`${refStart}:${handlePrefix}:${name}`} kind={kind} name={name} />,

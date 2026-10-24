@@ -29,6 +29,7 @@ export function upsertLiveProviderLoopMessage(messages: BotLoopMessage[], event:
 		runId: event.runId,
 		role: "assistant",
 		message: nextMessage,
+		contentFormat: "text",
 		origin: "provider_response",
 		tokenEstimate: 0,
 		createdAt: existing?.createdAt ?? event.createdAt,

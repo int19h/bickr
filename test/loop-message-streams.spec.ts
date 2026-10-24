@@ -54,6 +54,7 @@ describe("loop message live provider streams", () => {
 		);
 		const dropped: BotLoopMessage = {
 			...finalizedProviderMessage(30),
+			contentFormat: "text",
 			origin: "dropped_provider_response",
 			status: "invalid",
 		};
@@ -116,6 +117,7 @@ function finalizedProviderMessage(streamSeq: number, position = streamSeq + 1): 
 		runId: "run-live",
 		role: "assistant",
 		message: { role: "assistant", content: "Final." },
+		contentFormat: "text",
 		origin: "provider_response",
 		tokenEstimate: 1,
 		streamSeq,
