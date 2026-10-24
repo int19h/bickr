@@ -40,7 +40,7 @@ Live entries carry the request ID. During an active visit, a completed response 
 
 `GET /bots/<id>/compaction-sessions/<session-id>` returns a session and its retained requests. `GET /bots/<id>/submissions` reads the new request store. Page summaries identify the newest page and its starting session. Delete responses include `changedContext`.
 
-The web page keeps its current message rows and page controls. It handles all entry kinds and shows a plain notice for unknown kinds. An unknown stored author becomes an explicit `unknown` author for that entry. Other entries remain visible. Single-request and single-session details reject unsupported stored shapes. The new visual design remains a separate task.
+The web page keeps its current message rows and page controls. It handles all entry kinds and shows a plain notice for unknown kinds. An unknown stored author becomes an explicit `unknown` author for that entry. Other entries remain visible. Request and session details contain unsupported failure outcomes. Other unsupported metadata still returns a bounded error. The new visual design remains a separate task.
 
 ## Response publication
 
@@ -63,3 +63,11 @@ The runtime stores response usage before any lookup for a provider name. That lo
 ## Failure causes
 
 Persistent compaction reduction failures retain the `non_reducing_compaction` validation issue and the error message. Other typed validation, timeout, and interruption errors keep their matching failure kinds. Local failures use `runtime_error`. Only provider request errors use `provider_error`. Existing stored outcomes keep their original values.
+
+## Rollback
+
+Version `1f1bf34d` cannot read stored `runtime_error` outcomes. Test ran that version, which rejects these outcomes with HTTP 409. One such outcome can block the history page in that version.
+
+Production must receive the agent log runtime, the web redesign, and this change in one release. This keeps every production reader able to read `runtime_error`.
+
+Readers from this change on return an explicit `unknown` failure for unsupported or invalid stored outcomes. Other attempts, sessions, and history entries remain readable. The client shows “Unknown failure”. Writers still reject unknown or invalid outcomes. Reads do not rewrite stored data.

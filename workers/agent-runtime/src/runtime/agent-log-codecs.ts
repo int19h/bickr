@@ -59,6 +59,35 @@ export function logCompactionOutcome(value: unknown): AgentLogCompactionOutcome 
 	}
 }
 
+// Readers contain unsupported stored outcomes. Writers use the strict codecs above.
+function readOutcome<T>(decode: () => T, fallback: T): T {
+	try { return decode(); }
+	catch (error) {
+		if (error instanceof RepositoryError && error.status === 409) return fallback;
+		throw error;
+	}
+}
+
+export function readLogAttemptOutcome(value: string): AgentLogAttemptOutcome {
+	return readOutcome(() => logAttemptOutcome(storedLogValue(value)), { kind: 'unknown' });
+}
+
+export function readLogAttemptKind(value: string): AgentLogAttemptOutcome['kind'] {
+	return readOutcome(() => logAttemptKind(storedLogValue(value)), 'unknown');
+}
+
+export function readLogCompactionOutcome(value: string): AgentLogCompactionOutcome {
+	return readOutcome<AgentLogCompactionOutcome>(() => {
+		const item = record(storedLogValue(value));
+		const failure = () => readOutcome<AgentLogFailure>(() => logFailure(item.error), { kind: 'unknown' });
+		switch (item.kind) {
+			case 'failed': return { kind: 'failed', error: failure() };
+			case 'partial': return { kind: 'partial', summarySeqs: array(item.summarySeqs).map(number), failedBatchCount: number(item.failedBatchCount), error: failure() };
+			default: return logCompactionOutcome(item);
+		}
+	}, { kind: 'failed', error: { kind: 'unknown' } });
+}
+
 export function logTrigger(value: unknown): AgentLogCompactionTrigger {
 	const item = record(value);
 	switch (item.kind) {

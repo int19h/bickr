@@ -1,6 +1,6 @@
 import { attemptAttribution, attemptMessages, attemptUsage, type AttemptUsageRow } from './agent-log-attempt-details';
 import type { InferenceAttribution } from '@bickr/shared/model';
-import { logAttemptOutcome, logAttemptKind, logAuthor, logCompactionOutcome, logToolDelta, logTrigger, logPartial, storedLogValue } from './agent-log-codecs';
+import { logAttemptOutcome, readLogAttemptOutcome, readLogAttemptKind, readLogCompactionOutcome, logAuthor, logCompactionOutcome, logToolDelta, logTrigger, logPartial, storedLogValue } from './agent-log-codecs';
 import { runtimeStorageClearedStateKey } from '../constants';
 import { assertExecutionPublication } from './execution-scope';
 import { agentLogAuthor, type AgentLogAuthor, type AgentLogAttempt, type AgentLogAttemptOutcome, type AgentLogAttemptSummary, type AgentLogCompactionOutcome, type AgentLogCompactionSession, type AgentLogCompactionTrigger, type AgentLogEntry, type AgentLogFailure, type AgentLogRequest, type AgentLogSource, type AgentLogRequestSummary, type BotLoopMessage } from '@bickr/shared/model';
@@ -255,7 +255,7 @@ export class AgentLogStore {
 
 	completedResponse(attemptId: number): string {
 		const row = this.storage.sql.exec<{ outcome_json: string | null }>('SELECT outcome_json FROM inference_attempts WHERE id = ? LIMIT 1', attemptId).toArray()[0];
-		const outcome = row?.outcome_json ? this.outcome(attemptId, row.outcome_json) : null;
+		const outcome = row && row.outcome_json !== null ? this.outcome(attemptId, row.outcome_json) : null;
 		if (outcome?.kind === 'success') return outcome.response;
 		if (outcome?.kind === 'interrupted' && outcome.response !== undefined) return outcome.response;
 		throw new RepositoryError('conflict', 'The completed response is not retained.', 409);
@@ -335,7 +335,7 @@ export class AgentLogStore {
 			const body = this.body(attempt.id);
 			const usageRow = attempt.usage_id === null ? undefined : usages.get(attempt.usage_id);
 			const usage = usageRow ? attemptUsage(usageRow) : null;
-			return { id: attempt.id, startedAt: attempt.started_at, body, usage, attribution: attemptAttribution(attempt.attribution_json ? storedLogValue(attempt.attribution_json) : null), messages: attemptMessages(body, usage), partialResponse: this.partialText(attempt.id, attempt.partial_response), outcome: attempt.outcome_json ? this.outcome(attempt.id, attempt.outcome_json) : null };
+			return { id: attempt.id, startedAt: attempt.started_at, body, usage, attribution: attemptAttribution(attempt.attribution_json ? storedLogValue(attempt.attribution_json) : null), messages: attemptMessages(body, usage), partialResponse: this.partialText(attempt.id, attempt.partial_response), outcome: attempt.outcome_json !== null ? this.outcome(attempt.id, attempt.outcome_json) : null };
 		});
 		return { id: row.id, runId: row.run_id, purpose: row.purpose, state: row.state, createdAt: row.created_at, messageSeq: row.message_seq, sessionId: row.session_id, attempts };
 	}
@@ -345,7 +345,7 @@ export class AgentLogStore {
 		this.assertCanWrite();
 		this.storage.transactionSync(() => {
 			for (const row of this.storage.sql.exec<{ run_id: string }>("SELECT DISTINCT run_id FROM inference_requests WHERE state = 'pending' LIMIT 100").toArray()) this.failPending(row.run_id, { kind: 'interrupted' });
-			for (const row of this.storage.sql.exec<{ id: string }>("SELECT id FROM compaction_sessions WHERE json_extract(outcome_json, '$.kind') = 'pending' ORDER BY created_at LIMIT 100").toArray()) this.settleSession(row.id, { kind: 'failed', error: { kind: 'interrupted' } });
+			for (const row of this.storage.sql.exec<{ id: string }>("SELECT id FROM compaction_sessions WHERE CASE WHEN json_valid(outcome_json) THEN json_extract(outcome_json, '$.kind') END = 'pending' ORDER BY created_at LIMIT 100").toArray()) this.settleSession(row.id, { kind: 'failed', error: { kind: 'interrupted' } });
 		});
 	}
 
@@ -384,7 +384,7 @@ export class AgentLogStore {
 	}
 
 	private outcome(id: number, metadata: string): AgentLogAttemptOutcome {
-		return logAttemptOutcome(storedLogValue(this.readChunks(id, 'outcome') || metadata));
+		return readLogAttemptOutcome(this.readChunks(id, 'outcome') || metadata);
 	}
 
 	summary(requestId: string): AgentLogAttemptSummary {
@@ -403,7 +403,7 @@ export class AgentLogStore {
 		if (!requestIds.length) return summaries;
 		// One JSON parameter keeps the page below SQLite's bound-parameter limit.
 		const attempts = this.storage.sql.exec<Pick<AttemptRow, 'id' | 'outcome_json'> & { request_id: string }>(`SELECT id, request_id, outcome_json FROM inference_attempts WHERE request_id IN (SELECT value FROM json_each(?)) ORDER BY request_id, id`, JSON.stringify(requestIds)).toArray();
-		const failed = attempts.filter(row => row.outcome_json && logAttemptKind(storedLogValue(row.outcome_json)) !== 'success');
+		const failed = attempts.filter(row => row.outcome_json !== null && readLogAttemptKind(row.outcome_json) !== 'success');
 		const texts = this.chunkTexts(failed.map(row => row.id), 'outcome');
 		for (const row of attempts) {
 			const summary: AgentLogAttemptSummary = summaries.get(row.request_id) ?? { count: 0, failures: [] };
@@ -411,7 +411,7 @@ export class AgentLogStore {
 			summaries.set(row.request_id, summary);
 		}
 		for (const row of failed) {
-			const outcome = logAttemptOutcome(storedLogValue(texts.get(row.id) || row.outcome_json!));
+			const outcome = readLogAttemptOutcome(texts.get(row.id) ?? row.outcome_json!);
 			if (outcome.kind !== 'success') summaries.get(row.request_id)!.failures.push({ attemptId: row.id, outcome });
 		}
 		return summaries;
@@ -444,7 +444,7 @@ export class AgentLogStore {
 			}
 			this.finish(row.id, 'failed');
 		}
-		for (const row of this.storage.sql.exec<{ id: string }>("SELECT id FROM compaction_sessions WHERE run_id = ? AND json_extract(outcome_json, '$.kind') = 'pending' ORDER BY created_at LIMIT 100", runId).toArray()) this.settleSession(row.id, { kind: 'failed', error: failure });
+		for (const row of this.storage.sql.exec<{ id: string }>("SELECT id FROM compaction_sessions WHERE run_id = ? AND CASE WHEN json_valid(outcome_json) THEN json_extract(outcome_json, '$.kind') END = 'pending' ORDER BY created_at LIMIT 100", runId).toArray()) this.settleSession(row.id, { kind: 'failed', error: failure });
 	}
 
 	private anchor(): { seq: number | null; position: number } {
@@ -477,7 +477,7 @@ export class AgentLogStore {
 	session(id: string): AgentLogCompactionSession {
 		const row = this.storage.sql.exec<SessionRow>('SELECT * FROM compaction_sessions WHERE id = ? LIMIT 1', id).toArray()[0];
 		if (!row) throw new RepositoryError('not_found', 'The compaction session is not retained.', 404);
-		return { id: row.id, trigger: logTrigger(storedLogValue(row.trigger_json)), position: row.position, createdAt: row.created_at, outcome: logCompactionOutcome(storedLogValue(row.outcome_json)), requests: this.storage.sql.exec<{ id: string }>('SELECT id FROM inference_requests WHERE session_id = ? ORDER BY event_seq LIMIT 1000', id).toArray().map(request => this.request(request.id)) };
+		return { id: row.id, trigger: logTrigger(storedLogValue(row.trigger_json)), position: row.position, createdAt: row.created_at, outcome: readLogCompactionOutcome(row.outcome_json), requests: this.storage.sql.exec<{ id: string }>('SELECT id FROM inference_requests WHERE session_id = ? ORDER BY event_seq LIMIT 1000', id).toArray().map(request => this.request(request.id)) };
 	}
 
 	private pageAuthor(value: string | null, message: BotLoopMessage): AgentLogAuthor {
@@ -512,15 +512,15 @@ export class AgentLogStore {
 		});
 		const live = source === null ? unlinked.filter(row => row.state === 'pending' || row.state === 'succeeded') : [];
 		const partials = this.chunkTexts(live.flatMap(row => row.attempt_id !== null && row.partial_response ? [row.attempt_id] : []), 'partial');
-		const responses = this.chunkTexts(live.flatMap(row => row.attempt_id !== null && row.state === 'succeeded' && row.outcome_json ? [row.attempt_id] : []), 'outcome');
+		const responses = this.chunkTexts(live.flatMap(row => row.attempt_id !== null && row.state === 'succeeded' && row.outcome_json !== null ? [row.attempt_id] : []), 'outcome');
 		for (const row of unlinked) {
 			if ((row.state === 'pending' || row.state === 'succeeded') && source === null) {
-				const outcome = row.state === 'succeeded' && row.outcome_json ? logAttemptOutcome(storedLogValue(responses.get(row.attempt_id!) || row.outcome_json)) : null;
+				const outcome = row.state === 'succeeded' && row.outcome_json !== null ? readLogAttemptOutcome(responses.get(row.attempt_id!) ?? row.outcome_json) : null;
 				const response = outcome?.kind === 'success' ? outcome.response : outcome?.kind === 'interrupted' ? outcome.response ?? null : null;
 				entries.push({ kind: 'live', position: Number.MAX_SAFE_INTEGER, requestId: row.id, runId: row.run_id, attempts: summary(row.id), partialResponse: row.attempt_id !== null ? this.partialText(row.attempt_id, row.partial_response, partials.get(row.attempt_id)) : null, response, attemptId: row.attempt_id ?? undefined, deltaRevision: [...this.liveAttempts.values()].find(attempt => attempt.attemptId === row.attempt_id)?.revision ?? 0 });
 			} else if (row.state === 'failed') entries.push({ kind: 'notice', position: row.position, notice: { kind: 'request_failed', requestId: row.id, attempts: summary(row.id) } });
 		}
-		for (const row of this.storage.sql.exec<SessionRow>(`SELECT s.* FROM compaction_sessions s LEFT JOIN loop_messages m ON m.seq = s.anchor_seq WHERE ${pagePredicate} ORDER BY s.position, s.created_at LIMIT 2000`, ...bindings).toArray()) entries.push({ kind: 'notice', position: row.position, notice: { kind: 'compaction_started', sessionId: row.id, outcome: logCompactionOutcome(storedLogValue(row.outcome_json)) } });
+		for (const row of this.storage.sql.exec<SessionRow>(`SELECT s.* FROM compaction_sessions s LEFT JOIN loop_messages m ON m.seq = s.anchor_seq WHERE ${pagePredicate} ORDER BY s.position, s.created_at LIMIT 2000`, ...bindings).toArray()) entries.push({ kind: 'notice', position: row.position, notice: { kind: 'compaction_started', sessionId: row.id, outcome: readLogCompactionOutcome(row.outcome_json) } });
 		return entries.sort((a, b) => a.position - b.position);
 	}
 
@@ -584,8 +584,8 @@ export class AgentLogStore {
 				this.storage.sql.exec('DELETE FROM inference_requests WHERE id = ?', request.id);
 			}
 			const sessions = this.storage.sql.exec<{ id: string }>(`SELECT s.id FROM compaction_sessions s LEFT JOIN loop_messages m ON m.seq = s.anchor_seq
-			 WHERE (json_extract(s.outcome_json, '$.kind') IN ('succeeded', 'partial') AND NOT EXISTS (SELECT 1 FROM loop_messages summary WHERE summary.session_id = s.id AND summary.origin = 'compaction'))
-			 OR (json_extract(s.outcome_json, '$.kind') = 'failed' AND s.created_at < ? AND NOT (s.anchor_seq IS NULL OR (${protectedPage})))
+			 WHERE (CASE WHEN json_valid(s.outcome_json) THEN json_extract(s.outcome_json, '$.kind') END IN ('succeeded', 'partial') AND NOT EXISTS (SELECT 1 FROM loop_messages summary WHERE summary.session_id = s.id AND summary.origin = 'compaction'))
+			 OR (CASE WHEN json_valid(s.outcome_json) THEN json_extract(s.outcome_json, '$.kind') END = 'failed' AND s.created_at < ? AND NOT (s.anchor_seq IS NULL OR (${protectedPage})))
 			 ORDER BY s.created_at, s.id LIMIT 100`, new Date(now.getTime() - 14 * 86400000).toISOString(), ...pages).toArray();
 			for (const session of sessions) this.storage.sql.exec('DELETE FROM compaction_sessions WHERE id = ?', session.id);
 		});

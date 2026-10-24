@@ -130,3 +130,9 @@ it('labels a local request failure as a runtime error', async () => {
 	expect(host.textContent).toContain('Storage is unavailable.');
 	expect(host.textContent).not.toContain('Provider error');
 });
+
+it('shows a generic label for an unknown stored failure', async () => {
+	const failed: AgentLogAttempt = { ...selected, outcome: { kind: 'unknown' } };
+	await act(async () => root.render(<AgentLogRequestView request={{ ...request([failed]), state: 'failed' }} />));
+	expect(host.textContent).toContain('Unknown failure');
+});

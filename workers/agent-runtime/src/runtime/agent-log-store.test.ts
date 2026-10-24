@@ -367,20 +367,20 @@ describe('agent log storage', () => {
 		for (const value of [store.request(id), store.summary(id), store.entries([row], null), store.session(sessionId)]) expect(JSON.stringify(value)).not.toContain('internalSecret');
 	});
 
-	it('rejects unknown stored kinds through the public store methods', () => {
+	it('contains unknown outcomes and rejects unsupported trigger metadata', () => {
 		const id = request();
 		const attempt = store.startAttempt(id, '{}');
 		store.settle(attempt, { kind: 'timeout' });
 		storage.sql.exec("UPDATE inference_body_chunks SET text = ? WHERE attempt_id = ? AND kind = 'outcome'", '{"kind":"unknown","internalSecret":"private"}', attempt);
-		expect(() => store.request(id)).toThrow('The stored agent log has an unsupported shape.');
-		expect(() => store.summary(id)).toThrow('The stored agent log has an unsupported shape.');
+		expect(store.request(id).attempts[0]?.outcome).toEqual({ kind: 'unknown' });
+		expect(store.summary(id).failures).toEqual([{ attemptId: attempt, outcome: { kind: 'unknown' } }]);
 		const row = append();
 		storage.sql.exec("UPDATE inference_body_chunks SET text = ? WHERE attempt_id = ? AND kind = 'outcome'", '{"kind":"timeout"}', attempt);
 		storage.sql.exec('UPDATE loop_messages SET author_json = ? WHERE seq = ?', '{"kind":"unknown"}', row.seq);
 		expect(store.entries([row], null)).toMatchObject([{ kind: 'message', author: { kind: 'unknown' } }]);
 		const sessionId = store.startSession('other', { kind: 'manual' });
 		storage.sql.exec('UPDATE compaction_sessions SET outcome_json = ? WHERE id = ?', '{"kind":"unknown"}', sessionId);
-		expect(() => store.session(sessionId)).toThrow('The stored agent log has an unsupported shape.');
+		expect(store.session(sessionId).outcome).toEqual({ kind: 'failed', error: { kind: 'unknown' } });
 		storage.sql.exec('UPDATE compaction_sessions SET outcome_json = ?, trigger_json = ? WHERE id = ?', '{"kind":"pending"}', '{"kind":"unknown"}', sessionId);
 		expect(() => store.session(sessionId)).toThrow('The stored agent log has an unsupported shape.');
 	});
