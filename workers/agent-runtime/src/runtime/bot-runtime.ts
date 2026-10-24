@@ -7434,12 +7434,12 @@ export class BotRuntime {
 			const bot = await this.botWithEffectivePostingSettings(await botById(this.env.BICKR_KV, this.env.BICKR_D1, botId));
 			const owner = await userById(this.env.BICKR_KV, bot.ownerUserId);
 			const settings = withProviderText(await this.effectiveProviderSettings(bot, owner), bot.text);
-			const runId = crypto.randomUUID();
 			const rows = this.compactionCandidateRows();
+			// A lone summary has no new history to combine. Automatic admission can
+			// still shorten it when a changed context budget requires that work.
+			if (rows.length === 0 || (rows.length === 1 && rows[0]!.origin === 'compaction')) return { messageCount: 0 };
+			const runId = crypto.randomUUID();
 			const context = await buildResultRenderContext(this.env.BICKR_D1, bot, resultViewsFromRows(this.activeLoopMessageRows()));
-			if (rows.length === 0) {
-				return { messageCount: 0 };
-			}
 			await this.compactLoopMessageRowsInBatches(context, bot, settings, runId, new AbortController().signal, rows, 'manual', {});
 			try {
 				await boundedCleanup('Provider usage export', (signal) => this.exportRecentProviderUsage(bot, new Date(), signal));
@@ -7447,6 +7447,19 @@ export class BotRuntime {
 				this.recordCleanupFailure(runId, 'provider_usage_export', error);
 			}
 			return { fromSeq: rows[0]?.seq, toSeq: rows[rows.length - 1]?.seq, messageCount: rows.length };
+		} catch (error) {
+			if (error instanceof RepositoryError) throw error;
+			const failure = agentLogFailure(error);
+			if (failure.kind === 'validation') {
+				const message = failure.issue === 'non_reducing_compaction'
+					? 'Compaction could not produce a shorter summary. Add new history or reduce the summary size before you try again.'
+					: failure.message;
+				throw new RepositoryError('bad_request', message, 422, { compactionFailure: { kind: 'validation', issue: failure.issue, message } });
+			}
+			if (failure.kind === 'timeout') throw new RepositoryError('bad_request', 'Compaction timed out. Try again later.', 408, { compactionFailure: { kind: 'timeout' } });
+			if (failure.kind === 'interrupted') throw new RepositoryError('conflict', 'Compaction was interrupted.', 409, { compactionFailure: { kind: 'interrupted' } });
+			if (failure.kind === 'provider_error') throw new RepositoryError('server_error', failure.message, 502, { compactionFailure: { kind: 'provider_error', status: failure.status, errorType: failure.errorType, message: failure.message } });
+			throw error;
 		} finally {
 			this.finishMaintenanceOperation('manual_compaction');
 		}
@@ -7468,6 +7481,10 @@ export class BotRuntime {
 			try {
 				await this.compactLoopMessageBatchesForSession(context, bot, settings, runId, signal, rows, mode, metrics, legacyCost);
 				const summary = this.state.storage.sql.exec<{ seq: number }>("SELECT seq FROM loop_messages WHERE session_id = ? AND origin = 'compaction' ORDER BY seq DESC LIMIT 1", sessionId).toArray()[0];
+				if (!summary && mode === 'manual') {
+					const message = 'Compaction did not produce a summary.';
+					throw new RepositoryError('bad_request', message, 422, { compactionFailure: { kind: 'validation', issue: 'missing_compaction_summary', message } });
+				}
 				if (summary) this.agentLogStore().settleSession(sessionId, { kind: 'succeeded', summarySeq: summary.seq });
 			} catch (error) {
 				this.agentLogStore().settleSession(sessionId, { kind: 'failed', error: agentLogFailure(error) });

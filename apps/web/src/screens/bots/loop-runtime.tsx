@@ -933,7 +933,7 @@ export function BotRuntimePanel({
 		if (result.ok) {
 			invalidateRefreshes({ messages: true });
 			const count = result.data.compacted.messageCount;
-			setMessage(count > 0 ? `Compacted ${count} loop chat message${count === 1 ? "" : "s"}.` : "There were no loop chat messages to compact.");
+			setMessage(count > 0 ? `Compacted ${count} loop chat message${count === 1 ? "" : "s"}.` : "There is no new loop history to compact.");
 			await refreshAuthoritativeCurrentPage();
 			return;
 		}
