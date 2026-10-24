@@ -157,6 +157,9 @@ export function BotRuntimePanel({
 	const statusRequestGenerationRef = useRef(0);
 	const eventsRequestGenerationRef = useRef(0);
 	const messagesRequestGenerationRef = useRef(0);
+	const streamRevisionRef = useRef(0);
+	const liveUpdatesRef = useRef(new Map<string, { revision: number; runId: string; attemptId?: number; deltas: Array<{ arrival: number; revision?: number; kind?: string; text?: string; part?: unknown }> }>());
+	const endedRunsRef = useRef(new Set<string>());
 	const usageRequestGenerationRef = useRef(0);
 	const trailingRefreshTimerRef = useRef<number | undefined>(undefined);
 	const reconnectAttemptRef = useRef(0);
@@ -187,6 +190,9 @@ export function BotRuntimePanel({
 		messagesRequestGenerationRef.current += 1;
 		usageRequestGenerationRef.current += 1;
 		reconnectAttemptRef.current = 0;
+		streamRevisionRef.current = 0;
+		liveUpdatesRef.current.clear();
+		endedRunsRef.current.clear();
 		setStatus(null);
 		setEvents([]);
 		setLoopMessages([]);
@@ -231,6 +237,7 @@ export function BotRuntimePanel({
 
 		function handleMonitorPayload(payload: RuntimeMonitorPayload): void {
 			if (payload.type === "history_cleared") {
+				liveUpdatesRef.current.clear();
 				invalidateRefreshes({ events: true, messages: true });
 				setEvents([]);
 				setLoopMessages([]);
@@ -288,16 +295,27 @@ export function BotRuntimePanel({
 				if (currentLoopPageRef.current !== 1) {
 					return;
 				}
+				if (endedRunsRef.current.has(payload.event.runId)) return;
 				setLoopMessages((current) => upsertLiveProviderLoopMessage(current, payload.event!));
-				const delta = payload.event.payload as { requestId?: string; kind?: string; text?: string };
-				if (delta.requestId) setLoopEntries(current => {
-					const old = current.find(entry => entry.kind === 'live' && entry.requestId === delta.requestId);
-					const partial = old?.kind === 'live' && old.partialResponse ? JSON.parse(old.partialResponse) as { content: string; reasoning: string } : { content: '', reasoning: '' };
-					if (delta.kind === 'content') partial.content += delta.text ?? '';
-					if (delta.kind === 'reasoning') partial.reasoning += delta.text ?? '';
-					const live: AgentLogEntry = { kind: 'live', position: Number.MAX_SAFE_INTEGER, requestId: delta.requestId!, runId: payload.event!.runId, attempts: old?.kind === 'live' ? old.attempts : { count: 1, failures: [] }, partialResponse: JSON.stringify(partial), response: null };
-					return [...current.filter(entry => entry.kind !== 'live' || entry.requestId !== delta.requestId), live];
-				});
+				const delta = payload.event.payload as { requestId?: string; kind?: string; text?: string; deltaRevision?: number; attemptId?: number; part?: unknown };
+				if (delta.requestId) {
+					const arrival = ++streamRevisionRef.current;
+					const currentUpdate = liveUpdatesRef.current.get(delta.requestId);
+					const previous = currentUpdate?.attemptId !== undefined && delta.attemptId !== undefined && currentUpdate.attemptId !== delta.attemptId ? undefined : currentUpdate;
+					const update = previous ?? { revision: arrival, runId: payload.event.runId, attemptId: delta.attemptId, deltas: [] };
+					update.revision = arrival;
+					update.deltas.push({ arrival, revision: delta.deltaRevision, kind: delta.kind, text: delta.text, part: delta.part });
+					liveUpdatesRef.current.set(delta.requestId, update);
+					setLoopEntries(current => {
+						const old = current.find(entry => entry.kind === 'live' && entry.requestId === delta.requestId && (entry.attemptId === undefined || delta.attemptId === undefined || entry.attemptId === delta.attemptId));
+						const partial = old?.kind === 'live' && old.partialResponse ? JSON.parse(old.partialResponse) as { content: string; reasoning: string; toolCalls?: unknown[] } : { content: '', reasoning: '', toolCalls: [] };
+						if (delta.kind === 'content') partial.content += delta.text ?? '';
+						if (delta.kind === 'reasoning') partial.reasoning += delta.text ?? '';
+						if (delta.kind === 'tool_call') (partial.toolCalls ??= []).push(delta.part);
+						const live: AgentLogEntry = { kind: 'live', position: Number.MAX_SAFE_INTEGER, requestId: delta.requestId!, runId: payload.event!.runId, attempts: old?.kind === 'live' ? old.attempts : { count: 1, failures: [] }, partialResponse: JSON.stringify(partial), response: null, deltaRevision: delta.deltaRevision, attemptId: delta.attemptId };
+						return [...current.filter(entry => entry.kind !== 'live' || entry.requestId !== delta.requestId), live];
+					});
+				}
 				return;
 			}
 			if (payload.event) {
@@ -310,6 +328,7 @@ export function BotRuntimePanel({
 				const terminal = ["tick_completed", "tick_failed", "tick_stopped"].includes(payload.event.type);
 				invalidateRefreshes({ events: true, messages: terminal });
 				if (terminal) {
+					rememberEndedRun(payload.event.runId);
 					setLoopEntries(current => current.filter(entry => entry.kind !== 'live' || entry.runId !== payload.event!.runId));
 					if (currentLoopPageRef.current === 1) {
 						setLoopMessages((current) => removeLiveProviderLoopMessagesForRun(current, payload.event!.runId));
@@ -490,6 +509,13 @@ export function BotRuntimePanel({
 		shouldStickToBottomRef.current = log.scrollHeight - log.scrollTop - log.clientHeight < 24;
 	}
 
+	function rememberEndedRun(runId: string): void {
+		endedRunsRef.current.add(runId);
+		// Only recent runs can still have delayed socket frames or snapshots.
+		if (endedRunsRef.current.size > 1_000) endedRunsRef.current.delete(endedRunsRef.current.values().next().value!);
+		for (const [id, update] of liveUpdatesRef.current) if (update.runId === runId) liveUpdatesRef.current.delete(id);
+	}
+
 	function invalidateRefreshes(parts: { events?: boolean; messages?: boolean }): void {
 		if (parts.events) eventsRequestGenerationRef.current += 1;
 		if (parts.messages) messagesRequestGenerationRef.current += 1;
@@ -523,6 +549,7 @@ export function BotRuntimePanel({
 		const statusGeneration = ++statusRequestGenerationRef.current;
 		const eventsGeneration = ++eventsRequestGenerationRef.current;
 		const messagesGeneration = ++messagesRequestGenerationRef.current;
+		const streamRevisionAtStart = streamRevisionRef.current;
 		const usageGeneration = ++usageRequestGenerationRef.current;
 		const messageQuery = new URLSearchParams();
 		if (requestedPage > 1) {
@@ -546,6 +573,8 @@ export function BotRuntimePanel({
 			// remain additive, but a reconnect snapshot must remove rows whose delete
 			// or history-clear notification was missed while disconnected.
 			setEvents(eventsResult.data.events);
+			for (const event of eventsResult.data.events) if (['tick_completed', 'tick_failed', 'tick_stopped'].includes(event.type)) rememberEndedRun(event.runId);
+			setLoopEntries(current => current.filter(entry => entry.kind !== 'live' || !endedRunsRef.current.has(entry.runId)));
 		}
 		if (messagesResult.ok && messagesGeneration === messagesRequestGenerationRef.current) {
 			const page = messagesResult.data.page;
@@ -579,11 +608,41 @@ export function BotRuntimePanel({
 			currentLoopPageRef.current = page.currentPage;
 			currentLoopSourceCompactionSeqRef.current = returnedSource;
 			setLoopMessagePage(page);
+			// The snapshot replaces older live entries. Only newer stream updates
+			// can fill gaps or supersede a live value returned by this snapshot.
+			for (const [id, update] of liveUpdatesRef.current) {
+				if (update.revision <= streamRevisionAtStart) liveUpdatesRef.current.delete(id);
+				else update.deltas = update.deltas.filter(delta => delta.arrival > streamRevisionAtStart);
+			}
+			const retainedUpdates = new Map([...liveUpdatesRef.current].map(([id, update]) => [id, { ...update, deltas: [...update.deltas] }]));
+			const endedRuns = new Set(endedRunsRef.current);
 			setLoopEntries(current => {
-				const entries = messagesResult.data.entries;
+				const entries = messagesResult.data.entries.filter(entry => entry.kind !== 'live' || !endedRuns.has(entry.runId));
 				if (page.currentPage !== 1) return entries;
+				const newer = current.filter((entry): entry is Extract<AgentLogEntry, { kind: 'live' }> => entry.kind === 'live' && !endedRuns.has(entry.runId) && (retainedUpdates.get(entry.requestId)?.revision ?? 0) > streamRevisionAtStart);
 				const ids = new Set(entries.flatMap(entry => entry.kind === 'message' || entry.kind === 'live' ? entry.requestId ? [entry.requestId] : [] : entry.kind === 'notice' && entry.notice.kind === 'request_failed' ? [entry.notice.requestId] : []));
-				return [...entries, ...current.filter(entry => entry.kind === 'live' && !ids.has(entry.requestId))];
+				const mergeLive = (entry: Extract<AgentLogEntry, { kind: 'live' }>, base?: Extract<AgentLogEntry, { kind: 'live' }>): AgentLogEntry => {
+					const attemptId = retainedUpdates.get(entry.requestId)?.attemptId;
+					if (base?.attemptId !== undefined && attemptId !== undefined && attemptId < base.attemptId) return base;
+					const reset = attemptId !== undefined && base?.attemptId !== undefined && attemptId > base.attemptId;
+					if (base?.response && !reset) return base;
+					const partial = !reset && base?.partialResponse ? JSON.parse(base.partialResponse) as { content: string; reasoning: string; toolCalls?: unknown[] } : { content: '', reasoning: '', toolCalls: [] };
+					const deltas = retainedUpdates.get(entry.requestId)?.deltas ?? [];
+					let deltaRevision = reset ? 0 : base?.deltaRevision ?? 0;
+					for (const delta of deltas) {
+						if (delta.arrival <= streamRevisionAtStart || (delta.revision !== undefined && delta.revision <= deltaRevision)) continue;
+						if (delta.kind === 'content') partial.content += delta.text ?? '';
+						if (delta.kind === 'reasoning') partial.reasoning += delta.text ?? '';
+						if (delta.kind === 'tool_call') (partial.toolCalls ??= []).push(delta.part);
+						deltaRevision = delta.revision ?? deltaRevision;
+					}
+					return { ...(base ?? entry), partialResponse: JSON.stringify(partial), response: reset ? null : base?.response ?? entry.response, deltaRevision, attemptId: attemptId ?? base?.attemptId };
+				};
+				return [...entries.map(entry => {
+					if (entry.kind !== 'live') return entry;
+					const update = newer.find(item => item.requestId === entry.requestId);
+					return update ? mergeLive(update, entry) : entry;
+				}), ...newer.filter(entry => !ids.has(entry.requestId)).map(entry => mergeLive(entry))];
 			});
 			if (page.currentPage === 1) {
 				for (const loopMessage of messagesResult.data.messages) {
