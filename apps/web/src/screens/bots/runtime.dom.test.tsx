@@ -76,17 +76,21 @@ let root: Root;
 let pendingMessages: PendingMessages[];
 let pendingEvents: PendingEvents[];
 let holdEventSnapshots: boolean;
+let runtimeStatus: 'running' | 'idle';
 let pendingInference: Array<{ path: string; resolve: (response: Response) => void }>;
 let pendingRequests: Array<{ path: string; resolve: (response: Response) => void }>;
 let pendingLogs: Array<{ path: string; resolve: (response: Response) => void }>;
+let pendingCompactions: Array<(response: Response) => void>;
 
 beforeEach(async () => {
 	(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 	pendingMessages = [];
 	pendingEvents = [];
 	holdEventSnapshots = false;
+	runtimeStatus = 'running';
 	pendingInference = [];
 	pendingLogs = [];
+	pendingCompactions = [];
 	pendingRequests = [];
 	MonitorSocket.instances = [];
 	vi.stubGlobal('WebSocket', MonitorSocket);
@@ -96,7 +100,7 @@ beforeEach(async () => {
 			return Promise.resolve(json({ ok: true, data: { effectiveModels: { models: [{ botId: bot.id, effectiveModel: 'test/model' }] } } }));
 		}
 		if (path.endsWith('/runtime/status')) {
-			return Promise.resolve(json({ ok: true, data: { status: { botId: bot.id, enabled: true, status: 'running' } } }));
+			return Promise.resolve(json({ ok: true, data: { status: { botId: bot.id, enabled: true, status: runtimeStatus } } }));
 		}
 		if (path.endsWith('/runtime/events')) {
 			if (holdEventSnapshots) {
@@ -109,6 +113,7 @@ beforeEach(async () => {
 		if (path.endsWith('/runtime/token-usage')) {
 			return Promise.resolve(json({ ok: false, error: 'unavailable', message: 'usage unavailable' }, 503));
 		}
+		if (path.endsWith('/runtime/compact')) return new Promise<Response>(resolve => pendingCompactions.push(resolve));
 		if (path.includes('/runtime/requests/')) {
 			return new Promise<Response>(resolve => pendingRequests.push({ path, resolve }));
 		}
@@ -658,6 +663,52 @@ function runtimeEvent(seq: number, runId: string, type: BotRuntimeEvent['type'])
 function json(body: unknown, status = 200): Response {
 	return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 }
+
+it('keeps watched content when the owner starts compaction', async () => {
+	const original = loopMessage(41, 'Watched before manual compaction');
+	await answerMessages(0, [original]);
+	runtimeStatus = 'idle';
+	await act(async () => [...container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Refresh log')!.click());
+	await answerMessages(1, [original]);
+	const compact = [...container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Compact chat')!;
+	await act(async () => compact.click());
+	const confirm = [...document.querySelectorAll<HTMLButtonElement>('.modal button')].find(button => button.textContent === 'Compact chat')!;
+	await act(async () => confirm.click());
+	await act(async () => pendingCompactions[0]!(json({ ok: true, data: { compacted: { messageCount: 1, fromSeq: 41, toSeq: 41 } } })));
+	const pages = [{ page: 1, isNewest: true, messageCount: 1, fromSeq: 80, toSeq: 80, olderPage: 2 }, { page: 2, isNewest: false, messageCount: 1, fromSeq: 41, toSeq: 41, sourceCompactionSeq: 80, newerPage: 1 }];
+	await answerMessages(2, [loopMessage(80, 'New summary')], page(1, { 80: 2 }, pages));
+	await act(async () => pendingLogs[0]!.resolve(json({ ok: true, data: { message: { ...original, compactedBy: 80 }, logs: [] } })));
+	await answerMessages(3, [{ ...original, compactedBy: 80 }], page(2, { 80: 2 }, pages));
+	expect(container.querySelector('.agent-log-archive')?.textContent).toContain('Watched before manual compaction');
+	expect(container.textContent).toContain('Remove from archive');
+	expect([...container.querySelectorAll('button')].find(button => button.textContent === 'Compact chat')?.disabled).toBe(true);
+});
+
+it('keeps live request details current through completion', async () => {
+	await act(async () => pendingMessages[0]!.resolve({ messages: [], entries: [liveEntry('streaming-modal', 'Text on the card')], page: page(1, {}, [{ page: 1, messageCount: 0 }]) }));
+	await act(async () => container.querySelector<HTMLButtonElement>('.is-live .agent-log-info')!.click());
+	const pending: typeof requestFixture = { ...requestFixture, state: 'pending', attempts: [{ ...requestFixture.attempts[0]!, usage: null, attribution: null, outcome: null, partialResponse: null }] };
+	vi.useFakeTimers();
+	try {
+		await act(async () => pendingRequests[0]!.resolve(json({ ok: true, data: { request: pending } })));
+		expect(container.querySelector('.modal')?.textContent).toContain('No response yet.');
+		await act(async () => vi.advanceTimersByTimeAsync(500));
+		await act(async () => pendingRequests[1]!.resolve(json({ ok: true, data: { request: { ...pending, attempts: [{ ...pending.attempts[0], partialResponse: JSON.stringify({ content: 'Text in the modal', reasoning: 'A partial thought' }) }] } } })));
+		expect(container.querySelector('.modal')?.textContent).toContain('Partial response');
+		expect(container.querySelector('.modal')?.textContent).toContain('Text in the modal');
+		expect(container.querySelector('.is-live')?.textContent).toContain('Text on the card');
+		await act(async () => vi.advanceTimersByTimeAsync(500));
+		await act(async () => pendingRequests[2]!.resolve(json({ ok: true, data: { request: { ...pending, attempts: [{ ...pending.attempts[0], partialResponse: JSON.stringify({ content: 'Longer text in the modal' }) }] } } })));
+		expect(container.querySelector('.modal')?.textContent).toContain('Longer text in the modal');
+		await act(async () => vi.advanceTimersByTimeAsync(500));
+		await act(async () => pendingRequests[3]!.resolve(json({ ok: true, data: { request: { ...pending, state: 'succeeded', attempts: [{ ...pending.attempts[0], outcome: { kind: 'success', response: JSON.stringify({ content: 'Completed response in the modal' }) } }] } } })));
+		expect(container.querySelector('.modal')?.textContent).toContain('Completed response in the modal');
+		expect(container.querySelector('.modal')?.textContent).not.toContain('Partial response');
+		expect(container.querySelector('.modal')?.textContent).not.toContain('Longer text in the modal');
+		await act(async () => vi.advanceTimersByTimeAsync(1000));
+		expect(pendingRequests).toHaveLength(4);
+	} finally { vi.useRealTimers(); }
+});
 
 it.each([2, 3])('keeps the selected archive when a monitor refresh moves it to page %s', async archivePage => {
 	const pages = [

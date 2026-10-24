@@ -4171,6 +4171,11 @@ fieldset {
 	text-anchor: middle;
 }
 
+.token-model-breakdown-scroll {
+	min-width: 0;
+	overflow-x: auto;
+}
+
 .token-model-breakdown {
 	border-collapse: collapse;
 	justify-self: center;
@@ -8196,6 +8201,7 @@ button.inference-model-name:hover { text-decoration: underline; }
 	box-sizing: border-box;
 }
 .loop-runtime {
+	grid-template-columns: minmax(0, 1fr);
 	min-width: 0;
 	padding-inline: 0;
 }
