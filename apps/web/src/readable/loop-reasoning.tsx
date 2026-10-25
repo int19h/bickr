@@ -10,7 +10,7 @@ export function LoopReasoning({ message }: { message: BotInferenceSubmissionMess
 	// Details are authoritative. The plain fields can repeat summaries or contain opaque text.
 	const text = classified ? details.text : message.reasoning || message.reasoning_content || '';
 	const summaryOnly = details.hasSummary && !details.hasText;
-	const opaqueOnly = !text && details.opaqueParts > 0;
+	const opaqueOnly = !text && (details.opaqueParts > 0 || (message.reasoningParts === undefined && message.reasoning_details !== undefined));
 	const opaqueNote = details.encryptedParts > 0
 		? `encrypted by the provider${details.opaqueParts > 1 ? ` · ${details.opaqueParts} parts` : ''}`
 		: 'recorded, not readable';

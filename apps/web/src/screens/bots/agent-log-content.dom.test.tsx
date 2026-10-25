@@ -1,7 +1,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
-import { AgentLogReasoning, storedResponseMessage } from './agent-log-content';
+import { AgentLogReasoning, storedResponseMessage, storedPartialMessage } from './agent-log-content';
 import { AgentLogCard, AgentLogBody, AgentLogExpandControl } from './agent-log-card';
 import { AgentLogRequestModal } from './agent-log-details';
 import { requestFixture } from './agent-log.fixtures';
@@ -134,4 +134,11 @@ it.each(['snapshot', 'completed'])('hides an unknown detail and its plain copy i
 	act(() => root.render(<AgentLogReasoning message={message} />));
 	expect(container.textContent).toContain('recorded, not readable');
 	expect(container.textContent).not.toContain('opaque bytes');
+});
+
+
+it('keeps an empty typed partial hidden before reasoning arrives', () => {
+	const message = storedPartialMessage(JSON.stringify({ content: '', reasoning: '', reasoningParts: [], toolCalls: [] }));
+	act(() => root.render(<AgentLogReasoning message={message} />));
+	expect(container.querySelector('.agent-log-reasoning')).toBeNull();
 });
