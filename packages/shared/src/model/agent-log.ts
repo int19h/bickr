@@ -12,7 +12,8 @@ export type AgentLogToolDelta = { index?: number; id?: string; type?: string; fu
 export type AgentLogStreamDelta =
 	| { kind: 'content'; text: string }
 	| { kind: 'reasoning'; source: 'plain'; text: string }
-	| { kind: 'reasoning'; source: 'detail'; part: AgentLogReasoningDetail }
+	| { kind: 'reasoning'; source: 'detail'; part: Extract<AgentLogReasoningDetail, { kind: 'readable' }>; text: string }
+	| { kind: 'reasoning'; source: 'detail'; part: Extract<AgentLogReasoningDetail, { kind: 'opaque' }>; text?: never }
 	| { kind: 'tool_call'; part: AgentLogToolDelta };
 export type AgentLogStreamPayload = AgentLogStreamDelta & {
 	streamSeq: number;
@@ -23,7 +24,7 @@ export type AgentLogStreamPayload = AgentLogStreamDelta & {
 };
 export type AgentLogPartialResponse = {
 	content: string;
-	// This compatibility field contains only provider plain reasoning, never detail text.
+	// This compatibility field contains plain reasoning and readable detail text in stream order.
 	reasoning: string;
 	reasoningParts: AgentLogReasoningPart[];
 	toolCalls: AgentLogToolDelta[];

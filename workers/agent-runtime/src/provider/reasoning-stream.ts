@@ -50,3 +50,10 @@ export function reasoningDetailForStream(value: unknown): AgentLogReasoningDetai
 	}
 	return { kind: 'opaque', type, ...identity };
 }
+
+export function reasoningTextFromDetails(details: readonly unknown[]): string {
+	return details.map(value => {
+		const part = reasoningDetailForStream(value);
+		return part.kind === 'readable' ? part.text : '';
+	}).join('');
+}

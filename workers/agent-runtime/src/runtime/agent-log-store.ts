@@ -290,11 +290,13 @@ export class AgentLogStore {
 		}
 		if (payload.kind === 'reasoning') {
 			const part: AgentLogReasoningPart = payload.source === 'plain' ? { kind: 'text', text: payload.text } : payload.part;
-			if (part.kind === 'text') live.text.reasoning += part.text;
+			if (part.kind !== 'opaque') live.text.reasoning += part.text;
 			const key = part.kind === 'text' ? null : agentLogReasoningDetailKey(part);
 			const slot = key === null ? undefined : live.reasoningSlots.get(key);
 			const last = live.text.reasoningParts.at(-1);
-			const previous = part.kind === 'text' && last?.kind === 'text' ? last : slot === undefined ? undefined : live.text.reasoningParts[slot];
+			// Join readable chunks only when adjacent, so interleaved text keeps its stream order.
+			const previous = part.kind === 'text' && last?.kind === 'text' ? last
+				: slot === undefined || (part.kind === 'readable' && slot !== live.text.reasoningParts.length - 1) ? undefined : live.text.reasoningParts[slot];
 			if (previous?.kind === 'text' && part.kind === 'text') {
 				previous.text += part.text;
 				added = part.text;

@@ -4,13 +4,15 @@ The runtime stores each inference attempt before it sends the request. Each atte
 
 ## Live reasoning
 
-`AgentLogStreamDelta` defines content, reasoning, and tool-call deltas. Plain provider reasoning uses `kind: reasoning`, `source: plain`, and `text`. A detail uses `kind: reasoning`, `source: detail`, and `part`. Readable parts contain `kind: readable`, the provider type, and text. Only `reasoning.text` and `reasoning.summary` permit text.
+`AgentLogStreamDelta` defines content, reasoning, and tool-call deltas. Plain provider reasoning uses `kind: reasoning`, `source: plain`, and `text`. A detail uses `kind: reasoning`, `source: detail`, and `part`. Readable parts contain `kind: readable`, the provider type, and text. Readable deltas also carry top-level `text` for older clients. Only `reasoning.text` and `reasoning.summary` permit text.
 
 Other types produce `kind: opaque` markers with no text or data. Each detail retains its provider `index` and `id` when present. Unknown or absent types remain opaque.
 
 `AgentLogStreamPayload` adds the existing request, attempt, stream, and revision fields. The runtime builds each delta from an explicit field list. Opaque markers with the same type and identity share one partial part. An index takes precedence over an ID. Without either identity, each opaque item counts as a separate part.
 
-The JSON string in `partialResponse` follows `AgentLogPartialResponse`. Its `reasoningParts` array preserves typed parts. Readable chunks with the same type and identity join in place. The compatibility field `reasoning` contains only plain provider reasoning. It never contains text from details. Partial responses share the existing memory cache, flush limits, and retention rule. Exact provider details remain in the existing response store for the details modal. This change adds no table or column.
+The JSON string in `partialResponse` follows `AgentLogPartialResponse`. Its `reasoningParts` array preserves typed parts. Consecutive readable chunks with the same type and identity join in place. The compatibility field `reasoning` contains plain text and readable details in arrival order. Opaque details never enter this field or the text of a completed or interrupted response.
+
+Partial responses share the existing memory cache, flush limits, and retention rule. Exact provider details remain in the existing response store for the details modal. This change adds no table or column.
 
 ## Tables and retention
 

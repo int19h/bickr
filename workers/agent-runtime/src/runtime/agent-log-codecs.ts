@@ -138,7 +138,10 @@ export function logStreamDelta(value: unknown): AgentLogStreamDelta {
 		case 'content': return { kind: 'content', text: text(item.text) };
 		case 'reasoning':
 			if (item.source === 'plain') return { kind: 'reasoning', source: 'plain', text: text(item.text) };
-			if (item.source === 'detail') return { kind: 'reasoning', source: 'detail', part: logReasoningDetail(item.part) };
+			if (item.source === 'detail') {
+				const part = logReasoningDetail(item.part);
+				return part.kind === 'readable' ? { kind: 'reasoning', source: 'detail', part, text: part.text } : { kind: 'reasoning', source: 'detail', part };
+			}
 			return invalid();
 		case 'tool_call': return { kind: 'tool_call', part: logToolDelta(item.part) };
 		default: return invalid();
@@ -152,5 +155,5 @@ export function logPartial(value: unknown): AgentLogPartialResponse {
 		const part = record(value);
 		return part.kind === 'text' ? { kind: 'text', text: text(part.text) } : logReasoningDetail(part);
 	}) : typeof item.reasoning === 'string' && item.reasoning ? [{ kind: 'opaque', type: null }] : [];
-	return { content: text(item.content), reasoning: reasoningParts.filter(part => part.kind === 'text').map(part => part.text).join(''), reasoningParts, toolCalls: array(item.toolCalls).map(logToolDelta) };
+	return { content: text(item.content), reasoning: reasoningParts.map(part => part.kind === 'opaque' ? '' : part.text).join(''), reasoningParts, toolCalls: array(item.toolCalls).map(logToolDelta) };
 }

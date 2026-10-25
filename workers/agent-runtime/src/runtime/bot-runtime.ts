@@ -1,3 +1,4 @@
+import { reasoningTextFromDetails } from '../provider/reasoning-stream';
 import type { AgentLogStreamDelta, AgentLogStreamPayload } from '@bickr/shared/model';
 import { logStreamDelta } from './agent-log-codecs';
 import { manualCompactionError } from './manual-compaction-errors';
@@ -4747,7 +4748,6 @@ export class BotRuntime {
 				metadataProviderName: openRouterMetadataProviderName,
 				streamErrorFromChunk: providerStreamErrorFromChunk,
 				normalizeReasoningDetails: normalizeReasoningDetailsForProviderHistory,
-				reasoningTextFromDetails,
 				repairInvalidUnicodeText,
 				repairInvalidUnicodeValue,
 				isAbortError,
@@ -9832,41 +9832,6 @@ function retryIdempotentCloudflareBinding<T>(operation: string, run: () => Promi
 		maxDelayMs: cloudflareBindingRetryMaxDelayMs,
 		shouldRetry: isCloudflareRateLimitError,
 	});
-}
-
-function reasoningTextFromDetails(details: ReasoningDetail[]): string {
-	return details.map(reasoningDetailText).join('');
-}
-
-function reasoningDetailText(detail: ReasoningDetail): string {
-	const text = detail.text;
-	if (typeof text === 'string') {
-		return text;
-	}
-	return reasoningSummaryText(detail.summary);
-}
-
-function reasoningSummaryText(summary: unknown): string {
-	if (typeof summary === 'string') {
-		return summary;
-	}
-	if (!Array.isArray(summary)) {
-		return '';
-	}
-	return summary
-		.map((item) => {
-			if (typeof item === 'string') {
-				return item;
-			}
-			const record = runtimeRecord(item);
-			const text = record.text;
-			if (typeof text === 'string') {
-				return text;
-			}
-			const nestedSummary = record.summary;
-			return typeof nestedSummary === 'string' ? nestedSummary : '';
-		})
-		.join('');
 }
 
 function seenItemFromSource(sourceObjectId: string | undefined): { type: 'thread' | 'comment'; id: string } | null {

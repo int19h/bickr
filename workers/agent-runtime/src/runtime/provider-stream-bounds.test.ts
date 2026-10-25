@@ -18,7 +18,7 @@ const frame = (delta: Record<string, unknown>) => `data: ${JSON.stringify({ choi
 const runtime: ProviderSseRuntime = {
 	stringValue: value => typeof value === 'string' ? value : undefined,
 	usageFromValue: () => undefined, metadataProviderName: () => null, streamErrorFromChunk: () => null,
-	normalizeReasoningDetails: details => details as Record<string, unknown>[], reasoningTextFromDetails: () => '',
+	normalizeReasoningDetails: details => details as Record<string, unknown>[],
 	repairInvalidUnicodeText: value => value, repairInvalidUnicodeValue: value => ({ value }),
 	isAbortError: () => false, throwIfStopped: () => {}, broadcastProviderDelta: () => {},
 };

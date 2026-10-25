@@ -1,3 +1,6 @@
+import type { ProviderResponse } from '../types';
+import { ProviderResponseInterruptedError } from '../errors';
+import { reasoningTextFromDetails } from '../provider/reasoning-stream';
 import type { AgentLogStreamDelta } from '@bickr/shared/model';
 import { attachToolResultView } from './result-messages';
 import { resultViewBase, type ToolResultView } from './tool-result-views';
@@ -351,8 +354,8 @@ describe('agent log storage', () => {
 		const attempt = store.startAttempt(id, '{}');
 		const deltas: AgentLogStreamDelta[] = [
 			{ kind: 'reasoning', source: 'plain', text: 'Plain' },
-			{ kind: 'reasoning', source: 'detail', part: { kind: 'readable', type: 'reasoning.summary', index: 0, id: 'summary', text: 'Sum' } },
-			{ kind: 'reasoning', source: 'detail', part: { kind: 'readable', type: 'reasoning.summary', index: 0, id: 'summary', text: 'mary' } },
+			{ kind: 'reasoning', source: 'detail', text: 'Sum', part: { kind: 'readable', type: 'reasoning.summary', index: 0, id: 'summary', text: 'Sum' } },
+			{ kind: 'reasoning', source: 'detail', text: 'mary', part: { kind: 'readable', type: 'reasoning.summary', index: 0, id: 'summary', text: 'mary' } },
 			{ kind: 'reasoning', source: 'detail', part: { kind: 'opaque', type: 'reasoning.encrypted', index: 1, id: 'secret' } },
 			{ kind: 'reasoning', source: 'detail', part: { kind: 'opaque', type: 'future.type', id: 'future' } },
 		];
@@ -360,7 +363,7 @@ describe('agent log storage', () => {
 		store.partial('run', 1, deltas[3]!);
 		store.partial('run', 1, { kind: 'reasoning', source: 'detail', part: { kind: 'readable', type: 'future.type', id: 'future', text: 'OPAQUE', data: 'OPAQUE' } } as unknown as AgentLogStreamDelta);
 		const expected = {
-			content: '', reasoning: 'Plain', reasoningParts: [
+			content: '', reasoning: 'PlainSummary', reasoningParts: [
 				{ kind: 'text', text: 'Plain' },
 				{ kind: 'readable', type: 'reasoning.summary', index: 0, id: 'summary', text: 'Summary' },
 				{ kind: 'opaque', type: 'reasoning.encrypted', index: 1, id: 'secret' },
@@ -378,6 +381,71 @@ describe('agent log storage', () => {
 		const stored = storage.sql.exec<{ text: string }>("SELECT text FROM inference_body_chunks WHERE attempt_id = ? AND kind = 'partial' ORDER BY chunk_index", attempt).toArray().map(row => row.text).join('');
 		expect(JSON.parse(stored)).toEqual(expected);
 		expect(stored).not.toContain('OPAQUE');
+	});
+
+	it.each([true, false])('keeps settled reasoning safe in the outcome and recovered history when completed=%s', async completed => {
+		const id = request();
+		const attempt = store.startAttempt(id, '{}');
+		const deltas: AgentLogStreamDelta[] = [];
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			agentLogs: store, runtimeMessageStore: () => messages,
+			clearPendingTool: () => {}, throwIfStopped: () => {},
+			broadcastProviderDelta: (runId: string, seq: number, delta: AgentLogStreamDelta) => {
+				deltas.push(delta);
+				store.partial(runId, seq, delta);
+			},
+		});
+		const details = [
+			{ type: 'reasoning.text', index: 0, text: 'Text' },
+			{ type: 'reasoning.summary', index: 1, summary: 'Summary' },
+			{ type: 'reasoning.encrypted', index: 2, text: 'OPAQUE_ENCRYPTED', data: 'EXACT_SIGNATURE' },
+			{ type: 'future.type', index: 3, text: 'OPAQUE_FUTURE' },
+		];
+		const frame = `data: ${JSON.stringify({ choices: [{ delta: { content: 'Reply', reasoning: 'Plain', reasoning_details: details } }] })}\n\n`;
+		const body = new ReadableStream<Uint8Array>({ start(controller) {
+			controller.enqueue(new TextEncoder().encode(frame + (completed ? 'data: [DONE]\n\n' : '')));
+			controller.close();
+		} });
+		let response: ProviderResponse;
+		try {
+			response = await runtime.consumeProviderResponse('run', 1, body, new AbortController().signal);
+			expect(completed).toBe(true);
+		} catch (error) {
+			expect(completed).toBe(false);
+			expect(error).toBeInstanceOf(ProviderResponseInterruptedError);
+			response = (error as ProviderResponseInterruptedError).response;
+		}
+		expect(response.reasoning).toBe('PlainTextSummary');
+		expect(response.reasoningDetails).toEqual(details);
+		expect(JSON.stringify(deltas)).not.toContain('OPAQUE');
+		const raw = JSON.stringify({ message: { role: 'assistant', content: response.content, reasoning: response.reasoning, reasoning_details: response.reasoningDetails } });
+		store.settle(attempt, { kind: completed ? 'success' : 'interrupted', response: raw });
+		store.stageResponsePublication({ kind: 'provider_response', runId: 'run', requestId: id, eventSeq: 1, attemptId: attempt, assistantSeq: null, pendingCallIds: [] });
+		runtime.settleResponsePublication(testResultContext, 'run', null);
+		const saved = new AgentLogStore(storage).request(id).attempts[0]!;
+		expect(saved.outcome).toMatchObject({ response: raw });
+		expect(JSON.parse(raw).message.reasoning).toBe('PlainTextSummary');
+		expect(JSON.parse(saved.partialResponse!).reasoning).toBe('PlainTextSummary');
+		expect(saved.partialResponse).not.toContain('OPAQUE');
+		const row = messages.loopMessagesAfter(testResultContext, 0)[0]!;
+		expect(row.message.reasoning).toBeUndefined();
+		expect(row.message.reasoning_details).toEqual(details);
+		expect(reasoningTextFromDetails(row.message.reasoning_details!)).toBe('TextSummary');
+		expect(store.requestForMessage(row.seq)?.id).toBe(id);
+	});
+
+	it('keeps interleaved readable parts in arrival order through a flush', () => {
+		const id = request();
+		const attempt = store.startAttempt(id, '{}');
+		store.partial('run', 1, { kind: 'reasoning', source: 'detail', text: 'A', part: { kind: 'readable', type: 'reasoning.text', index: 0, text: 'A' } });
+		store.partial('run', 1, { kind: 'reasoning', source: 'plain', text: 'B' });
+		store.partial('run', 1, { kind: 'reasoning', source: 'detail', text: 'C', part: { kind: 'readable', type: 'reasoning.text', index: 0, text: 'C' } });
+		const partial = store.request(id).attempts[0]!.partialResponse!;
+		expect(JSON.parse(partial)).toMatchObject({ reasoning: 'ABC', reasoningParts: [
+			{ kind: 'readable', text: 'A' }, { kind: 'text', text: 'B' }, { kind: 'readable', text: 'C' },
+		] });
+		store.settle(attempt, { kind: 'interrupted' });
+		expect(new AgentLogStore(storage).request(id).attempts[0]!.partialResponse).toBe(partial);
 	});
 
 	it('flushes an opaque-only partial response at settlement', () => {

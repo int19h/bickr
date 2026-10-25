@@ -1,5 +1,5 @@
 import type { AgentLogStreamDelta } from '@bickr/shared/model';
-import { reasoningDetailForStream } from './reasoning-stream';
+import { reasoningDetailForStream, reasoningTextFromDetails } from './reasoning-stream';
 import { fetchProviderResponse, ProviderTransportError } from '@bickr/shared/provider-transport';
 import {
 	providerBodyReadTimeoutMs,
@@ -63,7 +63,6 @@ export type ProviderSseRuntime = {
 	metadataProviderName(value: unknown): string | null;
 	streamErrorFromChunk(chunk: ProviderSseChunk): Error | null;
 	normalizeReasoningDetails(details: readonly unknown[]): ReasoningDetail[];
-	reasoningTextFromDetails(details: ReasoningDetail[]): string;
 	repairInvalidUnicodeText(text: string): string;
 	repairInvalidUnicodeValue<T>(value: T): { value: T };
 	isAbortError(error: unknown): boolean;
@@ -480,13 +479,15 @@ export async function consumeProviderResponse(
 			if (plainReasoning) runtime.broadcastProviderDelta(runId, streamSeq, { kind: 'reasoning', source: 'plain', text: plainReasoning });
 			if (Array.isArray(delta.reasoning_details) && delta.reasoning_details.length > 0) {
 				reasoningStream.append(delta.reasoning_details);
-				detailsReasoning = runtime.reasoningTextFromDetails(delta.reasoning_details);
+				detailsReasoning = reasoningTextFromDetails(delta.reasoning_details);
 				for (const detail of delta.reasoning_details) {
 					const part = reasoningDetailForStream(detail);
-					runtime.broadcastProviderDelta(runId, streamSeq, { kind: 'reasoning', source: 'detail', part });
+					runtime.broadcastProviderDelta(runId, streamSeq, part.kind === 'readable'
+						? { kind: 'reasoning', source: 'detail', part, text: part.text }
+						: { kind: 'reasoning', source: 'detail', part });
 				}
 			}
-			const deltaReasoning = plainReasoning || detailsReasoning;
+			const deltaReasoning = plainReasoning + detailsReasoning;
 			if (deltaReasoning) {
 				reasoning += deltaReasoning;
 				hasReasoningText ||= deltaReasoning.trim().length > 0;
