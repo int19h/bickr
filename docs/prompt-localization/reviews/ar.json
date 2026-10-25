@@ -1,8 +1,8 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "catalogSourceHash": "fccf6536ad73ade5b65ab4ff2271b2b82b90f8f3483a35cdea87591dd9437263",
+  "catalogSourceHash": "2c136b409b445c2a7981cd2600185ee0592e1c66686a9286aa270a5a5ad13b0d",
   "locale": "ar",
-  "status": "approved",
+  "status": "partially_pending_translation",
   "leadReason": "Accept the Arabic catalog after both reviewers accept all twelve exact follow-up units. Compact count-neutral time phrases retain the interval direction, numeric value, and unit in all six native categories. The corrected tanwin and title quotes preserve meaning. Count-neutral wording deliberately avoids redundant numeric duals.",
   "terminologyDecisions": {
     "continue": "Use الاستمرار, distinct from following a participant (متابعة).",
@@ -7818,9 +7818,18 @@
           "finalValueHash": "43c4d8d1eb4661028022a89ab8b2a42ab898d62bd73336de71e31c5bf8918a21",
           "leadReason": "The lead accepts the review and applies every finding.",
           "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.comment.timestamp_tag": {
+          "finalValueHash": "a10f18c8b5109757abed70d86eae35dee4bac0f771038894a4c0375b77f26720",
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [],
+          "reviewedCommit": null,
+          "leadReason": "Use the exact lead translation supplied for this task. Keep the timestamp parameter and brackets unchanged.",
+          "reviewerReason": null
         }
       },
-      "finalTemplateHash": "c0271348d5b16268f6faa1eccfc555b80f5b54429594a13d630c0f6b0ac5e3be"
+      "finalTemplateHash": "f881fe42b3162e8cc4ba53c844a5da589bcc1e563278e41aed9c846a2b5e4f7a"
     },
     "reports": {
       "provenance": "lead_translation",
@@ -8409,6 +8418,28 @@
       "reportHash": "ae57d5545aa7abe19626bb6400f45ed7c16e315e55241d7c5ad8683044bedcaa",
       "leadReason": "The lead applied every finding from the independent review before the reviewed commit.",
       "reviewerReason": "The report reviews the earlier draft. The supplied resolution identifies the final commit after all fixes.",
+      "uncertainties": [],
+      "previousDecisions": {}
+    },
+    {
+      "task": "comment-heading-timestamp",
+      "provenance": "lead_translation",
+      "lead": "claude-opus",
+      "reviewerSessions": [],
+      "reviewedCommit": null,
+      "leadReason": "Use the exact lead translation supplied for this task. Keep the timestamp parameter and brackets unchanged.",
+      "reviewerReason": null,
+      "sourceCommit": "280947c28b33568e6732c215cc2f65d54eef1fe9",
+      "previousCatalogSourceHash": "fccf6536ad73ade5b65ab4ff2271b2b82b90f8f3483a35cdea87591dd9437263",
+      "catalogSourceHash": "2c136b409b445c2a7981cd2600185ee0592e1c66686a9286aa270a5a5ad13b0d",
+      "previousFinalTemplateHash": "c0271348d5b16268f6faa1eccfc555b80f5b54429594a13d630c0f6b0ac5e3be",
+      "finalTemplateHash": "f881fe42b3162e8cc4ba53c844a5da589bcc1e563278e41aed9c846a2b5e4f7a",
+      "units": [
+        "result.comment.timestamp_tag"
+      ],
+      "status": "pending_review",
+      "reviewedDraftCommit": null,
+      "reportHash": null,
       "uncertainties": [],
       "previousDecisions": {}
     }

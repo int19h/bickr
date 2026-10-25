@@ -1,8 +1,8 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "catalogSourceHash": "fccf6536ad73ade5b65ab4ff2271b2b82b90f8f3483a35cdea87591dd9437263",
+  "catalogSourceHash": "2c136b409b445c2a7981cd2600185ee0592e1c66686a9286aa270a5a5ad13b0d",
   "locale": "ru",
-  "status": "approved",
+  "status": "partially_pending_translation",
   "leadReason": "Accept the Russian catalog after both reviewers accept the exact final follow-up. Prompt terminology separates the complete persona prompt from a marked instruction. Guillemets wrap inserted titles without changing authored bytes. All initial comma, gender-neutral narration, entity-case, and count-bound choices preserve the source.",
   "terminologyDecisions": {
     "prompt": "Use промпт for the technical instruction document. Do not confuse it with a provider request or the character description.",
@@ -7721,9 +7721,18 @@
           "finalValueHash": "ba63711f1b1708393d433f4cc7c176d3b84623db2b69804c181525aeae19111e",
           "leadReason": "The lead accepts the review and applies every finding.",
           "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.comment.timestamp_tag": {
+          "finalValueHash": "33a71b4393b75592b0178eb9f326b3dfa60bef75f352850dda6b219f9c063f45",
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [],
+          "reviewedCommit": null,
+          "leadReason": "Use the exact lead translation supplied for this task. Keep the timestamp parameter and brackets unchanged.",
+          "reviewerReason": null
         }
       },
-      "finalTemplateHash": "84ae9cab97c89d8873e0562cb7bba8d0116e401834f0d225dfa9d666b0836f0a"
+      "finalTemplateHash": "272df0786b8ad5dd07b7a067e5acc4d1ec899cebcec8354c6958c75b8462b1ac"
     },
     "reports": {
       "provenance": "lead_translation",
@@ -8342,6 +8351,28 @@
       "reportHash": "7140676984d340376c295f77d2f87535a59c883db696b5c11164895ac7b79fd8",
       "leadReason": "The lead applied every finding from the independent review before the reviewed commit.",
       "reviewerReason": "The report reviews the earlier draft. The supplied resolution identifies the final commit after all fixes.",
+      "uncertainties": [],
+      "previousDecisions": {}
+    },
+    {
+      "task": "comment-heading-timestamp",
+      "provenance": "lead_translation",
+      "lead": "claude-opus",
+      "reviewerSessions": [],
+      "reviewedCommit": null,
+      "leadReason": "Use the exact lead translation supplied for this task. Keep the timestamp parameter and brackets unchanged.",
+      "reviewerReason": null,
+      "sourceCommit": "280947c28b33568e6732c215cc2f65d54eef1fe9",
+      "previousCatalogSourceHash": "fccf6536ad73ade5b65ab4ff2271b2b82b90f8f3483a35cdea87591dd9437263",
+      "catalogSourceHash": "2c136b409b445c2a7981cd2600185ee0592e1c66686a9286aa270a5a5ad13b0d",
+      "previousFinalTemplateHash": "84ae9cab97c89d8873e0562cb7bba8d0116e401834f0d225dfa9d666b0836f0a",
+      "finalTemplateHash": "272df0786b8ad5dd07b7a067e5acc4d1ec899cebcec8354c6958c75b8462b1ac",
+      "units": [
+        "result.comment.timestamp_tag"
+      ],
+      "status": "pending_review",
+      "reviewedDraftCommit": null,
+      "reportHash": null,
       "uncertainties": [],
       "previousDecisions": {}
     }

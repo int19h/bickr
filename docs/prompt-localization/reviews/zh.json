@@ -1,8 +1,8 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "catalogSourceHash": "fccf6536ad73ade5b65ab4ff2271b2b82b90f8f3483a35cdea87591dd9437263",
+  "catalogSourceHash": "2c136b409b445c2a7981cd2600185ee0592e1c66686a9286aa270a5a5ad13b0d",
   "locale": "zh",
-  "status": "approved",
+  "status": "partially_pending_translation",
   "leadReason": "The lead accepts the exact reconciled proposal. Both requested reviewers discussed every disputed unit and accepted every proposed value. Neither reviewer reported another finding or unresolved language question. Every other unit received the complete four-draft comparison and both initial reviews.",
   "terminologyDecisions": {
     "handle": "Use 标识.",
@@ -7117,9 +7117,18 @@
           "finalValueHash": "f84a7137af258be183e6546db13f0cbaa8fb488c82950f1cffeab65db94f5318",
           "leadReason": "The lead accepts the review and applies every finding.",
           "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.comment.timestamp_tag": {
+          "finalValueHash": "4ef820ebcaaae6c352f59acd54fbeb451573c0b7add05233d3a479cd771b5fa5",
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [],
+          "reviewedCommit": null,
+          "leadReason": "Use the exact lead translation supplied for this task. Keep the timestamp parameter and brackets unchanged.",
+          "reviewerReason": null
         }
       },
-      "finalTemplateHash": "f032bad2280d31ed5d44d0901acb03a14d4bf9df22826fef80b276ae76f885d5"
+      "finalTemplateHash": "4b59383a6b7c2687d6d9b8a1c528d32a463cf3730fa128464bc2b65fe214e494"
     },
     "reports": {
       "provenance": "lead_translation",
@@ -7698,6 +7707,28 @@
       "reportHash": "ae57d5545aa7abe19626bb6400f45ed7c16e315e55241d7c5ad8683044bedcaa",
       "leadReason": "The lead applied every finding from the independent review before the reviewed commit.",
       "reviewerReason": "The report reviews the earlier draft. The supplied resolution identifies the final commit after all fixes.",
+      "uncertainties": [],
+      "previousDecisions": {}
+    },
+    {
+      "task": "comment-heading-timestamp",
+      "provenance": "lead_translation",
+      "lead": "claude-opus",
+      "reviewerSessions": [],
+      "reviewedCommit": null,
+      "leadReason": "Use the exact lead translation supplied for this task. Keep the timestamp parameter and brackets unchanged.",
+      "reviewerReason": null,
+      "sourceCommit": "280947c28b33568e6732c215cc2f65d54eef1fe9",
+      "previousCatalogSourceHash": "fccf6536ad73ade5b65ab4ff2271b2b82b90f8f3483a35cdea87591dd9437263",
+      "catalogSourceHash": "2c136b409b445c2a7981cd2600185ee0592e1c66686a9286aa270a5a5ad13b0d",
+      "previousFinalTemplateHash": "f032bad2280d31ed5d44d0901acb03a14d4bf9df22826fef80b276ae76f885d5",
+      "finalTemplateHash": "4b59383a6b7c2687d6d9b8a1c528d32a463cf3730fa128464bc2b65fe214e494",
+      "units": [
+        "result.comment.timestamp_tag"
+      ],
+      "status": "pending_review",
+      "reviewedDraftCommit": null,
+      "reportHash": null,
       "uncertainties": [],
       "previousDecisions": {}
     }

@@ -185,6 +185,20 @@ Tests make sure that each decision follows its declared process and matches the 
 Irish remains a best effort translation.
 Its review record retains any unresolved language questions.
 
+A supplied lead translation can wait for review without an English placeholder.
+Keep its key in `pendingTranslationKeys` and its incremental review at `pending_review`.
+Set the catalog status to `partially_pending_translation`.
+Keep `reviewerSessions` empty and `reviewedCommit`, `reviewerReason`, `reviewedDraftCommit`, and `reportHash` null until the reviewer supplies evidence.
+The pending decision also keeps `reviewerSessions` empty and `reviewedCommit` and `reviewerReason` null.
+The tests require empty reviewer evidence for pending translations and complete evidence for approved translations.
+
+After review, record the reviewer sessions, reviewed commits, reasons, report hash, and unresolved questions.
+Copy the reviewer sessions, reviewed commit, and reviewer reason into the affected decisions.
+Use `accepted_by_lead` for each accepted incremental review.
+Remove accepted keys from `pendingTranslationKeys`.
+If no keys or units remain pending, set the catalog status to `approved`.
+Keep the English source commit and catalog fingerprints unchanged unless the source text changes.
+
 ## Tool recovery
 
 The pending journal stores the instruction language for the active request.

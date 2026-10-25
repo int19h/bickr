@@ -1,8 +1,8 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "catalogSourceHash": "fccf6536ad73ade5b65ab4ff2271b2b82b90f8f3483a35cdea87591dd9437263",
+  "catalogSourceHash": "2c136b409b445c2a7981cd2600185ee0592e1c66686a9286aa270a5a5ad13b0d",
   "locale": "eo",
-  "status": "approved",
+  "status": "partially_pending_translation",
   "leadReason": "Accept the Esperanto catalog after both reviewers accept all five exact follow-up units. JSON-objekto and resumo de memoroj stay consistent. The explicit quotation-mark phrase states the repair precisely. Native list and time patterns do not depend on the platform’s unsupported list or relative-time formatters.",
   "terminologyDecisions": {
     "quoted": "Use enfermitaj en citiloj in malformed-call recovery to mean enclosed in quotation marks.",
@@ -7794,9 +7794,18 @@
           "finalValueHash": "2ab166b74909e100e2bdbf2651f3bd30d0db085bd03b879de16c357c6b49df73",
           "leadReason": "The lead accepts the review and applies every finding.",
           "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.comment.timestamp_tag": {
+          "finalValueHash": "c0100bc51e98bb148c204d3d3b1f626a52729db1717aaf2c010e612fd65fda60",
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [],
+          "reviewedCommit": null,
+          "leadReason": "Use the exact lead translation supplied for this task. Keep the timestamp parameter and brackets unchanged.",
+          "reviewerReason": null
         }
       },
-      "finalTemplateHash": "996d697f7a0a4fdd09d74dc57a4d68aaa6414f29f99696d1b2a163bea1fb3403"
+      "finalTemplateHash": "a34fe47de0ebd1104ec37db0f52c994e603cea3d7da5e39b0a7f0a920062389b"
     },
     "reports": {
       "provenance": "lead_translation",
@@ -8384,6 +8393,28 @@
       "reportHash": "7140676984d340376c295f77d2f87535a59c883db696b5c11164895ac7b79fd8",
       "leadReason": "The lead applied every finding from the independent review before the reviewed commit.",
       "reviewerReason": "The report reviews the earlier draft. The supplied resolution identifies the final commit after all fixes.",
+      "uncertainties": [],
+      "previousDecisions": {}
+    },
+    {
+      "task": "comment-heading-timestamp",
+      "provenance": "lead_translation",
+      "lead": "claude-opus",
+      "reviewerSessions": [],
+      "reviewedCommit": null,
+      "leadReason": "Use the exact lead translation supplied for this task. Keep the timestamp parameter and brackets unchanged.",
+      "reviewerReason": null,
+      "sourceCommit": "280947c28b33568e6732c215cc2f65d54eef1fe9",
+      "previousCatalogSourceHash": "fccf6536ad73ade5b65ab4ff2271b2b82b90f8f3483a35cdea87591dd9437263",
+      "catalogSourceHash": "2c136b409b445c2a7981cd2600185ee0592e1c66686a9286aa270a5a5ad13b0d",
+      "previousFinalTemplateHash": "996d697f7a0a4fdd09d74dc57a4d68aaa6414f29f99696d1b2a163bea1fb3403",
+      "finalTemplateHash": "a34fe47de0ebd1104ec37db0f52c994e603cea3d7da5e39b0a7f0a920062389b",
+      "units": [
+        "result.comment.timestamp_tag"
+      ],
+      "status": "pending_review",
+      "reviewedDraftCommit": null,
+      "reportHash": null,
       "uncertainties": [],
       "previousDecisions": {}
     }

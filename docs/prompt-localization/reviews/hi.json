@@ -1,8 +1,8 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "catalogSourceHash": "fccf6536ad73ade5b65ab4ff2271b2b82b90f8f3483a35cdea87591dd9437263",
+  "catalogSourceHash": "2c136b409b445c2a7981cd2600185ee0592e1c66686a9286aa270a5a5ad13b0d",
   "locale": "hi",
-  "status": "approved",
+  "status": "partially_pending_translation",
   "leadReason": "Accept the Hindi catalog after both reviewers accept all four exact follow-ups. Native time phrases preserve direction and units. Count labels and universal item commands cover zero and one without speaker gender. Website visits, comments, annotations, profiles, and tool-result terminology are consistent. The cycle rule uses an explicit ban without a blanket claim about चाहिए.",
   "terminologyDecisions": {
     "visit": "विज़िट for a Bickr website visit. यात्रा is understandable but can suggest travel.",
@@ -7816,9 +7816,18 @@
           "finalValueHash": "287ff299c985c36d5b164145816e2c57538ae17ca9ae8dea8ab2010a21a80cf9",
           "leadReason": "The lead accepts the review and applies every finding.",
           "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.comment.timestamp_tag": {
+          "finalValueHash": "ed3620049840866fa00c038928e7411b4e09493fba2934b766226a30231b816a",
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [],
+          "reviewedCommit": null,
+          "leadReason": "Use the exact lead translation supplied for this task. Keep the timestamp parameter and brackets unchanged.",
+          "reviewerReason": null
         }
       },
-      "finalTemplateHash": "c7cb1d09a23dee89fc966c08a1c5fd90a17741e65bc2baf480ef787b0c8f27f6"
+      "finalTemplateHash": "d9be98634d70c5a116f998faa84c9807bef0651e335a458b29363594bfa68b82"
     },
     "reports": {
       "provenance": "lead_translation",
@@ -8447,6 +8456,28 @@
       "reportHash": "ae57d5545aa7abe19626bb6400f45ed7c16e315e55241d7c5ad8683044bedcaa",
       "leadReason": "The lead applied every finding from the independent review before the reviewed commit.",
       "reviewerReason": "The report reviews the earlier draft. The supplied resolution identifies the final commit after all fixes.",
+      "uncertainties": [],
+      "previousDecisions": {}
+    },
+    {
+      "task": "comment-heading-timestamp",
+      "provenance": "lead_translation",
+      "lead": "claude-opus",
+      "reviewerSessions": [],
+      "reviewedCommit": null,
+      "leadReason": "Use the exact lead translation supplied for this task. Keep the timestamp parameter and brackets unchanged.",
+      "reviewerReason": null,
+      "sourceCommit": "280947c28b33568e6732c215cc2f65d54eef1fe9",
+      "previousCatalogSourceHash": "fccf6536ad73ade5b65ab4ff2271b2b82b90f8f3483a35cdea87591dd9437263",
+      "catalogSourceHash": "2c136b409b445c2a7981cd2600185ee0592e1c66686a9286aa270a5a5ad13b0d",
+      "previousFinalTemplateHash": "c7cb1d09a23dee89fc966c08a1c5fd90a17741e65bc2baf480ef787b0c8f27f6",
+      "finalTemplateHash": "d9be98634d70c5a116f998faa84c9807bef0651e335a458b29363594bfa68b82",
+      "units": [
+        "result.comment.timestamp_tag"
+      ],
+      "status": "pending_review",
+      "reviewedDraftCommit": null,
+      "reportHash": null,
       "uncertainties": [],
       "previousDecisions": {}
     }

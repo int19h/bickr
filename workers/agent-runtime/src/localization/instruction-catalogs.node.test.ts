@@ -76,9 +76,9 @@ type LeadTranslation = {
 	provenance: 'lead_translation';
 	lead: string;
 	reviewerSessions: { reviewer: string; session: string }[];
-	reviewedCommit: string;
+	reviewedCommit: string | null;
 	leadReason: string;
-	reviewerReason: string;
+	reviewerReason: string | null;
 };
 type FourDraftDecision = {
 	provenance?: 'four_draft';
@@ -96,14 +96,22 @@ type IncrementalReview = LeadTranslation & {
 	catalogSourceHash: string;
 	units: string[];
 	status: string;
-	reviewedDraftCommit: string;
-	reportHash: string;
+	reviewedDraftCommit: string | null;
+	reportHash: string | null;
 	uncertainties: string[];
 };
 
-function assertLeadTranslation(record: LeadTranslation): void {
+function assertLeadTranslation(record: LeadTranslation, pending = false): void {
 	expect(record.provenance).toBe('lead_translation');
 	expect(record.lead.trim()).not.toBe('');
+	expect(record.leadReason.trim().length).toBeGreaterThan(0);
+	for (const field of ['draftHashes', 'candidateReason', 'opusReason', 'grokReason']) expect(record).not.toHaveProperty(field);
+	if (pending) {
+		expect(record.reviewerSessions).toEqual([]);
+		expect(record.reviewedCommit).toBeNull();
+		expect(record.reviewerReason).toBeNull();
+		return;
+	}
 	expect(record.reviewedCommit).toMatch(/^[a-f0-9]{40}$/);
 	expect(record.reviewerSessions.length).toBeGreaterThan(0);
 	const sessions = record.reviewerSessions.map(reviewer => reviewer.session);
@@ -113,8 +121,7 @@ function assertLeadTranslation(record: LeadTranslation): void {
 		expect(reviewer.session).toMatch(/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/);
 		expect(reviewer.reviewer).not.toBe(record.lead);
 	}
-	for (const reason of [record.leadReason, record.reviewerReason]) expect(reason.trim().length).toBeGreaterThan(0);
-	for (const field of ['draftHashes', 'candidateReason', 'opusReason', 'grokReason']) expect(record).not.toHaveProperty(field);
+	expect(record.reviewerReason?.trim().length).toBeGreaterThan(0);
 }
 
 function assertFourDraftGroup(record: Exclude<ReviewGroup, LeadTranslation>): void {
@@ -123,10 +130,11 @@ function assertFourDraftGroup(record: Exclude<ReviewGroup, LeadTranslation>): vo
 	for (const value of Object.values(record.draftHashes)) expect(value).toMatch(/^[a-f0-9]{64}$/);
 }
 
-function assertDecision(record: ReviewDecision): void {
+function assertDecision(record: ReviewDecision, pending = false): void {
 	if (record.provenance === 'lead_translation') {
-		assertLeadTranslation(record);
+		assertLeadTranslation(record, pending);
 	} else {
+		expect(pending).toBe(false);
 		expect([undefined, 'four_draft']).toContain(record.provenance);
 		for (const reason of [record.leadReason, record.candidateReason, record.opusReason, record.grokReason]) {
 			expect(reason.trim().length).toBeGreaterThan(0);
@@ -135,9 +143,12 @@ function assertDecision(record: ReviewDecision): void {
 }
 
 describe('reviewed instruction catalogs', () => {
-	it('closes the pending state after the Markdown translation review', () => {
-		expect(inventory.pendingTranslationKeys).toEqual([]);
-		expect(pendingUnits).toEqual([]);
+	it('keeps pending translation reviews separate from English placeholders', () => {
+		expect(new Set(inventory.pendingTranslationKeys).size).toBe(inventory.pendingTranslationKeys.length);
+		for (const id of inventory.pendingTranslationKeys) {
+			expect(units.some(unit => unit.id === id)).toBe(true);
+		}
+		for (const unit of pendingUnits) expect(inventory.pendingTranslationKeys).toContain(unit.id);
 	});
 	it('rejects incomplete or mixed lead-translation evidence', () => {
 		const valid: LeadTranslation = {
@@ -153,6 +164,20 @@ describe('reviewed instruction catalogs', () => {
 			{ ...valid, draftHashes: {} }, { ...valid, opusReason: 'No review.' },
 			{ ...valid, grokReason: 'No review.' }, { ...valid, provenance: 'unknown' },
 		]) expect(() => assertLeadTranslation(invalid as LeadTranslation)).toThrow();
+	});
+
+	it('requires empty reviewer evidence for a pending lead translation', () => {
+		const pending: LeadTranslation = {
+			provenance: 'lead_translation', lead: 'claude-opus', leadReason: 'Copy the supplied lead translation exactly.',
+			reviewerSessions: [], reviewedCommit: null, reviewerReason: null,
+		};
+		assertLeadTranslation(pending, true);
+		expect(() => assertLeadTranslation(pending)).toThrow();
+		for (const invalid of [
+			{ ...pending, reviewerReason: 'Unrecorded review.' },
+			{ ...pending, reviewedCommit: '41b14600fea255366f3331133c6923a7523878cf' },
+			{ ...pending, reviewerSessions: [{ reviewer: 'codex', session: '01a1698f-3e28-78e0-95fe-3f5136e1da61' }] },
+		]) expect(() => assertLeadTranslation(invalid, true)).toThrow();
 	});
 
 	it.each(instructionLocales)('keeps deliberate prompt separators in %s', (locale) => {
@@ -195,8 +220,10 @@ describe('reviewed instruction catalogs', () => {
 			for (const [id, value] of Object.entries(target)) {
 				const decision = decisions[id]!;
 				expect(decision.finalValueHash, id).toBe(createHash('sha256').update(JSON.stringify(value)).digest('hex'));
-				assertDecision(decision);
-				if (record.provenance === 'lead_translation') {
+				assertDecision(decision, inventory.pendingTranslationKeys.includes(id));
+				// A later incremental review can use a different reviewer from the original group.
+				if (record.provenance === 'lead_translation' && decision.provenance === 'lead_translation'
+					&& decision.reviewedCommit === record.reviewedCommit) {
 					expect(decision).toMatchObject({
 						provenance: 'lead_translation', lead: record.lead,
 						reviewerSessions: record.reviewerSessions, reviewedCommit: record.reviewedCommit,
@@ -214,13 +241,23 @@ describe('reviewed instruction catalogs', () => {
 		// Later updates can use either provenance, so check every lead-translation entry instead of the last entry.
 		const leadUpdates = approval.incrementalReviews.filter((entry): entry is IncrementalReview => entry.provenance === 'lead_translation');
 		for (const update of leadUpdates) {
-			assertLeadTranslation(update);
+			const pending = update.status === 'pending_review';
+			assertLeadTranslation(update, pending);
+			if (pending) {
+				expect(update.units.length).toBeGreaterThan(0);
+				for (const id of update.units) expect(inventory.pendingTranslationKeys).toContain(id);
+				expect(update.reviewedDraftCommit).toBeNull();
+				expect(update.reportHash).toBeNull();
+			} else {
+				expect(update.reviewedDraftCommit).toMatch(/^[a-f0-9]{40}$/);
+				expect(update.reportHash).toMatch(/^[a-f0-9]{64}$/);
+				expect(update.status).toBe('accepted_by_lead');
+			}
 			expect(update.sourceCommit).toMatch(/^[a-f0-9]{40}$/);
-			expect(update.reviewedDraftCommit).toMatch(/^[a-f0-9]{40}$/);
 			expect(update.catalogSourceHash).toMatch(/^[a-f0-9]{64}$/);
-			expect(update.reportHash).toMatch(/^[a-f0-9]{64}$/);
-			expect(update.status).toBe('accepted_by_lead');
 		}
+		const pendingLeadKeys = leadUpdates.filter(update => update.status === 'pending_review').flatMap(update => update.units);
+		expect([...new Set(pendingLeadKeys)].sort()).toEqual(inventory.pendingTranslationKeys.filter(id => !pendingUnits.some(unit => unit.id === id)).sort());
 		const leadDecisions = Object.values(approval.groups).flatMap(group => Object.entries(group.decisions))
 			.filter(([, decision]) => decision.provenance === 'lead_translation').map(([id]) => id);
 		expect([...new Set(leadUpdates.flatMap(update => update.units))].sort()).toEqual(leadDecisions.sort());

@@ -1,7 +1,7 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "sourceUnitCount": 521,
-  "catalogSourceHash": "fccf6536ad73ade5b65ab4ff2271b2b82b90f8f3483a35cdea87591dd9437263",
+  "sourceUnitCount": 522,
+  "catalogSourceHash": "2c136b409b445c2a7981cd2600185ee0592e1c66686a9286aa270a5a5ad13b0d",
   "baseCommit": "cd3c3d2db56d1ab7281a11bfbfc37eafac2ea62a",
   "groups": [
     {
@@ -212,7 +212,7 @@
     {
       "group": "results",
       "file": "results.json",
-      "units": 110
+      "units": 111
     },
     {
       "group": "reports",
@@ -545,8 +545,24 @@
       "catalogSourceHash": "c8fe81102ded524f2695eeac0e492caaefe4885d7d83899e8e807d923e9eec99",
       "sourceFreeze": "Remove the double-escaping clause. Add a Markdown PLAN example with actual line breaks. Example prose is translatable.",
       "review": "Independent Codex agent /root/translation_review approved prompt text and all 18 translations at d70df878c2ed8af89ed0c03f51b370a784585ef0. The reviewer uses the same model as the primary agent. Irish remains best effort without native-speaker certification. Earlier model evidence remains historical."
+    },
+    {
+      "task": "comment-heading-timestamp",
+      "date": "2026-10-25",
+      "provenance": "lead_translation",
+      "lead": "claude-opus",
+      "sourceCommit": "280947c28b33568e6732c215cc2f65d54eef1fe9",
+      "changedUnits": [
+        "result.comment.timestamp_tag"
+      ],
+      "previousCatalogSourceHash": "fccf6536ad73ade5b65ab4ff2271b2b82b90f8f3483a35cdea87591dd9437263",
+      "catalogSourceHash": "2c136b409b445c2a7981cd2600185ee0592e1c66686a9286aa270a5a5ad13b0d",
+      "sourceFreeze": "Use the supplied timestamp tag in post headings. Keep the author on the next line.",
+      "review": "Independent review is pending. The owner supplied the exact lead translations."
     }
   ],
-  "pendingTranslationKeys": [],
+  "pendingTranslationKeys": [
+    "result.comment.timestamp_tag"
+  ],
   "pendingUnits": []
 }

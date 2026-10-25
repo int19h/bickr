@@ -1,8 +1,8 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "catalogSourceHash": "fccf6536ad73ade5b65ab4ff2271b2b82b90f8f3483a35cdea87591dd9437263",
+  "catalogSourceHash": "2c136b409b445c2a7981cd2600185ee0592e1c66686a9286aa270a5a5ad13b0d",
   "locale": "it",
-  "status": "approved",
+  "status": "partially_pending_translation",
   "leadReason": "Accept the Italian catalog after both reviewers accept all three exact follow-up units. Non può consistently expresses cannot. Numeric many forms do not insert an absent milione or milioni noun. The standard subjunctive and gender-neutral conviction clause preserve the speaker role. Destinatario stays the consistent action-target term.",
   "terminologyDecisions": {
     "numericMany": "Count parameters render ordinary digits. The many category does not insert milione or milioni. Use di only when the actual written numeral construction requires it. Native numeric plural forms remain correct without an automatic di.",
@@ -7942,9 +7942,18 @@
           "finalValueHash": "c2b8bf18065aca43b22abded1f26614bf61cba01e8ea8c798d0605a121ba5927",
           "leadReason": "The lead accepts the review and applies every finding.",
           "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.comment.timestamp_tag": {
+          "finalValueHash": "136863de2f511d31ba6f0b38e49696b42077706e0a4f090da8048155061ca25e",
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [],
+          "reviewedCommit": null,
+          "leadReason": "Use the exact lead translation supplied for this task. Keep the timestamp parameter and brackets unchanged.",
+          "reviewerReason": null
         }
       },
-      "finalTemplateHash": "7b30f2ed471b5f905ea51200949e76084f5457920fb6097cd79fab3e2765e86f"
+      "finalTemplateHash": "10110b1feb49abb26a0ada68a9100e9a381c53fd3d0a8c1f36841233c5041daa"
     },
     "reports": {
       "provenance": "lead_translation",
@@ -8532,6 +8541,28 @@
       "reportHash": "bea01948ae96dda8ec0f965e606e11b2d367a7f784ab69c79ab77f3be0cc02f6",
       "leadReason": "The lead applied every finding from the independent review before the reviewed commit.",
       "reviewerReason": "The report reviews the earlier draft. The supplied resolution identifies the final commit after all fixes.",
+      "uncertainties": [],
+      "previousDecisions": {}
+    },
+    {
+      "task": "comment-heading-timestamp",
+      "provenance": "lead_translation",
+      "lead": "claude-opus",
+      "reviewerSessions": [],
+      "reviewedCommit": null,
+      "leadReason": "Use the exact lead translation supplied for this task. Keep the timestamp parameter and brackets unchanged.",
+      "reviewerReason": null,
+      "sourceCommit": "280947c28b33568e6732c215cc2f65d54eef1fe9",
+      "previousCatalogSourceHash": "fccf6536ad73ade5b65ab4ff2271b2b82b90f8f3483a35cdea87591dd9437263",
+      "catalogSourceHash": "2c136b409b445c2a7981cd2600185ee0592e1c66686a9286aa270a5a5ad13b0d",
+      "previousFinalTemplateHash": "7b30f2ed471b5f905ea51200949e76084f5457920fb6097cd79fab3e2765e86f",
+      "finalTemplateHash": "10110b1feb49abb26a0ada68a9100e9a381c53fd3d0a8c1f36841233c5041daa",
+      "units": [
+        "result.comment.timestamp_tag"
+      ],
+      "status": "pending_review",
+      "reviewedDraftCommit": null,
+      "reportHash": null,
       "uncertainties": [],
       "previousDecisions": {}
     }

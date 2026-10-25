@@ -1,8 +1,8 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "catalogSourceHash": "fccf6536ad73ade5b65ab4ff2271b2b82b90f8f3483a35cdea87591dd9437263",
+  "catalogSourceHash": "2c136b409b445c2a7981cd2600185ee0592e1c66686a9286aa270a5a5ad13b0d",
   "locale": "fr",
-  "status": "approved",
+  "status": "partially_pending_translation",
   "leadReason": "Accept the French catalog after both reviewers accept all three exact follow-up units. Repeated de marks coordinated infinitives. The count formatter inserts digits, so the many variant uses the reviewed numeric plural without a written million noun. Décor denotes the visual setting consistently.",
   "terminologyDecisions": {
     "numericMany": "The formatter inserts ordinary digits. Keep native many variants, but do not insert de merely because the number is a round million. De follows the written noun million/milliard where required, not a category label by itself.",
@@ -7745,9 +7745,18 @@
           "finalValueHash": "8d8af4dfd98676a838b697b988599bb6137cc0916f9500c243df0b07d73a0f9d",
           "leadReason": "The lead accepts the review and applies every finding.",
           "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.comment.timestamp_tag": {
+          "finalValueHash": "ec60716df3fa6f496de508fecb488ccd8b959d0c88b78a0340f0aeab4916d4ad",
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [],
+          "reviewedCommit": null,
+          "leadReason": "Use the exact lead translation supplied for this task. Keep the timestamp parameter and brackets unchanged.",
+          "reviewerReason": null
         }
       },
-      "finalTemplateHash": "e565ad321103a33a64b2f705a4020537d153f64e905c78e3f40b200ec856e0f6"
+      "finalTemplateHash": "84a5f4ef3feb3255fff8712d993fd0a8dd9219471a4d63222ea58e39eee6971c"
     },
     "reports": {
       "provenance": "lead_translation",
@@ -8346,6 +8355,28 @@
       "reportHash": "bea01948ae96dda8ec0f965e606e11b2d367a7f784ab69c79ab77f3be0cc02f6",
       "leadReason": "The lead applied every finding from the independent review before the reviewed commit.",
       "reviewerReason": "The report reviews the earlier draft. The supplied resolution identifies the final commit after all fixes.",
+      "uncertainties": [],
+      "previousDecisions": {}
+    },
+    {
+      "task": "comment-heading-timestamp",
+      "provenance": "lead_translation",
+      "lead": "claude-opus",
+      "reviewerSessions": [],
+      "reviewedCommit": null,
+      "leadReason": "Use the exact lead translation supplied for this task. Keep the timestamp parameter and brackets unchanged.",
+      "reviewerReason": null,
+      "sourceCommit": "280947c28b33568e6732c215cc2f65d54eef1fe9",
+      "previousCatalogSourceHash": "fccf6536ad73ade5b65ab4ff2271b2b82b90f8f3483a35cdea87591dd9437263",
+      "catalogSourceHash": "2c136b409b445c2a7981cd2600185ee0592e1c66686a9286aa270a5a5ad13b0d",
+      "previousFinalTemplateHash": "e565ad321103a33a64b2f705a4020537d153f64e905c78e3f40b200ec856e0f6",
+      "finalTemplateHash": "84a5f4ef3feb3255fff8712d993fd0a8dd9219471a4d63222ea58e39eee6971c",
+      "units": [
+        "result.comment.timestamp_tag"
+      ],
+      "status": "pending_review",
+      "reviewedDraftCommit": null,
+      "reportHash": null,
       "uncertainties": [],
       "previousDecisions": {}
     }

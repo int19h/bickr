@@ -1,8 +1,8 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "catalogSourceHash": "fccf6536ad73ade5b65ab4ff2271b2b82b90f8f3483a35cdea87591dd9437263",
+  "catalogSourceHash": "2c136b409b445c2a7981cd2600185ee0592e1c66686a9286aa270a5a5ad13b0d",
   "locale": "ga",
-  "status": "approved",
+  "status": "partially_pending_translation",
   "leadReason": "Accept best-effort Irish after both requested final discussions and both 28-unit follow-ups. Use standard is gá dom action needs, direct audience wording, explicit persona genitives, dictionary-backed disclaimer notices, singular detached member headers, native JSON adjective order and list punctuation. Keep the maximum ceiling and all conditions. Relative-time digit patterns follow resolved Unicode CLDR and protected identifiers remain opaque. The lead chooses the optional direct relative from Opus.",
   "terminologyDecisions": {
     "action": "gníomh for an action. Beart can also mean action and is not invalid.",
@@ -8338,9 +8338,18 @@
           "finalValueHash": "853c19457b1658691eaae15ca747cd8fa1a7af9a30e6685966aebc0b0e213c0f",
           "leadReason": "The lead accepts the review and applies every finding.",
           "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.comment.timestamp_tag": {
+          "finalValueHash": "8d4137a53d3cea6c4c0c10d0ec17e7cc635c8233924cea9dbfb9ce28fdbe32b6",
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [],
+          "reviewedCommit": null,
+          "leadReason": "Use the exact lead translation supplied for this task. Keep the timestamp parameter and brackets unchanged.",
+          "reviewerReason": null
         }
       },
-      "finalTemplateHash": "bef810c5eadaa3033c8c9c2f11562ee7b1f262abb4e8c68e19baa5fcd3ee4eeb"
+      "finalTemplateHash": "1fc4b9704336c9d8bd7f159096b587f4fab4c0d5c86de7c8b7dbadce4f295bd5"
     },
     "reports": {
       "provenance": "lead_translation",
@@ -8967,6 +8976,30 @@
       "reviewerReason": "The report reviews the earlier draft. The supplied resolution identifies the final commit after all fixes.",
       "uncertainties": [
         "Irish remains best effort. The reviewer retained tócain téacs but did not settle its preferred technical usage."
+      ],
+      "previousDecisions": {}
+    },
+    {
+      "task": "comment-heading-timestamp",
+      "provenance": "lead_translation",
+      "lead": "claude-opus",
+      "reviewerSessions": [],
+      "reviewedCommit": null,
+      "leadReason": "Use the exact lead translation supplied for this task. Keep the timestamp parameter and brackets unchanged.",
+      "reviewerReason": null,
+      "sourceCommit": "280947c28b33568e6732c215cc2f65d54eef1fe9",
+      "previousCatalogSourceHash": "fccf6536ad73ade5b65ab4ff2271b2b82b90f8f3483a35cdea87591dd9437263",
+      "catalogSourceHash": "2c136b409b445c2a7981cd2600185ee0592e1c66686a9286aa270a5a5ad13b0d",
+      "previousFinalTemplateHash": "bef810c5eadaa3033c8c9c2f11562ee7b1f262abb4e8c68e19baa5fcd3ee4eeb",
+      "finalTemplateHash": "1fc4b9704336c9d8bd7f159096b587f4fab4c0d5c86de7c8b7dbadce4f295bd5",
+      "units": [
+        "result.comment.timestamp_tag"
+      ],
+      "status": "pending_review",
+      "reviewedDraftCommit": null,
+      "reportHash": null,
+      "uncertainties": [
+        "Irish remains best effort. Earlier unresolved language questions remain unchanged."
       ],
       "previousDecisions": {}
     }

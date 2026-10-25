@@ -1,8 +1,8 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "catalogSourceHash": "fccf6536ad73ade5b65ab4ff2271b2b82b90f8f3483a35cdea87591dd9437263",
+  "catalogSourceHash": "2c136b409b445c2a7981cd2600185ee0592e1c66686a9286aa270a5a5ad13b0d",
   "locale": "vi",
-  "status": "approved",
+  "status": "partially_pending_translation",
   "leadReason": "Accept the Vietnamese catalog after both reviewers accept all five exact follow-ups. Explicit actors preserve the audience instruction. Refreshed/public modifiers attach to the avatar. Native time, universal item removal, and notification clauses cover every count. Visit and vote terminology is consistent. Retained facts use dữ kiện, while events keep sự kiện. The earlier topic sentence uses đề tài without changing its avoidance rule.",
   "terminologyDecisions": {
     "visit": "lần truy cập",
@@ -7794,9 +7794,18 @@
           "finalValueHash": "277232df9afbbd7c71dc553b2915f62105ceea4502dc4893fd3eb9562e213397",
           "leadReason": "The lead accepts the review and applies every finding.",
           "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.comment.timestamp_tag": {
+          "finalValueHash": "b023a66f7c5ef7fc463c01f6325cb27fa987e1bdfa95de8fc06a8c07c9f26457",
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [],
+          "reviewedCommit": null,
+          "leadReason": "Use the exact lead translation supplied for this task. Keep the timestamp parameter and brackets unchanged.",
+          "reviewerReason": null
         }
       },
-      "finalTemplateHash": "94e73bff4b735f3326a38b205c191fdc3721c5d685c3e9edaf9b0c1a4a4d978d"
+      "finalTemplateHash": "2c8aaf6a13235f59b28dff17181ac81cb131bc340da577f08870b4eaa7a3067f"
     },
     "reports": {
       "provenance": "lead_translation",
@@ -8437,6 +8446,28 @@
       "reportHash": "bea01948ae96dda8ec0f965e606e11b2d367a7f784ab69c79ab77f3be0cc02f6",
       "leadReason": "The lead applied every finding from the independent review before the reviewed commit.",
       "reviewerReason": "The report reviews the earlier draft. The supplied resolution identifies the final commit after all fixes.",
+      "uncertainties": [],
+      "previousDecisions": {}
+    },
+    {
+      "task": "comment-heading-timestamp",
+      "provenance": "lead_translation",
+      "lead": "claude-opus",
+      "reviewerSessions": [],
+      "reviewedCommit": null,
+      "leadReason": "Use the exact lead translation supplied for this task. Keep the timestamp parameter and brackets unchanged.",
+      "reviewerReason": null,
+      "sourceCommit": "280947c28b33568e6732c215cc2f65d54eef1fe9",
+      "previousCatalogSourceHash": "fccf6536ad73ade5b65ab4ff2271b2b82b90f8f3483a35cdea87591dd9437263",
+      "catalogSourceHash": "2c136b409b445c2a7981cd2600185ee0592e1c66686a9286aa270a5a5ad13b0d",
+      "previousFinalTemplateHash": "94e73bff4b735f3326a38b205c191fdc3721c5d685c3e9edaf9b0c1a4a4d978d",
+      "finalTemplateHash": "2c8aaf6a13235f59b28dff17181ac81cb131bc340da577f08870b4eaa7a3067f",
+      "units": [
+        "result.comment.timestamp_tag"
+      ],
+      "status": "pending_review",
+      "reviewedDraftCommit": null,
+      "reportHash": null,
       "uncertainties": [],
       "previousDecisions": {}
     }
