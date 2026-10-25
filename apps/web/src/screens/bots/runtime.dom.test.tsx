@@ -971,3 +971,26 @@ it('scopes the compaction shortcut to the selected main page', async () => {
 	await act(async () => [...container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Open the compaction notice for page 2')!.click());
 	expect(selectedScroll).toHaveBeenCalledWith({ block: 'center' }); expect(olderScroll).not.toHaveBeenCalled();
 });
+it('loads the visible archive when exiting a pasted chat link in place', async () => {
+	vi.stubGlobal('matchMedia', () => ({ matches: false }));
+	await act(async () => root.unmount()); pendingMessages = [];
+	history.replaceState({}, '', '/w/local/u/runtime-dom/loop?view=chat'); root = createRoot(container);
+	await act(async () => root.render(<BotRuntimePanel bot={bot} busy={false} onSave={async () => true} />));
+	const pages = [{ page: 1, messageCount: 1 }, { page: 2, messageCount: 1, sourceCompactionSeq: 50 }];
+	await answerMessages(0, [loopMessage(10, 'Newest content')], page(1, { 50: 2 }, pages));
+	await act(async () => [...container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Load page 1')!.click());
+	const archived = { ...loopMessage(4, 'Visible archive content'), compactedBy: 50 };
+	await answerMessages(1, [archived], page(2, { 50: 2 }, pages));
+	const log = container.querySelector('.loop-chat-log')!;
+	vi.spyOn(log, 'getBoundingClientRect').mockReturnValue({ top: 50 } as DOMRect);
+	for (const section of log.querySelectorAll('[data-chat-page]')) vi.spyOn(section, 'getBoundingClientRect').mockReturnValue({ bottom: 200 } as DOMRect);
+	await act(async () => new Promise<void>(resolve => window.requestAnimationFrame(() => resolve())));
+	await act(async () => log.dispatchEvent(new Event('scroll')));
+	expect(new URLSearchParams(location.search).get('page')).toBe('2');
+	await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Exit chat view"]')!.click());
+	expect(pendingMessages[2]!.path).toContain('page=2');
+	await answerMessages(2, [archived], page(2, { 50: 2 }, pages));
+	expect(container.querySelector('.loop-chat')).toBeNull();
+	expect(container.querySelector('.agent-log-caption')?.textContent).toBe('archive');
+	expect(container.textContent).toContain('Visible archive content');
+});

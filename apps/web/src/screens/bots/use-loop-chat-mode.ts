@@ -36,6 +36,7 @@ export function useLoopChatMode() {
 			const url = new URL(window.location.href);
 			url.searchParams.delete('view');
 			window.history.replaceState(window.history.state, '', url);
+			window.dispatchEvent(new PopStateEvent('popstate'));
 			setOpen(false);
 		}
 	}
