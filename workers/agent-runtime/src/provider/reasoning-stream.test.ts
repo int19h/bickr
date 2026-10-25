@@ -29,12 +29,12 @@ it.each([
 	{ name: 'whole plain run after a fragmented detail', parts: [summary('Sum', 0), summary('mary.', 0), plain('Sum'), plain('mary.')], expected: 'Summary.' },
 	{ name: 'matching deltas interleaved in arrival order', parts: [plain('Sum'), summary('Sum', 0), plain('mary.'), summary('mary.', 0)], expected: 'Summary.' },
 	{ name: 'anonymous consecutive detail chunks', parts: [plain('AB'), summary('A'), summary('B')], expected: 'AB' },
-	{ name: 'one detail can mirror only one plain run', parts: [plain('A'), summary('A', 0), plain('A')], expected: 'AA' },
-	{ name: 'an opaque barrier keeps a separate plain run', parts: [plain('A'), opaque, summary('A', 0)], expected: 'AA' },
-	{ name: 'different identities keep separate runs', parts: [plain('AB'), summary('A', 0), summary('B', 1)], expected: 'ABAB' },
-	{ name: 'whitespace differences are not mirrors', parts: [plain('A '), summary('A', 0)], expected: 'A A' },
-	{ name: 'partial text matches are not mirrors', parts: [plain('Summary.'), summary('Summary', 0)], expected: 'Summary.Summary' },
-	{ name: 'non-adjacent repetition stays', parts: [plain('A'), summary('B', 0), summary('A', 1)], expected: 'ABA' },
+	{ name: 'one detail can mirror only one plain run', parts: [plain('A'), summary('A', 0), plain('A')], expected: 'A\n\nA' },
+	{ name: 'an opaque barrier keeps a separate plain run', parts: [plain('A'), opaque, summary('A', 0)], expected: 'A\n\nA' },
+	{ name: 'different identities keep separate runs', parts: [plain('AB'), summary('A', 0), summary('B', 1)], expected: 'AB\n\nA\n\nB' },
+	{ name: 'whitespace differences are not mirrors', parts: [plain('A '), summary('A', 0)], expected: 'A \n\nA' },
+	{ name: 'partial text matches are not mirrors', parts: [plain('Summary.'), summary('Summary', 0)], expected: 'Summary.\n\nSummary' },
+	{ name: 'non-adjacent repetition stays', parts: [plain('A'), summary('B', 0), summary('A', 1)], expected: 'A\n\nB\n\nA' },
 	{ name: 'detail repetition stays', parts: [summary('A', 0), summary('A', 0)], expected: 'AA' },
 ])('uses the live mirror rule: $name', ({ parts, expected }) => {
 	expect(reasoningTextFromParts(parts)).toBe(expected);

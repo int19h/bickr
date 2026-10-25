@@ -1,5 +1,6 @@
 import { readableReasoningFormat, type BotInferenceSubmissionMessage } from '@bickr/shared/model';
 import { agentLogReasoningDetailKey, type AgentLogReasoningPart, type AgentLogReasoningDetail } from '@bickr/shared/model';
+import { reasoningPartsForDisplay } from '@bickr/shared/reasoning-formatting';
 import type { ReasoningDetail } from '../types';
 
 type Detail = { value: ReasoningDetail; textChunks?: string[] };
@@ -72,34 +73,10 @@ export function reasoningDetailForStream(value: unknown): AgentLogReasoningDetai
 	return { kind: 'opaque', type, ...identity };
 }
 
-type ReadableRun = { kind: 'text' | 'readable'; identity: string; chunks: string[] } | { kind: 'opaque' };
-
-/** Match the live formatter: only whole, adjacent runs can mirror each other. */
+/** The shared formatter applies the same mirror and separator rules. */
 export function reasoningTextFromParts(parts: readonly AgentLogReasoningPart[]): string {
-	const runs: ReadableRun[] = [];
-	for (const part of parts) {
-		if (part.kind === 'opaque') { runs.push({ kind: 'opaque' }); continue; }
-		const identity = part.kind === 'text' ? 'plain' : agentLogReasoningDetailKey(part) ?? JSON.stringify([part.type, 'default']);
-		const last = runs.at(-1);
-		if (last && last.kind !== 'opaque' && last.identity === identity) last.chunks.push(part.text);
-		else runs.push({ kind: part.kind, identity, chunks: [part.text] });
-	}
-	const joined = runs.map(run => run.kind === 'opaque' ? run : { kind: run.kind, text: run.chunks.join('') });
-	const matchedDetails = new Set<number>();
-	return joined.map((run, index) => {
-		if (run.kind === 'opaque') return '';
-		if (run.kind === 'text' && run.text) {
-			// Prefer the following detail, and pair each detail with at most one plain run.
-			for (const adjacent of [index + 1, index - 1]) {
-				const detail = joined[adjacent];
-				if (detail?.kind === 'readable' && detail.text === run.text && !matchedDetails.has(adjacent)) {
-					matchedDetails.add(adjacent);
-					return '';
-				}
-			}
-		}
-		return run.text;
-	}).join('');
+	// UI line normalization must not change plain text that the provider will replay.
+	return reasoningPartsForDisplay(parts, text => text).text;
 }
 
 export function reasoningTextFromDetails(details: readonly unknown[]): string {

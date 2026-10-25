@@ -34,6 +34,11 @@ Each readable run can match one plain run, with the following detail preferred o
 Opaque parts block adjacency, and repeated opaque markers with the same identity add no new barrier.
 The extractor does not trim text, match substrings, or remove non-adjacent repeats.
 Distinct plain reasoning stays even when details exist.
+After mirror removal, consecutive runs with the same identity join again.
+A blank line separates the remaining readable runs, including runs across opaque barriers.
+The runtime and web formatter share this rule in `packages/shared/src/reasoning-formatting.ts`.
+The web also normalizes line breaks for display.
+The runtime preserves those characters so that provider replay stays unchanged.
 Exact provider details and provider replay remain unchanged.
 The response size limit bounds the retained stream parts, and mirror extraction runs once at settlement.
 

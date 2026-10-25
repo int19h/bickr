@@ -415,7 +415,7 @@ describe('agent log storage', () => {
 			expect(error).toBeInstanceOf(ProviderResponseInterruptedError);
 			response = (error as ProviderResponseInterruptedError).response;
 		}
-		expect(response.reasoning).toBe('PlainTextSummary');
+		expect(response.reasoning).toBe('Plain\n\nText\n\nSummary');
 		expect(response.reasoningDetails).toEqual(details);
 		expect(JSON.stringify(deltas)).not.toContain('OPAQUE');
 		const raw = JSON.stringify({ message: { role: 'assistant', content: response.content, reasoning: response.reasoning, reasoning_format: response.reasoningFormat, reasoning_details: response.reasoningDetails } });
@@ -424,11 +424,11 @@ describe('agent log storage', () => {
 		runtime.settleResponsePublication(testResultContext, 'run', null);
 		const saved = new AgentLogStore(storage).request(id).attempts[0]!;
 		expect(saved.outcome).toMatchObject({ response: raw });
-		expect(JSON.parse(raw).message.reasoning).toBe('PlainTextSummary');
+		expect(JSON.parse(raw).message.reasoning).toBe('Plain\n\nText\n\nSummary');
 		expect(JSON.parse(saved.partialResponse!).reasoning).toBe('PlainTextSummary');
 		expect(saved.partialResponse).not.toContain('OPAQUE');
 		const row = messages.loopMessagesAfter(testResultContext, 0)[0]!;
-		expect(row.message.reasoning).toBe('PlainTextSummary');
+		expect(row.message.reasoning).toBe('Plain\n\nText\n\nSummary');
 		expect(row.message.reasoning_format).toBe('readable_v1');
 		expect(row.message.reasoning_details).toEqual(details);
 		expect(reasoningTextFromDetails(row.message.reasoning_details!)).toBe('TextSummary');
