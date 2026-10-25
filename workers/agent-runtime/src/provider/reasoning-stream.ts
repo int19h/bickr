@@ -1,3 +1,4 @@
+import { readableReasoningFormat, type BotInferenceSubmissionMessage } from '@bickr/shared/model';
 import type { AgentLogReasoningDetail } from '@bickr/shared/model';
 import type { ReasoningDetail } from '../types';
 
@@ -56,4 +57,10 @@ export function reasoningTextFromDetails(details: readonly unknown[]): string {
 		const part = reasoningDetailForStream(value);
 		return part.kind === 'readable' ? part.text : '';
 	}).join('');
+}
+
+/** Keep display text out of provider replay and its token estimates. */
+export function reasoningTextForReplay(message: Pick<BotInferenceSubmissionMessage, 'reasoning' | 'reasoning_format' | 'reasoning_details'>): string | undefined {
+	return message.reasoning_format === readableReasoningFormat && (message.reasoning_details?.length || !message.reasoning?.trim())
+		? undefined : message.reasoning;
 }

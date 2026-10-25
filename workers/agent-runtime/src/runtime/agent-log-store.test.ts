@@ -418,7 +418,7 @@ describe('agent log storage', () => {
 		expect(response.reasoning).toBe('PlainTextSummary');
 		expect(response.reasoningDetails).toEqual(details);
 		expect(JSON.stringify(deltas)).not.toContain('OPAQUE');
-		const raw = JSON.stringify({ message: { role: 'assistant', content: response.content, reasoning: response.reasoning, reasoning_details: response.reasoningDetails } });
+		const raw = JSON.stringify({ message: { role: 'assistant', content: response.content, reasoning: response.reasoning, reasoning_format: response.reasoningFormat, reasoning_details: response.reasoningDetails } });
 		store.settle(attempt, { kind: completed ? 'success' : 'interrupted', response: raw });
 		store.stageResponsePublication({ kind: 'provider_response', runId: 'run', requestId: id, eventSeq: 1, attemptId: attempt, assistantSeq: null, pendingCallIds: [] });
 		runtime.settleResponsePublication(testResultContext, 'run', null);
@@ -428,7 +428,8 @@ describe('agent log storage', () => {
 		expect(JSON.parse(saved.partialResponse!).reasoning).toBe('PlainTextSummary');
 		expect(saved.partialResponse).not.toContain('OPAQUE');
 		const row = messages.loopMessagesAfter(testResultContext, 0)[0]!;
-		expect(row.message.reasoning).toBeUndefined();
+		expect(row.message.reasoning).toBe('PlainTextSummary');
+		expect(row.message.reasoning_format).toBe('readable_v1');
 		expect(row.message.reasoning_details).toEqual(details);
 		expect(reasoningTextFromDetails(row.message.reasoning_details!)).toBe('TextSummary');
 		expect(store.requestForMessage(row.seq)?.id).toBe(id);

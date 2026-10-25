@@ -1,3 +1,4 @@
+import { reasoningTextForReplay } from '../provider/reasoning-stream';
 import { approximateTextTokens } from '@bickr/shared/text-token-estimate';
 import { effectiveTickSettings } from '@bickr/shared/repository';
 import type { BotInferenceSubmissionMessage } from '@bickr/shared/model';
@@ -166,7 +167,7 @@ export function chatMessagesCharacterCount(messages: readonly ChatMessage[]): nu
 			message.role.length +
 			textLength(message.content) +
 			textLength(message.tool_call_id) +
-			textLength(message.reasoning) +
+			textLength(reasoningTextForReplay(message)) +
 			textLength(message.reasoning_content) +
 			(message.reasoning_details ? JSON.stringify(message.reasoning_details).length : 0) +
 			toolCallCharacters

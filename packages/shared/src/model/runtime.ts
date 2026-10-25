@@ -79,12 +79,16 @@ export type BotInferenceSubmissionToolCall = {
 	};
 };
 
+export const readableReasoningFormat = "readable_v1" as const;
+
 export type BotInferenceSubmissionMessage = {
 	role: "system" | "user" | "assistant" | "tool";
 	content?: string | null;
 	tool_call_id?: string;
 	tool_calls?: BotInferenceSubmissionToolCall[];
 	reasoning?: string;
+	// Retention: this evidence follows its stored message. Absence means legacy text.
+	reasoning_format?: typeof readableReasoningFormat;
 	reasoning_content?: string;
 	reasoning_details?: unknown[];
 };

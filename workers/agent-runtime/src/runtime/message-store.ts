@@ -1,3 +1,5 @@
+import { estimateLoopMessageTokens } from './loop-message-tokens';
+import { readableReasoningFormat } from '@bickr/shared/model';
 import { AgentLogStore } from './agent-log-store';
 import type { AgentLogSource } from '@bickr/shared/model';
 import { renderToolResultView, type ResultRenderContext } from './tool-result-views';
@@ -206,9 +208,9 @@ export class RuntimeMessageStore {
 		}
 		const updated = { ...message.message, tool_calls: [...calls, ...extension.calls] };
 		const json = JSON.stringify(updated);
-		this.storage.sql.exec(`UPDATE loop_messages SET message_json = ?, token_estimate = ? WHERE seq = ?`, json, estimateTextTokens(json), row.seq);
+		this.storage.sql.exec(`UPDATE loop_messages SET message_json = ?, token_estimate = ? WHERE seq = ?`, json, estimateLoopMessageTokens(updated), row.seq);
 		this.recordLoopMessageLog(row.seq, 'message', json);
-		return { ...message, message: updated, tokenEstimate: estimateTextTokens(json) };
+		return { ...message, message: updated, tokenEstimate: estimateLoopMessageTokens(updated) };
 	}
 
 	insertLoopMessage(context: ResultRenderContext, input: {
@@ -230,7 +232,7 @@ export class RuntimeMessageStore {
 		const view = toolResultViewForMessage(input.message);
 		const viewJson = view ? JSON.stringify(view) : null;
 		const messageJson = JSON.stringify(view ? { role: 'tool', tool_call_id: input.message.tool_call_id } : input.message);
-		const tokenEstimate = view ? estimateTextTokens(renderToolResultView(view, context)) : estimateTextTokens(messageJson);
+		const tokenEstimate = view ? estimateTextTokens(renderToolResultView(view, context)) : estimateLoopMessageTokens(input.message);
 		const position = input.position ?? this.nextLoopMessagePosition();
 		const displayEvent = this.loopMessageDisplayEventRow(input.displayEventSeq);
 		this.storage.sql.exec(
@@ -1132,6 +1134,20 @@ function loopMessageContentFormat(row: LoopMessageRow): BotLoopMessage['contentF
 	return 'json';
 }
 
+function loopApiMessage(message: ChatMessage): ChatMessage {
+	return {
+		role: message.role,
+		...(message.content === undefined ? {} : { content: message.content }),
+		...(message.tool_call_id === undefined ? {} : { tool_call_id: message.tool_call_id }),
+		...(message.tool_calls === undefined ? {} : { tool_calls: message.tool_calls.map(call => ({ id: call.id, type: call.type, function: { name: call.function.name, arguments: call.function.arguments } })) }),
+		...(message.reasoning === undefined ? {} : { reasoning: message.reasoning }),
+		...(message.reasoning_format === readableReasoningFormat ? { reasoning_format: readableReasoningFormat } : {}),
+		...(message.reasoning_content === undefined ? {} : { reasoning_content: message.reasoning_content }),
+		// Exact provider details stay opaque here. Their full payload belongs in the owner modal.
+		...(message.reasoning_details === undefined ? {} : { reasoning_details: message.reasoning_details }),
+	};
+}
+
 export function loopMessageFromRow(row: LoopMessageRow, context: ResultRenderContext): BotLoopMessage {
 	const display = loopMessageDisplayFromRow(row);
 	return {
@@ -1139,7 +1155,7 @@ export function loopMessageFromRow(row: LoopMessageRow, context: ResultRenderCon
 		position: row.position,
 		runId: row.run_id,
 		role: row.role,
-		message: renderStoredLoopMessage(row, context),
+		message: loopApiMessage(renderStoredLoopMessage(row, context)),
 		contentFormat: loopMessageContentFormat(row),
 		...(display ? { display } : {}),
 		origin: row.origin,
