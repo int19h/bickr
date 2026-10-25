@@ -142,3 +142,22 @@ it('keeps an empty typed partial hidden before reasoning arrives', () => {
 	act(() => root.render(<AgentLogReasoning message={message} />));
 	expect(container.querySelector('.agent-log-reasoning')).toBeNull();
 });
+
+it.each([undefined, 'future_format'])('keeps legacy classification for an unsupported stored marker %s', marker => {
+	const message = storedResponseMessage(JSON.stringify({ message: {
+		reasoning_format: marker,
+		reasoning: 'UNSAFE_LEGACY_TEXT',
+		reasoning_details: [{ type: 'reasoning.summary', summary: 'A safe legacy summary.' }, { type: 'future.type', text: 'UNSAFE_LEGACY_TEXT' }],
+	} }));
+	expect(message.reasoning_format).toBeUndefined();
+	act(() => root.render(<AgentLogReasoning message={message} />));
+	expect(container.textContent).not.toContain('UNSAFE_LEGACY_TEXT');
+	expect(container.textContent?.match(/A safe legacy summary\./g)).toHaveLength(1);
+});
+
+it('uses certified empty reasoning without falling back to other text', () => {
+	const message = storedResponseMessage(JSON.stringify({ reasoning_format: 'readable_v1', reasoning: '', reasoning_content: 'UNSAFE_FALLBACK', reasoning_details: [] }));
+	act(() => root.render(<AgentLogReasoning message={message} />));
+	expect(message.reasoning_format).toBe('readable_v1');
+	expect(container.querySelector('.agent-log-reasoning')).toBeNull();
+});

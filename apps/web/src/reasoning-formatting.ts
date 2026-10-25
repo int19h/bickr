@@ -7,6 +7,18 @@ export type ReasoningDetailDisplay =
 	| { kind: 'encrypted' }
 	| { kind: 'unknown' };
 
+export function reasoningOpaqueCountsForDisplay(details: readonly unknown[]) {
+	let encryptedParts = 0;
+	let opaqueParts = 0;
+	for (const detail of details) {
+		const type = recordValue(detail).type;
+		if (type === 'reasoning.text' || type === 'reasoning.summary') continue;
+		opaqueParts++;
+		if (type === 'reasoning.encrypted') encryptedParts++;
+	}
+	return { encryptedParts, opaqueParts };
+}
+
 export function reasoningDetailForDisplay(detail: unknown): ReasoningDetailDisplay {
 	const record = recordValue(detail);
 	const index = typeof record.index === 'number' && Number.isSafeInteger(record.index) && record.index >= 0 ? { index: record.index } : {};
