@@ -2,6 +2,16 @@
 
 The runtime stores each inference attempt before it sends the request. Each attempt holds the exact outgoing body after provider sanitization. Live partial text stays in memory and flushes after one second or 4 KB of new text. Settlement flushes the remaining text. A request groups transport retries and retries after invalid output. The details endpoint reads stored bodies. It never builds them from current history. Each writer rejects stopped visits and erased storage. Finalization settles pending requests and sessions before it releases the visit.
 
+## Live reasoning
+
+`AgentLogStreamDelta` defines content, reasoning, and tool-call deltas. Plain provider reasoning uses `kind: reasoning`, `source: plain`, and `text`. A detail uses `kind: reasoning`, `source: detail`, and `part`. Readable parts contain `kind: readable`, the provider type, and text. Only `reasoning.text` and `reasoning.summary` permit text.
+
+Other types produce `kind: opaque` markers with no text or data. Each detail retains its provider `index` and `id` when present. Unknown or absent types remain opaque.
+
+`AgentLogStreamPayload` adds the existing request, attempt, stream, and revision fields. The runtime builds each delta from an explicit field list. Opaque markers with the same type and identity share one partial part. An index takes precedence over an ID. Without either identity, each opaque item counts as a separate part.
+
+The JSON string in `partialResponse` follows `AgentLogPartialResponse`. Its `reasoningParts` array preserves typed parts. Readable chunks with the same type and identity join in place. The compatibility field `reasoning` contains only plain provider reasoning. It never contains text from details. Partial responses share the existing memory cache, flush limits, and retention rule. Exact provider details remain in the existing response store for the details modal. This change adds no table or column.
+
 ## Tables and retention
 
 `inference_requests` holds request identity, state, purpose, and references to history. `inference_attempts` holds attempt times, outcomes, and the partial response. `inference_body_chunks` holds the encoded bodies and chunks for responses and partial text. The encoding saves the common prefix from the previous attempt. A full body starts a new chain after 16 delta links. Text cuts keep surrogate pairs together. Before retention removes a base, the runtime writes each surviving dependent as a full body.
@@ -26,7 +36,13 @@ Startup and the existing retention sweep each process at most 100 author rows an
 
 During the fleet sweep, call `POST /bots/<id>/recover-stale-run` to settle old pending-tool journals. `legacyPendingRequestsRemain` reports journals without request references. New journals carry the request ID and event sequence into recovery.
 
-After that census reaches zero, advance the agent log `schemaVersion` from 1 to 2. Remove both migration adapters, their status fields, and the old submission schema and readers. Remove support for pending-tool journals without request references in the same version change. Keep the generic legacy author until its separate census reaches zero through retention or deletion. Then advance the schema version again and remove that author and its display support. Active legacy rows can keep this second census above zero until the owner deletes them.
+`agent_log_partial_reasoning_v1` replaces old flattened partial reasoning with an opaque marker. The old text has no proven readable source. A temporary reader projects the same marker without writing data. The migration changes only partial chunks. It keeps exact response chunks unchanged.
+
+Startup and the fleet retention sweep each visit at most 100 attempts in ID order. A cursor in one `runtime_state` record resumes the next batch. Repeated batches are safe. The cursor record remains until migration retirement.
+
+The status field `partialReasoningPending` reports unfinished work. First retire rollback writers that store flattened partial reasoning. Then use the existing fleet retention job until every participant reports false. At agent log schema version 2, remove this migration, its cursor record, its status field, and the legacy partial reader.
+
+After all migration censuses reach zero, advance the agent log `schemaVersion` from 1 to 2. Remove all migration adapters, their status fields, and the old submission schema and readers. Remove support for pending-tool journals without request references in the same version change. Keep the generic legacy author until its separate census reaches zero through retention or deletion. Then advance the schema version again and remove that author and its display support. Active legacy rows can keep this second census above zero until the owner deletes them.
 
 ## API and page behavior
 

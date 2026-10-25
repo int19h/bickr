@@ -1,3 +1,5 @@
+import type { AgentLogStreamDelta, AgentLogStreamPayload } from '@bickr/shared/model';
+import { logStreamDelta } from './agent-log-codecs';
 import { manualCompactionError } from './manual-compaction-errors';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { AgentLogStore, agentLogSchema, agentLogFailure } from './agent-log-store';
@@ -5873,7 +5875,8 @@ export class BotRuntime {
 		return markers;
 	}
 
-	private broadcastProviderDelta(runId: string, streamSeq: number, payload: Record<string, unknown>): void {
+	private broadcastProviderDelta(runId: string, streamSeq: number, delta: AgentLogStreamDelta): void {
+		const payload = logStreamDelta(delta);
 		assertExecutionPublication();
 		this.liveness.stream(runId);
 		const requestId = this.agentLogStore().partial(runId, streamSeq, payload);
@@ -5891,7 +5894,7 @@ export class BotRuntime {
 				deltaRevision: stream.kind === 'stream' ? stream.revision : undefined,
 				attemptId: stream.kind === 'stream' ? stream.attemptId : undefined,
 				ephemeral: true,
-			},
+			} satisfies AgentLogStreamPayload,
 			tokenEstimate: 0,
 			createdAt: new Date().toISOString(),
 		};

@@ -1,3 +1,4 @@
+import type { AgentLogStreamDelta } from '@bickr/shared/model';
 import { attachToolResultView } from './result-messages';
 import { resultViewBase, type ToolResultView } from './tool-result-views';
 import { hydrateResultFacets } from './result-context-scope';
@@ -46,7 +47,7 @@ describe('agent log storage', () => {
 		store.partial('run', 1, { kind: 'content', text: 'tial' });
 		const url = new URL(`https://internal/bots/participant/requests/${id}`);
 		const details = await runtime.handleRuntimeReadRequest(new Request(url), url, 'participant');
-		expect((await details.json()).data.request.attempts[0]).toMatchObject({ body: sent, partialResponse: JSON.stringify({ content: 'Partial', reasoning: '', toolCalls: [] }) });
+		expect((await details.json()).data.request.attempts[0]).toMatchObject({ body: sent, partialResponse: JSON.stringify({ content: 'Partial', reasoning: '', reasoningParts: [], toolCalls: [] }) });
 		expect(store.entries([], null)).toMatchObject([{ kind: 'live', requestId: id }]);
 		release();
 		await pending;
@@ -336,13 +337,81 @@ describe('agent log storage', () => {
 		expect(JSON.parse(store.request(id).attempts[0]!.partialResponse!).content).toBe('x'.repeat(200_000));
 		expect(store.entries([], null)).toMatchObject([{ kind: 'live', partialResponse: store.request(id).attempts[0]!.partialResponse }]);
 		now = Date.now() + 1_000_000;
-		store.partial('run', 1, { kind: 'reasoning', text: 'Timed flush' });
+		store.partial('run', 1, { kind: 'reasoning', source: 'plain', text: 'Timed flush' });
 		const recovered = new AgentLogStore(storage);
 		recovered.recoverInterrupted();
 		expect(recovered.request(id).attempts[0]).toMatchObject({ outcome: { kind: 'interrupted' } });
 		expect(JSON.parse(recovered.request(id).attempts[0]!.partialResponse!).reasoning).toBe('Timed flush');
 		store.settle(attempt, { kind: 'timeout' });
 		expect(JSON.parse(new AgentLogStore(storage).request(id).attempts[0]!.partialResponse!).content).toHaveLength(200_000);
+	});
+
+	it('keeps typed partial reasoning in memory, on disk, and after recovery without opaque bytes', () => {
+		const id = request();
+		const attempt = store.startAttempt(id, '{}');
+		const deltas: AgentLogStreamDelta[] = [
+			{ kind: 'reasoning', source: 'plain', text: 'Plain' },
+			{ kind: 'reasoning', source: 'detail', part: { kind: 'readable', type: 'reasoning.summary', index: 0, id: 'summary', text: 'Sum' } },
+			{ kind: 'reasoning', source: 'detail', part: { kind: 'readable', type: 'reasoning.summary', index: 0, id: 'summary', text: 'mary' } },
+			{ kind: 'reasoning', source: 'detail', part: { kind: 'opaque', type: 'reasoning.encrypted', index: 1, id: 'secret' } },
+			{ kind: 'reasoning', source: 'detail', part: { kind: 'opaque', type: 'future.type', id: 'future' } },
+		];
+		for (const delta of deltas) store.partial('run', 1, delta);
+		store.partial('run', 1, deltas[3]!);
+		store.partial('run', 1, { kind: 'reasoning', source: 'detail', part: { kind: 'readable', type: 'future.type', id: 'future', text: 'OPAQUE', data: 'OPAQUE' } } as unknown as AgentLogStreamDelta);
+		const expected = {
+			content: '', reasoning: 'Plain', reasoningParts: [
+				{ kind: 'text', text: 'Plain' },
+				{ kind: 'readable', type: 'reasoning.summary', index: 0, id: 'summary', text: 'Summary' },
+				{ kind: 'opaque', type: 'reasoning.encrypted', index: 1, id: 'secret' },
+				{ kind: 'opaque', type: 'future.type', id: 'future' },
+			], toolCalls: [],
+		};
+		const partial = store.request(id).attempts[0]!.partialResponse!;
+		expect(JSON.parse(partial)).toEqual(expected);
+		expect(store.entries([], null)).toMatchObject([{ kind: 'live', partialResponse: partial }]);
+		expect(partial).not.toContain('OPAQUE');
+		store.settle(attempt, { kind: 'interrupted' });
+		const recovered = new AgentLogStore(storage);
+		recovered.recoverInterrupted();
+		expect(JSON.parse(recovered.request(id).attempts[0]!.partialResponse!)).toEqual(expected);
+		const stored = storage.sql.exec<{ text: string }>("SELECT text FROM inference_body_chunks WHERE attempt_id = ? AND kind = 'partial' ORDER BY chunk_index", attempt).toArray().map(row => row.text).join('');
+		expect(JSON.parse(stored)).toEqual(expected);
+		expect(stored).not.toContain('OPAQUE');
+	});
+
+	it('flushes an opaque-only partial response at settlement', () => {
+		const id = request();
+		const attempt = store.startAttempt(id, '{}');
+		store.partial('run', 1, { kind: 'reasoning', source: 'detail', part: { kind: 'opaque', type: 'future.type', index: 0 } });
+		store.settle(attempt, { kind: 'timeout' });
+		expect(JSON.parse(new AgentLogStore(storage).request(id).attempts[0]!.partialResponse!)).toEqual({
+			content: '', reasoning: '', reasoningParts: [{ kind: 'opaque', type: 'future.type', index: 0 }], toolCalls: [],
+		});
+	});
+
+	it('migrates legacy partial reasoning in resumable batches and never repairs on read', () => {
+		let id = '';
+		for (let eventSeq = 1; eventSeq <= 101; eventSeq++) {
+			id = request(eventSeq);
+			const attempt = store.startAttempt(id, '{}');
+			store.settle(attempt, { kind: 'interrupted' });
+			storage.sql.exec("INSERT INTO inference_body_chunks(attempt_id, kind, chunk_index, text) VALUES (?, 'partial', 0, ?)", attempt, JSON.stringify({ content: 'Reply', reasoning: 'OPAQUE_LEGACY', toolCalls: [] }));
+			storage.sql.exec("UPDATE inference_attempts SET partial_response = 'retained' WHERE id = ?", attempt);
+		}
+		const original = storage.sql.exec<{ text: string }>("SELECT text FROM inference_body_chunks WHERE attempt_id = 101 AND kind = 'partial'").one().text;
+		expect(store.request(id).attempts[0]!.partialResponse).not.toContain('OPAQUE_LEGACY');
+		expect(storage.sql.exec<{ text: string }>("SELECT text FROM inference_body_chunks WHERE attempt_id = 101 AND kind = 'partial'").one().text).toBe(original);
+		store.migrate(messages);
+		expect(store.migrationStatus().partialReasoningPending).toBe(true);
+		expect(storage.sql.exec<{ text: string }>("SELECT text FROM inference_body_chunks WHERE attempt_id = 101 AND kind = 'partial'").one().text).toBe(original);
+		const restarted = new AgentLogStore(storage);
+		restarted.migrate(messages);
+		expect(restarted.migrationStatus().partialReasoningPending).toBe(false);
+		const migrated = storage.sql.exec<{ text: string }>("SELECT text FROM inference_body_chunks WHERE attempt_id = 101 AND kind = 'partial'").one().text;
+		expect(JSON.parse(migrated)).toEqual({ content: 'Reply', reasoning: '', reasoningParts: [{ kind: 'opaque', type: null }], toolCalls: [] });
+		restarted.migrate(messages);
+		expect(storage.sql.exec<{ text: string }>("SELECT text FROM inference_body_chunks WHERE attempt_id = 101 AND kind = 'partial'").one().text).toBe(migrated);
 	});
 
 	it('flushes the last partial text at settlement', () => {

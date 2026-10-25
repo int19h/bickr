@@ -1,4 +1,4 @@
-import type { AgentLogAuthor, AgentLogAttemptOutcome, AgentLogCompactionOutcome, AgentLogCompactionTrigger, AgentLogFailure } from '@bickr/shared/model';
+import type { AgentLogAuthor, AgentLogAttemptOutcome, AgentLogCompactionOutcome, AgentLogCompactionTrigger, AgentLogFailure, AgentLogPartialResponse, AgentLogReasoningPart, AgentLogReasoningDetail, AgentLogStreamDelta } from '@bickr/shared/model';
 import { RepositoryError } from '@bickr/shared/repository';
 
 function invalid(): never {
@@ -119,7 +119,38 @@ export function logToolDelta(value: unknown) {
 	};
 }
 
-export function logPartial(value: unknown) {
+export function logReasoningDetail(value: unknown): AgentLogReasoningDetail {
 	const item = record(value);
-	return { content: text(item.content), reasoning: text(item.reasoning), toolCalls: array(item.toolCalls).map(logToolDelta) };
+	const identity = {
+		...(item.index == null ? {} : { index: number(item.index) }),
+		...(item.id == null ? {} : { id: text(item.id) }),
+	};
+	if (item.kind === 'readable' && (item.type === 'reasoning.text' || item.type === 'reasoning.summary')) {
+		return { kind: 'readable', type: item.type, text: text(item.text), ...identity };
+	}
+	// Unknown detail types remain opaque even if stored data claims they are readable.
+	return { kind: 'opaque', type: item.type == null ? null : text(item.type), ...identity };
+}
+
+export function logStreamDelta(value: unknown): AgentLogStreamDelta {
+	const item = record(value);
+	switch (item.kind) {
+		case 'content': return { kind: 'content', text: text(item.text) };
+		case 'reasoning':
+			if (item.source === 'plain') return { kind: 'reasoning', source: 'plain', text: text(item.text) };
+			if (item.source === 'detail') return { kind: 'reasoning', source: 'detail', part: logReasoningDetail(item.part) };
+			return invalid();
+		case 'tool_call': return { kind: 'tool_call', part: logToolDelta(item.part) };
+		default: return invalid();
+	}
+}
+
+export function logPartial(value: unknown): AgentLogPartialResponse {
+	const item = record(value);
+	// Temporary legacy adapter: old flattened reasoning has no proven readable source.
+	const reasoningParts: AgentLogReasoningPart[] = Array.isArray(item.reasoningParts) ? item.reasoningParts.map(value => {
+		const part = record(value);
+		return part.kind === 'text' ? { kind: 'text', text: text(part.text) } : logReasoningDetail(part);
+	}) : typeof item.reasoning === 'string' && item.reasoning ? [{ kind: 'opaque', type: null }] : [];
+	return { content: text(item.content), reasoning: reasoningParts.filter(part => part.kind === 'text').map(part => part.text).join(''), reasoningParts, toolCalls: array(item.toolCalls).map(logToolDelta) };
 }

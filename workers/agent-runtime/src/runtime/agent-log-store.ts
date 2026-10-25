@@ -1,6 +1,6 @@
 import { attemptAttribution, attemptMessages, attemptUsage, type AttemptUsageRow } from './agent-log-attempt-details';
-import type { InferenceAttribution } from '@bickr/shared/model';
-import { logAttemptOutcome, readLogAttemptOutcome, readLogAttemptKind, readLogCompactionOutcome, logAuthor, logCompactionOutcome, logToolDelta, logTrigger, logPartial, storedLogValue } from './agent-log-codecs';
+import { agentLogReasoningDetailKey, type AgentLogPartialResponse, type AgentLogStreamDelta, type AgentLogReasoningPart, type InferenceAttribution } from '@bickr/shared/model';
+import { logAttemptOutcome, readLogAttemptOutcome, readLogAttemptKind, readLogCompactionOutcome, logAuthor, logCompactionOutcome, logToolDelta, logTrigger, logPartial, logStreamDelta, storedLogValue } from './agent-log-codecs';
 import { runtimeStorageClearedStateKey } from '../constants';
 import { assertExecutionPublication } from './execution-scope';
 import { agentLogAuthor, type AgentLogAuthor, type AgentLogAttempt, type AgentLogAttemptOutcome, type AgentLogAttemptSummary, type AgentLogCompactionOutcome, type AgentLogCompactionSession, type AgentLogCompactionTrigger, type AgentLogEntry, type AgentLogFailure, type AgentLogRequest, type AgentLogSource, type AgentLogRequestSummary, type BotLoopMessage } from '@bickr/shared/model';
@@ -62,8 +62,8 @@ const chunkLength = 64_000;
 export const agentLogDeltaDepthLimit = 16;
 const partialFlushBytes = 4_096;
 const partialFlushMs = 1_000;
-type PartialText = { content: string; reasoning: string; toolCalls: ReturnType<typeof logToolDelta>[] };
-type LiveAttempt = { requestId: string; attemptId: number; text: PartialText; unflushedBytes: number; flushedAt: number; revision: number };
+type PartialText = AgentLogPartialResponse;
+type LiveAttempt = { requestId: string; attemptId: number; text: PartialText; reasoningSlots: Map<string, number>; unflushedBytes: number; flushedAt: number; revision: number };
 
 // SQLite encodes strings as UTF-8. Keep both halves of each surrogate pair together.
 function textBoundary(text: string, offset: number): number {
@@ -155,7 +155,7 @@ export class AgentLogStore {
 			this.writeChunks(attempt, useBase ? body.slice(prefix) : body);
 			this.storage.sql.exec("UPDATE inference_requests SET state = 'pending' WHERE id = ?", requestId);
 			const request = this.storage.sql.exec<RequestRow>('SELECT * FROM inference_requests WHERE id = ? LIMIT 1', requestId).one();
-			this.liveAttempts.set(JSON.stringify([request.run_id, request.event_seq]), { requestId, attemptId: attempt, text: { content: '', reasoning: '', toolCalls: [] }, unflushedBytes: 0, flushedAt: Date.now(), revision: 0 });
+			this.liveAttempts.set(JSON.stringify([request.run_id, request.event_seq]), { requestId, attemptId: attempt, text: { content: '', reasoning: '', reasoningParts: [], toolCalls: [] }, reasoningSlots: new Map(), unflushedBytes: 0, flushedAt: Date.now(), revision: 0 });
 			return attempt;
 		});
 	}
@@ -277,8 +277,9 @@ export class AgentLogStore {
 		return this.storage.sql.exec<{ id: number }>('SELECT id FROM inference_attempts WHERE request_id = ? ORDER BY id DESC LIMIT 1', requestId).toArray()[0]?.id ?? null;
 	}
 
-	partial(runId: string, eventSeq: number, payload: Record<string, unknown>): string | null {
+	partial(runId: string, eventSeq: number, delta: AgentLogStreamDelta): string | null {
 		this.assertCanWrite();
+		const payload = logStreamDelta(delta);
 		const live = this.liveAttempts.get(JSON.stringify([runId, eventSeq]));
 		if (!live) return null;
 		live.revision++;
@@ -287,9 +288,25 @@ export class AgentLogStore {
 			live.text.content += payload.text;
 			added = payload.text;
 		}
-		if (payload.kind === 'reasoning' && typeof payload.text === 'string') {
-			live.text.reasoning += payload.text;
-			added = payload.text;
+		if (payload.kind === 'reasoning') {
+			const part: AgentLogReasoningPart = payload.source === 'plain' ? { kind: 'text', text: payload.text } : payload.part;
+			if (part.kind === 'text') live.text.reasoning += part.text;
+			const key = part.kind === 'text' ? null : agentLogReasoningDetailKey(part);
+			const slot = key === null ? undefined : live.reasoningSlots.get(key);
+			const last = live.text.reasoningParts.at(-1);
+			const previous = part.kind === 'text' && last?.kind === 'text' ? last : slot === undefined ? undefined : live.text.reasoningParts[slot];
+			if (previous?.kind === 'text' && part.kind === 'text') {
+				previous.text += part.text;
+				added = part.text;
+			} else if (previous?.kind === 'readable' && part.kind === 'readable') {
+				previous.text += part.text;
+				if (part.id !== undefined) previous.id = part.id;
+				added = part.text;
+			} else if (previous === undefined) {
+				if (key !== null) live.reasoningSlots.set(key, live.text.reasoningParts.length);
+				live.text.reasoningParts.push(part);
+				added = JSON.stringify(part);
+			}
 		}
 		if (payload.kind === 'tool_call') {
 			const part = logToolDelta(payload.part);
@@ -365,8 +382,9 @@ export class AgentLogStore {
 		});
 	}
 
-	migrationStatus(): { authorsPending: boolean; requestsPending: boolean; legacySubmissionsRemain: boolean; legacyAuthorsRemain: boolean; legacyPendingRequestsRemain: boolean } {
+	migrationStatus(): { partialReasoningPending: boolean; authorsPending: boolean; requestsPending: boolean; legacySubmissionsRemain: boolean; legacyAuthorsRemain: boolean; legacyPendingRequestsRemain: boolean } {
 		return {
+			partialReasoningPending: !this.migrationDone('agent_log_partial_reasoning_v1'),
 			authorsPending: !this.migrationDone('agent_log_authors_v1'),
 			requestsPending: !this.migrationDone('agent_log_request_store_v1'),
 			legacySubmissionsRemain: this.storage.sql.exec('SELECT id FROM inference_submissions LIMIT 1').toArray().length > 0,
@@ -542,6 +560,7 @@ export class AgentLogStore {
 	migrate(messages: RuntimeMessageStore): void {
 		this.assertCanWrite();
 		this.storage.transactionSync(() => {
+			this.migratePartialReasoning();
 			const authorsDone = this.migrationDone('agent_log_authors_v1');
 			const requestsDone = this.migrationDone('agent_log_request_store_v1');
 			const rows = authorsDone ? [] : this.storage.sql.exec<{ seq: number; origin: BotLoopMessage['origin']; role: string; message_json: string }>('SELECT seq, origin, role, message_json FROM loop_messages WHERE author_json IS NULL ORDER BY seq LIMIT 100').toArray();
@@ -568,6 +587,24 @@ export class AgentLogStore {
 			}
 			if (!requestsDone && logs.length < 100) this.markMigration('agent_log_request_store_v1');
 		});
+	}
+
+
+	// This one runtime_state record stays until the schema-version-2 retirement.
+	// Startup and the fleet retention sweep each visit at most 100 attempts.
+	private migratePartialReasoning(): void {
+		const key = 'agent_log_partial_reasoning_v1';
+		if (this.migrationDone(key)) return;
+		const state = this.storage.sql.exec<{ value_json: string }>('SELECT value_json FROM runtime_state WHERE key = ? LIMIT 1', key).toArray()[0];
+		const cursor = state ? (JSON.parse(state.value_json) as { cursor: number }).cursor : 0;
+		const rows = this.storage.sql.exec<{ id: number; partial_response: string | null }>('SELECT id, partial_response FROM inference_attempts WHERE id > ? ORDER BY id LIMIT 100', cursor).toArray();
+		for (const row of rows) {
+			if (!row.partial_response) continue;
+			const value = storedLogValue(this.readChunks(row.id, 'partial')) as { reasoningParts?: unknown };
+			if (!Array.isArray(value.reasoningParts)) this.writeChunks(row.id, JSON.stringify(logPartial(value)), 'partial');
+		}
+		if (rows.length < 100) this.markMigration(key);
+		else this.storage.sql.exec('INSERT INTO runtime_state(key, value_json) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json', key, JSON.stringify({ schemaVersion: 1, complete: false, cursor: rows.at(-1)!.id }));
 	}
 
 	private migrationDone(key: string): boolean {

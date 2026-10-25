@@ -50,7 +50,7 @@ describe('agent log API boundaries', () => {
 	});
 
 	it('selects every nested field of partial tool calls', () => {
-		const partial = { content: 'Text', reasoning: 'Reason', toolCalls: [{ index: 0, id: 'call', type: 'function', function: { name: 'action', arguments: '{}' } }] };
+		const partial = { content: 'Text', reasoning: 'Reason', reasoningParts: [{ kind: 'text', text: 'Reason' }], toolCalls: [{ index: 0, id: 'call', type: 'function', function: { name: 'action', arguments: '{}' } }] };
 		expect(logPartial(extraFields(partial))).toEqual(partial);
 	});
 

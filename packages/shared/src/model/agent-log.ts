@@ -1,5 +1,34 @@
 import type { BotLoopMessage, BotLoopMessageOrigin, BotLoopMessageRequestUsage, BotLoopMessageRequestLogMessage, InferenceAttribution } from './runtime.ts';
 
+export type AgentLogReasoningDetail =
+	| { kind: 'readable'; type: 'reasoning.text' | 'reasoning.summary'; text: string; index?: number; id?: string }
+	| { kind: 'opaque'; type: string | null; index?: number; id?: string };
+export function agentLogReasoningDetailKey(part: AgentLogReasoningDetail): string | null {
+	return part.index !== undefined ? JSON.stringify([part.type, 'index', part.index])
+		: part.id !== undefined ? JSON.stringify([part.type, 'id', part.id]) : null;
+}
+export type AgentLogReasoningPart = { kind: 'text'; text: string } | AgentLogReasoningDetail;
+export type AgentLogToolDelta = { index?: number; id?: string; type?: string; function?: { name?: string; arguments?: string } };
+export type AgentLogStreamDelta =
+	| { kind: 'content'; text: string }
+	| { kind: 'reasoning'; source: 'plain'; text: string }
+	| { kind: 'reasoning'; source: 'detail'; part: AgentLogReasoningDetail }
+	| { kind: 'tool_call'; part: AgentLogToolDelta };
+export type AgentLogStreamPayload = AgentLogStreamDelta & {
+	streamSeq: number;
+	requestId: string | null;
+	deltaRevision?: number;
+	attemptId?: number;
+	ephemeral: true;
+};
+export type AgentLogPartialResponse = {
+	content: string;
+	// This compatibility field contains only provider plain reasoning, never detail text.
+	reasoning: string;
+	reasoningParts: AgentLogReasoningPart[];
+	toolCalls: AgentLogToolDelta[];
+};
+
 export type AgentLogAuthor =
 	| { kind: 'model' | 'owner_injection' | 'reminder' | 'self_correction' | 'recurring_prompt' | 'spotlight_focus' | 'synthetic_tool_call' | 'local_simulation' | 'compaction_summary' | 'legacy_summary' | 'bickr_report' | 'legacy_synthetic' }
 	| { kind: 'tool_result'; synthetic: boolean }

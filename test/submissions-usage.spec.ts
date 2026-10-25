@@ -1080,12 +1080,12 @@ describe("Submissions and usage", () => {
 			toolCalls: [],
 		});
 		expect(deltas).toEqual([
-			{ kind: "reasoning", streamSeq: 42, text: "I should inspect the thread. " },
-			{ kind: "reasoning", streamSeq: 42, text: "Then I can decide. " },
-			{ kind: "reasoning", streamSeq: 42, text: "Summary says to compare options. " },
-			{ kind: "reasoning", streamSeq: 42, text: "I will use " },
-			{ kind: "reasoning", streamSeq: 42, text: "a tool. " },
-			{ kind: "reasoning", streamSeq: 42, text: "Responses-style summary. " },
+			{ kind: "reasoning", source: "plain", streamSeq: 42, text: "I should inspect the thread. " },
+			{ kind: "reasoning", source: "plain", streamSeq: 42, text: "Then I can decide. " },
+			{ kind: "reasoning", source: "detail", streamSeq: 42, part: { kind: "readable", type: "reasoning.summary", index: 0, text: "Summary says to compare options. " } },
+			{ kind: "reasoning", source: "detail", streamSeq: 42, part: { kind: "readable", type: "reasoning.text", index: 0, text: "I will use " } },
+			{ kind: "reasoning", source: "detail", streamSeq: 42, part: { kind: "readable", type: "reasoning.text", index: 0, text: "a tool. " } },
+			{ kind: "reasoning", source: "detail", streamSeq: 42, part: { kind: "opaque", type: "reasoning", index: 1 } },
 			{ kind: "content", streamSeq: 42, text: " Checking now." },
 		]);
 		expect(events).toEqual([
