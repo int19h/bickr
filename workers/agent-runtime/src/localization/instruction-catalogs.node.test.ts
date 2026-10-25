@@ -1,6 +1,6 @@
 import { readCatalogGroup } from '../../../../scripts/localization/catalog-source.ts';
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { instructionLocales, instructionContentLanguage } from '@bickr/shared/instruction-language';
@@ -33,6 +33,31 @@ const reviewedUnits = inventory.groups.flatMap((group) => {
 });
 const pendingUnits = inventory.pendingUnits ?? [];
 const units = [...reviewedUnits, ...pendingUnits];
+
+const templateDirectory = 'workers/agent-runtime/src/localization/templates/';
+function templateCallers(): Map<string, InventoryUnit['sinks'][number][]> {
+	const callers = new Map<string, InventoryUnit['sinks'][number][]>();
+	for (const file of readdirSync(`${root}/${templateDirectory}`, { recursive: true, encoding: 'utf8' }).filter(file => file.endsWith('.md')).sort()) {
+		const path = `${templateDirectory}${file}`;
+		// Keep newlines so that comments do not change caller locations.
+		const source = readFileSync(`${root}/${path}`, 'utf8').replace(/\{\{![\s\S]*?\}\}/gu, comment => comment.replace(/[^\n]/gu, ' '));
+		for (const match of source.matchAll(/\{\{\s*t\s+"([^"\n]+)"/gu)) {
+			const key = match[1]!;
+			const sites = callers.get(key) ?? [];
+			sites.push({ file: path, line: source.slice(0, match.index).split('\n').length, kind: 'direct' });
+			callers.set(key, sites);
+		}
+	}
+	return callers;
+}
+
+function assertCallers(unit: InventoryUnit, templates: Map<string, InventoryUnit['sinks'][number][]>): void {
+	const location = (sink: InventoryUnit['sinks'][number]) => `${sink.file}:${sink.line}`;
+	expect(new Set(unit.sinks.map(location)).size, `${unit.id}: duplicate caller`).toBe(unit.sinks.length);
+	const actual = unit.sinks.filter(sink => sink.file.startsWith(templateDirectory)).map(location).sort();
+	const expected = (templates.get(unit.id) ?? []).map(location).sort();
+	expect(actual, `${unit.id}: template callers`).toEqual(expected);
+}
 
 function catalogPart(file: string): Record<string, string | Record<string, string>> {
 	const localeDirectory = file.match(/^(.*\/localization\/[a-z]{2})\//)![1]!;
@@ -299,12 +324,25 @@ describe('reviewed instruction catalogs', () => {
 		expect(units).toHaveLength(inventory.sourceUnitCount);
 		expect(new Set(units.map((unit) => unit.id)).size).toBe(units.length);
 		expect(units.map((unit) => unit.id).sort()).toEqual(Object.keys(messageParameters).sort());
+		const templates = templateCallers();
+		for (const key of templates.keys()) expect(Object.hasOwn(messageParameters, key), key).toBe(true);
 		for (const unit of units) {
+			assertCallers(unit, templates);
 			expect(unit.sinks.length, unit.id).toBeGreaterThan(0);
 			const source = catalogPart(unit.definition.file)[unit.id];
 			expect(createHash('sha256').update(JSON.stringify(source)).digest('hex'), unit.id).toBe(unit.sourceTemplateHash);
 			const line = readFileSync(`${root}/${unit.definition.file}`, 'utf8').split('\n')[unit.definition.line - 1];
 			expect(line, unit.id).toContain(`${unit.id}:`);
+		}
+	});
+
+	it('rejects duplicate callers for every key and missing callers in every template', () => {
+		const templates = templateCallers();
+		for (const unit of units) {
+			expect(() => assertCallers({ ...unit, sinks: [...unit.sinks, unit.sinks[0]!] }, templates), unit.id).toThrow();
+			for (const sink of unit.sinks.filter(sink => sink.file.startsWith(templateDirectory))) {
+				expect(() => assertCallers({ ...unit, sinks: unit.sinks.filter(candidate => candidate !== sink) }, templates), unit.id).toThrow();
+			}
 		}
 	});
 

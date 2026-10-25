@@ -1624,12 +1624,7 @@
         },
         {
           "file": "workers/agent-runtime/src/localization/templates/check_notifications.md",
-          "line": 24,
-          "kind": "direct"
-        },
-        {
-          "file": "workers/agent-runtime/src/localization/templates/check_notifications.md",
-          "line": 24,
+          "line": 27,
           "kind": "direct"
         },
         {
