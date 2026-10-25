@@ -71,6 +71,7 @@
 		"./http": "./src/http.ts",
 		"./markdown": "./src/markdown.ts",
 		"./bounded-body": "./src/bounded-body.ts",
+		"./reasoning-formatting": "./src/reasoning-formatting.ts",
 		"./provider-transport": "./src/provider-transport.ts",
 		"./openrouter-image-models": "./src/openrouter-image-models.ts",
 		"./avatar-members": "./src/avatar-members.ts",

@@ -1071,7 +1071,7 @@ describe("Submissions and usage", () => {
 
 		expect(response).toMatchObject({
 			content: " Checking now.",
-			reasoning: "I should inspect the thread. Then I can decide. Summary says to compare options. I will use a tool. ",
+			reasoning: "I should inspect the thread. Then I can decide. \n\nSummary says to compare options. \n\nI will use a tool. ",
 			reasoningDetails: [
 				{ type: "reasoning.summary", summary: "Summary says to compare options. ", format: "openai-responses-v1", index: 0 },
 				{ type: "reasoning.text", text: "I will use a tool. ", format: "unknown", index: 0 },
@@ -1092,7 +1092,7 @@ describe("Submissions and usage", () => {
 			{
 				type: "reasoning_message",
 				payload: {
-					content: "I should inspect the thread. Then I can decide. Summary says to compare options. I will use a tool. ",
+					content: "I should inspect the thread. Then I can decide. \n\nSummary says to compare options. \n\nI will use a tool. ",
 					status: "complete",
 					streamSeq: 42,
 				},
