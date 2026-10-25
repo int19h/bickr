@@ -1,3 +1,4 @@
+import { AgentLogCard, AgentLogBody, AgentLogExpandControl } from './agent-log-card';
 import type { AgentLogAuthor, AgentLogCompactionSession, AgentLogEntry, BotLoopMessage, BotLoopMessagePage } from '@bickr/shared/model';
 import type { Ref } from 'react';
 import { useMemo, useState } from 'react';
@@ -115,7 +116,7 @@ export function AgentLogView(props: AgentLogViewProps) {
 					else if (row) props.onLogs(row);
 				};
 				return (
-					<div
+					<AgentLogCard expandable={tool || (message.role === 'user' && row?.contentFormat === 'markdown')}
 						key={!tool && requestId ? requestId : `message-${row?.seq}`}
 						ref={highlight ? props.sourceRef : undefined}
 						id={number ? `loop-result-${number}` : undefined}
@@ -173,7 +174,7 @@ export function AgentLogView(props: AgentLogViewProps) {
 							)}
 						</div>
 						<AgentLogReasoning message={message} />
-						<div className="agent-log-body">
+						<AgentLogBody>
 							{tool ? (
 								<LoopMessageReadableView
 									message={message}
@@ -186,7 +187,7 @@ export function AgentLogView(props: AgentLogViewProps) {
 							) : (
 								<LoopMarkdown text={message.content ?? ''} worldHandle={row?.display?.context?.worldHandle} />
 							)}
-						</div>
+						</AgentLogBody>
 						{calls.get(entry)?.map((link) => (
 							<AgentLogCall
 								key={link.number}
@@ -198,6 +199,7 @@ export function AgentLogView(props: AgentLogViewProps) {
 							/>
 						))}
 						<div className="agent-log-foot">
+							<AgentLogExpandControl />
 							{row && (
 								<button
 									className="agent-log-delete"
@@ -246,7 +248,7 @@ export function AgentLogView(props: AgentLogViewProps) {
 								) : null}
 							</span>
 						</div>
-					</div>
+					</AgentLogCard>
 				);
 			})}
 			{page?.newerPage && !ordered.some((entry) => entry.kind === 'notice' && entry.notice.kind === 'compaction_started') && (

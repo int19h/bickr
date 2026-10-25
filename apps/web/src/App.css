@@ -8179,6 +8179,8 @@ button.inference-model-name:hover { text-decoration: underline; }
 	--loop-tool: color-mix(in oklch, oklch(0.72 0.09 145) 16%, var(--paper-2));
 	--loop-tool-border: color-mix(in oklch, oklch(0.72 0.09 145) 35%, var(--rule));
 	--loop-tool-ink: #4a6a3a;
+	--loop-tool-rule: var(--loop-tool-border);
+	--loop-result-height: 300px;
 	--loop-summary: color-mix(in oklch, oklch(0.82 0.14 78) 28%, var(--paper-2));
 	--loop-summary-border: color-mix(in oklch, oklch(0.68 0.16 70) 55%, var(--rule));
 	--loop-summary-ink: oklch(0.42 0.12 68);
@@ -8647,6 +8649,68 @@ button.inference-model-name:hover { text-decoration: underline; }
 	}
 }
 
+/* Markdown structure controls the layout in every language. */
+:is(.loop-readable, .tint-user .agent-log-body) .markdown-body h2 {
+	font-size: 14px;
+	font-weight: 700;
+	color: var(--ink);
+	margin: 0 0 2px;
+	line-height: 1.35;
+}
+:is(.loop-readable, .tint-user .agent-log-body) .markdown-body h2 + p,
+:is(.loop-readable, .tint-user .agent-log-body) .markdown-body h3 + p {
+	font-size: 12px;
+	color: var(--ink-3);
+	margin: 2px 0;
+}
+:is(.loop-readable, .tint-user .agent-log-body) .markdown-body h3 {
+	font-size: 12.5px;
+	font-weight: 600;
+	border-top: 1px solid var(--loop-tool-rule);
+	padding-top: 8px;
+	margin: 10px 0 0;
+}
+:is(.loop-readable, .tint-user .agent-log-body) .markdown-body hr {
+	border: 0;
+	border-top: 1px solid var(--loop-tool-rule);
+	margin: 8px 0;
+}
+:is(.loop-readable, .tint-user .agent-log-body) .markdown-body hr:has(+ h3) { display: none; }
+:is(.loop-readable, .tint-user .agent-log-body) .markdown-body blockquote {
+	border-inline-start: 2px solid var(--loop-tool-rule);
+	font-size: 13.5px;
+	color: var(--ink);
+	font-style: normal;
+	margin: 0 0 2px;
+}
+:is(.loop-readable, .tint-user .agent-log-body) .markdown-body blockquote > :first-child { margin-top: 0; }
+:is(.loop-readable, .tint-user .agent-log-body) .markdown-body blockquote > :last-child { margin-bottom: 0; }
+.agent-log-card.result-collapsed .agent-log-body {
+	max-height: var(--loop-result-height);
+	overflow: hidden;
+	position: relative;
+}
+.agent-log-card.result-collapsed:has(.agent-log-expand) .agent-log-body::after {
+	content: '';
+	position: absolute;
+	inset: auto 0 0;
+	height: 48px;
+	background: linear-gradient(transparent, color-mix(in oklch, var(--card-fill) calc(100% * var(--card-opacity) * var(--source-opacity)), var(--paper)));
+	pointer-events: none;
+}
+.agent-log-foot .agent-log-expand {
+	height: 24px;
+	padding: 0 8px;
+	border: 1px solid var(--loop-tool-rule);
+	border-radius: 12px;
+	color: var(--loop-tool-ink);
+	text-decoration: none;
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+}
+.agent-log-expand svg { transform: rotate(90deg); }
+.agent-log-expand svg.expanded { transform: rotate(-90deg); }
 .agent-log-reasoning.opaque-only {
 	min-height: 28px;
 	padding: 5px 10px;
@@ -8672,4 +8736,7 @@ button.inference-model-name:hover { text-decoration: underline; }
 	display: flex;
 	align-items: center;
 	gap: 4px;
+}
+@media (max-width: 640px) {
+	.agent-log-card { --loop-result-height: 260px; }
 }
