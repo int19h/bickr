@@ -1,6 +1,6 @@
 import { readableReasoningFormat } from '@bickr/shared/model';
 import type { AgentLogStreamDelta } from '@bickr/shared/model';
-import { reasoningDetailForStream, reasoningTextFromDetails } from './reasoning-stream';
+import { reasoningDetailForStream } from './reasoning-stream';
 import { fetchProviderResponse, ProviderTransportError } from '@bickr/shared/provider-transport';
 import {
 	providerBodyReadTimeoutMs,
@@ -424,9 +424,7 @@ export async function consumeProviderResponse(
 	generationResponseId?: string,
 ): Promise<ProviderResponse> {
 	let content = '';
-	let reasoning = '';
 	let hasContentText = false;
-	let hasReasoningText = false;
 	const reasoningStream = new StreamReasoningDetails();
 	let completed = false;
 	const toolCalls = new Map<number, ToolCall>();
@@ -439,7 +437,7 @@ export async function consumeProviderResponse(
 	try {
 		for await (const event of readSse(stream, signal)) {
 			runtime.throwIfStopped(runId, signal);
-			const rawPreviewCaptured = (!hasContentText && !hasReasoningText && reasoningStream.empty && toolCalls.size === 0);
+			const rawPreviewCaptured = (!hasContentText && !reasoningStream.hasReadableText && reasoningStream.empty && toolCalls.size === 0);
 			if (rawPreviewCaptured) {
 				rawResponse = appendRawResponsePreview(rawResponse, event.raw);
 			}
@@ -476,22 +474,16 @@ export async function consumeProviderResponse(
 			}
 			const plainValue = delta.reasoning ?? delta.reasoning_content;
 			const plainReasoning = typeof plainValue === 'string' ? plainValue : '';
-			let detailsReasoning = '';
+			reasoningStream.appendPlain(plainReasoning);
 			if (plainReasoning) runtime.broadcastProviderDelta(runId, streamSeq, { kind: 'reasoning', source: 'plain', text: plainReasoning });
 			if (Array.isArray(delta.reasoning_details) && delta.reasoning_details.length > 0) {
 				reasoningStream.append(delta.reasoning_details);
-				detailsReasoning = reasoningTextFromDetails(delta.reasoning_details);
 				for (const detail of delta.reasoning_details) {
 					const part = reasoningDetailForStream(detail);
 					runtime.broadcastProviderDelta(runId, streamSeq, part.kind === 'readable'
 						? { kind: 'reasoning', source: 'detail', part, text: part.text }
 						: { kind: 'reasoning', source: 'detail', part });
 				}
-			}
-			const deltaReasoning = plainReasoning + detailsReasoning;
-			if (deltaReasoning) {
-				reasoning += deltaReasoning;
-				hasReasoningText ||= deltaReasoning.trim().length > 0;
 			}
 			for (const part of delta.tool_calls ?? []) {
 				const current =
@@ -531,7 +523,7 @@ export async function consumeProviderResponse(
 			throw new ProviderResponseInterruptedError(
 				{
 					content,
-					reasoning,
+					reasoning: reasoningStream.readableText(),
 					reasoningFormat: readableReasoningFormat,
 					reasoningDetails: reasoningStream.finish(runtime.normalizeReasoningDetails),
 					toolCalls: [...toolCalls.values()].filter((tool) => tool.function.name),
@@ -549,7 +541,7 @@ export async function consumeProviderResponse(
 	}
 	const response = {
 		content: runtime.repairInvalidUnicodeText(content),
-		reasoning: runtime.repairInvalidUnicodeText(reasoning),
+		reasoning: runtime.repairInvalidUnicodeText(reasoningStream.readableText()),
 		reasoningFormat: readableReasoningFormat,
 		reasoningDetails: runtime.repairInvalidUnicodeValue(reasoningStream.finish(runtime.normalizeReasoningDetails)).value,
 		toolCalls: [...toolCalls.values()].filter((tool) => tool.function.name),

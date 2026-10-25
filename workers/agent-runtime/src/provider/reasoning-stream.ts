@@ -1,5 +1,6 @@
 import { readableReasoningFormat, type BotInferenceSubmissionMessage } from '@bickr/shared/model';
-import type { AgentLogReasoningDetail } from '@bickr/shared/model';
+import { agentLogReasoningDetailKey, type AgentLogReasoningPart, type AgentLogReasoningDetail } from '@bickr/shared/model';
+import { reasoningPartsForDisplay } from '@bickr/shared/reasoning-formatting';
 import type { ReasoningDetail } from '../types';
 
 type Detail = { value: ReasoningDetail; textChunks?: string[] };
@@ -8,11 +9,31 @@ type Detail = { value: ReasoningDetail; textChunks?: string[] };
  * Text chunks are joined and Unicode-normalized only when the response settles. */
 export class StreamReasoningDetails {
 	private readonly details: Detail[] = [];
+	private readonly readableParts: AgentLogReasoningPart[] = [];
+	private readonly opaqueKeys = new Set<string>();
+	private readableTextSeen = false;
+
+	get hasReadableText(): boolean { return this.readableTextSeen; }
+
+	appendPlain(text: string): void {
+		if (!text) return;
+		this.readableParts.push({ kind: 'text', text });
+		this.readableTextSeen ||= text.trim().length > 0;
+	}
+
+	/** Extract once at settlement, after all adjacent runs are complete. */
+	readableText(): string { return reasoningTextFromParts(this.readableParts); }
 
 	get empty(): boolean { return this.details.length === 0; }
 
 	append(incoming: readonly ReasoningDetail[]): void {
 		for (const value of incoming) {
+			const part = reasoningDetailForStream(value);
+			const key = part.kind === 'opaque' ? agentLogReasoningDetailKey(part) : null;
+			// Live partials also retain only the first opaque marker for each identity.
+			if (key === null || !this.opaqueKeys.has(key)) this.readableParts.push(part);
+			if (key !== null) this.opaqueKeys.add(key);
+			if (part.kind === 'readable') this.readableTextSeen ||= part.text.trim().length > 0;
 			const last = this.details[this.details.length - 1];
 			if (last?.textChunks && value.type === 'reasoning.text' && typeof value.text === 'string'
 				&& value.index === last.value.index && value.format === last.value.format) {
@@ -50,6 +71,12 @@ export function reasoningDetailForStream(value: unknown): AgentLogReasoningDetai
 		return { kind: 'readable', type, text, ...identity };
 	}
 	return { kind: 'opaque', type, ...identity };
+}
+
+/** The shared formatter applies the same mirror and separator rules. */
+export function reasoningTextFromParts(parts: readonly AgentLogReasoningPart[]): string {
+	// UI line normalization must not change plain text that the provider will replay.
+	return reasoningPartsForDisplay(parts, text => text).text;
 }
 
 export function reasoningTextFromDetails(details: readonly unknown[]): string {

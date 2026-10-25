@@ -1,7 +1,8 @@
+import { normalizeReadableText, reasoningPartsForDisplay } from '../../../../apps/web/src/reasoning-formatting';
 import { chatMessagesCharacterCount } from '../compaction/limits';
 import { approximateTextTokens } from '@bickr/shared/text-token-estimate';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { readableReasoningFormat, type AgentLogStreamDelta, type BotInferenceSubmissionMessage } from '@bickr/shared/model';
+import { readableReasoningFormat, type AgentLogReasoningPart, type AgentLogStreamDelta, type BotInferenceSubmissionMessage } from '@bickr/shared/model';
 import { ProviderResponseInterruptedError } from '../errors';
 import type { ProviderResponse } from '../types';
 import { createProviderSanitize } from '../provider/sanitize';
@@ -20,11 +21,24 @@ const { providerResponseMessageForHistory } = createProviderSanitize({
 	safeContextText: unused, stringValue: unused,
 });
 const encrypted = { type: 'reasoning.encrypted', index: 1, data: 'OPAQUE', signature: 'EXACT_SIGNATURE' };
-const cases = [
+const cases: Array<{ name: string; plain: string; details: Record<string, unknown>[]; expected: string; deltas?: Record<string, unknown>[] }> = [
+	{ name: 'mirrored summary', plain: 'Summary.', details: [{ type: 'reasoning.summary', index: 0, summary: 'Summary.' }], expected: 'Summary.' },
+	{ name: 'mirrored text', plain: 'Thought.', details: [{ type: 'reasoning.text', index: 0, text: 'Thought.' }], expected: 'Thought.' },
+	{ name: 'mirrored summary with different chunk boundaries', plain: 'Summary.', expected: 'Summary.',
+		details: [{ type: 'reasoning.summary', index: 0, summary: 'S' }, { type: 'reasoning.summary', index: 0, summary: 'ummary.' }],
+		deltas: [{ reasoning: 'Sum' }, { reasoning: 'mary.' }, { reasoning_details: [{ type: 'reasoning.summary', index: 0, summary: 'S' }] }, { reasoning_details: [{ type: 'reasoning.summary', index: 0, summary: 'ummary.' }] }] },
+	{ name: 'mirrored text with interleaved deltas', plain: 'Thought.', expected: 'Thought.',
+		details: [{ type: 'reasoning.text', index: 0, text: 'Thought.' }],
+		deltas: [{ reasoning: 'Tho', reasoning_details: [{ type: 'reasoning.text', index: 0, text: 'Tho' }] }, { reasoning: 'ught.', reasoning_details: [{ type: 'reasoning.text', index: 0, text: 'ught.' }] }] },
 	{ name: 'plain and encrypted', plain: 'Readable plain thought.', details: [encrypted], expected: 'Readable plain thought.' },
-	{ name: 'plain and summary', plain: 'Readable plain thought.', details: [{ type: 'reasoning.summary', index: 0, summary: 'Readable summary.' }], expected: 'Readable plain thought.Readable summary.' },
+	{ name: 'plain and summary', plain: 'Readable plain thought.', details: [{ type: 'reasoning.summary', index: 0, summary: 'Readable summary.' }], expected: 'Readable plain thought.\n\nReadable summary.' },
+	{ name: 'separate detail identities', plain: '', details: [{ type: 'reasoning.text', index: 0, text: 'Think' }, { type: 'reasoning.text', index: 1, text: 'More' }], expected: 'Think\n\nMore' },
+	{ name: 'text across an opaque barrier', plain: 'Think', details: [encrypted, { type: 'reasoning.summary', index: 0, summary: 'Summary' }], expected: 'Think\n\nSummary' },
+	{ name: 'same identity joins after mirror removal', plain: '', details: [{ type: 'reasoning.summary', index: 0, summary: 'A' }, { type: 'reasoning.summary', index: 0, summary: 'B' }], expected: 'AB',
+		deltas: [{ reasoning: 'A', reasoning_details: [{ type: 'reasoning.summary', index: 0, summary: 'A' }] }, { reasoning: 'B', reasoning_details: [{ type: 'reasoning.summary', index: 0, summary: 'B' }] }] },
 	{ name: 'only encrypted', plain: '', details: [encrypted], expected: '' },
 	{ name: 'no reasoning', plain: '', details: [], expected: '' },
+	{ name: 'plain line breaks for replay', plain: 'A\r\nB\r\nC\r\nD\r\nE\r\nF', details: [], expected: 'A\r\nB\r\nC\r\nD\r\nE\r\nF' },
 	{ name: 'only plain', plain: 'Readable plain thought.', details: [], expected: 'Readable plain thought.' },
 ];
 let storage: RuntimeTestStorage;
@@ -32,18 +46,23 @@ beforeEach(() => { storage = createRuntimeTestStorage(); storage.database.exec(r
 afterEach(() => storage.database.close());
 
 describe.each([true, false])('settled reasoning when completed=%s', completed => {
-	it.each(cases)('preserves $name for the owner and keeps provider replay unchanged', async ({ plain, details, expected }) => {
+	it.each(cases)('preserves $name for the owner and keeps provider replay unchanged', async ({ plain, details, expected, deltas }) => {
 		const messages = new RuntimeMessageStore(storage);
 		const logs = new AgentLogStore(storage);
 		const requestId = logs.begin({ runId: 'run', eventSeq: 1, purpose: 'loop' });
 		const attemptId = logs.startAttempt(requestId, '{}');
+		const liveParts: AgentLogReasoningPart[] = [];
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
 			state: { storage }, agentLogs: logs, runtimeMessageStore: () => messages,
 			throwIfStopped: () => {}, requireOwnerOrInternal: async () => {},
 			resultRenderContextForRows: async () => testResultContext,
-			broadcastProviderDelta: (runId: string, seq: number, delta: AgentLogStreamDelta) => { logs.partial(runId, seq, delta); },
+			broadcastProviderDelta: (runId: string, seq: number, delta: AgentLogStreamDelta) => {
+				logs.partial(runId, seq, delta);
+				if (delta.kind === 'reasoning') liveParts.push(delta.source === 'plain' ? { kind: 'text', text: delta.text } : delta.part);
+			},
 		});
-		const frame = `data: ${JSON.stringify({ choices: [{ delta: { content: 'Reply', reasoning: plain, reasoning_details: details } }] })}\n\n`;
+		const frame = [{ content: 'Reply' }, ...(deltas ?? [{ reasoning: plain, reasoning_details: details }])]
+			.map(delta => `data: ${JSON.stringify({ choices: [{ delta }] })}\n\n`).join('');
 		const stream = new ReadableStream<Uint8Array>({ start(controller) {
 			controller.enqueue(new TextEncoder().encode(frame + (completed ? 'data: [DONE]\n\n' : '')));
 			controller.close();
@@ -59,6 +78,8 @@ describe.each([true, false])('settled reasoning when completed=%s', completed =>
 		}
 		expect(response.reasoningFormat).toBe(readableReasoningFormat);
 		expect(response.reasoning).toBe(expected);
+		expect(normalizeReadableText(response.reasoning!)).toBe(reasoningPartsForDisplay(liveParts).text);
+		if (!expected.includes('\r')) expect(response.reasoning).toBe(reasoningPartsForDisplay(liveParts).text);
 		const history = providerResponseMessageForHistory(response)!;
 		expect(history.reasoning).toBe(expected);
 		expect(history.reasoning_format).toBe('readable_v1');
@@ -67,6 +88,10 @@ describe.each([true, false])('settled reasoning when completed=%s', completed =>
 		expect(JSON.parse(stored.message_json)).toMatchObject({ reasoning: expected, reasoning_format: 'readable_v1' });
 		logs.settle(attemptId, { kind: completed ? 'success' : 'interrupted', response: JSON.stringify({ message: history }) });
 		logs.finish(requestId, completed ? 'succeeded' : 'failed');
+		const settled = new AgentLogStore(storage).request(requestId).attempts[0]!.outcome!;
+		expect(settled.kind).toBe(completed ? 'success' : 'interrupted');
+		if (settled.kind !== 'success' && settled.kind !== 'interrupted') throw new Error('Expected a settled response.');
+		expect(JSON.parse(settled.response!).message).toMatchObject({ reasoning: expected, reasoning_format: 'readable_v1' });
 		const url = new URL('https://internal/bots/participant/messages?page=1');
 		const page = await runtime.handleRuntimeReadRequest(new Request(url), url, 'participant');
 		const api = (await page.json()).data;
