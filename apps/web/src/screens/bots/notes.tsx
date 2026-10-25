@@ -3,7 +3,7 @@ import { InferenceBadge } from "../../components/inference-attribution";
 import type { InferenceAttribution } from "@bickr/shared/model";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../api";
-import { planNoteId } from "@bickr/shared/note-settings";
+import { maxNoteContentLength, planNoteId } from "@bickr/shared/note-settings";
 import { TranslatableText, type OpenReference } from "../../components/content";
 import { Confirm, FilterBox, Modal } from "../../ui";
 import type { InstructionLocale } from '@bickr/shared/instruction-language';
@@ -133,8 +133,9 @@ function BotNotesPanelContent({ botId, enabled, instructionLocale, onReference, 
 			setNote(null);
 		}
 	};
+	const contentLength = [...(editor?.content ?? "")].length;
 	const saveEditor = async () => {
-		if (!editor || saving) return;
+		if (!editor || saving || contentLength < 1 || contentLength > maxNoteContentLength) return;
 		if (editor.original && editor.title === editor.original.id && editor.content === editor.original.content) return;
 		const current = mutations.begin();
 		setSaving(true);
@@ -218,7 +219,7 @@ function BotNotesPanelContent({ botId, enabled, instructionLocale, onReference, 
 						<button className="btn ghost" disabled={saving} onClick={() => setEditor(null)} type="button">Cancel</button>
 						<button
 							className="btn primary"
-							disabled={saving || !editor?.title.trim() || !editor?.content || !!(editor.original && editor.title === editor.original.id && editor.content === editor.original.content)}
+							disabled={saving || contentLength > maxNoteContentLength || !editor?.title.trim() || !editor?.content || !!(editor.original && editor.title === editor.original.id && editor.content === editor.original.content)}
 							onClick={() => void saveEditor()}
 							type="button"
 						>
@@ -238,6 +239,7 @@ function BotNotesPanelContent({ botId, enabled, instructionLocale, onReference, 
 					<span>Content</span>
 					<textarea className="textarea" disabled={saving} onChange={(event) => setEditor((current) => current ? { ...current, content: event.target.value } : current)} rows={10} value={editor?.content ?? ""} />
 				</label>
+				<p className="help">{contentLength} / {maxNoteContentLength} characters (Unicode code points).</p>
 				{editor?.original?.id === planNoteId && <p className="help">You can edit PLAN content, but its title stays PLAN.</p>}
 				{editorError && <p role="alert">{editorError}</p>}
 			</Modal>

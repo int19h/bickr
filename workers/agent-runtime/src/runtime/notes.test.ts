@@ -1,3 +1,4 @@
+import { maxNoteContentLength } from "@bickr/shared/note-settings";
 import { factoryText, type FactoryText } from '@bickr/shared/localization';
 import { InstructionTemplates } from '@bickr/shared/instruction-template';
 import { instructionLocales } from '@bickr/shared/instruction-language';
@@ -237,8 +238,18 @@ describe('private bot notes', () => {
 		expect(() => normalizeNoteId('a'.repeat(65))).toThrow();
 		expect(() => noteContent('')).toThrow();
 		expect(() => notes.write('valid', '', [])).toThrow();
-		expect(noteContent('😀'.repeat(4_000))).toBe('😀'.repeat(4_000));
-		expect(() => noteContent('😀'.repeat(4_001))).toThrow();
+		expect(noteContent('😀'.repeat(maxNoteContentLength))).toBe('😀'.repeat(maxNoteContentLength));
+		expect(() => noteContent('😀'.repeat(maxNoteContentLength + 1))).toThrow();
+	});
+
+	it.each(['a', '😀'])('stores and exports the full code-point limit for %s', (character) => {
+		const content = character.repeat(maxNoteContentLength - 1) + '😀';
+		notes.write('boundary', content, []);
+		expect(notes.read(text, 'boundary')?.content).toBe(content);
+		expect(notes.exportPage(null).records).toContainEqual(expect.objectContaining({ id: 'boundary', content }));
+		expect(() => notes.write('boundary', content + 'a', [])).toThrow();
+		expect(() => notes.edit('boundary', 'boundary', content + '😀', [], 0)).toThrow();
+		expect(notes.read(text, 'boundary')?.content).toBe(content);
 	});
 
 	it('normalizes short titles and rejects invisible controls', () => {

@@ -1,3 +1,4 @@
+import { maxNoteContentLength } from "@bickr/shared/note-settings";
 import { mathLimits, mermaidLimits, svgLimits, participantListLimits } from '@bickr/shared/content-limits';
 import type { BotText } from "./localization";
 import type { InstructionText } from "@bickr/shared/instruction-template";
@@ -330,7 +331,7 @@ function toolDefinitionsForPostingLimits(text: BotText, postingLimits: BotEffect
 	}),
 	tool(text, "read_note", text.format("tools.read_note.description"), { id: { type: "string" } }, ["id"]),
 	tool(text, "write_note", text.format("tools.write_note.description"), {
-		id: { type: "string" }, content: { type: "string", maxLength: 4000 },
+		id: { type: "string" }, content: { type: "string", maxLength: maxNoteContentLength },
 	}, ["id", "content"]),
 	tool(text, "delete_note", text.format("tools.delete_note.description"), { id: { type: "string" } }, ["id"]),
 	tool(

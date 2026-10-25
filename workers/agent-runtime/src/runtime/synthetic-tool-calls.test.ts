@@ -1,3 +1,4 @@
+import { maxNoteContentLength } from "@bickr/shared/note-settings";
 import { renderToolResultView } from './tool-result-views';
 import { toolResultViewForMessage } from './result-messages';
 import { testResultContext } from './result-render-context.test-support';
@@ -48,11 +49,11 @@ describe('authored synthetic tool reasoning', () => {
 		else expect(result).toContain(`## t/thr_one “${title}”`);
 	});
 
-	it('reads PLAN before notifications with unique IDs and the ordinary note payload', async () => {
+	it.each(['- Write a poem.', '😀'.repeat(maxNoteContentLength)])('reads full PLAN content before notifications with unique IDs', async (content) => {
 		const captured: { calls: SyntheticToolCall[]; results: ChatMessage[]; narration: string }[] = [];
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
 			env: { BICKR_D1: {} },
-			notes: { read: () => ({ id: 'PLAN', content: '- Write a poem.', links: [], revision: 1, createdAt: '', updatedAt: '' }) },
+			notes: { read: () => ({ id: 'PLAN', content, links: [], revision: 1, createdAt: '', updatedAt: '' }) },
 			appendLoopMessageGroup: (context: typeof testResultContext, entries: LoopMessageGroupEntry[]) => { captured.push(captureChain(context, entries)); },
 		});
 		await runtime.appendNotificationSyntheticContext(
@@ -63,7 +64,7 @@ describe('authored synthetic tool reasoning', () => {
 		expect(chain.calls.map((call) => call.function.name)).toEqual(['read_note', 'check_notifications']);
 		expect(new Set(chain.calls.map((call) => call.id)).size).toBe(chain.calls.length);
 		expect(chain.results.map((result) => result.tool_call_id)).toEqual(chain.calls.map((call) => call.id));
-		expect(chain.results[0]!.content).toBe('## Note `PLAN`\n\n- Write a poem.');
+		expect(chain.results[0]!.content).toBe('## Note `PLAN`\n\n' + content);
 		expect(chain.narration).toContain('PLAN');
 	});
 	it.each([

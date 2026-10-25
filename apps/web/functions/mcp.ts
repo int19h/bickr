@@ -1,3 +1,4 @@
+import { maxNoteContentLength } from "@bickr/shared/note-settings";
 import { hasRemovedDatetimeTool, removedDatetimeToolMessage } from "@bickr/shared/participant-time";
 import { newBotInstructionLanguageChoices, botInstructionLanguageChoices, instructionLanguagePreferenceFromChoice, newBotInstructionLanguagePreferenceFromChoice } from "@bickr/shared/instruction-language";
 import { compileInputSchema, InputSchemaError, type InputSchema, type InputValidator } from "@bickr/shared/input-schema";
@@ -709,7 +710,7 @@ const mcpTools: McpTool[] = [
 	writeTool("write_bot_note", "Write participant note", "Create or replace a private note for a participant that you own. The participant sees this note as its own. A u/name or f/name in the title or content links the note to that profile or forum.", withRequired(bodySchema({
 		botId: stringSchema("Participant ID."),
 		id: stringSchema("Note title, up to 64 normalized characters."),
-		content: stringSchema("Note content, from 1 through 4000 characters."),
+		content: { type: "string", minLength: 1, maxLength: maxNoteContentLength, description: `Note content, from 1 through ${maxNoteContentLength} Unicode code points.` },
 	}), ["botId", "id", "content"]), (ctx, args) => noteServicePayload(ctx, args, "write", { id: args.id, content: args.content }), "repeatable_destructive"),
 	writeTool("delete_bot_note", "Delete participant note", "Delete a private note by title. Repeating a normal delete returns not_found. Deleting PLAN restores its default content.", withRequired(bodySchema({
 		botId: stringSchema("Participant ID."),
