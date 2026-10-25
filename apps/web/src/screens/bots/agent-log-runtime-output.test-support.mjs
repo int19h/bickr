@@ -5,7 +5,7 @@ import { createRuntimeTestStorage } from '../../../../../workers/agent-runtime/s
 import { testResultContext } from '../../../../../workers/agent-runtime/src/runtime/result-render-context.test-support';
 import { ProviderResponseInterruptedError } from '../../../../../workers/agent-runtime/src/errors';
 // Card inputs come from the runtime consumer, broadcaster, SQLite store, and history publisher.
-export async function reasoningRuntimeOutput(completed) {
+export async function reasoningRuntimeOutput(completed, scenario = 'mixed') {
     const storage = createRuntimeTestStorage();
     try {
         const store = new AgentLogStore(storage);
@@ -23,7 +23,16 @@ export async function reasoningRuntimeOutput(completed) {
                 snapshots.push(store.entries([], null));
             },
         });
-        const deltas = [
+        const deltas = scenario === 'plain-opaque' ? [
+            { reasoning: 'Readable plain thought.' },
+            { reasoning_details: [{ type: 'reasoning.encrypted', data: 'PRIVATE_ENCRYPTED_BYTES' }] },
+            { content: 'A public reply.' },
+        ] : scenario === 'interleaved' ? [
+            { reasoning_details: [{ type: 'reasoning.summary', index: 0, summary: 'First.' }] },
+            { reasoning_details: [{ type: 'reasoning.text', index: 1, text: 'Second.' }] },
+            { reasoning_details: [{ type: 'reasoning.summary', index: 0, summary: 'Third.' }] },
+            { content: 'A public reply.' },
+        ] : [
             { reasoning: 'Readable thought.', reasoning_details: [{ type: 'reasoning.text', index: 0, id: 'thought', text: 'Readable thought.' }] },
             { reasoning: 'Look', reasoning_details: [{ type: 'reasoning.summary', id: 'summary', summary: 'Look' }] },
             { reasoning: 'ing at the result.', reasoning_details: [{ type: 'reasoning.summary', id: 'summary', text: 'ing at the result.' }] },

@@ -47,13 +47,13 @@ describe("reasoningDetailsTextForDisplay", () => {
 	});
 });
 
-it('joins fragments by type, index, ID, and format, including the default stream', () => {
+it('keeps nonconsecutive fragments in order, including the default stream', () => {
 	expect(reasoningDetailsTextForDisplay([
 		{ type: 'reasoning.summary', summary: 'Look' },
 		{ type: 'reasoning.summary', id: 'other', summary: 'Separate.' },
 		{ type: 'reasoning.summary', summary: 'ing at the result.' },
 		{ type: 'reasoning.summary', format: 'other', summary: 'Another format.' },
-	])).toBe('Looking at the result.\n\nSeparate.\n\nAnother format.');
+	])).toBe('Look\n\nSeparate.\n\ning at the result.\n\nAnother format.');
 });
 
 it('joins unindexed summaries after the provider stream adapter retains their fragments', () => {
