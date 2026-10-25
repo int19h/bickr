@@ -28,15 +28,20 @@ export async function reasoningRuntimeOutput(completed, scenario = 'mixed') {
             { reasoning_details: [{ type: 'reasoning.encrypted', data: 'PRIVATE_ENCRYPTED_BYTES' }] },
             { content: 'A public reply.' },
         ] : scenario === 'plain-summary' ? [
-            { reasoning: 'Readable plain thought.\n\n' },
+            { reasoning: 'Readable plain thought.' },
             { reasoning_details: [{ type: 'reasoning.summary', summary: 'A readable summary.' }] },
             { content: 'A public reply.' },
         ] : scenario === 'summary-only' ? [
             { reasoning_details: [{ type: 'reasoning.summary', summary: [{ text: 'A readable ' }] }] },
             { reasoning_details: [{ type: 'reasoning.summary', text: 'summary.' }] },
+            { reasoning_details: [{ type: 'reasoning.summary', index: 1, summary: 'Another summary.' }] },
+            { content: 'A public reply.' },
+        ] : scenario === 'mirrored-summary' ? [
+            { reasoning: 'Look', reasoning_details: [{ type: 'reasoning.summary', summary: 'Look' }] },
+            { reasoning: 'ing at the result.', reasoning_details: [{ type: 'reasoning.summary', text: 'ing at the result.' }] },
             { content: 'A public reply.' },
         ] : scenario === 'text-summary' ? [
-            { reasoning_details: [{ type: 'reasoning.text', text: 'A readable thought.\n\n' }] },
+            { reasoning_details: [{ type: 'reasoning.text', text: 'A readable thought.' }] },
             { reasoning_details: [{ type: 'reasoning.summary', summary: 'A readable summary.' }] },
             { content: 'A public reply.' },
         ] : scenario === 'opaque-only' ? [
@@ -48,7 +53,7 @@ export async function reasoningRuntimeOutput(completed, scenario = 'mixed') {
             { reasoning_details: [{ type: 'reasoning.summary', index: 0, summary: 'Third.' }] },
             { content: 'A public reply.' },
         ] : [
-            { reasoning: 'Plain thought.\n\n', reasoning_details: [{ type: 'reasoning.text', index: 0, id: 'thought', text: 'Readable thought.\n\n' }] },
+            { reasoning: 'Plain thought.', reasoning_details: [{ type: 'reasoning.text', index: 0, id: 'thought', text: 'Readable thought.' }] },
             { reasoning_details: [{ type: 'reasoning.summary', id: 'summary', summary: 'Look' }] },
             { reasoning_details: [{ type: 'reasoning.summary', id: 'summary', text: 'ing at the result.' }] },
             { reasoning_details: [{ type: 'reasoning.encrypted', index: 2, data: 'PRIVATE_ENCRYPTED_BYTES' }] },

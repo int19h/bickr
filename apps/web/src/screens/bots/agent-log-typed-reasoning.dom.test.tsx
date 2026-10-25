@@ -99,14 +99,18 @@ it.each([true, false])('keeps runtime reasoning labels through settlement and hi
 	(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 	const container = document.createElement('div'); document.body.append(container); const root = createRoot(container);
 	try {
-		for (const scenario of ['summary-only', 'plain-summary', 'text-summary'] as const) {
+		for (const scenario of ['summary-only', 'mirrored-summary', 'plain-summary', 'text-summary'] as const) {
 			const output = await reasoningRuntimeOutput(completed, scenario);
 			const outcome = output.request.attempts.at(-1)!.outcome!;
 			if (outcome.kind !== 'success' && outcome.kind !== 'interrupted') throw new Error('Expected a stored response.');
 			const response = JSON.parse(outcome.response!).message;
 			for (const entries of [output.snapshots.at(-1)!, output.settled, output.history]) {
 				act(() => root.render(<AgentLogView entries={entries} page={pageFixture()} participantName="Reader" onDelete={() => {}} onLogs={() => {}} onRequest={() => {}} onSession={() => {}} onPage={() => {}} />));
-				expect(container.querySelector('.agent-log-reasoning-label')?.textContent?.trim()).toBe(scenario === 'summary-only' ? 'Reasoning summary' : 'Reasoning');
+				expect(container.querySelector('.agent-log-reasoning-label')?.textContent?.trim()).toBe(scenario === 'summary-only' || scenario === 'mirrored-summary' ? 'Reasoning summary' : 'Reasoning');
+				if (scenario === 'mirrored-summary') {
+					expect(response.reasoning).toBe('Looking at the result.');
+					expect(container.querySelector('.agent-log-reasoning')?.textContent?.match(/Looking at the result\./g)).toHaveLength(1);
+				}
 			}
 			// Settlement changes the label source, but the certified content stays intact.
 			expect([...container.querySelectorAll('.agent-log-reasoning .markdown-body p')].map(node => node.textContent)).toEqual(response.reasoning.split('\n\n'));
