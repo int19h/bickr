@@ -253,6 +253,7 @@ export function BotRuntimePanel({
 
 		function handleMonitorPayload(payload: RuntimeMonitorPayload): void {
 			if (payload.type === "history_cleared") {
+				setChatNavigation(current => current + 1);
 				liveUpdatesRef.current.clear();
 				invalidateRefreshes({ events: true, messages: true });
 				setEvents([]);
@@ -1007,6 +1008,7 @@ export function BotRuntimePanel({
 			{ method: "DELETE" },
 		);
 		if (result.ok) {
+			setChatNavigation(current => current + 1);
 			invalidateRefreshes({ events: true, messages: true });
 			setEvents([]);
 			setLoopMessages([]);
@@ -1044,8 +1046,9 @@ export function BotRuntimePanel({
 					chatNoticeRef.current = !!notice;
 					if (page === currentLoopPageRef.current && logRef.current) {
 						shouldStickToBottomRef.current = false;
-						if (notice) { logRef.current.querySelector('[id^="loop-session-"]')?.scrollIntoView({ block: 'center' }); chatNoticeRef.current = false; }
-						else logRef.current.scrollTop = 0;
+						const section = logRef.current.querySelector(`[data-chat-page="${page}"]`);
+						if (notice) { section?.querySelector('[id^="loop-session-"]')?.scrollIntoView({ block: 'center' }); chatNoticeRef.current = false; }
+						else section?.scrollIntoView({ block: 'start' });
 					} else void switchLoopPage(page);
 				}}
 				loadPage={async page => { const result = await api<BotLoopMessagesResponse>(`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/messages?page=${page}`); return result.ok ? result.data : null; }}

@@ -8834,7 +8834,7 @@ button.inference-model-name:hover { text-decoration: underline; }
 .loop-chat-sheet .modal-body { display: flex; flex-direction: column; gap: 6px; }
 .loop-chat-sheet .modal-body > .btn { text-align: left; justify-content: flex-start; }
 .loop-chat-pages { display: flex; flex-wrap: wrap; gap: 6px; }
-.loop-chat-test { height: 20px; flex: none; background: #fff0a8; color: #2e2608; text-align: center; font-size: 11px; line-height: 20px; overflow: hidden; white-space: nowrap; }
+.loop-chat-test { display: flex; justify-content: center; align-items: center; gap: 8px; height: 20px; flex: none; background: #fff0a8; color: #2e2608; text-align: center; font-size: 11px; line-height: 20px; overflow: hidden; white-space: nowrap; }
 .chat-phone { display: none; }
 @media (max-width: 600px), (pointer: coarse) {
 	.loop-chat-bar { gap: 6px; padding-inline: 8px; }
@@ -8851,3 +8851,6 @@ button.inference-model-name:hover { text-decoration: underline; }
 @media (min-width: 601px) and (pointer: fine) {
 	.loop-chat .modal-veil { align-items: start; justify-items: end; padding-top: calc(56px + env(safe-area-inset-top)); }
 }
+
+.loop-chat-test > span { overflow: hidden; text-overflow: ellipsis; }
+.loop-chat-test a { color: inherit; flex: none; }

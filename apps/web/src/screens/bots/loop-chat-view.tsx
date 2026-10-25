@@ -64,8 +64,8 @@ export function LoopChatView(props: LoopChatViewProps) {
 	overlayRef.current = overlay;
 	const archive = visiblePage !== 1;
 	const mainSource = page?.pages.find(item => item.page === page.currentPage)?.sourceCompactionSeq ?? null;
-	useEffect(() => {
-		setOlder([]); setNewMessages(false); visibleSection.current = 'main'; anchor.current = null;
+	useLayoutEffect(() => {
+		setOlder([]); setNewMessages(false); setVisiblePage(page?.currentPage ?? 1); visibleSection.current = 'main'; anchor.current = null;
 	}, [props.navigationKey, bot.id]);
 	useEffect(() => {
 		generation.current++; setLoading(false);
@@ -194,7 +194,9 @@ export function LoopChatView(props: LoopChatViewProps) {
 		setNewMessages(false);
 		if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
 	}
-	const oldest = older[0]?.page.currentPage ?? page?.currentPage ?? 1;
+	const oldestSnapshot = older[0];
+	const oldestSource = oldestSnapshot?.page.pages.find(item => item.page === oldestSnapshot.page.currentPage)?.sourceCompactionSeq;
+	const oldest = oldestSource == null ? page?.currentPage ?? 1 : page?.compactionPageBySeq[String(oldestSource)] ?? page?.currentPage ?? 1;
 	async function loadOlder() {
 		if (loading) return;
 		const requestGeneration = generation.current;
@@ -222,6 +224,7 @@ export function LoopChatView(props: LoopChatViewProps) {
 	const percent = props.context ? props.context.promptTokens / props.context.contextWindowTokens * 100 : null;
 	const pageLabel = page ? `Page ${chatPageNumber(page, visiblePage)} · ${archive ? 'archive' : 'newest'}` : 'Loading page';
 	const fullscreen = document.fullscreenEnabled === true;
+	const leaveTestUrl = document.querySelector<HTMLAnchorElement>('.test-environment-banner a')?.href;
 	async function browserFullscreen() {
 		try { await document.documentElement.requestFullscreen(); setOverlay(null); }
 		catch { setLoadError('Browser fullscreen is not available.'); }
@@ -239,7 +242,7 @@ export function LoopChatView(props: LoopChatViewProps) {
 			// Local jumps must not add history entries between chat and its return page.
 			if (target) { event.preventDefault(); target.scrollIntoView({ block: 'center' }); }
 		}}>
-		{document.body.classList.contains('bickr-test-environment') && <div className="loop-chat-test">TEST ENVIRONMENT · Changes do not affect bickr.social.</div>}
+		{document.body.classList.contains('bickr-test-environment') && <div className="loop-chat-test"><span>TEST ENVIRONMENT · Changes do not affect bickr.social.</span>{leaveTestUrl && <a href={leaveTestUrl}>Leave test</a>}</div>}
 		<header className="loop-chat-bar">
 			<button className="btn ghost chat-icon" aria-label="Exit chat view" onClick={props.onExit}><Icon name="collapse" /></button>
 			<Avatar name={bot.displayName} imageUrl={bot.avatarUrl} crop={bot.avatarCrop} size="sm" displayPixels={28} />

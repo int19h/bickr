@@ -201,3 +201,21 @@ it('keeps the prepend anchor through delayed layout changes, then releases it on
 	extraHeight = 84;
 	act(() => resized()); expect(props.logRef.current!.scrollTop).toBe(54);
 });
+it('loads the next distinct archive after compaction renumbers loaded pages', async () => {
+	props.loadPage = vi.fn(async target => ({ messages: [], entries: [messageFixture(target)], page: { ...props.page!, currentPage: target } })); render();
+	await act(async () => button('Load page 2').click());
+	props = { ...props, page: { ...page, pageCount: 4, currentPage: 2, compactionPageBySeq: { '20': 2, '10': 3, '5': 4 }, pages: [
+		{ page: 1, messageCount: 1 }, { page: 2, messageCount: 1, sourceCompactionSeq: 20 },
+		{ page: 3, messageCount: 1, sourceCompactionSeq: 10 }, { page: 4, messageCount: 1, sourceCompactionSeq: 5 },
+	] } }; render();
+	await act(async () => button('Load page 1').click());
+	expect(props.loadPage).toHaveBeenLastCalledWith(4);
+	expect([...container.querySelectorAll('[data-chat-page]')].map(node => node.getAttribute('data-chat-page'))).toEqual(['4', '3', '2']);
+});
+it('keeps the test banner and its exit link above the chat bar', () => {
+	const banner = document.createElement('aside'); banner.className = 'test-environment-banner';
+	const link = document.createElement('a'); link.href = '/leave-test'; link.textContent = 'Leave test'; banner.append(link); document.body.prepend(banner);
+	document.body.classList.add('bickr-test-environment');
+	try { render(); expect(container.querySelector('.loop-chat-test a')?.getAttribute('href')).toBe(link.href); }
+	finally { banner.remove(); document.body.classList.remove('bickr-test-environment'); }
+});

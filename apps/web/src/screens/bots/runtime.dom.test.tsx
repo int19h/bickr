@@ -932,3 +932,42 @@ it('keeps the bottom pin at the 24 px boundary', async () => {
 	await act(async () => MonitorSocket.instances.at(-1)!.emit({ type: 'loop_message', loopMessage: loopMessage(2, 'Another response') }));
 	expect(bottom).toHaveBeenCalled();
 });
+
+async function openChatWithPrependedArchive() {
+	vi.stubGlobal('matchMedia', () => ({ matches: false }));
+	const pages = [{ page: 1, messageCount: 1 }, { page: 2, messageCount: 1, sourceCompactionSeq: 50 }];
+	await answerMessages(0, [loopMessage(10, 'Newest retained content')], page(1, { 50: 2 }, pages));
+	await act(async () => [...container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Chat view')!.click());
+	await act(async () => [...container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Load page 1')!.click());
+	await answerMessages(1, [loopMessage(4, 'Prepended archive content')], page(2, { 50: 2 }, pages));
+}
+it('selects the main section rather than the whole log after prepending', async () => {
+	await openChatWithPrependedArchive();
+	const main = container.querySelector('[data-chat-page="1"]')!;
+	const scroll = vi.spyOn(main, 'scrollIntoView');
+	await act(async () => container.querySelector<HTMLButtonElement>('.chat-page-chip')!.click());
+	await act(async () => [...container.querySelectorAll<HTMLButtonElement>('.loop-chat-pages button')].find(button => button.textContent === 'Page 2')!.click());
+	expect(scroll).toHaveBeenCalledWith({ block: 'start' });
+});
+it('removes prepended archive content after a history-cleared monitor frame', async () => {
+	await openChatWithPrependedArchive(); expect(container.textContent).toContain('Prepended archive content');
+	await act(async () => MonitorSocket.instances.at(-1)!.emit({ type: 'history_cleared' }));
+	expect(container.textContent).not.toContain('Prepended archive content');
+	expect(container.querySelectorAll('[data-chat-page]')).toHaveLength(1);
+});
+it('scopes the compaction shortcut to the selected main page', async () => {
+	vi.stubGlobal('matchMedia', () => ({ matches: false }));
+	const previous = globalThis.fetch;
+	vi.stubGlobal('fetch', (input: RequestInfo | URL, init?: RequestInit) => String(input).includes('/runtime/compaction-sessions/') ? Promise.resolve(json({ ok: false, error: 'not_found', message: 'No retained session' }, 404)) : previous(input, init));
+	const pages = [{ page: 1, messageCount: 1 }, { page: 2, messageCount: 1, sourceCompactionSeq: 50 }, { page: 3, messageCount: 1, sourceCompactionSeq: 25 }];
+	const notice = (id: string): AgentLogEntry => ({ kind: 'notice', position: 1, notice: { kind: 'compaction_started', sessionId: id, outcome: { kind: 'succeeded', summarySeq: 50 } } });
+	await act(async () => pendingMessages[0]!.resolve({ messages: [], entries: [notice('selected-session')], page: page(2, { 50: 2, 25: 3 }, pages) }));
+	await act(async () => [...container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Chat view')!.click());
+	await act(async () => [...container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Load page 1')!.click());
+	await act(async () => pendingMessages[1]!.resolve({ messages: [], entries: [notice('older-session')], page: page(3, { 50: 2, 25: 3 }, pages) }));
+	const selected = container.querySelector('#loop-session-selected-session')!, older = container.querySelector('#loop-session-older-session')!;
+	const selectedScroll = vi.spyOn(selected, 'scrollIntoView'), olderScroll = vi.spyOn(older, 'scrollIntoView');
+	await act(async () => container.querySelector<HTMLButtonElement>('.chat-page-chip')!.click());
+	await act(async () => [...container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Open the compaction notice for page 2')!.click());
+	expect(selectedScroll).toHaveBeenCalledWith({ block: 'center' }); expect(olderScroll).not.toHaveBeenCalled();
+});
