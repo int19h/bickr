@@ -219,3 +219,11 @@ it('keeps the test banner and its exit link above the chat bar', () => {
 	try { render(); expect(container.querySelector('.loop-chat-test a')?.getAttribute('href')).toBe(link.href); }
 	finally { banner.remove(); document.body.classList.remove('bickr-test-environment'); }
 });
+it('drops cached archives when an authoritative map reveals a missed reset', async () => {
+	props.loadPage = vi.fn(async () => ({ messages: [], entries: [messageFixture(1, { kind: 'model' }, 'Deleted archive content')], page: { ...page, currentPage: 2 } })); render();
+	await act(async () => button('Load page 2').click()); expect(container.textContent).toContain('Deleted archive content');
+	props = { ...props, page: { currentPage: 1, pageCount: 1, pages: [{ page: 1, messageCount: 0 }], compactionPageBySeq: {} }, entries: [] }; render();
+	expect(container.textContent).not.toContain('Deleted archive content'); expect(container.querySelectorAll('[data-chat-page]')).toHaveLength(1);
+	props = { ...props, page }; render();
+	expect(container.textContent).not.toContain('Deleted archive content');
+});

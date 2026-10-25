@@ -64,12 +64,21 @@ export function LoopChatView(props: LoopChatViewProps) {
 	overlayRef.current = overlay;
 	const archive = visiblePage !== 1;
 	const mainSource = page?.pages.find(item => item.page === page.currentPage)?.sourceCompactionSeq ?? null;
+	const pageMapIdentity = JSON.stringify(page?.compactionPageBySeq);
+	const retainedOlder = useMemo(() => older.filter(snapshot => {
+		const source = snapshot.page.pages.find(item => item.page === snapshot.page.currentPage)?.sourceCompactionSeq;
+		return source != null && page?.compactionPageBySeq[String(source)] !== undefined;
+	}), [older, page]);
+	useLayoutEffect(() => {
+		// A fresh page map also removes archives after a missed reset frame.
+		if (retainedOlder.length !== older.length) setOlder(retainedOlder);
+	}, [retainedOlder, older.length]);
 	useLayoutEffect(() => {
 		setOlder([]); setNewMessages(false); setVisiblePage(page?.currentPage ?? 1); visibleSection.current = 'main'; anchor.current = null;
 	}, [props.navigationKey, bot.id]);
 	useEffect(() => {
 		generation.current++; setLoading(false);
-	}, [mainSource, page?.currentPage, props.navigationKey]);
+	}, [mainSource, page?.currentPage, pageMapIdentity, props.navigationKey]);
 	useEffect(() => {
 		if (!page) return;
 		const selected = visibleSection.current === 'main' ? page.currentPage : page.compactionPageBySeq[visibleSection.current] ?? page.currentPage;
@@ -194,7 +203,7 @@ export function LoopChatView(props: LoopChatViewProps) {
 		setNewMessages(false);
 		if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
 	}
-	const oldestSnapshot = older[0];
+	const oldestSnapshot = retainedOlder[0];
 	const oldestSource = oldestSnapshot?.page.pages.find(item => item.page === oldestSnapshot.page.currentPage)?.sourceCompactionSeq;
 	const oldest = oldestSource == null ? page?.currentPage ?? 1 : page?.compactionPageBySeq[String(oldestSource)] ?? page?.currentPage ?? 1;
 	async function loadOlder() {
@@ -255,7 +264,7 @@ export function LoopChatView(props: LoopChatViewProps) {
 		<div className="loop-chat-log agent-log-scroll" ref={logRef} onScroll={scroll} tabIndex={0} aria-label="Visit chat">
 			<div className="loop-chat-column">
 				{page && oldest < page.pageCount && <div className="loop-chat-load"><button className="btn" onClick={() => void loadOlder()} disabled={loading}>{loading ? 'Loading…' : `Load page ${chatPageNumber(page, oldest + 1)}`}</button></div>}
-				{older.map(snapshot => {
+				{retainedOlder.map(snapshot => {
 					const source = snapshot.page.pages.find(item => item.page === snapshot.page.currentPage)?.sourceCompactionSeq;
 					const number = source == null ? snapshot.page.currentPage : page?.compactionPageBySeq[String(source)] ?? snapshot.page.currentPage;
 					const metadata = page ? { ...page, currentPage: number, olderPage: number < page.pageCount ? number + 1 : undefined, newerPage: number > 1 ? number - 1 : undefined } : snapshot.page;
