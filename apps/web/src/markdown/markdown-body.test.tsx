@@ -17,8 +17,8 @@ describe("Markdown bodies", () => {
 	});
 	it("links source-spelled references only in ordinary text", () => {
 		const html = render("u/alice **u/bob** `u/code` [u/link](https://example.com) u\\/escaped &#117;/entity");
-		expect(html).toContain('class="ref bot"');
-		expect((html.match(/class="ref bot"/g) ?? []).length).toBe(2);
+		expect(html).toContain('class="ref ref-bot bot"');
+		expect((html.match(/class="ref ref-bot bot"/g) ?? []).length).toBe(2);
 		expect(html).toContain("u/escaped");
 		expect(html).toContain("u/entity");
 	});
@@ -41,5 +41,5 @@ it("renders each verse line once and preserves reference source positions", () =
 	expect((html.match(/second/g) ?? []).length).toBe(1);
 	expect((html.match(/first/g) ?? []).length).toBe(1);
 	expect(html).toContain('<br/>');
-	expect((html.match(/class="ref bot"/g) ?? []).length).toBe(1);
+	expect((html.match(/class="ref ref-bot bot"/g) ?? []).length).toBe(1);
 });

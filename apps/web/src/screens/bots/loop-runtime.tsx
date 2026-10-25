@@ -1,4 +1,6 @@
+import { appendAgentLogDelta, parseAgentLogPartial } from '../../agent-log-partial';
 import type {
+	AgentLogStreamPayload,
 	AgentLogEntry,
 	AgentLogRequest,
 	AgentLogCompactionSession,
@@ -13,7 +15,7 @@ import type {
 	BotTokenUsageStats,
 	UpdateBotInput,
 } from "@bickr/shared/model";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { api } from "../../api";
 import { NextDueAtLabel } from "../../components/record-display";
 import {
@@ -22,9 +24,11 @@ import {
 	removeLiveProviderLoopMessagesForRun,
 	upsertLiveProviderLoopMessage,
 } from "../../loop-message-streams";
-import { Confirm, textValue } from "../../ui";
+import { Confirm, Icon, textValue } from "../../ui";
 import { useBotEffectiveModels } from "../../inference/bot-models";
 import { LoopMessageLogsModal, LoopMessagePager } from "./loop-messages";
+import { LoopChatView, chatPageNumber } from './loop-chat-view';
+import { loopPageFromUrl, useLoopChatMode } from './use-loop-chat-mode';
 import { AgentLogView } from "./agent-log-view";
 import { AgentLogRequestModal, AgentLogSessionModal } from "./agent-log-details";
 import { RuntimeRow } from "./runtime-row";
@@ -68,6 +72,13 @@ export function BotRuntimePanel({
 	busy: boolean;
 	onSave: (botId: string, draft: UpdateBotInput) => Promise<boolean>;
 }) {
+	const chat = useLoopChatMode();
+	const [startingTick, setStartingTick] = useState(false);
+	const [chatNavigation, setChatNavigation] = useState(0);
+	const [deletedSeqs, setDeletedSeqs] = useState<ReadonlySet<number>>(new Set());
+	const chatNoticeRef = useRef(false);
+	const previousChatRef = useRef(chat.open);
+	const normalRestoreRef = useRef<{ page: number; top: number } | null>(null);
 	const detailGenerationRef = useRef(0);
 	const [status, setStatus] = useState<BotRuntimeStatus | null>(null);
 	const [events, setEvents] = useState<BotRuntimeEvent[]>([]);
@@ -128,6 +139,10 @@ export function BotRuntimePanel({
 	const [tokenUsage, setTokenUsage] = useState<BotTokenUsageStats | null>(null);
 	const [connected, setConnected] = useState(false);
 	const [injection, setInjection] = useState("");
+	const [injecting, setInjecting] = useState(false);
+	const injectionPendingRef = useRef(false);
+	const [archiveRefreshKey, setArchiveRefreshKey] = useState(0);
+	const archiveRefreshPendingRef = useRef(false);
 	const [message, setMessage] = useState("");
 	const [togglingEnabled, setTogglingEnabled] = useState(false);
 	const [clearConfirm, setClearConfirm] = useState(false);
@@ -147,13 +162,14 @@ export function BotRuntimePanel({
 	const watchedMessageSeqRef = useRef<number | undefined>(undefined);
 	const compactionSourcesRef = useRef(new Set<string>());
 	const currentLoopSourceCompactionSeqRef = useRef<number | null>(null);
+	const selectedPageUnresolvedRef = useRef(false);
 	const statusRequestGenerationRef = useRef(0);
 	const eventsRequestGenerationRef = useRef(0);
 	const messagesRequestGenerationRef = useRef(0);
 	const streamRevisionRef = useRef(0);
 	// Keep only the current snapshot. Reject old frames before they enter the refresh buffer.
 	const streamSnapshotEntriesRef = useRef(new Map<string, RequestLogEntry>());
-	const liveUpdatesRef = useRef(new Map<string, { revision: number; runId: string; attemptId?: number; deltas: Array<{ arrival: number; revision?: number; kind?: string; text?: string; part?: unknown }> }>());
+	const liveUpdatesRef = useRef(new Map<string, { revision: number; runId: string; attemptId?: number; deltas: Array<AgentLogStreamPayload & { arrival: number; revision?: number }> }>());
 	const endedRunsRef = useRef(new Set<string>());
 	const usageRequestGenerationRef = useRef(0);
 	const trailingRefreshTimerRef = useRef<number | undefined>(undefined);
@@ -178,7 +194,8 @@ export function BotRuntimePanel({
 		sourceMessageRetriedRef.current = false;
 		latestPersistentEventSeqRef.current = 0;
 		latestLoopMessageSeqRef.current = 0;
-		currentLoopPageRef.current = 1;
+		currentLoopPageRef.current = loopPageFromUrl();
+		selectedPageUnresolvedRef.current = currentLoopPageRef.current > 1;
 		currentLoopSourceCompactionSeqRef.current = null;
 		watchedMessageSeqRef.current = undefined;
 		compactionSourcesRef.current.clear();
@@ -190,6 +207,11 @@ export function BotRuntimePanel({
 		streamRevisionRef.current = 0;
 		liveUpdatesRef.current.clear();
 		endedRunsRef.current.clear();
+		normalRestoreRef.current = null;
+		chat.normalScroll.current = 0;
+		setStartingTick(false);
+		setInjection('');
+		setDeletedSeqs(new Set());
 		setStatus(null);
 		setEvents([]);
 		setLoopMessages([]);
@@ -204,7 +226,7 @@ export function BotRuntimePanel({
 		setDeletingLoopMessageSeq(null);
 		setTokenUsage(null);
 		setConnected(false);
-		void refresh();
+		void refresh({ page: loopPageFromUrl() });
 
 		const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
 		const monitorUrl = `${protocol}//${window.location.host}/api/me/bots/${encodeURIComponent(bot.id)}/runtime/monitor`;
@@ -237,6 +259,7 @@ export function BotRuntimePanel({
 
 		function handleMonitorPayload(payload: RuntimeMonitorPayload): void {
 			if (payload.type === "history_cleared") {
+				setChatNavigation(current => current + 1);
 				liveUpdatesRef.current.clear();
 				invalidateRefreshes({ events: true, messages: true });
 				setEvents([]);
@@ -274,6 +297,7 @@ export function BotRuntimePanel({
 				return;
 			}
 			if (payload.type === "loop_message_deleted" && Number.isInteger(payload.seq)) {
+				setDeletedSeqs(current => new Set([...current, payload.seq!]));
 				invalidateRefreshes({ messages: true });
 				setLoopMessages((current) => current.filter((item) => item.seq !== payload.seq));
 				setLoopEntries(current => current.filter(entry => entry.kind !== 'message' || entry.message.seq !== payload.seq));
@@ -297,7 +321,7 @@ export function BotRuntimePanel({
 					return;
 				}
 				if (endedRunsRef.current.has(payload.event.runId)) return;
-				const delta = payload.event.payload as { requestId?: string; kind?: string; text?: string; deltaRevision?: number; attemptId?: number; part?: unknown };
+				const delta = payload.event.payload as AgentLogStreamPayload;
 				if (delta.requestId) {
 					if (ignoresStreamDelta(streamSnapshotEntriesRef.current.get(delta.requestId), delta)) return;
 					const arrival = ++streamRevisionRef.current;
@@ -309,16 +333,13 @@ export function BotRuntimePanel({
 					const update = previous ?? { revision: arrival, runId: payload.event.runId, attemptId: delta.attemptId, deltas: [] };
 					update.revision = arrival;
 					update.attemptId = delta.attemptId ?? update.attemptId;
-					update.deltas.push({ arrival, revision: delta.deltaRevision, kind: delta.kind, text: delta.text, part: delta.part });
+					update.deltas.push({ ...delta, arrival, revision: delta.deltaRevision });
 					liveUpdatesRef.current.set(delta.requestId, update);
 					setLoopEntries(current => {
 						const existing = current.find((entry): entry is RequestLogEntry => (entry.kind === 'live' || entry.kind === 'message') && entry.requestId === delta.requestId);
 						if (ignoresStreamDelta(existing, delta)) return current;
 						const old = existing?.kind === 'live' && (existing.attemptId === undefined || delta.attemptId === undefined || existing.attemptId === delta.attemptId) ? existing : undefined;
-						const partial = old?.kind === 'live' && old.partialResponse ? JSON.parse(old.partialResponse) as { content: string; reasoning: string; toolCalls?: unknown[] } : { content: '', reasoning: '', toolCalls: [] };
-						if (delta.kind === 'content') partial.content += delta.text ?? '';
-						if (delta.kind === 'reasoning') partial.reasoning += delta.text ?? '';
-						if (delta.kind === 'tool_call') (partial.toolCalls ??= []).push(delta.part);
+						const partial = appendAgentLogDelta(parseAgentLogPartial(old?.partialResponse ?? null), delta);
 						const live: AgentLogEntry = { kind: 'live', position: Number.MAX_SAFE_INTEGER, requestId: delta.requestId!, runId: payload.event!.runId, attempts: old?.kind === 'live' ? old.attempts : { count: 1, failures: [] }, partialResponse: JSON.stringify(partial), response: null, deltaRevision: delta.deltaRevision ?? old?.deltaRevision, attemptId: delta.attemptId ?? old?.attemptId };
 						return [...current.filter(entry => entry.kind !== 'live' || entry.requestId !== delta.requestId), live];
 					});
@@ -380,7 +401,7 @@ export function BotRuntimePanel({
 				reconnectAttemptRef.current = 0;
 				lastMonitorMessageAt = Date.now();
 				setConnected(true);
-				void refreshAuthoritativeCurrentPage();
+				void refreshLog();
 				heartbeatTimer = window.setInterval(() => {
 					if (socket !== currentSocket || currentSocket.readyState !== WebSocket.OPEN) {
 						clearHeartbeatTimer();
@@ -451,7 +472,7 @@ export function BotRuntimePanel({
 		}
 		const frame = scrollLogToBottom(logRef);
 		return () => window.cancelAnimationFrame(frame);
-	}, [loopMessages, loopEntries]);
+	}, [loopMessages, loopEntries, chat.open]);
 
 	useEffect(() => {
 		const id = sessionAnchorRef.current;
@@ -502,7 +523,7 @@ export function BotRuntimePanel({
 		observer.observe(log);
 		Array.from(log.children).forEach((child) => observer.observe(child));
 		return () => observer.disconnect();
-	}, [loopMessages, loopEntries]);
+	}, [loopMessages, loopEntries, chat.open]);
 
 	useEffect(() => {
 		latestPersistentEventSeqRef.current = latestPersistentEventSeq(events);
@@ -514,6 +535,31 @@ export function BotRuntimePanel({
 		}
 	}, [loopMessagePage?.currentPage, loopMessages]);
 
+	useLayoutEffect(() => {
+		if (!chat.open && previousChatRef.current) normalRestoreRef.current = { page: loopPageFromUrl(), top: chat.normalScroll.current };
+		previousChatRef.current = chat.open;
+		const saved = normalRestoreRef.current;
+		if (!chat.open && saved && loopMessagePage?.currentPage === saved.page && currentLoopPageRef.current === saved.page) {
+			shouldStickToBottomRef.current = false;
+			if (logRef.current) logRef.current.scrollTop = saved.top;
+			normalRestoreRef.current = null;
+			document.querySelector<HTMLButtonElement>('.loop-chat-enter')?.focus({ preventScroll: true });
+		}
+	}, [chat.open, loopMessagePage, loopEntries]);
+	useEffect(() => {
+		const navigate = () => {
+			const selected = loopPageFromUrl();
+			if (selected !== currentLoopPageRef.current) void switchLoopPage(selected);
+		};
+		window.addEventListener('popstate', navigate);
+		return () => window.removeEventListener('popstate', navigate);
+	}, [loopMessagePage]);
+
+	useEffect(() => {
+		if (!chatNoticeRef.current) return;
+		const notice = logRef.current?.querySelector('[id^="loop-session-"]');
+		if (notice) { chatNoticeRef.current = false; shouldStickToBottomRef.current = false; notice.scrollIntoView({ block: 'center' }); }
+	}, [loopEntries]);
 	function trackLogScroll(): void {
 		if (sourceMessage) {
 			shouldStickToBottomRef.current = false;
@@ -524,7 +570,7 @@ export function BotRuntimePanel({
 			shouldStickToBottomRef.current = true;
 			return;
 		}
-		shouldStickToBottomRef.current = log.scrollHeight - log.scrollTop - log.clientHeight < 24;
+		shouldStickToBottomRef.current = log.scrollHeight - log.scrollTop - log.clientHeight <= 24;
 	}
 
 	function rememberEndedRun(runId: string): void {
@@ -539,7 +585,14 @@ export function BotRuntimePanel({
 		if (parts.messages) messagesRequestGenerationRef.current += 1;
 	}
 
+	function refreshLog(): Promise<void> {
+		archiveRefreshPendingRef.current = true;
+		return refreshAuthoritativeCurrentPage();
+	}
+
 	function refreshAuthoritativeCurrentPage(): Promise<void> {
+		// An archive URL has no source identity until its first page map arrives.
+		if (selectedPageUnresolvedRef.current) return refresh({ page: currentLoopPageRef.current });
 		const sourceCompactionSeq = currentLoopSourceCompactionSeqRef.current;
 		return refresh({ sourceCompactionSeq, watchedMessageSeq: sourceCompactionSeq === null ? watchedMessageSeqRef.current : undefined });
 	}
@@ -636,11 +689,16 @@ export function BotRuntimePanel({
 					return;
 				}
 			}
+			selectedPageUnresolvedRef.current = false;
 			currentLoopPageRef.current = page.currentPage;
 			currentLoopSourceCompactionSeqRef.current = returnedSource;
 			watchedMessageSeqRef.current = messagesResult.data.messages.find(message => !isLiveProviderLoopMessage(message))?.seq;
 			compactionSourcesRef.current = new Set(Object.keys(page.compactionPageBySeq));
 			setLoopMessagePage(page);
+			if (archiveRefreshPendingRef.current) {
+				archiveRefreshPendingRef.current = false;
+				setArchiveRefreshKey(current => current + 1);
+			}
 			// The snapshot replaces older live entries. Only newer stream updates
 			// can fill gaps or supersede a live value returned by this snapshot.
 			for (const [id, update] of liveUpdatesRef.current) {
@@ -660,14 +718,12 @@ export function BotRuntimePanel({
 					if (base?.attemptId !== undefined && attemptId !== undefined && attemptId < base.attemptId) return base;
 					const reset = attemptId !== undefined && base?.attemptId !== undefined && attemptId > base.attemptId;
 					if (base?.response && !reset) return base;
-					const partial = !reset && base?.partialResponse ? JSON.parse(base.partialResponse) as { content: string; reasoning: string; toolCalls?: unknown[] } : { content: '', reasoning: '', toolCalls: [] };
+					let partial = parseAgentLogPartial(!reset ? base?.partialResponse ?? null : null);
 					const deltas = retainedUpdates.get(entry.requestId)?.deltas ?? [];
 					let deltaRevision = reset ? 0 : base?.deltaRevision ?? 0;
 					for (const delta of deltas) {
 						if (delta.arrival <= streamRevisionAtStart || (delta.revision !== undefined && delta.revision <= deltaRevision)) continue;
-						if (delta.kind === 'content') partial.content += delta.text ?? '';
-						if (delta.kind === 'reasoning') partial.reasoning += delta.text ?? '';
-						if (delta.kind === 'tool_call') (partial.toolCalls ??= []).push(delta.part);
+						partial = appendAgentLogDelta(partial, delta);
 						deltaRevision = delta.revision ?? deltaRevision;
 					}
 					return { ...(base ?? entry), partialResponse: JSON.stringify(partial), response: reset ? null : base?.response ?? entry.response, deltaRevision, attemptId: attemptId ?? base?.attemptId };
@@ -705,9 +761,14 @@ export function BotRuntimePanel({
 		if (targetPage === currentLoopPageRef.current) {
 			return;
 		}
+		setChatNavigation(current => current + 1);
 		sourceNavigationGenerationRef.current += 1;
 		setSourceMessage(null);
+		selectedPageUnresolvedRef.current = !loopMessagePage?.pages.some(item => item.page === targetPage);
 		currentLoopPageRef.current = targetPage;
+		const url = new URL(window.location.href);
+		if (targetPage === 1) url.searchParams.delete('page'); else url.searchParams.set('page', String(targetPage));
+		window.history.replaceState(window.history.state, '', url);
 		// Background refreshes must follow the selection before its first response arrives.
 		currentLoopSourceCompactionSeqRef.current = loopMessagePage?.pages.find(item => item.page === targetPage)?.sourceCompactionSeq ?? null;
 		watchedMessageSeqRef.current = undefined;
@@ -718,11 +779,12 @@ export function BotRuntimePanel({
 		setOpenLoopMessageLogs(null);
 		setLoopMessageLogError("");
 		setMessage(`Loading loop page ${targetPage}...`);
-		await refresh({ page: targetPage, expectedSourceCompactionSeq: currentLoopSourceCompactionSeqRef.current });
+		await refresh({ page: targetPage, ...(selectedPageUnresolvedRef.current ? {} : { expectedSourceCompactionSeq: currentLoopSourceCompactionSeqRef.current }) });
 		setMessage("");
 	}
 
 	async function runTick(): Promise<void> {
+		if (startingTick) return;
 		if (!runtimeEnabled) {
 			setMessage("This participant is paused. Unpause it before starting a loop run.");
 			return;
@@ -730,7 +792,14 @@ export function BotRuntimePanel({
 		sourceNavigationGenerationRef.current += 1;
 		setSourceMessage(null);
 		shouldStickToBottomRef.current = true;
+		invalidateRefreshes({ messages: true });
+		selectedPageUnresolvedRef.current = false;
 		currentLoopPageRef.current = 1;
+		currentLoopSourceCompactionSeqRef.current = null;
+		watchedMessageSeqRef.current = undefined;
+		const url = new URL(window.location.href); url.searchParams.delete('page'); window.history.replaceState(window.history.state, '', url);
+		setChatNavigation(current => current + 1);
+		setStartingTick(true);
 		setMessage("Starting tick...");
 		const result = await api<{ run: { runId: string; status: string; error?: string } }>(
 			`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/tick`,
@@ -744,6 +813,7 @@ export function BotRuntimePanel({
 			:	result.message,
 		);
 		await refresh({ page: 1 });
+		setStartingTick(false);
 		window.setTimeout(() => void refresh({ page: 1 }), 750);
 	}
 
@@ -801,17 +871,25 @@ export function BotRuntimePanel({
 		await refreshAuthoritativeCurrentPage();
 	}
 
-	async function inject(): Promise<void> {
-		const text = injection.trim();
-		if (!text) {
-			return;
+	async function inject(): Promise<boolean> {
+		const draft = injection;
+		const text = draft.trim();
+		if (!text || injectionPendingRef.current) return false;
+		// The ref also guards two submissions before React renders the disabled button.
+		injectionPendingRef.current = true;
+		setInjecting(true);
+		try {
+			const result = await api(`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/inject`, {
+				method: "POST",
+				body: { text },
+			});
+			if (result.ok) { setInjection(current => current === draft ? '' : current); shouldStickToBottomRef.current = true; scrollLogToBottom(logRef); }
+			setMessage(result.ok ? "Thought injected." : result.message);
+			return result.ok;
+		} finally {
+			injectionPendingRef.current = false;
+			setInjecting(false);
 		}
-		setInjection("");
-		const result = await api(`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/inject`, {
-			method: "POST",
-			body: { text },
-		});
-		setMessage(result.ok ? "Thought injected." : result.message);
 	}
 
 	useEffect(() => {
@@ -904,7 +982,7 @@ export function BotRuntimePanel({
 		if (isLiveProviderLoopMessage(loopMessage)) {
 			return;
 		}
-		if (!window.confirm(currentLoopPageRef.current === 1 ? "Delete this message from the model context?" : "Delete this message from the archive?")) return;
+		if (!window.confirm(loopMessage.compactedBy === undefined ? "Delete this message from the model context?" : "Delete this message from the archive?")) return;
 		setDeletingLoopMessageSeq(loopMessage.seq);
 		const result = await api<{ deleted: { seq: number; runId: string; origin: BotLoopMessage["origin"]; deletedAt: string } }>(
 			`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/messages/${encodeURIComponent(String(loopMessage.seq))}`,
@@ -913,6 +991,7 @@ export function BotRuntimePanel({
 		setDeletingLoopMessageSeq(null);
 		if (result.ok) {
 			invalidateRefreshes({ messages: true });
+			setDeletedSeqs(current => new Set([...current, loopMessage.seq]));
 			setLoopMessages((current) => current.filter((item) => item.seq !== loopMessage.seq));
 			setLoopEntries(current => current.filter(entry => entry.kind !== 'message' || entry.message.seq !== loopMessage.seq));
 			setOpenLoopMessageLogs((current) => current && current.message.seq === loopMessage.seq ? null : current);
@@ -947,6 +1026,7 @@ export function BotRuntimePanel({
 			{ method: "DELETE" },
 		);
 		if (result.ok) {
+			setChatNavigation(current => current + 1);
 			invalidateRefreshes({ events: true, messages: true });
 			setEvents([]);
 			setLoopMessages([]);
@@ -967,8 +1047,30 @@ export function BotRuntimePanel({
 	}
 
 
+	const renderLog = (entries: AgentLogEntry[], page: BotLoopMessagePage | null) => <AgentLogView entries={entries} page={page} participantName={textValue(bot.displayName)} idPrefix={chat.open ? `chat-${page?.pages.find(item => item.page === page.currentPage)?.sourceCompactionSeq ?? 'current'}-` : undefined} pageNumber={chat.open && page ? value => chatPageNumber(page, value) : undefined}
+		onDelete={message => void deleteLoopMessage(message)} onLogs={message => void viewLoopMessageLogs(message)}
+		onRequest={(id, errors) => void viewRequest(id, errors)} onSession={id => void viewSession(id)} onPage={(page, sessionId) => { sessionAnchorRef.current = sessionId ?? null; void switchLoopPage(page); }}
+		sessions={sessions} deletingSeq={deletingLoopMessageSeq} loadingSeq={loopMessageLogLoadingSeq}
+		source={sourceMessage?.botId === bot.id ? sourceMessage : null} sourceRef={sourceMessageRef} />;
+	const canCompact = currentLoopPage === 1 && status?.status !== 'running' && loopMessages.some(item => !isLiveProviderLoopMessage(item));
+
 	return (
 		<>
+			{chat.open ? <LoopChatView bot={bot} status={status} connected={connected} enabled={runtimeEnabled} starting={startingTick} busy={busy || togglingEnabled}
+				context={tokenUsage?.contextWindow} startedAt={events.find(event => event.type === 'tick_started' && event.runId === status?.activeRunId)?.createdAt}
+				entries={loopEntries} page={loopMessagePage} injection={injection} injecting={injecting} archiveRefreshKey={archiveRefreshKey} setInjection={setInjection} onInject={inject} onRun={() => void runTick()} onStop={() => void stopTick()}
+				onPause={() => void setLoopEnabled(!runtimeEnabled)} onCompact={() => setCompactConfirm(true)} canCompact={canCompact} onRefresh={() => void refreshLog()} onExit={chat.exit}
+				onPage={(page, notice) => {
+					chatNoticeRef.current = !!notice;
+					if (page === currentLoopPageRef.current && logRef.current) {
+						shouldStickToBottomRef.current = false;
+						const section = logRef.current.querySelector(`[data-chat-page="${page}"]`);
+						if (notice) { section?.querySelector('[id^="loop-session-"]')?.scrollIntoView({ block: 'center' }); chatNoticeRef.current = false; }
+						else section?.scrollIntoView({ block: 'start' });
+					} else void switchLoopPage(page);
+				}}
+				loadPage={async (page, source) => { const result = await api<BotLoopMessagesResponse>(`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/messages?page=${page}`); return result.ok && (source === undefined || result.data.page.pages.find(item => item.page === result.data.page.currentPage)?.sourceCompactionSeq === source) ? result.data : null; }}
+				renderPage={renderLog} logRef={logRef} pinned={shouldStickToBottomRef} onScroll={trackLogScroll} message={loopMessageLogError || message} deletedSeqs={deletedSeqs} navigationKey={chatNavigation} /> :
 			<div className="runtime-card live-runtime loop-runtime">
 				<label className="switch-row runtime-switch">
 					<input
@@ -1015,7 +1117,7 @@ export function BotRuntimePanel({
 					>
 						Stop current visit
 					</button>
-					<button className="btn ghost" onClick={() => void refreshAuthoritativeCurrentPage()} type="button">
+					<button className="btn ghost" onClick={() => void refreshLog()} type="button">
 						Refresh log
 					</button>
 					<button
@@ -1036,6 +1138,7 @@ export function BotRuntimePanel({
 						Compact chat
 					</button>
 					<span className={`live-dot ${connected ? "on" : ""}`}>{connected ? "live" : "polling"}</span>
+					<button className="btn ghost loop-chat-enter" type="button" onClick={() => { chat.normalScroll.current = logRef.current?.scrollTop ?? 0; chat.enter(currentLoopPage); }}><Icon name="expand" />Chat view</button>
 				</div>
 				<form
 					className="inline-form"
@@ -1051,24 +1154,20 @@ export function BotRuntimePanel({
 						placeholder="Inject a thought or focus"
 						value={injection}
 					/>
-					<button className="btn" disabled={!injection.trim()} type="submit">
+					<button className="btn" disabled={injecting || !injection.trim()} type="submit">
 						Inject
 					</button>
 				</form>
 				{message && <div className="runtime-message">{message}</div>}
 				{loopMessageLogError && <div className="runtime-message">{loopMessageLogError}</div>}
 				<div className="event-log agent-log-scroll" onScroll={trackLogScroll} ref={logRef}>
-					<AgentLogView entries={loopEntries} page={loopMessagePage} participantName={textValue(bot.displayName)}
-						onDelete={message => void deleteLoopMessage(message)} onLogs={message => void viewLoopMessageLogs(message)}
-						onRequest={(id, errors) => void viewRequest(id, errors)} onSession={id => void viewSession(id)} onPage={(page, sessionId) => { sessionAnchorRef.current = sessionId ?? null; void switchLoopPage(page); }}
-						sessions={sessions} deletingSeq={deletingLoopMessageSeq} loadingSeq={loopMessageLogLoadingSeq}
-						source={sourceMessage?.botId === bot.id ? sourceMessage : null} sourceRef={sourceMessageRef} />
+					{renderLog(loopEntries, loopMessagePage)}
 				</div>
 				<LoopMessagePager
 					onPageSelect={(page) => void switchLoopPage(page)}
 					page={loopMessagePage}
 				/>
-			</div>
+			</div>}
 			<AgentLogRequestModal request={requestDetail} errors={requestErrors} onClose={closeDetails} />
 			<AgentLogSessionModal session={sessionDetail} onClose={closeDetails} />
 			<LoopMessageLogsModal

@@ -136,3 +136,11 @@ describe("routes", () => {
 		expect(routePath(parsePathname(path, invalid))).toBe(path);
 	}
  });
+
+it('keeps chat mode, the archive page, and source inference in Loop URLs', () => {
+	const path = '/w/local/u/reader/loop';
+	const search = '?inference=7&sourceBot=participant&runId=visit&page=2&view=chat';
+	const parsed = parsePathname(path, search);
+	expect(parsed.loopView).toBe('chat'); expect(parsed.loopPage).toBe(2);
+	expect(routePath(parsed)).toBe(path + search);
+});

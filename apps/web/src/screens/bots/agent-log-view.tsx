@@ -1,3 +1,4 @@
+import { AgentLogCard, AgentLogBody, AgentLogExpandControl } from './agent-log-card';
 import type { AgentLogAuthor, AgentLogCompactionSession, AgentLogEntry, BotLoopMessage, BotLoopMessagePage } from '@bickr/shared/model';
 import type { Ref } from 'react';
 import { useMemo, useState } from 'react';
@@ -6,7 +7,7 @@ import { LoopMarkdown } from '../../readable/loop-markdown';
 import { LoopMessageReadableView } from '../../readable/loop-message-readable';
 import { indexAgentLogCalls } from './agent-log-calls';
 import { Icon, type IconName } from '../../ui';
-import { AgentLogCall, AgentLogReasoning, storedResponseMessage } from './agent-log-content';
+import { AgentLogCall, AgentLogReasoning, storedResponseMessage, storedPartialMessage } from './agent-log-content';
 import { formatTokenCount } from './token-usage';
 
 type MessageEntry = Extract<AgentLogEntry, { kind: 'message' }>;
@@ -39,6 +40,8 @@ export type AgentLogViewProps = {
 	entries: AgentLogEntry[];
 	page: BotLoopMessagePage | null;
 	participantName: string;
+	pageNumber?: (page: number) => number;
+	idPrefix?: string;
 	onDelete: (message: BotLoopMessage) => void;
 	onLogs: (message: BotLoopMessage) => void;
 	onRequest: (id: string, errors?: boolean) => void;
@@ -52,7 +55,8 @@ export type AgentLogViewProps = {
 };
 
 export function AgentLogView(props: AgentLogViewProps) {
-	const { entries, page, participantName, sessions } = props;
+	const { entries, page, participantName, sessions, idPrefix = '' } = props;
+	const pageNumber = props.pageNumber ?? ((value: number) => value);
 	const [activeCall, setActiveCall] = useState<number | null>(null);
 	const ordered = useMemo(() => [...entries].sort((a, b) => a.position - b.position), [entries]);
 	const { calls, results } = useMemo(() => indexAgentLogCalls(ordered), [ordered]);
@@ -64,9 +68,9 @@ export function AgentLogView(props: AgentLogViewProps) {
 			<p className="agent-log-caption">{archive ? 'archive' : 'newest · in context'}</p>
 			{page?.olderPage && (
 				<p className="agent-log-notice">
-					Page {page.currentPage} began after compaction.{' '}
+					Page {pageNumber(page.currentPage)} began after compaction.{' '}
 					<button onClick={() => props.onPage(page.olderPage!)} type="button">
-						Open page {page.olderPage}
+						Open page {pageNumber(page.olderPage)}
 					</button>
 				</p>
 			)}
@@ -77,6 +81,7 @@ export function AgentLogView(props: AgentLogViewProps) {
 						<AgentLogNoticeView
 							key={`notice-${entry.position}-${index}`}
 							entry={entry}
+							pageNumber={pageNumber}
 							page={page}
 							session={entry.notice.kind === 'compaction_started' ? sessions?.get(entry.notice.sessionId) : undefined}
 							onRequest={props.onRequest}
@@ -93,7 +98,7 @@ export function AgentLogView(props: AgentLogViewProps) {
 				const live = entry.kind === 'live';
 				const messageEntry = live ? null : (entry as MessageEntry);
 				const row = messageEntry?.message;
-				const message = live ? storedResponseMessage(entry.response ?? entry.partialResponse) : row!.message;
+				const message = live ? (entry.response ? storedResponseMessage(entry.response) : storedPartialMessage(entry.partialResponse)) : row!.message;
 				const source = messageEntry ? sourceFor(messageEntry.author) : null;
 				const tool = message.role === 'tool';
 				const isSummary = messageEntry?.author.kind === 'compaction_summary' || messageEntry?.author.kind === 'legacy_summary';
@@ -115,10 +120,10 @@ export function AgentLogView(props: AgentLogViewProps) {
 					else if (row) props.onLogs(row);
 				};
 				return (
-					<div
+					<AgentLogCard expandable={tool || (message.role === 'user' && row?.contentFormat === 'markdown')}
 						key={!tool && requestId ? requestId : `message-${row?.seq}`}
 						ref={highlight ? props.sourceRef : undefined}
-						id={number ? `loop-result-${number}` : undefined}
+						id={number ? `${idPrefix}loop-result-${number}` : undefined}
 						className={`agent-log-card ${right ? 'side-right' : 'side-left'} ${isSummary ? 'tint-summary' : tool ? 'tint-tool' : right ? 'tint-user' : 'tint-assistant'}${source ? ' injected' : ''}${faded ? ' faded' : ''}${live ? ' is-live' : ''}${highlight ? ' source-message-highlight' : ''}${number && activeCall === number ? ' call-highlight' : ''}`}
 						onMouseEnter={() => number && setActiveCall(number)}
 						onMouseLeave={() => number && setActiveCall(null)}
@@ -146,7 +151,7 @@ export function AgentLogView(props: AgentLogViewProps) {
 						</div>
 						<div className="agent-log-head">
 							{number && (
-								<a className="agent-log-call-number" href={`#loop-call-${number}`}>
+								<a className="agent-log-call-number" href={`#${idPrefix}loop-call-${number}`}>
 									{number}
 								</a>
 							)}
@@ -173,7 +178,7 @@ export function AgentLogView(props: AgentLogViewProps) {
 							)}
 						</div>
 						<AgentLogReasoning message={message} />
-						<div className="agent-log-body">
+						<AgentLogBody>
 							{tool ? (
 								<LoopMessageReadableView
 									message={message}
@@ -186,11 +191,12 @@ export function AgentLogView(props: AgentLogViewProps) {
 							) : (
 								<LoopMarkdown text={message.content ?? ''} worldHandle={row?.display?.context?.worldHandle} />
 							)}
-						</div>
+						</AgentLogBody>
 						{calls.get(entry)?.map((link) => (
 							<AgentLogCall
 								key={link.number}
 								number={link.number}
+								idPrefix={idPrefix}
 								call={link.call}
 								context={link.context}
 								active={activeCall === link.number}
@@ -198,6 +204,7 @@ export function AgentLogView(props: AgentLogViewProps) {
 							/>
 						))}
 						<div className="agent-log-foot">
+							<AgentLogExpandControl />
 							{row && (
 								<button
 									className="agent-log-delete"
@@ -211,7 +218,7 @@ export function AgentLogView(props: AgentLogViewProps) {
 								</button>
 							)}
 							<div className="agent-log-foot-links">
-								{number && <a href={`#loop-call-${number}`}>result of call {number}</a>}
+								{number && <a href={`#${idPrefix}loop-call-${number}`}>result of call {number}</a>}
 								{tool && !number && row && (
 									<button type="button" onClick={() => props.onLogs(row)}>
 										Open the call
@@ -246,14 +253,14 @@ export function AgentLogView(props: AgentLogViewProps) {
 								) : null}
 							</span>
 						</div>
-					</div>
+					</AgentLogCard>
 				);
 			})}
 			{page?.newerPage && !ordered.some((entry) => entry.kind === 'notice' && entry.notice.kind === 'compaction_started') && (
 				<p className="agent-log-notice">
 					Continue on{' '}
 					<button type="button" onClick={() => props.onPage(page.newerPage!)}>
-						page {page.newerPage}
+						page {pageNumber(page.newerPage)}
 					</button>
 				</p>
 			)}
@@ -263,6 +270,7 @@ export function AgentLogView(props: AgentLogViewProps) {
 
 function AgentLogNoticeView({
 	entry,
+	pageNumber,
 	page,
 	session,
 	onRequest,
@@ -270,6 +278,7 @@ function AgentLogNoticeView({
 	onPage,
 }: {
 	entry: Extract<AgentLogEntry, { kind: 'notice' }>;
+	pageNumber: (page: number) => number;
 	page: BotLoopMessagePage | null;
 	session?: AgentLogCompactionSession;
 	onRequest: AgentLogViewProps['onRequest'];
@@ -324,7 +333,7 @@ function AgentLogNoticeView({
 						<p>
 							Continue on{' '}
 							<button type="button" onClick={() => onPage(page.newerPage!)}>
-								page {page.newerPage}
+								page {pageNumber(page.newerPage)}
 							</button>
 						</p>
 					)}

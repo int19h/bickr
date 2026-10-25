@@ -1,5 +1,6 @@
 import {
 	cloneElement,
+	createElement,
 	isValidElement,
 	createContext,
 	useContext,
@@ -87,6 +88,7 @@ const markText: Plugin<[], Root> = () => (tree, file) => {
 };
 
 interface MarkdownContextValue {
+	preserveHeadingLevels?: boolean;
 	bodyId: string;
 	referencePattern: RegExp;
 	renderText: (text: string) => ReactNode;
@@ -115,6 +117,18 @@ export function MarkdownBody({ text, ...callbacks }: Omit<MarkdownContextValue, 
 		</MarkdownContext.Provider>
 	);
 }
+function MarkdownHeading({ level, children, id, className, node: _node, ...attributes }: ComponentProps<'h2'> & ExtraProps & { level: number }) {
+	const { bodyId, preserveHeadingLevels } = useMarkdownContext();
+	const tag = `h${preserveHeadingLevels ? level : Math.min(level + 1, 6)}`;
+	return createElement(tag, {
+		...attributes,
+		id: id === 'footnote-label' ? `bickr-md-${bodyId}-footnote-label` : id,
+		className,
+		dir: 'auto',
+		'data-markdown-block': 'true',
+	}, children);
+}
+
 function ordinaryText(
 	raw: string,
 	value: string,
@@ -191,84 +205,12 @@ const baseComponents: Components = {
 			{children}
 		</p>
 	),
-	h1: ({ children, id, className }) => {
-		const { bodyId } = useMarkdownContext();
-		return (
-			<h2
-				id={id === 'footnote-label' ? `bickr-md-${bodyId}-footnote-label` : id}
-				className={className}
-				dir="auto"
-				data-markdown-block="true"
-			>
-				{children}
-			</h2>
-		);
-	},
-	h2: ({ children, id, className }) => {
-		const { bodyId } = useMarkdownContext();
-		return (
-			<h3
-				id={id === 'footnote-label' ? `bickr-md-${bodyId}-footnote-label` : id}
-				className={className}
-				dir="auto"
-				data-markdown-block="true"
-			>
-				{children}
-			</h3>
-		);
-	},
-	h3: ({ children, id, className }) => {
-		const { bodyId } = useMarkdownContext();
-		return (
-			<h4
-				id={id === 'footnote-label' ? `bickr-md-${bodyId}-footnote-label` : id}
-				className={className}
-				dir="auto"
-				data-markdown-block="true"
-			>
-				{children}
-			</h4>
-		);
-	},
-	h4: ({ children, id, className }) => {
-		const { bodyId } = useMarkdownContext();
-		return (
-			<h5
-				id={id === 'footnote-label' ? `bickr-md-${bodyId}-footnote-label` : id}
-				className={className}
-				dir="auto"
-				data-markdown-block="true"
-			>
-				{children}
-			</h5>
-		);
-	},
-	h5: ({ children, id, className }) => {
-		const { bodyId } = useMarkdownContext();
-		return (
-			<h6
-				id={id === 'footnote-label' ? `bickr-md-${bodyId}-footnote-label` : id}
-				className={className}
-				dir="auto"
-				data-markdown-block="true"
-			>
-				{children}
-			</h6>
-		);
-	},
-	h6: ({ children, id, className }) => {
-		const { bodyId } = useMarkdownContext();
-		return (
-			<h6
-				id={id === 'footnote-label' ? `bickr-md-${bodyId}-footnote-label` : id}
-				className={className}
-				dir="auto"
-				data-markdown-block="true"
-			>
-				{children}
-			</h6>
-		);
-	},
+	h1: props => <MarkdownHeading {...props} level={1} />,
+	h2: props => <MarkdownHeading {...props} level={2} />,
+	h3: props => <MarkdownHeading {...props} level={3} />,
+	h4: props => <MarkdownHeading {...props} level={4} />,
+	h5: props => <MarkdownHeading {...props} level={5} />,
+	h6: props => <MarkdownHeading {...props} level={6} />,
 	li: MarkdownListItem,
 	table: ({ children }) => (
 		<div className="markdown-table">

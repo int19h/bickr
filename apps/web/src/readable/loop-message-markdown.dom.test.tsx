@@ -27,7 +27,7 @@ describe('Loop Markdown', () => {
 	it('renders a synthetic note as a heading and a list in its Loop row', () => {
 		const view = render(<AgentLogView entries={[{ kind: "message", position: 1, message: row, author: { kind: "tool_result", synthetic: true }, requestId: null, sessionId: null, attempts: null }]} page={null} participantName="Reader" onDelete={() => {}} onLogs={() => {}} onRequest={() => {}} onSession={() => {}} onPage={() => {}} />);
 		try {
-			expect(view.container.querySelector('h3')?.textContent).toBe('Note PLAN');
+			expect(view.container.querySelector('h2')?.textContent).toBe('Note PLAN');
 			expect(view.container.querySelector('li')?.textContent).toBe('keep PLAN up-to-date');
 			expect(view.container.querySelector('pre')).toBeNull();
 			expect(view.container.textContent).not.toContain('\\n');
@@ -38,10 +38,23 @@ describe('Loop Markdown', () => {
 		const content = '### Report\n\n> A body\n\n---\n\n| Ref | Status |\n| --- | --- |\n| t/abc | Ready |\n\nu/alice f/general c/abc';
 		const view = render(<LoopMessageReadableView contentFormat="markdown" message={{ role: 'user', content }} />);
 		try {
-			for (const selector of ['h4', 'blockquote', 'hr', '.markdown-table table']) expect(view.container.querySelector(selector)).not.toBeNull();
+			for (const selector of ['h3', 'blockquote', 'hr', '.markdown-table table']) expect(view.container.querySelector(selector)).not.toBeNull();
 			expect(view.container.textContent).toContain('u/alice');
 			expect(view.container.textContent).toContain('f/general');
 			expect(view.container.querySelector('pre')).toBeNull();
+		} finally { view.close(); }
+	});
+
+	it.each([
+		'Timestamp: 0d0h1m\nu/reader posted:',
+		'u/reader posted:\nA second line.',
+	])('preserves a single newline around a reference: %s', content => {
+		const view = render(<LoopMessageReadableView contentFormat="markdown" message={{ role: 'tool', content }} />);
+		try {
+			const paragraph = view.container.querySelector('p')!;
+			expect(paragraph.querySelectorAll('br')).toHaveLength(1);
+			expect(paragraph.querySelector('.ref-bot')?.textContent).toBe('u/reader');
+			expect(paragraph.textContent).toBe(content.replace('\n', ''));
 		} finally { view.close(); }
 	});
 

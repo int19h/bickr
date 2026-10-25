@@ -46,6 +46,8 @@ export type ParsedRoute = {
 	botHandle?: string;
 	botProfileTab?: BotProfileTab;
 	botActivityId?: string;
+	loopView?: 'chat';
+	loopPage?: number;
 	inferenceSource?: { botId: string; runId: string; requestSeq: number };
 	configurationId?: string;
 	humanHandle?: string;
@@ -153,7 +155,10 @@ export function parsePathname(pathname: string, search = ""): ParsedRoute {
 		if ((parts[2] === "u" || parts[2] === "b") && parts[3]) {
 			const botHandle = parts[3];
 			if (parts[4] === "loop") {
-				return { route: "bot-loop", worldHandle, botHandle, ...inferenceSourceRouteSearch(search) };
+				const query = new URLSearchParams(search);
+				const page = positivePage(query.get('page'));
+				return { route: "bot-loop", worldHandle, botHandle, ...inferenceSourceRouteSearch(search),
+					...(query.get('view') === 'chat' ? { loopView: 'chat' as const } : {}), ...(page > 1 ? { loopPage: page } : {}) };
 			}
 			if (parts[4] === "edit") {
 				return { route: "bot-edit", worldHandle, botHandle };
@@ -197,7 +202,10 @@ export function routePath(parsed: ParsedRoute): string {
 		case "bot-loop": {
 			const base = `/w/${encodeURIComponent(parsed.worldHandle ?? "")}/u/${encodeURIComponent(parsed.botHandle ?? "")}/loop`;
 			const source = parsed.inferenceSource;
-			return source ? `${base}?${new URLSearchParams({ inference: String(source.requestSeq), sourceBot: source.botId, runId: source.runId })}` : base;
+			const query = new URLSearchParams(source ? { inference: String(source.requestSeq), sourceBot: source.botId, runId: source.runId } : {});
+			if (parsed.loopPage && parsed.loopPage > 1) query.set('page', String(parsed.loopPage));
+			if (parsed.loopView === 'chat') query.set('view', 'chat');
+			return query.size ? `${base}?${query}` : base;
 		}
 		case "bot-edit":
 			return `/w/${encodeURIComponent(parsed.worldHandle ?? "")}/u/${encodeURIComponent(parsed.botHandle ?? "")}/edit`;

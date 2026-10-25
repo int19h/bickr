@@ -635,8 +635,9 @@ function App() {
 					botProfileTab: activeBotProfileTab,
 					botActivityId: activeBotActivityId ?? undefined,
 				};
-			case "bot-avatar":
 			case "bot-loop":
+				return { ...parseBrowserRoute(), route, worldHandle: activeWorldHandle ?? undefined, botHandle: activeBotHandle ?? undefined };
+			case "bot-avatar":
 			case "bot-edit":
 				return { route, worldHandle: activeWorldHandle ?? undefined, botHandle: activeBotHandle ?? undefined };
 			case "human-profile":

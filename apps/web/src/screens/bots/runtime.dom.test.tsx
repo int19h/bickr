@@ -1,3 +1,4 @@
+import { reasoningRuntimeOutput } from './agent-log-runtime-output.test-support.mjs';
 import type { AgentLogEntry, BotLoopMessage, BotLoopMessagePage, BotRuntimeEvent, BotSummary } from '@bickr/shared/model';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
@@ -880,4 +881,258 @@ it('shows nothing to compact and keeps the summary after the manual request', as
 	expect(container.textContent).toContain('Kept history');
 	expect(container.textContent).not.toContain('Compacted 1 loop chat message');
 	expect(container.querySelector('.modal')).toBeNull();
+});
+
+it('keeps the monitor and restores the Loop scroll offset when chat view closes', async () => {
+	vi.stubGlobal('matchMedia', () => ({ matches: false }));
+	await answerMessages(0, [loopMessage(1, 'A retained response')]);
+	const log = container.querySelector<HTMLDivElement>('.agent-log-scroll')!;
+	log.scrollTop = 123;
+	const entry = [...container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Chat view')!;
+	await act(async () => entry.click());
+	expect(container.querySelector('.loop-chat')).not.toBeNull(); expect(MonitorSocket.instances).toHaveLength(1);
+	await act(async () => { history.replaceState({}, '', '/'); window.dispatchEvent(new PopStateEvent('popstate')); });
+	expect(container.querySelector('.loop-chat')).toBeNull(); expect(container.querySelector('.agent-log-scroll')!.scrollTop).toBe(123);
+	expect(MonitorSocket.instances).toHaveLength(1);
+});
+it('keeps a pasted archive selection when the monitor opens before the first snapshot', async () => {
+	vi.stubGlobal('matchMedia', () => ({ matches: false }));
+	await act(async () => root.unmount()); pendingMessages = [];
+	history.replaceState({}, '', '/w/local/u/runtime-dom/loop?page=2&view=chat'); root = createRoot(container);
+	await act(async () => root.render(<BotRuntimePanel bot={bot} busy={false} onSave={async () => true} />));
+	expect(pendingMessages[0]!.path).toContain('page=2');
+	await act(async () => MonitorSocket.instances.at(-1)!.open());
+	expect(pendingMessages[1]!.path).toContain('page=2');
+	const archive = page(2, { 50: 2 }, [{ page: 1, messageCount: 1 }, { page: 2, messageCount: 1, sourceCompactionSeq: 50 }]);
+	await answerMessages(1, [loopMessage(4, 'Selected archive')], archive);
+	await answerMessages(0, [loopMessage(3, 'Stale archive')], archive);
+	expect(container.textContent).toContain('Selected archive'); expect(container.textContent).not.toContain('Stale archive');
+	expect(container.textContent).toContain('Page 1 · archive');
+});
+it('restores the entry scroll offset after Back reloads its page', async () => {
+	vi.stubGlobal('matchMedia', () => ({ matches: false }));
+	history.replaceState({}, '', '/w/local/u/runtime-dom/loop');
+	const pages = [{ page: 1, messageCount: 1 }, { page: 2, messageCount: 1, sourceCompactionSeq: 50 }];
+	await answerMessages(0, [loopMessage(10, 'Newest response')], page(1, { 50: 2 }, pages));
+	container.querySelector('.agent-log-scroll')!.scrollTop = 123;
+	await act(async () => [...container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Chat view')!.click());
+	await act(async () => container.querySelector<HTMLButtonElement>('.chat-page-chip')!.click());
+	await act(async () => [...container.querySelectorAll<HTMLButtonElement>('.loop-chat-pages button')].find(button => button.textContent === 'Page 1')!.click());
+	await answerMessages(1, [loopMessage(4, 'Archive response')], page(2, { 50: 2 }, pages));
+	await act(async () => { history.replaceState({}, '', '/w/local/u/runtime-dom/loop'); window.dispatchEvent(new PopStateEvent('popstate')); });
+	await answerMessages(2, [loopMessage(10, 'Newest response')], page(1, { 50: 2 }, pages));
+	expect(container.querySelector('.agent-log-scroll')!.scrollTop).toBe(123);
+});
+
+it('keeps the bottom pin at the 24 px boundary', async () => {
+	await answerMessages(0, [loopMessage(1, 'First response')]);
+	const log = container.querySelector('.agent-log-scroll')!;
+	Object.defineProperties(log, { scrollHeight: { configurable: true, value: 1000 }, clientHeight: { configurable: true, value: 400 }, scrollTop: { configurable: true, writable: true, value: 576 } });
+	await act(async () => log.dispatchEvent(new Event('scroll')));
+	const bottom = vi.spyOn(runtimeUtils, 'scrollLogToBottom');
+	await act(async () => MonitorSocket.instances.at(-1)!.emit({ type: 'loop_message', loopMessage: loopMessage(2, 'Another response') }));
+	expect(bottom).toHaveBeenCalled();
+});
+
+async function openChatWithPrependedArchive() {
+	vi.stubGlobal('matchMedia', () => ({ matches: false }));
+	const pages = [{ page: 1, messageCount: 1 }, { page: 2, messageCount: 1, sourceCompactionSeq: 50 }];
+	await answerMessages(0, [loopMessage(10, 'Newest retained content')], page(1, { 50: 2 }, pages));
+	await act(async () => [...container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Chat view')!.click());
+	await act(async () => [...container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Load page 1')!.click());
+	await answerMessages(1, [loopMessage(4, 'Prepended archive content')], page(2, { 50: 2 }, pages));
+}
+it('selects the main section rather than the whole log after prepending', async () => {
+	await openChatWithPrependedArchive();
+	const main = container.querySelector('[data-chat-page="1"]')!;
+	const scroll = vi.spyOn(main, 'scrollIntoView');
+	await act(async () => container.querySelector<HTMLButtonElement>('.chat-page-chip')!.click());
+	await act(async () => [...container.querySelectorAll<HTMLButtonElement>('.loop-chat-pages button')].find(button => button.textContent === 'Page 2')!.click());
+	expect(scroll).toHaveBeenCalledWith({ block: 'start' });
+});
+it('removes prepended archive content after a history-cleared monitor frame', async () => {
+	await openChatWithPrependedArchive(); expect(container.textContent).toContain('Prepended archive content');
+	await act(async () => MonitorSocket.instances.at(-1)!.emit({ type: 'history_cleared' }));
+	expect(container.textContent).not.toContain('Prepended archive content');
+	expect(container.querySelectorAll('[data-chat-page]')).toHaveLength(1);
+});
+it('scopes the compaction shortcut to the selected main page', async () => {
+	vi.stubGlobal('matchMedia', () => ({ matches: false }));
+	const previous = globalThis.fetch;
+	vi.stubGlobal('fetch', (input: RequestInfo | URL, init?: RequestInit) => String(input).includes('/runtime/compaction-sessions/') ? Promise.resolve(json({ ok: false, error: 'not_found', message: 'No retained session' }, 404)) : previous(input, init));
+	const pages = [{ page: 1, messageCount: 1 }, { page: 2, messageCount: 1, sourceCompactionSeq: 50 }, { page: 3, messageCount: 1, sourceCompactionSeq: 25 }];
+	const notice = (id: string): AgentLogEntry => ({ kind: 'notice', position: 1, notice: { kind: 'compaction_started', sessionId: id, outcome: { kind: 'succeeded', summarySeq: 50 } } });
+	await act(async () => pendingMessages[0]!.resolve({ messages: [], entries: [notice('selected-session')], page: page(2, { 50: 2, 25: 3 }, pages) }));
+	await act(async () => [...container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Chat view')!.click());
+	await act(async () => [...container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Load page 1')!.click());
+	await act(async () => pendingMessages[1]!.resolve({ messages: [], entries: [notice('older-session')], page: page(3, { 50: 2, 25: 3 }, pages) }));
+	const selected = container.querySelector('#loop-session-selected-session')!, older = container.querySelector('#loop-session-older-session')!;
+	const selectedScroll = vi.spyOn(selected, 'scrollIntoView'), olderScroll = vi.spyOn(older, 'scrollIntoView');
+	await act(async () => container.querySelector<HTMLButtonElement>('.chat-page-chip')!.click());
+	await act(async () => [...container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Open the compaction notice for page 2')!.click());
+	expect(selectedScroll).toHaveBeenCalledWith({ block: 'center' }); expect(olderScroll).not.toHaveBeenCalled();
+});
+it('loads the visible archive when exiting a pasted chat link in place', async () => {
+	vi.stubGlobal('matchMedia', () => ({ matches: false }));
+	await act(async () => root.unmount()); pendingMessages = [];
+	history.replaceState({}, '', '/w/local/u/runtime-dom/loop?view=chat'); root = createRoot(container);
+	await act(async () => root.render(<BotRuntimePanel bot={bot} busy={false} onSave={async () => true} />));
+	const pages = [{ page: 1, messageCount: 1 }, { page: 2, messageCount: 1, sourceCompactionSeq: 50 }];
+	await answerMessages(0, [loopMessage(10, 'Newest content')], page(1, { 50: 2 }, pages));
+	await act(async () => [...container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Load page 1')!.click());
+	const archived = { ...loopMessage(4, 'Visible archive content'), compactedBy: 50 };
+	await answerMessages(1, [archived], page(2, { 50: 2 }, pages));
+	const log = container.querySelector('.loop-chat-log')!;
+	vi.spyOn(log, 'getBoundingClientRect').mockReturnValue({ top: 50 } as DOMRect);
+	for (const section of log.querySelectorAll('[data-chat-page]')) vi.spyOn(section, 'getBoundingClientRect').mockReturnValue({ bottom: 200 } as DOMRect);
+	await act(async () => new Promise<void>(resolve => window.requestAnimationFrame(() => resolve())));
+	await act(async () => log.dispatchEvent(new Event('scroll')));
+	expect(new URLSearchParams(location.search).get('page')).toBe('2');
+	await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Exit chat view"]')!.click());
+	expect(pendingMessages[2]!.path).toContain('page=2');
+	await answerMessages(2, [archived], page(2, { 50: 2 }, pages));
+	expect(container.querySelector('.loop-chat')).toBeNull();
+	expect(container.querySelector('.agent-log-caption')?.textContent).toBe('archive');
+	expect(container.textContent).toContain('Visible archive content');
+});
+
+
+it('guards injection in the shared controller across both views', async () => {
+	vi.stubGlobal('matchMedia', () => ({ matches: false }));
+	let finish!: (response: Response) => void;
+	const previous = globalThis.fetch;
+	const requests = vi.fn(() => new Promise<Response>(resolve => { finish = resolve; }));
+	vi.stubGlobal('fetch', (input: RequestInfo | URL, init?: RequestInit) => String(input).endsWith('/runtime/inject') ? requests() : previous(input, init));
+	await answerMessages(0, [loopMessage(10, 'Newest content')]);
+	const field = container.querySelector<HTMLInputElement>('[aria-label="Inject a thought or focus"]')!;
+	await act(async () => {
+		Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(field, 'One thought');
+		field.dispatchEvent(new Event('input', { bubbles: true }));
+	});
+	const form = field.form!;
+	await act(async () => {
+		form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+		form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+	});
+	expect(requests).toHaveBeenCalledOnce();
+	expect(form.querySelector<HTMLButtonElement>('[type="submit"]')!.disabled).toBe(true);
+	await act(async () => container.querySelector<HTMLButtonElement>('.loop-chat-enter')!.click());
+	expect(container.querySelector<HTMLButtonElement>('[aria-label="Inject"]')!.disabled).toBe(true);
+	await act(async () => container.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
+	expect(requests).toHaveBeenCalledOnce();
+	await act(async () => finish(json({ ok: false, error: 'unavailable', message: 'Try again' }, 503)));
+	expect(container.querySelector<HTMLButtonElement>('[aria-label="Inject"]')!.disabled).toBe(false);
+	expect(container.querySelector('textarea')!.value).toBe('One thought');
+	await act(async () => container.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
+	expect(requests).toHaveBeenCalledTimes(2);
+	await act(async () => finish(json({ ok: true, data: {} })));
+	expect(container.querySelector('textarea')!.value).toBe('');
+});
+
+it('reconnects the pin observer when the composer grows just after entering chat', async () => {
+	vi.stubGlobal('matchMedia', () => ({ matches: false }));
+	const observers: { targets: Set<Element>; callback: ResizeObserverCallback; disconnected: boolean }[] = [];
+	vi.stubGlobal('ResizeObserver', class {
+		item: typeof observers[number];
+		constructor(callback: ResizeObserverCallback) { this.item = { callback, targets: new Set(), disconnected: false }; observers.push(this.item); }
+		observe(target: Element) { this.item.targets.add(target); }
+		disconnect() { this.item.disconnected = true; }
+	});
+	await answerMessages(0, [loopMessage(10, 'Newest content')]);
+	const normal = container.querySelector('.agent-log-scroll')!;
+	await act(async () => container.querySelector<HTMLButtonElement>('.loop-chat-enter')!.click());
+	const chatLog = container.querySelector<HTMLElement>('.loop-chat-log')!;
+	let height = 500;
+	Object.defineProperty(chatLog, 'scrollHeight', { configurable: true, get: () => height });
+	const observer = observers.find(item => !item.disconnected && item.targets.has(chatLog));
+	expect(observer).toBeDefined();
+	expect(observers.filter(item => item.targets.has(normal)).every(item => item.disconnected)).toBe(true);
+	height += 70;
+	await act(async () => {
+		observer!.callback([], {} as ResizeObserver);
+		await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+	});
+	expect(chatLog.scrollTop).toBe(570);
+});
+
+it.each(['Refresh log', 'reconnect'])('refreshes loaded archives by source after %s misses a deletion', async trigger => {
+	vi.stubGlobal('matchMedia', () => ({ matches: false }));
+	const pages = [{ page: 1, messageCount: 1 }, { page: 2, messageCount: 2, sourceCompactionSeq: 50 }];
+	await answerMessages(0, [loopMessage(10, 'Newest content')], page(1, { 50: 2 }, pages));
+	await act(async () => container.querySelector<HTMLButtonElement>('.loop-chat-enter')!.click());
+	await act(async () => [...container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Load page 1')!.click());
+	await answerMessages(1, [{ ...loopMessage(4, 'Deleted elsewhere'), compactedBy: 50 }, { ...loopMessage(5, 'Still retained'), compactedBy: 50 }], page(2, { 50: 2 }, pages));
+	expect(container.textContent).toContain('Deleted elsewhere');
+	if (trigger === 'reconnect') await act(async () => MonitorSocket.instances.at(-1)!.open());
+	else {
+		await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="More"]')!.click());
+		await act(async () => [...container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Refresh log')!.click());
+	}
+	const freshPages = [pages[0]!, { ...pages[1]!, messageCount: 1 }];
+	await answerMessages(2, [loopMessage(10, 'Newest content')], page(1, { 50: 2 }, freshPages));
+	expect(pendingMessages[3]!.path).toContain('page=2');
+	await answerMessages(3, [{ ...loopMessage(5, 'Still retained'), compactedBy: 50 }], page(2, { 50: 2 }, freshPages));
+	expect(container.querySelectorAll('[data-chat-page]')).toHaveLength(2);
+	expect(container.textContent).not.toContain('Deleted elsewhere');
+	expect(container.textContent).toContain('Still retained');
+});
+
+it('keeps the watched archive and marks a failed refresh at scroll offset zero', async () => {
+	history.replaceState({}, '', '/w/local/u/runtime-dom/loop');
+	vi.stubGlobal('matchMedia', () => ({ matches: false }));
+	const previous = globalThis.fetch;
+	let failArchive = false;
+	vi.stubGlobal('fetch', (input: RequestInfo | URL, init?: RequestInit) => failArchive && String(input).endsWith('/runtime/messages?page=2')
+		? Promise.resolve(json({ ok: false, error: 'unavailable', message: 'Archive unavailable' }, 503)) : previous(input, init));
+	const pages = [{ page: 1, messageCount: 1 }, { page: 2, messageCount: 1, sourceCompactionSeq: 50 }];
+	await answerMessages(0, [loopMessage(10, 'Newest content')], page(1, { 50: 2 }, pages));
+	await act(async () => container.querySelector<HTMLButtonElement>('.loop-chat-enter')!.click());
+	await act(async () => [...container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Load page 1')!.click());
+	await answerMessages(1, [{ ...loopMessage(4, 'Watched archive content'), compactedBy: 50 }], page(2, { 50: 2 }, pages));
+	const log = container.querySelector<HTMLElement>('.loop-chat-log')!;
+	vi.spyOn(log, 'getBoundingClientRect').mockReturnValue({ top: 50 } as DOMRect);
+	for (const section of log.querySelectorAll('[data-chat-page]')) vi.spyOn(section, 'getBoundingClientRect').mockReturnValue({ bottom: 200 } as DOMRect);
+	await act(async () => new Promise<void>(resolve => requestAnimationFrame(() => resolve())));
+	log.scrollTop = 0;
+	await act(async () => log.dispatchEvent(new Event('scroll')));
+	expect(container.querySelector('.chat-page-chip')?.textContent).toBe('Page 1 · archive');
+	failArchive = true;
+	await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="More"]')!.click());
+	await act(async () => [...container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Refresh log')!.click());
+	await answerMessages(2, [loopMessage(10, 'Newest content')], page(1, { 50: 2 }, pages));
+	expect(log.scrollTop).toBe(0);
+	expect(container.textContent).toContain('Watched archive content');
+	expect(container.textContent).toContain('Failed to refresh an archive. Showing its saved messages. Try Refresh log again.');
+	expect(container.querySelector('.chat-page-chip')?.textContent).toBe('Page 1 · archive');
+	expect(new URLSearchParams(location.search).get('page')).toBe('2');
+	expect(container.querySelector('.loop-chat-archive-hint')).not.toBeNull();
+	await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="More"]')!.click());
+	expect([...container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Compact chat')!.disabled).toBe(true);
+});
+
+
+it.each([true, false])('replays actual typed runtime reasoning after an older snapshot when completed=%s', async completed => {
+	const output = await reasoningRuntimeOutput(completed);
+	await answerMessages(0, []);
+	const socket = MonitorSocket.instances.at(-1)!;
+	await act(async () => { for (const event of output.events.slice(0, 2)) socket.emit({ type: 'stream_delta', event }); });
+	const refresh = [...container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Refresh log')!;
+	await act(async () => refresh.click());
+	await act(async () => { for (const event of output.events.slice(2)) socket.emit({ type: 'stream_delta', event }); });
+	await act(async () => pendingMessages[1]!.resolve({ messages: [], entries: output.snapshots[1]!, page: page(1, {}, [{ page: 1, messageCount: 0 }]) }));
+	const assertSafe = () => {
+		const reasoning = container.querySelector('.agent-log-reasoning')!.textContent!;
+		expect(reasoning).toContain('Readable thought.');
+		expect(reasoning.match(/Looking at the result\./g)).toHaveLength(1);
+		expect(reasoning).toContain('2 more parts are encrypted by the provider');
+		expect(container.textContent).not.toContain('PRIVATE_ENCRYPTED_BYTES');
+		expect(container.textContent).not.toContain('PRIVATE_FUTURE_TEXT');
+	};
+	assertSafe();
+	await act(async () => refresh.click());
+	await act(async () => pendingMessages[2]!.resolve({ messages: [], entries: output.snapshots.at(-1)!, page: page(1, {}, [{ page: 1, messageCount: 0 }]) }));
+	assertSafe();
+	await act(async () => refresh.click());
+	await act(async () => pendingMessages[3]!.resolve({ messages: [], entries: output.settled, page: page(1, {}, [{ page: 1, messageCount: 0 }]) }));
+	assertSafe();
 });

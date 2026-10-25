@@ -176,3 +176,12 @@ it('retains definitions inside lists and resolves them in document order', () =>
 	expect(result).toContain('[r]: https://first.example');
 	expect(result).not.toContain('second.example');
 });
+
+it('keeps closing heading markers when the selection reaches the next paragraph', async () => {
+	const source = '## Title ##\n\nParagraph';
+	await render(source);
+	const range = document.createRange();
+	range.setStart(container.querySelector('h3')!, 0);
+	range.setEndAfter(container.querySelector('p')!);
+	expect(selected(range)).toBe(source);
+});

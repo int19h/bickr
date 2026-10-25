@@ -158,7 +158,7 @@ export function parseBrowserRoute(): ParsedRoute {
 export function canonicalizeCurrentPath(parsed: ParsedRoute): void {
 	const canonical = routePath(parsed);
 	if (currentLocationPath() !== canonical) {
-		window.history.replaceState(null, "", canonical);
+		window.history.replaceState(window.history.state, "", canonical);
 	}
 }
 

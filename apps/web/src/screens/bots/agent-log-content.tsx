@@ -1,11 +1,9 @@
-import type { BotInferenceSubmissionMessage } from '@bickr/shared/model';
-import { useLayoutEffect, useRef, useState } from 'react';
-import { reasoningDetailsTextForDisplay } from '../../reasoning-formatting';
-import { LoopMarkdown } from '../../readable/loop-markdown';
+import { parseAgentLogPartial } from '../../agent-log-partial';
+import type { AgentLogReasoningPart, BotInferenceSubmissionMessage } from '@bickr/shared/model';
+import { readableReasoningFormat } from '@bickr/shared/model';
 import { ReadableToolCall, type LoopToolCallContext } from '../../readable/loop-message-readable';
-import { Icon } from '../../ui';
 
-// Stored responses use a provider envelope. Stream snapshots use content and toolCalls.
+// Settled responses use the provider envelope. Partial responses have a separate typed adapter.
 export function storedResponseMessage(text: string | null): BotInferenceSubmissionMessage {
 	if (!text) return { role: 'assistant', content: null };
 	try {
@@ -19,8 +17,7 @@ export function storedResponseMessage(text: string | null): BotInferenceSubmissi
 				'reasoning' in message ||
 				'reasoning_content' in message ||
 				'reasoning_details' in message ||
-				'tool_calls' in message ||
-				'toolCalls' in message
+				'tool_calls' in message
 			)
 		)
 			return { role: 'assistant', content: text };
@@ -28,17 +25,19 @@ export function storedResponseMessage(text: string | null): BotInferenceSubmissi
 			role: 'assistant',
 			content: typeof message.content === 'string' ? message.content : null,
 			reasoning: typeof message.reasoning === 'string' ? message.reasoning : undefined,
+			reasoning_format: message.reasoning_format === readableReasoningFormat ? readableReasoningFormat : undefined,
 			reasoning_content: typeof message.reasoning_content === 'string' ? message.reasoning_content : undefined,
 			reasoning_details: Array.isArray(message.reasoning_details) ? message.reasoning_details : undefined,
-			tool_calls: Array.isArray(message.tool_calls)
-				? message.tool_calls
-				: Array.isArray(message.toolCalls)
-					? streamedToolCalls(message.toolCalls)
-					: undefined,
+			tool_calls: Array.isArray(message.tool_calls) ? message.tool_calls : undefined,
 		};
 	} catch {
 		return { role: 'assistant', content: text };
 	}
+}
+
+export function storedPartialMessage(text: string | null): BotInferenceSubmissionMessage & { reasoningParts: AgentLogReasoningPart[] } {
+	const partial = parseAgentLogPartial(text);
+	return { role: 'assistant', content: partial.content, reasoningParts: partial.reasoningParts, tool_calls: streamedToolCalls(partial.toolCalls) };
 }
 
 function streamedToolCalls(parts: Array<{ index?: number; id?: string; function?: { name?: string; arguments?: string } }>) {
@@ -58,55 +57,18 @@ function streamedToolCalls(parts: Array<{ index?: number; id?: string; function?
 	return [...calls.values()];
 }
 
-export function AgentLogReasoning({ message }: { message: BotInferenceSubmissionMessage }) {
-	const text = [
-		message.reasoning,
-		message.reasoning_content,
-		message.reasoning_details
-			? reasoningDetailsTextForDisplay(message.reasoning_details) || JSON.stringify(message.reasoning_details)
-			: null,
-	]
-		.filter(Boolean)
-		.join('\n\n');
-	const ref = useRef<HTMLDivElement>(null);
-	const [expanded, setExpanded] = useState(false);
-	const [long, setLong] = useState(false);
-	useLayoutEffect(() => {
-		const node = ref.current;
-		if (!node) return;
-		const measure = () => setLong(node.scrollHeight > 126);
-		measure();
-		if (typeof ResizeObserver === 'undefined') return;
-		const observer = new ResizeObserver(measure);
-		observer.observe(node);
-		return () => observer.disconnect();
-	}, [text]);
-	if (!text) return null;
-	return (
-		<section className="agent-log-reasoning">
-			<div className="agent-log-reasoning-label">
-				<Icon name="think" size={13} /> Reasoning
-			</div>
-			<div className={expanded ? '' : 'agent-log-reasoning-clamp'} ref={ref}>
-				<LoopMarkdown text={text} />
-			</div>
-			{long && (
-				<button aria-expanded={expanded} onClick={() => setExpanded(!expanded)} type="button">
-					{expanded ? 'less' : 'more'}
-				</button>
-			)}
-		</section>
-	);
-}
+export { LoopReasoning as AgentLogReasoning } from '../../readable/loop-reasoning';
 
 export function AgentLogCall({
 	number,
+	idPrefix = '',
 	call,
 	context,
 	active,
 	onActive,
 }: {
 	number: number;
+	idPrefix?: string;
 	call: NonNullable<BotInferenceSubmissionMessage['tool_calls']>[number];
 	context?: LoopToolCallContext;
 	active: boolean;
@@ -115,13 +77,13 @@ export function AgentLogCall({
 	return (
 		<div
 			className={`agent-log-call${active ? ' call-highlight' : ''}`}
-			id={`loop-call-${number}`}
+			id={`${idPrefix}loop-call-${number}`}
 			onMouseEnter={() => onActive(true)}
 			onMouseLeave={() => onActive(false)}
 			onFocus={() => onActive(true)}
 			onBlur={() => onActive(false)}
 		>
-			<a className="agent-log-call-number" href={`#loop-result-${number}`} aria-label={`Open result of call ${number}`}>
+			<a className="agent-log-call-number" href={`#${idPrefix}loop-result-${number}`} aria-label={`Open result of call ${number}`}>
 				{number}
 			</a>
 			<ReadableToolCall toolCall={call} context={context} />

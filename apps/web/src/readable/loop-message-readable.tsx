@@ -1,10 +1,11 @@
+import { LoopReasoning } from './loop-reasoning';
 import { LoopMarkdown } from "./loop-markdown";
 import { formatThreadRef } from "@bickr/shared/ids";
 import type { BotInferenceSubmissionMessage, BotLoopMessage } from "@bickr/shared/model";
 import type { ReactNode } from "react";
 import { isToolResultEnvelope, legacyToolResultEnvelope } from "@bickr/shared/legacy-tool-result-adapter";
 import type { RandomRangeTarget, ToolResultEnvelope } from "@bickr/shared/tool-results";
-import { normalizeReadableText, reasoningDetailsTextForDisplay, textValueForDisplay } from "../reasoning-formatting";
+import { normalizeReadableText, textValueForDisplay } from "../reasoning-formatting";
 import {
 	ReadableToolPhrase,
 	ReadableGenericFields,
@@ -139,16 +140,7 @@ export function ReadableReasoningBlock({ label, text }: { label: string; text: s
 }
 
 export function ReadableReasoningDetails({ details }: { details: unknown[] }) {
-	const text = reasoningDetailsTextForDisplay(details);
-	if (!text) {
-		return (
-			<div className="tool-block readable reasoning-readable">
-				<span>Reasoning</span>
-				<div className="tool-text">Reasoning details were recorded.</div>
-			</div>
-		);
-	}
-	return <ReadableReasoningBlock label="Reasoning" text={text} />;
+	return <LoopReasoning message={{ role: 'assistant', reasoning_details: details }} />;
 }
 
 export function SelfCorrectionReferences({ text }: { text: string }) {
