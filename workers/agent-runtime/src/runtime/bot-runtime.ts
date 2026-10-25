@@ -1,3 +1,5 @@
+import { estimateLoopMessageTokens } from './loop-message-tokens';
+import { readableReasoningFormat } from '@bickr/shared/model';
 import { reasoningTextFromDetails } from '../provider/reasoning-stream';
 import type { AgentLogStreamDelta, AgentLogStreamPayload } from '@bickr/shared/model';
 import { logStreamDelta } from './agent-log-codecs';
@@ -2116,7 +2118,7 @@ export class BotRuntime {
 						 WHERE seq = ?
 						   AND deleted_at IS NULL`,
 						messageJson,
-						estimateTextTokens(messageJson),
+						estimateLoopMessageTokens(operation.message),
 						operation.seq,
 					);
 					continue;
@@ -3061,11 +3063,11 @@ export class BotRuntime {
 		// This journal kind points only to payloads from providerResponseLogPayload.
 		const raw = log.completedResponse(publication.attemptId);
 		const payload = JSON.parse(raw) as { message: ChatMessage };
-		const message = providerResponseMessageForHistory({ content: payload.message.content ?? '', reasoning: payload.message.reasoning ?? '', reasoningDetails: (payload.message.reasoning_details ?? []).map(runtimeRecord), toolCalls: payload.message.tool_calls ?? [] });
+		const message = providerResponseMessageForHistory({ content: payload.message.content ?? '', reasoning: payload.message.reasoning ?? '', reasoningFormat: payload.message.reasoning_format, reasoningDetails: (payload.message.reasoning_details ?? []).map(runtimeRecord), toolCalls: payload.message.tool_calls ?? [] });
 		const calls = (message?.tool_calls ?? []).filter(call => publication.pendingCallIds.includes(call.id));
 		if (calls.length !== publication.pendingCallIds.length) throw new RepositoryError('conflict', 'The pending response calls are not retained.', 409);
 		if (calls.length === 0) {
-			const textOnly = message ? providerResponseMessageForHistory({ content: message.content ?? '', reasoning: message.reasoning ?? '', reasoningDetails: (message.reasoning_details ?? []).map(runtimeRecord), toolCalls: [] }) : null;
+			const textOnly = message ? providerResponseMessageForHistory({ content: message.content ?? '', reasoning: message.reasoning ?? '', reasoningFormat: message.reasoning_format, reasoningDetails: (message.reasoning_details ?? []).map(runtimeRecord), toolCalls: [] }) : null;
 			const entries: LoopMessageGroupEntry[] = publication.assistantSeq === null && textOnly ? [{ runId, message: textOnly, origin: 'provider_response', status: 'interrupted', options: { requestId: publication.requestId, streamSeq: publication.eventSeq }, extraLogs: [{ kind: 'provider_response', text: raw }] }] : [];
 			this.runtimeMessageStore().appendLoopMessageGroup(context, entries, () => { log.discardResponsePublication(runId); this.clearPendingTool(runId); });
 			return;
@@ -4220,7 +4222,7 @@ export class BotRuntime {
 			}
 			const publication = this.agentLogStore().responsePublication(runId);
 			if (publication && publication.pendingCallIds.length === 0 && publication.assistantSeq === null) {
-				const textOnly = providerResponseMessageForHistory({ content: response.content, reasoning: response.reasoning, reasoningDetails: response.reasoningDetails, toolCalls: [] });
+				const textOnly = providerResponseMessageForHistory({ content: response.content, reasoning: response.reasoning, reasoningFormat: response.reasoningFormat, reasoningDetails: response.reasoningDetails, toolCalls: [] });
 				if (textOnly) this.appendLoopMessageGroup(context, [{ runId, origin: 'provider_response', status: responseStatus, message: textOnly, options: { streamSeq: requestEvent.seq }, extraLogs: consumeProviderResponseLogs() }]);
 				else this.agentLogStore().discardResponsePublication(runId);
 			}
@@ -7921,7 +7923,7 @@ export class BotRuntime {
 			const updatedContent = JSON.stringify(content);
 			const updatedMessage = { ...message, content: updatedContent };
 			const messageJson = JSON.stringify(updatedMessage);
-			const tokenEstimate = estimateTextTokens(messageJson);
+			const tokenEstimate = estimateLoopMessageTokens(updatedMessage);
 			this.state.storage.sql.exec(
 				`UPDATE loop_messages
 				 SET message_json = ?, token_estimate = ?
@@ -9383,7 +9385,8 @@ function providerResponseLogPayload(
 		message: {
 			role: 'assistant',
 			content: response.content || null,
-			...(response.reasoning ? { reasoning: response.reasoning } : {}),
+			...(response.reasoning || response.reasoningFormat === readableReasoningFormat ? { reasoning: response.reasoning } : {}),
+			...(response.reasoningFormat === readableReasoningFormat ? { reasoning_format: readableReasoningFormat } : {}),
 			...(response.reasoningDetails.length > 0 ? { reasoning_details: response.reasoningDetails } : {}),
 			...(response.toolCalls.length > 0 ? { tool_calls: response.toolCalls } : {}),
 		},
@@ -10318,7 +10321,7 @@ function loopMessageContextLine(text: BotText, message: ChatMessage): string {
 				(toolCall) =>
 					text.format('compaction.history.action', { toolName: canonicalToolName(toolCall.function.name || 'unknown_tool'), arguments: safeContextText(toolCall.function.arguments, 800) }),
 			) ?? [];
-		const reasoning = message.reasoning_details
+		const reasoning = message.reasoning_format === readableReasoningFormat ? message.reasoning : message.reasoning_details
 			? reasoningTextFromDetails(message.reasoning_details as ReasoningDetail[])
 			: message.reasoning;
 		return [

@@ -307,6 +307,7 @@ export type ProviderResponse = {
 	inferenceAttribution?: import('@bickr/shared/model').InferenceAttribution;
 	content: string;
 	reasoning: string;
+	reasoningFormat?: ChatMessage['reasoning_format'];
 	reasoningDetails: ReasoningDetail[];
 	toolCalls: ToolCall[];
 	requestBody?: string;
