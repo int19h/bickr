@@ -25,6 +25,7 @@ describe("reasoningDetailsTextForDisplay", () => {
 	it.each([
 		[{ type: 'reasoning.text', text: 'Words' }, { kind: 'text', text: 'Words' }],
 		[{ type: 'reasoning.summary', summary: 'Summary' }, { kind: 'summary', text: 'Summary' }],
+		[{ type: 'reasoning.summary', text: 'Summary' }, { kind: 'summary', text: 'Summary' }],
 		[{ type: 'reasoning.encrypted', data: 'secret', text: 'opaque' }, { kind: 'encrypted' }],
 		[{ type: 'future.type', text: 'opaque' }, { kind: 'unknown' }],
 		['untyped bytes', { kind: 'unknown' }],

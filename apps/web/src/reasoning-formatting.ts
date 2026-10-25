@@ -12,7 +12,7 @@ export function reasoningDetailForDisplay(detail: unknown): ReasoningDetailDispl
 		case 'reasoning.text':
 			return { ...index, kind: 'text', text: textValueForDisplay(record.text) ?? textValueForDisplay(record.content) ?? '' };
 		case 'reasoning.summary':
-			return { ...index, kind: 'summary', text: reasoningSummaryTextForDisplay(record.summary) ?? '' };
+			return { ...index, kind: 'summary', text: reasoningSummaryTextForDisplay(record.summary ?? record.text) ?? '' };
 		case 'reasoning.encrypted':
 			return { kind: 'encrypted' };
 		default:
