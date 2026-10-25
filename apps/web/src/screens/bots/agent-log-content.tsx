@@ -1,9 +1,5 @@
 import type { BotInferenceSubmissionMessage } from '@bickr/shared/model';
-import { useLayoutEffect, useRef, useState } from 'react';
-import { reasoningDetailsTextForDisplay } from '../../reasoning-formatting';
-import { LoopMarkdown } from '../../readable/loop-markdown';
 import { ReadableToolCall, type LoopToolCallContext } from '../../readable/loop-message-readable';
-import { Icon } from '../../ui';
 
 // Stored responses use a provider envelope. Stream snapshots use content and toolCalls.
 export function storedResponseMessage(text: string | null): BotInferenceSubmissionMessage {
@@ -58,46 +54,7 @@ function streamedToolCalls(parts: Array<{ index?: number; id?: string; function?
 	return [...calls.values()];
 }
 
-export function AgentLogReasoning({ message }: { message: BotInferenceSubmissionMessage }) {
-	const text = [
-		message.reasoning,
-		message.reasoning_content,
-		message.reasoning_details
-			? reasoningDetailsTextForDisplay(message.reasoning_details) || JSON.stringify(message.reasoning_details)
-			: null,
-	]
-		.filter(Boolean)
-		.join('\n\n');
-	const ref = useRef<HTMLDivElement>(null);
-	const [expanded, setExpanded] = useState(false);
-	const [long, setLong] = useState(false);
-	useLayoutEffect(() => {
-		const node = ref.current;
-		if (!node) return;
-		const measure = () => setLong(node.scrollHeight > 126);
-		measure();
-		if (typeof ResizeObserver === 'undefined') return;
-		const observer = new ResizeObserver(measure);
-		observer.observe(node);
-		return () => observer.disconnect();
-	}, [text]);
-	if (!text) return null;
-	return (
-		<section className="agent-log-reasoning">
-			<div className="agent-log-reasoning-label">
-				<Icon name="think" size={13} /> Reasoning
-			</div>
-			<div className={expanded ? '' : 'agent-log-reasoning-clamp'} ref={ref}>
-				<LoopMarkdown text={text} />
-			</div>
-			{long && (
-				<button aria-expanded={expanded} onClick={() => setExpanded(!expanded)} type="button">
-					{expanded ? 'less' : 'more'}
-				</button>
-			)}
-		</section>
-	);
-}
+export { LoopReasoning as AgentLogReasoning } from '../../readable/loop-reasoning';
 
 export function AgentLogCall({
 	number,

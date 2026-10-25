@@ -1,17 +1,43 @@
-export function reasoningDetailsTextForDisplay(details: unknown[]): string {
-	return normalizeReadableText(details.map(reasoningDetailTextForDisplay).join(""));
+export type ReasoningDetailDisplay =
+	| { kind: 'text' | 'summary'; text: string; index?: number }
+	| { kind: 'encrypted' | 'unknown' };
+
+export function reasoningDetailForDisplay(detail: unknown): ReasoningDetailDisplay {
+	const record = recordValue(detail);
+	const index = typeof record.index === 'number' && Number.isSafeInteger(record.index) && record.index >= 0 ? { index: record.index } : {};
+	switch (record.type) {
+		case 'reasoning.text':
+			return { ...index, kind: 'text', text: textValueForDisplay(record.text) ?? textValueForDisplay(record.content) ?? '' };
+		case 'reasoning.summary':
+			return { ...index, kind: 'summary', text: reasoningSummaryTextForDisplay(record.summary) ?? '' };
+		case 'reasoning.encrypted':
+			return { kind: 'encrypted' };
+		default:
+			return { kind: 'unknown' };
+	}
 }
 
-function reasoningDetailTextForDisplay(detail: unknown): string {
-	if (typeof detail === "string") {
-		return detail;
+export function reasoningDetailsForDisplay(details: unknown[]) {
+	const parts = details.map(reasoningDetailForDisplay);
+	const readable: Array<Extract<ReasoningDetailDisplay, { text: string }>> = [];
+	for (const part of parts) {
+		if (part.kind !== 'text' && part.kind !== 'summary') continue;
+		const previous = readable.at(-1);
+		// Stream fragments share an index. Join them before separating distinct parts.
+		if (part.index !== undefined && previous?.kind === part.kind && previous.index === part.index) previous.text += part.text;
+		else readable.push({ ...part });
 	}
-	const record = recordValue(detail);
-	return textValueForDisplay(record.text) ??
-		textValueForDisplay(record.content) ??
-		textValueForDisplay(record.reasoning) ??
-		reasoningSummaryTextForDisplay(record.summary) ??
-		"";
+	return {
+		text: readable.map(part => normalizeReadableText(part.text)).filter(Boolean).join('\n\n'),
+		hasText: parts.some(part => part.kind === 'text' && part.text.length > 0),
+		hasSummary: parts.some(part => part.kind === 'summary' && part.text.length > 0),
+		encryptedParts: parts.filter(part => part.kind === 'encrypted').length,
+		opaqueParts: parts.filter(part => part.kind === 'encrypted' || part.kind === 'unknown').length,
+	};
+}
+
+export function reasoningDetailsTextForDisplay(details: unknown[]): string {
+	return reasoningDetailsForDisplay(details).text;
 }
 
 function reasoningSummaryTextForDisplay(summary: unknown): string | undefined {

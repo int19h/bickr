@@ -46,6 +46,7 @@ export type IconName =
 	| "moon"
 	| "monitor"
 	| "spotlight"
+	| "lock"
 	| "think"
 	| "pause"
 	| "alert"
@@ -470,6 +471,7 @@ export function Icon({ className, name, size = 16 }: { className?: string; name:
 			</svg>
 		),
 		spotlight: <svg height={size} viewBox="0 0 24 24" width={size} {...stroke}><path d="m4 4 7 2 2 7-7-2zM8 8l-4 9M13 8l7-3M15 12l6 3M11 15l3 6" /><path d="m2 19 5 2" /></svg>,
+		lock: <svg height={size} viewBox="0 0 24 24" width={size} {...stroke}><rect x="5" y="10" width="14" height="11" rx="2" /><path d="M8 10V7a4 4 0 0 1 8 0v3M12 14v3" /></svg>,
 		think: <svg height={size} viewBox="0 0 24 24" width={size} {...stroke}><path d="M9 18h6M9 21h6M8 14a7 7 0 1 1 8 0l-1 2H9zM12 5v4" /></svg>,
 		pause: <svg height={size} viewBox="0 0 24 24" width={size} {...stroke}><path d="M8 5v14M16 5v14" /></svg>,
 		alert: <svg height={size} viewBox="0 0 24 24" width={size} {...stroke}><path d="m12 3 10 18H2zM12 9v4M12 17h.01" /></svg>,
