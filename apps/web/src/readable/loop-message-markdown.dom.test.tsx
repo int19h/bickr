@@ -45,6 +45,19 @@ describe('Loop Markdown', () => {
 		} finally { view.close(); }
 	});
 
+	it.each([
+		'Timestamp: 0d0h1m\nu/reader posted:',
+		'u/reader posted:\nA second line.',
+	])('preserves a single newline around a reference: %s', content => {
+		const view = render(<LoopMessageReadableView contentFormat="markdown" message={{ role: 'tool', content }} />);
+		try {
+			const paragraph = view.container.querySelector('p')!;
+			expect(paragraph.querySelectorAll('br')).toHaveLength(1);
+			expect(paragraph.querySelector('.ref-bot')?.textContent).toBe('u/reader');
+			expect(paragraph.textContent).toBe(content.replace('\n', ''));
+		} finally { view.close(); }
+	});
+
 	it('shows the stored thread pruning and shortened body instead of the full event card', () => {
 		const message = { role: 'tool' as const, tool_call_id: 'read', content: fixture.providerText };
 		const view = render(<LoopMessageReadableView contentFormat="markdown" message={message} display={fixture.display} />);

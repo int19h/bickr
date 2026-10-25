@@ -4539,7 +4539,8 @@ fieldset {
 	font-size: calc(13px * var(--font-scale));
 	line-height: 1.45;
 	white-space: normal;
-	overflow-wrap: anywhere;
+	/* Preserve word widths when tables calculate column sizes. */
+	overflow-wrap: break-word;
 }
 
 .loop-readable .markdown-body h2 { font-size: 1.2em; }
@@ -8369,6 +8370,9 @@ button.inference-model-name:hover { text-decoration: underline; }
 }
 .agent-log-body:empty {
 	display: none;
+}
+.agent-log-body .markdown-body {
+	overflow-wrap: break-word;
 }
 .agent-log-body .loop-readable-text {
 	white-space: pre-wrap;
