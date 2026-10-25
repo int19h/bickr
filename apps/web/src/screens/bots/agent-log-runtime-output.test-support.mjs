@@ -24,9 +24,9 @@ export async function reasoningRuntimeOutput(completed) {
             },
         });
         const deltas = [
-            { reasoning_details: [{ type: 'reasoning.text', index: 0, id: 'thought', text: 'Readable thought.' }] },
-            { reasoning_details: [{ type: 'reasoning.summary', id: 'summary', summary: 'Look' }] },
-            { reasoning_details: [{ type: 'reasoning.summary', id: 'summary', text: 'ing at the result.' }] },
+            { reasoning: 'Readable thought.', reasoning_details: [{ type: 'reasoning.text', index: 0, id: 'thought', text: 'Readable thought.' }] },
+            { reasoning: 'Look', reasoning_details: [{ type: 'reasoning.summary', id: 'summary', summary: 'Look' }] },
+            { reasoning: 'ing at the result.', reasoning_details: [{ type: 'reasoning.summary', id: 'summary', text: 'ing at the result.' }] },
             { reasoning_details: [{ type: 'reasoning.encrypted', index: 2, data: 'PRIVATE_ENCRYPTED_BYTES' }] },
             { reasoning_details: [{ type: 'future.type', id: 'unknown', text: 'PRIVATE_FUTURE_TEXT' }] },
             { content: 'A public reply.' },

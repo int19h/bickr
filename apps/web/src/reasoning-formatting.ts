@@ -40,7 +40,9 @@ export function reasoningDetailsForDisplay(details: unknown[]) {
 }
 
 export function reasoningPartsForDisplay(values: readonly AgentLogReasoningPart[]) {
-	const parts = values.map(classifiedReasoningPart);
+	const classified = values.map(classifiedReasoningPart);
+	// Providers can repeat detail text in plain deltas. Use the completed-card rule.
+	const parts = classified.some(part => part.kind !== 'text') ? classified.filter(part => part.kind !== 'text') : classified;
 	const chunks: Array<{ key: string; text: string }> = [];
 	let lastKey: string | null = null;
 	for (const part of parts) {
