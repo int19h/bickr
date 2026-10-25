@@ -1,5 +1,5 @@
 import { RepositoryError } from '@bickr/shared/repository';
-import { approximateTextTokens } from '@bickr/shared/text-token-estimate';
+import { estimateLoopMessageTokens } from './loop-message-tokens';
 import { InputError } from '@bickr/shared/validation';
 import type { ChatMessage } from '../types';
 import { maxNotesPerBot } from './notes';
@@ -140,7 +140,7 @@ export async function applyNoteNewlineMigration(storage: Storage, expectedDigest
 		}
 		const appliedAt = new Date().toISOString();
 		for (const note of plan.notes) storage.sql.exec('UPDATE notes SET content = ?, revision = revision + 1, updated_at = ? WHERE note_id = ?', note.after, appliedAt, note.id);
-		for (const message of plan.messages) storage.sql.exec('UPDATE loop_messages SET message_json = ?, token_estimate = ? WHERE seq = ?', message.after, approximateTextTokens(message.after), message.seq);
+		for (const message of plan.messages) storage.sql.exec('UPDATE loop_messages SET message_json = ?, token_estimate = ? WHERE seq = ?', message.after, estimateLoopMessageTokens(JSON.parse(message.after) as ChatMessage), message.seq);
 		const result: Completion = { schemaVersion: 1, appliedAt, notesChanged: plan.notes.length, messagesChanged: plan.messages.length };
 		storage.sql.exec('INSERT INTO runtime_state (key, value_json) VALUES (?, ?)', noteNewlineMigrationKey, JSON.stringify(result));
 		return { kind: 'applied' as const, completion: result, ambiguousNotes: plan.ambiguousNotes, ambiguousMessages: plan.ambiguousMessages };

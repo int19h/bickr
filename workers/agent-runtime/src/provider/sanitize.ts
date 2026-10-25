@@ -1,3 +1,5 @@
+import { reasoningTextForReplay } from './reasoning-stream';
+import { readableReasoningFormat } from '@bickr/shared/model';
 import type {
 	BotInferenceSubmissionMessage as ChatMessage,
 	BotInferenceSubmissionToolCall,
@@ -135,8 +137,20 @@ export function sanitizeProviderMessagesForRequest(messages: readonly ChatMessag
 	return sanitized;
 }
 
-function sanitizeProviderMessageForRequest(message: ChatMessage): ChatMessage {
-	return flattenDeepProviderToolResultContent(ensureAssistantContentForProviderRequest(repairProviderMessageUnicode(message).value));
+export function sanitizeProviderMessageForRequest(message: ChatMessage): ChatMessage {
+	const repaired = flattenDeepProviderToolResultContent(ensureAssistantContentForProviderRequest(repairProviderMessageUnicode(message).value));
+	// The combined readable text is for the owner. Replay exact details as before,
+	// without a second reasoning representation or the local format marker.
+	const reasoning = reasoningTextForReplay(repaired);
+	return {
+		role: repaired.role,
+		...(repaired.content === undefined ? {} : { content: repaired.content }),
+		...(repaired.tool_call_id === undefined ? {} : { tool_call_id: repaired.tool_call_id }),
+		...(repaired.tool_calls === undefined ? {} : { tool_calls: repaired.tool_calls.map(call => ({ id: call.id, type: call.type, function: { name: call.function.name, arguments: call.function.arguments } })) }),
+		...(reasoning === undefined ? {} : { reasoning }),
+		...(repaired.reasoning_content === undefined ? {} : { reasoning_content: repaired.reasoning_content }),
+		...(repaired.reasoning_details === undefined ? {} : { reasoning_details: repaired.reasoning_details }),
+	};
 }
 
 function sanitizeProviderMessageSequenceForRequest(messages: readonly ChatMessage[]): ChatMessage[] {
@@ -381,6 +395,7 @@ export function createProviderSanitize(runtime: ProviderSanitizeRuntime) {
 	function providerResponseMessageForHistory(response: {
 		content?: string;
 		reasoning?: string;
+		reasoningFormat?: ChatMessage['reasoning_format'];
 		reasoningDetails?: Record<string, unknown>[];
 		toolCalls?: BotInferenceSubmissionToolCall[];
 	}): ChatMessage | null {
@@ -402,7 +417,11 @@ export function createProviderSanitize(runtime: ProviderSanitizeRuntime) {
 		}
 		if (reasoningDetails.length > 0) {
 			message.reasoning_details = reasoningDetails;
-		} else if (hasProviderHistoryText(reasoning)) {
+		}
+		if (response.reasoningFormat === readableReasoningFormat) {
+			message.reasoning = reasoning;
+			message.reasoning_format = readableReasoningFormat;
+		} else if (reasoningDetails.length === 0 && hasProviderHistoryText(reasoning)) {
 			message.reasoning = reasoning;
 		}
 		return message;

@@ -27,15 +27,22 @@ export async function reasoningRuntimeOutput(completed, scenario = 'mixed') {
             { reasoning: 'Readable plain thought.' },
             { reasoning_details: [{ type: 'reasoning.encrypted', data: 'PRIVATE_ENCRYPTED_BYTES' }] },
             { content: 'A public reply.' },
+        ] : scenario === 'plain-summary' ? [
+            { reasoning: 'Readable plain thought.\n\n' },
+            { reasoning_details: [{ type: 'reasoning.summary', summary: 'A readable summary.' }] },
+            { content: 'A public reply.' },
+        ] : scenario === 'opaque-only' ? [
+            { reasoning_details: [{ type: 'reasoning.encrypted', data: 'PRIVATE_ENCRYPTED_BYTES' }] },
+            { content: 'A public reply.' },
         ] : scenario === 'interleaved' ? [
             { reasoning_details: [{ type: 'reasoning.summary', index: 0, summary: 'First.' }] },
             { reasoning_details: [{ type: 'reasoning.text', index: 1, text: 'Second.' }] },
             { reasoning_details: [{ type: 'reasoning.summary', index: 0, summary: 'Third.' }] },
             { content: 'A public reply.' },
         ] : [
-            { reasoning: 'Readable thought.', reasoning_details: [{ type: 'reasoning.text', index: 0, id: 'thought', text: 'Readable thought.' }] },
-            { reasoning: 'Look', reasoning_details: [{ type: 'reasoning.summary', id: 'summary', summary: 'Look' }] },
-            { reasoning: 'ing at the result.', reasoning_details: [{ type: 'reasoning.summary', id: 'summary', text: 'ing at the result.' }] },
+            { reasoning: 'Plain thought.\n\n', reasoning_details: [{ type: 'reasoning.text', index: 0, id: 'thought', text: 'Readable thought.\n\n' }] },
+            { reasoning_details: [{ type: 'reasoning.summary', id: 'summary', summary: 'Look' }] },
+            { reasoning_details: [{ type: 'reasoning.summary', id: 'summary', text: 'ing at the result.' }] },
             { reasoning_details: [{ type: 'reasoning.encrypted', index: 2, data: 'PRIVATE_ENCRYPTED_BYTES' }] },
             { reasoning_details: [{ type: 'future.type', id: 'unknown', text: 'PRIVATE_FUTURE_TEXT' }] },
             { content: 'A public reply.' },
@@ -54,13 +61,14 @@ export async function reasoningRuntimeOutput(completed, scenario = 'mixed') {
                 throw error;
             response = error.response;
         }
-        const raw = JSON.stringify({ message: { role: 'assistant', content: response.content, reasoning: response.reasoning, reasoning_details: response.reasoningDetails } });
+        const raw = JSON.stringify({ message: { role: 'assistant', content: response.content, reasoning: response.reasoning, reasoning_format: response.reasoningFormat, reasoning_details: response.reasoningDetails } });
         store.settle(attempt, { kind: completed ? 'success' : 'interrupted', response: raw });
-        const settled = store.entries([], null);
+        store.finish(requestId, 'succeeded');
+        const settled = store.entries([], null, 'typed-run');
         store.stageResponsePublication({ kind: 'provider_response', runId: 'typed-run', requestId, eventSeq: 1, attemptId: attempt, assistantSeq: null, pendingCallIds: [] });
         runtime.settleResponsePublication(testResultContext, 'typed-run', null);
         const rows = messages.loopMessagesAfter(testResultContext, 0);
-        return { events, snapshots, settled, history: store.entries(rows, null), requestId };
+        return { events, snapshots, settled, history: store.entries(rows, null), requestId, request: store.request(requestId) };
     }
     finally {
         storage.database.close();

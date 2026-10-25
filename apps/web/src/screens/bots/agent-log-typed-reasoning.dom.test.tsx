@@ -40,7 +40,7 @@ it.each([true, false])('keeps proven plain reasoning after opaque runtime detail
 	const output = await reasoningRuntimeOutput(completed, 'plain-opaque');
 	const container = document.createElement('div'); document.body.append(container); const root = createRoot(container);
 	try {
-		for (const entries of output.snapshots) {
+		for (const entries of [...output.snapshots, output.settled, output.history]) {
 			act(() => root.render(<AgentLogView entries={entries} page={pageFixture()} participantName="Reader" onDelete={() => {}} onLogs={() => {}} onRequest={() => {}} onSession={() => {}} onPage={() => {}} />));
 			expect(container.querySelector('.agent-log-reasoning')?.textContent).toContain('Readable plain thought.');
 			expect(container.textContent).not.toContain('PRIVATE_ENCRYPTED_BYTES');
@@ -55,7 +55,42 @@ it.each([true, false])('keeps interleaved runtime details in the same order live
 	try {
 		for (const entries of [output.snapshots.at(-1)!, output.settled, output.history]) {
 			act(() => root.render(<AgentLogView entries={entries} page={pageFixture()} participantName="Reader" onDelete={() => {}} onLogs={() => {}} onRequest={() => {}} onSession={() => {}} onPage={() => {}} />));
-			expect([...container.querySelectorAll('.agent-log-reasoning .markdown-body p')].map(node => node.textContent)).toEqual(['First.', 'Second.', 'Third.']);
+			expect([...container.querySelectorAll('.agent-log-reasoning .markdown-body p')].map(node => node.textContent).join('')).toBe('First.Second.Third.');
+		}
+	} finally { act(() => root.unmount()); container.remove(); }
+});
+
+it.each([true, false])('renders certified runtime text once in finished requests and history when completed=%s', async completed => {
+	(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+	const container = document.createElement('div'); document.body.append(container); const root = createRoot(container);
+	try {
+		for (const scenario of ['plain-opaque', 'plain-summary', 'opaque-only'] as const) {
+			const output = await reasoningRuntimeOutput(completed, scenario);
+			const outcome = output.request.attempts.at(-1)!.outcome!;
+			expect(outcome.kind).toBe(completed ? 'success' : 'interrupted');
+			if (outcome.kind !== 'success' && outcome.kind !== 'interrupted') throw new Error('Expected a stored response.');
+			const response = JSON.parse(outcome.response!).message;
+			expect(response.reasoning_format).toBe('readable_v1');
+			expect(response.reasoning).toBe(scenario === 'opaque-only' ? '' : scenario === 'plain-summary' ? 'Readable plain thought.\n\nA readable summary.' : 'Readable plain thought.');
+			const settled = output.settled.find(entry => entry.kind === 'live');
+			expect(settled?.kind === 'live' ? settled.response : null).toBe(outcome.response);
+			const history = output.history.find(entry => entry.kind === 'message');
+			expect(history?.kind === 'message' ? history.message.message.reasoning_format : null).toBe('readable_v1');
+			expect(history?.kind === 'message' ? history.message.message.reasoning : null).toBe(response.reasoning);
+			for (const entries of [output.settled, output.history]) {
+				act(() => root.render(<AgentLogView entries={entries} page={pageFixture()} participantName="Reader" onDelete={() => {}} onLogs={() => {}} onRequest={() => {}} onSession={() => {}} onPage={() => {}} />));
+				const text = container.querySelector('.agent-log-reasoning')?.textContent ?? '';
+				expect(text).not.toContain('PRIVATE_ENCRYPTED_BYTES');
+				if (scenario === 'opaque-only') {
+					expect(container.querySelector('.opaque-only')).not.toBeNull();
+					expect(text).toContain('encrypted by the provider');
+					expect(container.querySelector('.agent-log-reasoning .markdown-body')).toBeNull();
+				} else {
+					expect(text.match(/Readable plain thought\./g)).toHaveLength(1);
+					if (scenario === 'plain-summary') expect(text.match(/A readable summary\./g)).toHaveLength(1);
+					else expect(text).toContain('1 more part is encrypted by the provider');
+				}
+			}
 		}
 	} finally { act(() => root.unmount()); container.remove(); }
 });

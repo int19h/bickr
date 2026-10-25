@@ -1,8 +1,9 @@
 import { parseAgentLogPartial } from '../../agent-log-partial';
 import type { AgentLogReasoningPart, BotInferenceSubmissionMessage } from '@bickr/shared/model';
+import { readableReasoningFormat } from '@bickr/shared/model';
 import { ReadableToolCall, type LoopToolCallContext } from '../../readable/loop-message-readable';
 
-// Completed responses use the provider envelope. Partial responses have a separate typed adapter.
+// Settled responses use the provider envelope. Partial responses have a separate typed adapter.
 export function storedResponseMessage(text: string | null): BotInferenceSubmissionMessage {
 	if (!text) return { role: 'assistant', content: null };
 	try {
@@ -24,6 +25,7 @@ export function storedResponseMessage(text: string | null): BotInferenceSubmissi
 			role: 'assistant',
 			content: typeof message.content === 'string' ? message.content : null,
 			reasoning: typeof message.reasoning === 'string' ? message.reasoning : undefined,
+			reasoning_format: message.reasoning_format === readableReasoningFormat ? readableReasoningFormat : undefined,
 			reasoning_content: typeof message.reasoning_content === 'string' ? message.reasoning_content : undefined,
 			reasoning_details: Array.isArray(message.reasoning_details) ? message.reasoning_details : undefined,
 			tool_calls: Array.isArray(message.tool_calls) ? message.tool_calls : undefined,

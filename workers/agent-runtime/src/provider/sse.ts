@@ -1,3 +1,4 @@
+import { readableReasoningFormat } from '@bickr/shared/model';
 import type { AgentLogStreamDelta } from '@bickr/shared/model';
 import { reasoningDetailForStream, reasoningTextFromDetails } from './reasoning-stream';
 import { fetchProviderResponse, ProviderTransportError } from '@bickr/shared/provider-transport';
@@ -531,6 +532,7 @@ export async function consumeProviderResponse(
 				{
 					content,
 					reasoning,
+					reasoningFormat: readableReasoningFormat,
 					reasoningDetails: reasoningStream.finish(runtime.normalizeReasoningDetails),
 					toolCalls: [...toolCalls.values()].filter((tool) => tool.function.name),
 					...(rawResponse ? { rawResponse } : {}),
@@ -548,6 +550,7 @@ export async function consumeProviderResponse(
 	const response = {
 		content: runtime.repairInvalidUnicodeText(content),
 		reasoning: runtime.repairInvalidUnicodeText(reasoning),
+		reasoningFormat: readableReasoningFormat,
 		reasoningDetails: runtime.repairInvalidUnicodeValue(reasoningStream.finish(runtime.normalizeReasoningDetails)).value,
 		toolCalls: [...toolCalls.values()].filter((tool) => tool.function.name),
 		...(rawResponse ? { rawResponse } : {}),
