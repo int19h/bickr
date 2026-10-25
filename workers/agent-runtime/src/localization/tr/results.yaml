@@ -1,6 +1,8 @@
 # Catalog text for Markdown tool results.
 result.reference.deleted: |-
   (silindi)
+result.comment.timestamp_tag: |-
+  [zaman damgası: {{when}}]
 result.comment.reply:
   self: |-
     {{parent}} yorumuna yanıt verdim:

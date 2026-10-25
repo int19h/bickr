@@ -1,6 +1,8 @@
 # Catalog text for Markdown tool results.
 result.reference.deleted: |-
   (удалён)
+result.comment.timestamp_tag: |-
+  [отметка времени: {{when}}]
 result.comment.reply:
   self: |-
     Мой ответ на {{parent}}:
