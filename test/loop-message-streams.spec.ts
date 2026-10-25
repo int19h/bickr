@@ -12,8 +12,8 @@ import { loopMessageSort } from "../apps/web/src/loop-message-order";
 describe("loop message live provider streams", () => {
 	it("accumulates content and reasoning deltas without trimming whitespace", () => {
 		const messages = [
-			event(20.000001, "provider_delta", { kind: "reasoning", streamSeq: 20, text: "Looking " }),
-			event(20.000002, "provider_delta", { kind: "reasoning", streamSeq: 20, text: "at the thread. " }),
+			event(20.000001, "provider_delta", { kind: "reasoning", source: "plain", streamSeq: 20, text: "Looking " }),
+			event(20.000002, "provider_delta", { kind: "reasoning", source: "plain", streamSeq: 20, text: "at the thread. " }),
 			event(20.000003, "provider_delta", { kind: "content", streamSeq: 20, text: " Replying " }),
 			event(20.000004, "provider_delta", { kind: "content", streamSeq: 20, text: "now." }),
 		].reduce(upsertLiveProviderLoopMessage, [] as BotLoopMessage[]);
@@ -31,15 +31,15 @@ describe("loop message live provider streams", () => {
 	it("keeps current live rows when an older provider response from the same run arrives", () => {
 		const streamed = upsertLiveProviderLoopMessage(
 			[],
-			event(30.000001, "provider_delta", { kind: "reasoning", streamSeq: 30, text: "Current thought." }),
+			event(30.000001, "provider_delta", { kind: "reasoning", source: "plain", streamSeq: 30, text: "Current thought." }),
 		);
 		expect(removeLiveProviderLoopMessagesForFinalizedMessage(streamed, finalizedProviderMessage(12))).toEqual(streamed);
 	});
 
 	it("removes only the live row for the matching finalized provider response", () => {
 		const streamed = [
-			event(30.000001, "provider_delta", { kind: "reasoning", streamSeq: 30, text: "Current thought." }),
-			event(40.000001, "provider_delta", { kind: "reasoning", streamSeq: 40, text: "Next thought." }),
+			event(30.000001, "provider_delta", { kind: "reasoning", source: "plain", streamSeq: 30, text: "Current thought." }),
+			event(40.000001, "provider_delta", { kind: "reasoning", source: "plain", streamSeq: 40, text: "Next thought." }),
 		].reduce(upsertLiveProviderLoopMessage, [] as BotLoopMessage[]);
 
 		const retained = removeLiveProviderLoopMessagesForFinalizedMessage(streamed, finalizedProviderMessage(30));
@@ -50,7 +50,7 @@ describe("loop message live provider streams", () => {
 	it("removes the live row when a streamed response is finalized as invalid and dropped", () => {
 		const streamed = upsertLiveProviderLoopMessage(
 			[],
-			event(30.000001, "provider_delta", { kind: "reasoning", streamSeq: 30, text: "Malformed attempt." }),
+			event(30.000001, "provider_delta", { kind: "reasoning", source: "plain", streamSeq: 30, text: "Malformed attempt." }),
 		);
 		const dropped: BotLoopMessage = {
 			...finalizedProviderMessage(30),

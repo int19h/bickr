@@ -1,15 +1,16 @@
-import type { BotInferenceSubmissionMessage } from '@bickr/shared/model';
+import type { AgentLogReasoningPart, BotInferenceSubmissionMessage } from '@bickr/shared/model';
 import { useLayoutEffect, useRef, useState } from 'react';
-import { reasoningDetailsForDisplay } from '../reasoning-formatting';
+import { reasoningDetailsForDisplay, reasoningPartsForDisplay } from '../reasoning-formatting';
 import { LoopMarkdown } from './loop-markdown';
 import { Icon } from '../ui';
 
-export function LoopReasoning({ message }: { message: BotInferenceSubmissionMessage }) {
-	const details = reasoningDetailsForDisplay(message.reasoning_details ?? []);
+export function LoopReasoning({ message }: { message: BotInferenceSubmissionMessage & { reasoningParts?: AgentLogReasoningPart[] } }) {
+	const details = message.reasoningParts !== undefined ? reasoningPartsForDisplay(message.reasoningParts) : reasoningDetailsForDisplay(message.reasoning_details ?? []);
+	const classified = message.reasoningParts !== undefined || message.reasoning_details !== undefined;
 	// Details are authoritative. The plain fields can repeat summaries or contain opaque text.
-	const text = message.reasoning_details !== undefined ? details.text : message.reasoning || message.reasoning_content || '';
+	const text = classified ? details.text : message.reasoning || message.reasoning_content || '';
 	const summaryOnly = details.hasSummary && !details.hasText;
-	const opaqueOnly = !text && message.reasoning_details !== undefined;
+	const opaqueOnly = !text && details.opaqueParts > 0;
 	const opaqueNote = details.encryptedParts > 0
 		? `encrypted by the provider${details.opaqueParts > 1 ? ` · ${details.opaqueParts} parts` : ''}`
 		: 'recorded, not readable';

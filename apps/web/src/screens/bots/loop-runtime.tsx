@@ -1,4 +1,6 @@
+import { appendAgentLogDelta, parseAgentLogPartial } from '../../agent-log-partial';
 import type {
+	AgentLogStreamPayload,
 	AgentLogEntry,
 	AgentLogRequest,
 	AgentLogCompactionSession,
@@ -153,7 +155,7 @@ export function BotRuntimePanel({
 	const streamRevisionRef = useRef(0);
 	// Keep only the current snapshot. Reject old frames before they enter the refresh buffer.
 	const streamSnapshotEntriesRef = useRef(new Map<string, RequestLogEntry>());
-	const liveUpdatesRef = useRef(new Map<string, { revision: number; runId: string; attemptId?: number; deltas: Array<{ arrival: number; revision?: number; kind?: string; text?: string; part?: unknown }> }>());
+	const liveUpdatesRef = useRef(new Map<string, { revision: number; runId: string; attemptId?: number; deltas: Array<AgentLogStreamPayload & { arrival: number; revision?: number }> }>());
 	const endedRunsRef = useRef(new Set<string>());
 	const usageRequestGenerationRef = useRef(0);
 	const trailingRefreshTimerRef = useRef<number | undefined>(undefined);
@@ -297,7 +299,7 @@ export function BotRuntimePanel({
 					return;
 				}
 				if (endedRunsRef.current.has(payload.event.runId)) return;
-				const delta = payload.event.payload as { requestId?: string; kind?: string; text?: string; deltaRevision?: number; attemptId?: number; part?: unknown };
+				const delta = payload.event.payload as AgentLogStreamPayload;
 				if (delta.requestId) {
 					if (ignoresStreamDelta(streamSnapshotEntriesRef.current.get(delta.requestId), delta)) return;
 					const arrival = ++streamRevisionRef.current;
@@ -309,16 +311,13 @@ export function BotRuntimePanel({
 					const update = previous ?? { revision: arrival, runId: payload.event.runId, attemptId: delta.attemptId, deltas: [] };
 					update.revision = arrival;
 					update.attemptId = delta.attemptId ?? update.attemptId;
-					update.deltas.push({ arrival, revision: delta.deltaRevision, kind: delta.kind, text: delta.text, part: delta.part });
+					update.deltas.push({ ...delta, arrival, revision: delta.deltaRevision });
 					liveUpdatesRef.current.set(delta.requestId, update);
 					setLoopEntries(current => {
 						const existing = current.find((entry): entry is RequestLogEntry => (entry.kind === 'live' || entry.kind === 'message') && entry.requestId === delta.requestId);
 						if (ignoresStreamDelta(existing, delta)) return current;
 						const old = existing?.kind === 'live' && (existing.attemptId === undefined || delta.attemptId === undefined || existing.attemptId === delta.attemptId) ? existing : undefined;
-						const partial = old?.kind === 'live' && old.partialResponse ? JSON.parse(old.partialResponse) as { content: string; reasoning: string; toolCalls?: unknown[] } : { content: '', reasoning: '', toolCalls: [] };
-						if (delta.kind === 'content') partial.content += delta.text ?? '';
-						if (delta.kind === 'reasoning') partial.reasoning += delta.text ?? '';
-						if (delta.kind === 'tool_call') (partial.toolCalls ??= []).push(delta.part);
+						const partial = appendAgentLogDelta(parseAgentLogPartial(old?.partialResponse ?? null), delta);
 						const live: AgentLogEntry = { kind: 'live', position: Number.MAX_SAFE_INTEGER, requestId: delta.requestId!, runId: payload.event!.runId, attempts: old?.kind === 'live' ? old.attempts : { count: 1, failures: [] }, partialResponse: JSON.stringify(partial), response: null, deltaRevision: delta.deltaRevision ?? old?.deltaRevision, attemptId: delta.attemptId ?? old?.attemptId };
 						return [...current.filter(entry => entry.kind !== 'live' || entry.requestId !== delta.requestId), live];
 					});
@@ -660,14 +659,12 @@ export function BotRuntimePanel({
 					if (base?.attemptId !== undefined && attemptId !== undefined && attemptId < base.attemptId) return base;
 					const reset = attemptId !== undefined && base?.attemptId !== undefined && attemptId > base.attemptId;
 					if (base?.response && !reset) return base;
-					const partial = !reset && base?.partialResponse ? JSON.parse(base.partialResponse) as { content: string; reasoning: string; toolCalls?: unknown[] } : { content: '', reasoning: '', toolCalls: [] };
+					let partial = parseAgentLogPartial(!reset ? base?.partialResponse ?? null : null);
 					const deltas = retainedUpdates.get(entry.requestId)?.deltas ?? [];
 					let deltaRevision = reset ? 0 : base?.deltaRevision ?? 0;
 					for (const delta of deltas) {
 						if (delta.arrival <= streamRevisionAtStart || (delta.revision !== undefined && delta.revision <= deltaRevision)) continue;
-						if (delta.kind === 'content') partial.content += delta.text ?? '';
-						if (delta.kind === 'reasoning') partial.reasoning += delta.text ?? '';
-						if (delta.kind === 'tool_call') (partial.toolCalls ??= []).push(delta.part);
+						partial = appendAgentLogDelta(partial, delta);
 						deltaRevision = delta.revision ?? deltaRevision;
 					}
 					return { ...(base ?? entry), partialResponse: JSON.stringify(partial), response: reset ? null : base?.response ?? entry.response, deltaRevision, attemptId: attemptId ?? base?.attemptId };

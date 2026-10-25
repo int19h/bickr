@@ -7,7 +7,7 @@ import { LoopMarkdown } from '../../readable/loop-markdown';
 import { LoopMessageReadableView } from '../../readable/loop-message-readable';
 import { indexAgentLogCalls } from './agent-log-calls';
 import { Icon, type IconName } from '../../ui';
-import { AgentLogCall, AgentLogReasoning, storedResponseMessage } from './agent-log-content';
+import { AgentLogCall, AgentLogReasoning, storedResponseMessage, storedPartialMessage } from './agent-log-content';
 import { formatTokenCount } from './token-usage';
 
 type MessageEntry = Extract<AgentLogEntry, { kind: 'message' }>;
@@ -94,7 +94,7 @@ export function AgentLogView(props: AgentLogViewProps) {
 				const live = entry.kind === 'live';
 				const messageEntry = live ? null : (entry as MessageEntry);
 				const row = messageEntry?.message;
-				const message = live ? storedResponseMessage(entry.response ?? entry.partialResponse) : row!.message;
+				const message = live ? (entry.response ? storedResponseMessage(entry.response) : storedPartialMessage(entry.partialResponse)) : row!.message;
 				const source = messageEntry ? sourceFor(messageEntry.author) : null;
 				const tool = message.role === 'tool';
 				const isSummary = messageEntry?.author.kind === 'compaction_summary' || messageEntry?.author.kind === 'legacy_summary';

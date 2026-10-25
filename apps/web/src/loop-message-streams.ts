@@ -1,28 +1,24 @@
-import type { BotInferenceSubmissionMessage, BotLoopMessage, BotRuntimeEvent } from "@bickr/shared/model";
+import { appendAgentLogDelta, emptyAgentLogPartial } from './agent-log-partial';
+import type { AgentLogReasoningPart, AgentLogStreamPayload, BotInferenceSubmissionMessage, BotLoopMessage, BotRuntimeEvent } from "@bickr/shared/model";
 import { loopMessageSort } from "./loop-message-order";
 
 const liveStreamSeqBase = 1_000_000_000;
 
 export function upsertLiveProviderLoopMessage(messages: BotLoopMessage[], event: BotRuntimeEvent): BotLoopMessage[] {
-	const payload = recordValue(event.payload);
-	const kind = stringValue(payload.kind);
-	const text = stringValue(payload.text);
-	if (!text || (kind !== "content" && kind !== "reasoning")) {
-		return messages;
-	}
+	const payload = event.payload as AgentLogStreamPayload;
+	if (payload.kind !== 'content' && payload.kind !== 'reasoning') return messages;
 	const streamSeq = providerDeltaStreamSeq(event);
 	const seq = liveProviderLoopMessageSeq(streamSeq);
 	const existing = messages.find((message) => message.seq === seq && message.runId === event.runId);
-	const existingMessage = existing?.message;
-	const nextMessage: BotInferenceSubmissionMessage = {
-		role: "assistant",
-		content:
-			kind === "content" ?
-				`${typeof existingMessage?.content === "string" ? existingMessage.content : ""}${text}`
-			:	(existingMessage?.content ?? null),
-		...(kind === "reasoning" || existingMessage?.reasoning ?
-			{ reasoning: `${existingMessage?.reasoning ?? ""}${kind === "reasoning" ? text : ""}` }
-		:	{}),
+	const existingMessage = existing?.message as (BotInferenceSubmissionMessage & { reasoningParts?: AgentLogReasoningPart[] }) | undefined;
+	const partial = appendAgentLogDelta({
+		...emptyAgentLogPartial(),
+		content: typeof existingMessage?.content === 'string' ? existingMessage.content : '',
+		reasoning: existingMessage?.reasoning ?? '',
+		reasoningParts: existingMessage?.reasoningParts ?? [],
+	}, payload);
+	const nextMessage: BotInferenceSubmissionMessage & { reasoningParts: AgentLogReasoningPart[] } = {
+		role: 'assistant', content: partial.content || null, reasoning: partial.reasoning, reasoningParts: partial.reasoningParts,
 	};
 	const next: BotLoopMessage = {
 		seq,
@@ -81,10 +77,6 @@ function providerDeltaStreamSeq(event: BotRuntimeEvent): number {
 
 function recordValue(value: unknown): Record<string, unknown> {
 	return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
-}
-
-function stringValue(value: unknown): string | undefined {
-	return typeof value === "string" ? value : undefined;
 }
 
 function integerValue(value: unknown): number | undefined {

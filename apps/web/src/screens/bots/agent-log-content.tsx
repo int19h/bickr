@@ -1,7 +1,8 @@
-import type { BotInferenceSubmissionMessage } from '@bickr/shared/model';
+import { parseAgentLogPartial } from '../../agent-log-partial';
+import type { AgentLogReasoningPart, BotInferenceSubmissionMessage } from '@bickr/shared/model';
 import { ReadableToolCall, type LoopToolCallContext } from '../../readable/loop-message-readable';
 
-// Stored responses use a provider envelope. Stream snapshots use content and toolCalls.
+// Completed responses use the provider envelope. Partial responses have a separate typed adapter.
 export function storedResponseMessage(text: string | null): BotInferenceSubmissionMessage {
 	if (!text) return { role: 'assistant', content: null };
 	try {
@@ -15,8 +16,7 @@ export function storedResponseMessage(text: string | null): BotInferenceSubmissi
 				'reasoning' in message ||
 				'reasoning_content' in message ||
 				'reasoning_details' in message ||
-				'tool_calls' in message ||
-				'toolCalls' in message
+				'tool_calls' in message
 			)
 		)
 			return { role: 'assistant', content: text };
@@ -26,15 +26,16 @@ export function storedResponseMessage(text: string | null): BotInferenceSubmissi
 			reasoning: typeof message.reasoning === 'string' ? message.reasoning : undefined,
 			reasoning_content: typeof message.reasoning_content === 'string' ? message.reasoning_content : undefined,
 			reasoning_details: Array.isArray(message.reasoning_details) ? message.reasoning_details : undefined,
-			tool_calls: Array.isArray(message.tool_calls)
-				? message.tool_calls
-				: Array.isArray(message.toolCalls)
-					? streamedToolCalls(message.toolCalls)
-					: undefined,
+			tool_calls: Array.isArray(message.tool_calls) ? message.tool_calls : undefined,
 		};
 	} catch {
 		return { role: 'assistant', content: text };
 	}
+}
+
+export function storedPartialMessage(text: string | null): BotInferenceSubmissionMessage & { reasoningParts: AgentLogReasoningPart[] } {
+	const partial = parseAgentLogPartial(text);
+	return { role: 'assistant', content: partial.content, reasoningParts: partial.reasoningParts, tool_calls: streamedToolCalls(partial.toolCalls) };
 }
 
 function streamedToolCalls(parts: Array<{ index?: number; id?: string; function?: { name?: string; arguments?: string } }>) {
