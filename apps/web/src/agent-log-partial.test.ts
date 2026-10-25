@@ -17,7 +17,7 @@ it('keeps interleaved streams in arrival order and uses the index before the ID'
 	const partial = deltas.reduce(appendAgentLogDelta, emptyAgentLogPartial());
 	expect(partial.reasoningParts).toHaveLength(6);
 	expect(partial.reasoningParts[0]).toMatchObject({ id: 'renamed', text: 'First thought.' });
-	expect(reasoningPartsForDisplay(partial.reasoningParts)).toMatchObject({ text: 'First thought.Last thought.', opaqueParts: 3, encryptedParts: 1 });
+	expect(reasoningPartsForDisplay(partial.reasoningParts)).toMatchObject({ text: 'First thought.\n\nPlain between.\n\nLast thought.', opaqueParts: 3, encryptedParts: 1 });
 	expect(parseAgentLogPartial(JSON.stringify(partial))).toEqual(partial);
 });
 it('joins adjacent unindexed fragments only within the same stream', () => {
@@ -43,4 +43,25 @@ it('does not trust compatibility text or unknown detail payloads in a stored par
 
 it('renders plain reasoning when no detail source exists', () => {
 	expect(reasoningPartsForDisplay([{ kind: 'text', text: 'Plain' }, { kind: 'text', text: ' only.' }]).text).toBe('Plain only.');
+});
+
+it('keeps plain text when details are opaque or contain different readable text', () => {
+	expect(reasoningPartsForDisplay([
+		{ kind: 'text', text: 'Readable plain thought.' },
+		{ kind: 'opaque', type: 'reasoning.encrypted' },
+	]).text).toBe('Readable plain thought.');
+	expect(reasoningPartsForDisplay([
+		{ kind: 'text', text: 'Readable plain thought.' },
+		{ kind: 'readable', type: 'reasoning.summary', text: 'A different summary.' },
+	]).text).toBe('Readable plain thought.\n\nA different summary.');
+});
+it('removes only a confirmed adjacent repeat and keeps the remaining plain runs', () => {
+	expect(reasoningPartsForDisplay([
+		{ kind: 'text', text: 'A unique plain thought.' },
+		{ kind: 'opaque', type: 'future.type' },
+		{ kind: 'text', text: 'Repeated thought.' },
+		{ kind: 'readable', type: 'reasoning.summary', text: 'Repeated ' },
+		{ kind: 'readable', type: 'reasoning.summary', text: 'thought.' },
+		{ kind: 'text', text: 'Another unique thought.' },
+	]).text).toBe('A unique plain thought.\n\nRepeated thought.\n\nAnother unique thought.');
 });

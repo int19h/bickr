@@ -2,8 +2,10 @@ import type { AgentLogReasoningPart } from '@bickr/shared/model';
 import { classifiedReasoningPart, readablePartIdentity } from './agent-log-partial';
 
 export type ReasoningDetailDisplay =
-	| { kind: 'text' | 'summary'; text: string; index?: number }
-	| { kind: 'encrypted' | 'unknown' };
+	| { kind: 'text'; text: string; index?: number }
+	| { kind: 'summary'; text: string; index?: number }
+	| { kind: 'encrypted' }
+	| { kind: 'unknown' };
 
 export function reasoningDetailForDisplay(detail: unknown): ReasoningDetailDisplay {
 	const record = recordValue(detail);
@@ -20,46 +22,66 @@ export function reasoningDetailForDisplay(detail: unknown): ReasoningDetailDispl
 	}
 }
 
-export function reasoningDetailsForDisplay(details: unknown[]) {
-	const parts = details.map(reasoningDetailForDisplay);
-	const streams = new Map<string, string>();
-	for (const [position, part] of parts.entries()) {
-		if (part.kind !== 'text' && part.kind !== 'summary') continue;
-		const detail = recordValue(details[position]);
-		// Missing indices identify the default stream. Keep distinct IDs and formats apart.
-		const identity = JSON.stringify([part.kind, part.index ?? null, detail.id ?? null, detail.format ?? null]);
-		streams.set(identity, (streams.get(identity) ?? '') + part.text);
+type OrderedReasoningPart =
+	| { kind: 'plain' | 'text' | 'summary'; text: string; identity: string }
+	| { kind: 'encrypted' | 'unknown' };
+
+function joinConsecutiveParts(parts: OrderedReasoningPart[]): OrderedReasoningPart[] {
+	const joined: OrderedReasoningPart[] = [];
+	for (const part of parts) {
+		const last = joined.at(-1);
+		if ('text' in part && last && 'text' in last && part.identity === last.identity) {
+			joined[joined.length - 1] = { ...last, text: last.text + part.text };
+		} else joined.push(part);
 	}
+	return joined;
+}
+
+function orderedReasoningForDisplay(input: OrderedReasoningPart[]) {
+	const consecutive = joinConsecutiveParts(input);
+	const repeatedDetails = new Set<number>();
+	const unique = consecutive.filter((part, index) => {
+		if (part.kind !== 'plain' || !part.text) return true;
+		// Remove only a whole plain run that an adjacent readable detail repeats.
+		for (const adjacent of [index + 1, index - 1]) {
+			const detail = consecutive[adjacent];
+			if (detail && (detail.kind === 'text' || detail.kind === 'summary') && detail.text === part.text && !repeatedDetails.has(adjacent)) {
+				repeatedDetails.add(adjacent);
+				return false;
+			}
+		}
+		return true;
+	});
+	const parts = joinConsecutiveParts(unique);
 	return {
-		text: [...streams.values()].map(normalizeReadableText).filter(Boolean).join('\n\n'),
-		hasText: parts.some(part => part.kind === 'text' && part.text.length > 0),
+		text: parts.flatMap(part => 'text' in part && part.text ? [normalizeReadableText(part.text)] : []).join('\n\n'),
+		hasText: parts.some(part => (part.kind === 'plain' || part.kind === 'text') && part.text.length > 0),
 		hasSummary: parts.some(part => part.kind === 'summary' && part.text.length > 0),
 		encryptedParts: parts.filter(part => part.kind === 'encrypted').length,
 		opaqueParts: parts.filter(part => part.kind === 'encrypted' || part.kind === 'unknown').length,
 	};
 }
 
+export function reasoningDetailsForDisplay(details: unknown[]) {
+	return orderedReasoningForDisplay(details.map(value => {
+		const part = reasoningDetailForDisplay(value);
+		if (part.kind !== 'text' && part.kind !== 'summary') return part;
+		const detail = recordValue(value);
+		const identity = readablePartIdentity({ kind: 'readable', type: part.kind === 'text' ? 'reasoning.text' : 'reasoning.summary', text: part.text,
+			...(part.index !== undefined ? { index: part.index } : {}), ...(typeof detail.id === 'string' ? { id: detail.id } : {}) });
+		return { ...part, identity: JSON.stringify([identity, detail.format ?? null]) };
+	}));
+}
+
 export function reasoningPartsForDisplay(values: readonly AgentLogReasoningPart[]) {
-	const classified = values.map(classifiedReasoningPart);
-	// Providers can repeat detail text in plain deltas. Use the completed-card rule.
-	const parts = classified.some(part => part.kind !== 'text') ? classified.filter(part => part.kind !== 'text') : classified;
-	const chunks: Array<{ key: string; text: string }> = [];
-	let lastKey: string | null = null;
-	for (const part of parts) {
-		if (part.kind === 'opaque') { lastKey = null; continue; }
-		const key = part.kind === 'text' ? 'plain' : readablePartIdentity(part);
-		const last = chunks.at(-1);
-		if (last && key === lastKey) last.text += part.text;
-		else chunks.push({ key, text: part.text });
-		lastKey = key;
-	}
-	return {
-		text: chunks.map(part => normalizeReadableText(part.text)).filter(Boolean).join('\n\n'),
-		hasText: parts.some(part => part.kind === 'text' && part.text.length > 0 || part.kind === 'readable' && part.type === 'reasoning.text' && part.text.length > 0),
-		hasSummary: parts.some(part => part.kind === 'readable' && part.type === 'reasoning.summary' && part.text.length > 0),
-		encryptedParts: parts.filter(part => part.kind === 'opaque' && part.type === 'reasoning.encrypted').length,
-		opaqueParts: parts.filter(part => part.kind === 'opaque').length,
-	};
+	return orderedReasoningForDisplay(values.map(value => {
+		const part = classifiedReasoningPart(value);
+		switch (part.kind) {
+			case 'text': return { kind: 'plain', text: part.text, identity: 'plain' };
+			case 'readable': return { kind: part.type === 'reasoning.text' ? 'text' : 'summary', text: part.text, identity: JSON.stringify([readablePartIdentity(part), null]) };
+			case 'opaque': return { kind: part.type === 'reasoning.encrypted' ? 'encrypted' : 'unknown' };
+		}
+	}));
 }
 
 export function reasoningDetailsTextForDisplay(details: unknown[]): string {

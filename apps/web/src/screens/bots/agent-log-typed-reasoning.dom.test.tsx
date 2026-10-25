@@ -34,3 +34,28 @@ it.each([true, false])('renders actual runtime reasoning during streaming and se
 		}
 	} finally { act(() => root.unmount()); container.remove(); }
 });
+
+it.each([true, false])('keeps proven plain reasoning after opaque runtime details when completed=%s', async completed => {
+	(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+	const output = await reasoningRuntimeOutput(completed, 'plain-opaque');
+	const container = document.createElement('div'); document.body.append(container); const root = createRoot(container);
+	try {
+		for (const entries of output.snapshots) {
+			act(() => root.render(<AgentLogView entries={entries} page={pageFixture()} participantName="Reader" onDelete={() => {}} onLogs={() => {}} onRequest={() => {}} onSession={() => {}} onPage={() => {}} />));
+			expect(container.querySelector('.agent-log-reasoning')?.textContent).toContain('Readable plain thought.');
+			expect(container.textContent).not.toContain('PRIVATE_ENCRYPTED_BYTES');
+		}
+		expect(container.textContent).toContain('1 more part is encrypted by the provider');
+	} finally { act(() => root.unmount()); container.remove(); }
+});
+it.each([true, false])('keeps interleaved runtime details in the same order live and saved when completed=%s', async completed => {
+	(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+	const output = await reasoningRuntimeOutput(completed, 'interleaved');
+	const container = document.createElement('div'); document.body.append(container); const root = createRoot(container);
+	try {
+		for (const entries of [output.snapshots.at(-1)!, output.settled, output.history]) {
+			act(() => root.render(<AgentLogView entries={entries} page={pageFixture()} participantName="Reader" onDelete={() => {}} onLogs={() => {}} onRequest={() => {}} onSession={() => {}} onPage={() => {}} />));
+			expect([...container.querySelectorAll('.agent-log-reasoning .markdown-body p')].map(node => node.textContent)).toEqual(['First.', 'Second.', 'Third.']);
+		}
+	} finally { act(() => root.unmount()); container.remove(); }
+});
