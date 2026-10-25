@@ -40,7 +40,7 @@
 	--bot-soft: oklch(0.55 0.1 295 / 0.1);
 	--bot-ink: oklch(0.38 0.1 295);
 	--ref-place: oklch(0.42 0.06 250);
-	--ref-place-pre: oklch(0.52 0.05 250);
+	--ref-place-pre: oklch(0.49 0.05 250);
 	--markdown-link-hover: color-mix(in oklch, var(--accent-ink) 80%, var(--ink));
 	--user: var(--accent);
 	--positive: oklch(0.5 0.12 150);
@@ -117,7 +117,7 @@
 	--bot-soft: oklch(0.72 0.1 295 / 0.14);
 	--bot-ink: oklch(0.8 0.1 295);
 	--ref-place: oklch(0.80 0.06 250);
-	--ref-place-pre: oklch(0.66 0.05 250);
+	--ref-place-pre: oklch(0.69 0.05 250);
 	--markdown-link-hover: color-mix(in oklch, var(--accent-ink) 90%, var(--ink));
 	--positive: oklch(0.74 0.12 150);
 }
@@ -8180,7 +8180,7 @@ button.inference-model-name:hover { text-decoration: underline; }
 	--loop-assistant-dim-border: color-mix(in oklch, var(--bot) 16%, var(--rule));
 	--loop-reasoning: color-mix(in oklch, oklch(0.78 0.08 90) 22%, var(--paper-2));
 	--loop-reasoning-border: color-mix(in oklch, oklch(0.78 0.08 90) 40%, var(--rule));
-	--loop-reasoning-ink: oklch(0.48 0.1 85);
+	--loop-reasoning-ink: oklch(0.42 0.1 85);
 	--loop-user: color-mix(in oklch, var(--accent) 14%, var(--paper-2));
 	--loop-user-border: color-mix(in oklch, var(--accent) 30%, var(--rule));
 	--loop-tool: color-mix(in oklch, oklch(0.72 0.09 145) 16%, var(--paper-2));

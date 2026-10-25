@@ -117,10 +117,11 @@ export function MarkdownBody({ text, ...callbacks }: Omit<MarkdownContextValue, 
 		</MarkdownContext.Provider>
 	);
 }
-function MarkdownHeading({ level, children, id, className }: ComponentProps<'h2'> & { level: number }) {
+function MarkdownHeading({ level, children, id, className, node: _node, ...attributes }: ComponentProps<'h2'> & ExtraProps & { level: number }) {
 	const { bodyId, preserveHeadingLevels } = useMarkdownContext();
 	const tag = `h${preserveHeadingLevels ? level : Math.min(level + 1, 6)}`;
 	return createElement(tag, {
+		...attributes,
 		id: id === 'footnote-label' ? `bickr-md-${bodyId}-footnote-label` : id,
 		className,
 		dir: 'auto',

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { StreamReasoningDetails } from "../workers/agent-runtime/src/provider/reasoning-stream";
 import { normalizeReadableText, reasoningDetailForDisplay, reasoningDetailsForDisplay, reasoningDetailsTextForDisplay, textValueForDisplay } from "../apps/web/src/reasoning-formatting";
 
 describe("reasoningDetailsTextForDisplay", () => {
@@ -43,4 +44,21 @@ describe("reasoningDetailsTextForDisplay", () => {
 		expect(normalizeReadableText("См\nел\nо \nпи\nш\nе\nш\nь,\n ко\nгд\nа")).toBe("Смело пишешь, когда");
 		expect(normalizeReadableText("First paragraph.\n\nLine one\nLine two")).toBe("First paragraph.\n\nLine one\nLine two");
 	});
+});
+
+it('joins fragments by type, index, ID, and format, including the default stream', () => {
+	expect(reasoningDetailsTextForDisplay([
+		{ type: 'reasoning.summary', summary: 'Look' },
+		{ type: 'reasoning.summary', id: 'other', summary: 'Separate.' },
+		{ type: 'reasoning.summary', summary: 'ing at the result.' },
+		{ type: 'reasoning.summary', format: 'other', summary: 'Another format.' },
+	])).toBe('Looking at the result.\n\nSeparate.\n\nAnother format.');
+});
+
+it('joins unindexed summaries after the provider stream adapter retains their fragments', () => {
+	const stream = new StreamReasoningDetails();
+	stream.append([{ type: 'reasoning.summary', summary: 'Look' }]);
+	stream.append([{ type: 'reasoning.summary', summary: 'ing at the result.' }]);
+	const details = stream.finish(values => values.map(value => value as Record<string, unknown>));
+	expect(reasoningDetailsTextForDisplay(details)).toBe('Looking at the result.');
 });

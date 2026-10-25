@@ -1,7 +1,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
-import { AgentLogReasoning } from './agent-log-content';
+import { AgentLogReasoning, storedResponseMessage } from './agent-log-content';
 import { AgentLogCard, AgentLogBody, AgentLogExpandControl } from './agent-log-card';
 import { AgentLogRequestModal } from './agent-log-details';
 import { requestFixture } from './agent-log.fixtures';
@@ -43,7 +43,7 @@ it.each([
 });
 it('clamps readable reasoning and preserves the opaque tail when expanded', () => {
 	vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(200);
-	act(() => root.render(<AgentLogReasoning message={{ role: 'assistant', reasoning: 'A long thought', reasoning_details: [{ type: 'reasoning.encrypted', data: 'hidden bytes' }] }} />));
+	act(() => root.render(<AgentLogReasoning message={{ role: 'assistant', reasoning: 'A long thought', reasoning_details: [{ type: 'reasoning.text', text: 'A long thought' }, { type: 'reasoning.encrypted', data: 'hidden bytes' }] }} />));
 	const button = container.querySelector('button')!;
 	expect(button.textContent).toBe('more');
 	act(() => button.click());
@@ -105,4 +105,33 @@ it('keeps the opaque payload in the information modal', () => {
 	</>));
 	expect(container.querySelector('.agent-log-reasoning')?.textContent).not.toContain('exact opaque payload');
 	expect(container.querySelector('.modal')?.textContent).toContain('exact opaque payload');
+});
+
+it.each(['snapshot', 'completed'])('uses classified details once in a %s response with both fields', (shape) => {
+	const response = { content: null, reasoning: 'Visible summary.opaque bytes', reasoning_content: 'Visible summary.opaque bytes', reasoning_details: [
+		{ type: 'reasoning.summary', summary: 'Visible summary.' },
+		{ type: 'future.type', text: 'opaque bytes' },
+	] };
+	const message = storedResponseMessage(JSON.stringify(shape === 'completed' ? { message: response } : response));
+	act(() => root.render(<AgentLogReasoning message={message} />));
+	expect(container.textContent?.match(/Visible summary\./g)).toHaveLength(1);
+	expect(container.textContent).not.toContain('opaque bytes');
+	expect(container.querySelector('.agent-log-reasoning-label')?.textContent?.trim()).toBe('Reasoning summary');
+});
+it('joins unindexed summary fragments through the snapshot and display adapters', () => {
+	const message = storedResponseMessage(JSON.stringify({ reasoning: 'Looking at the result.', reasoning_details: [
+		{ type: 'reasoning.summary', summary: 'Look' },
+		{ type: 'reasoning.summary', summary: 'ing at the result.' },
+	] }));
+	act(() => root.render(<AgentLogReasoning message={message} />));
+	expect(container.querySelectorAll('.markdown-body p')).toHaveLength(1);
+	expect(container.querySelector('.markdown-body p')?.textContent).toBe('Looking at the result.');
+});
+
+it.each(['snapshot', 'completed'])('hides an unknown detail and its plain copy in a %s response', (shape) => {
+	const response = { reasoning: 'opaque bytes', reasoning_details: [{ type: 'future.type', text: 'opaque bytes' }] };
+	const message = storedResponseMessage(JSON.stringify(shape === 'completed' ? { message: response } : response));
+	act(() => root.render(<AgentLogReasoning message={message} />));
+	expect(container.textContent).toContain('recorded, not readable');
+	expect(container.textContent).not.toContain('opaque bytes');
 });

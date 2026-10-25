@@ -19,16 +19,16 @@ export function reasoningDetailForDisplay(detail: unknown): ReasoningDetailDispl
 
 export function reasoningDetailsForDisplay(details: unknown[]) {
 	const parts = details.map(reasoningDetailForDisplay);
-	const readable: Array<Extract<ReasoningDetailDisplay, { text: string }>> = [];
-	for (const part of parts) {
+	const streams = new Map<string, string>();
+	for (const [position, part] of parts.entries()) {
 		if (part.kind !== 'text' && part.kind !== 'summary') continue;
-		const previous = readable.at(-1);
-		// Stream fragments share an index. Join them before separating distinct parts.
-		if (part.index !== undefined && previous?.kind === part.kind && previous.index === part.index) previous.text += part.text;
-		else readable.push({ ...part });
+		const detail = recordValue(details[position]);
+		// Missing indices identify the default stream. Keep distinct IDs and formats apart.
+		const identity = JSON.stringify([part.kind, part.index ?? null, detail.id ?? null, detail.format ?? null]);
+		streams.set(identity, (streams.get(identity) ?? '') + part.text);
 	}
 	return {
-		text: readable.map(part => normalizeReadableText(part.text)).filter(Boolean).join('\n\n'),
+		text: [...streams.values()].map(normalizeReadableText).filter(Boolean).join('\n\n'),
 		hasText: parts.some(part => part.kind === 'text' && part.text.length > 0),
 		hasSummary: parts.some(part => part.kind === 'summary' && part.text.length > 0),
 		encryptedParts: parts.filter(part => part.kind === 'encrypted').length,

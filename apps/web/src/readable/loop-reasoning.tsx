@@ -6,8 +6,9 @@ import { Icon } from '../ui';
 
 export function LoopReasoning({ message }: { message: BotInferenceSubmissionMessage }) {
 	const details = reasoningDetailsForDisplay(message.reasoning_details ?? []);
-	const text = [message.reasoning, message.reasoning_content, details.text].filter(Boolean).join('\n\n');
-	const summaryOnly = details.hasSummary && !details.hasText && !message.reasoning && !message.reasoning_content;
+	// Details are authoritative. The plain fields can repeat summaries or contain opaque text.
+	const text = message.reasoning_details !== undefined ? details.text : message.reasoning || message.reasoning_content || '';
+	const summaryOnly = details.hasSummary && !details.hasText;
 	const opaqueOnly = !text && message.reasoning_details !== undefined;
 	const opaqueNote = details.encryptedParts > 0
 		? `encrypted by the provider${details.opaqueParts > 1 ? ` · ${details.opaqueParts} parts` : ''}`
