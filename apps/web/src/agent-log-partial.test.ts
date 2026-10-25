@@ -17,7 +17,7 @@ it('keeps interleaved streams in arrival order and uses the index before the ID'
 	const partial = deltas.reduce(appendAgentLogDelta, emptyAgentLogPartial());
 	expect(partial.reasoningParts).toHaveLength(6);
 	expect(partial.reasoningParts[0]).toMatchObject({ id: 'renamed', text: 'First thought.' });
-	expect(reasoningPartsForDisplay(partial.reasoningParts)).toMatchObject({ text: 'First thought.\n\nPlain between.\n\nLast thought.', opaqueParts: 3, encryptedParts: 1 });
+	expect(reasoningPartsForDisplay(partial.reasoningParts)).toMatchObject({ text: 'First thought.Last thought.', opaqueParts: 3, encryptedParts: 1 });
 	expect(parseAgentLogPartial(JSON.stringify(partial))).toEqual(partial);
 });
 it('joins adjacent unindexed fragments only within the same stream', () => {
@@ -38,4 +38,9 @@ it('does not trust compatibility text or unknown detail payloads in a stored par
 	expect(JSON.stringify(partial)).not.toContain('PRIVATE');
 	expect(reasoningPartsForDisplay(partial.reasoningParts)).toMatchObject({ text: 'Visible summary.', opaqueParts: 2 });
 	expect(parseAgentLogPartial('{"reasoning":"PRIVATE_LEGACY"}').reasoningParts).toEqual([{ kind: 'opaque', type: null }]);
+});
+
+
+it('renders plain reasoning when no detail source exists', () => {
+	expect(reasoningPartsForDisplay([{ kind: 'text', text: 'Plain' }, { kind: 'text', text: ' only.' }]).text).toBe('Plain only.');
 });
