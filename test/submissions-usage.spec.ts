@@ -1071,7 +1071,7 @@ describe("Submissions and usage", () => {
 
 		expect(response).toMatchObject({
 			content: " Checking now.",
-			reasoning: "I should inspect the thread. Then I can decide. Summary says to compare options. I will use a tool. Responses-style summary. ",
+			reasoning: "I should inspect the thread. Then I can decide. Summary says to compare options. I will use a tool. ",
 			reasoningDetails: [
 				{ type: "reasoning.summary", summary: "Summary says to compare options. ", format: "openai-responses-v1", index: 0 },
 				{ type: "reasoning.text", text: "I will use a tool. ", format: "unknown", index: 0 },
@@ -1080,19 +1080,19 @@ describe("Submissions and usage", () => {
 			toolCalls: [],
 		});
 		expect(deltas).toEqual([
-			{ kind: "reasoning", streamSeq: 42, text: "I should inspect the thread. " },
-			{ kind: "reasoning", streamSeq: 42, text: "Then I can decide. " },
-			{ kind: "reasoning", streamSeq: 42, text: "Summary says to compare options. " },
-			{ kind: "reasoning", streamSeq: 42, text: "I will use " },
-			{ kind: "reasoning", streamSeq: 42, text: "a tool. " },
-			{ kind: "reasoning", streamSeq: 42, text: "Responses-style summary. " },
+			{ kind: "reasoning", source: "plain", streamSeq: 42, text: "I should inspect the thread. " },
+			{ kind: "reasoning", source: "plain", streamSeq: 42, text: "Then I can decide. " },
+			{ kind: "reasoning", source: "detail", streamSeq: 42, text: "Summary says to compare options. ", part: { kind: "readable", type: "reasoning.summary", index: 0, text: "Summary says to compare options. " } },
+			{ kind: "reasoning", source: "detail", streamSeq: 42, text: "I will use ", part: { kind: "readable", type: "reasoning.text", index: 0, text: "I will use " } },
+			{ kind: "reasoning", source: "detail", streamSeq: 42, text: "a tool. ", part: { kind: "readable", type: "reasoning.text", index: 0, text: "a tool. " } },
+			{ kind: "reasoning", source: "detail", streamSeq: 42, part: { kind: "opaque", type: "reasoning", index: 1 } },
 			{ kind: "content", streamSeq: 42, text: " Checking now." },
 		]);
 		expect(events).toEqual([
 			{
 				type: "reasoning_message",
 				payload: {
-					content: "I should inspect the thread. Then I can decide. Summary says to compare options. I will use a tool. Responses-style summary. ",
+					content: "I should inspect the thread. Then I can decide. Summary says to compare options. I will use a tool. ",
 					status: "complete",
 					streamSeq: 42,
 				},

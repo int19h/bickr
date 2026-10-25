@@ -1,3 +1,4 @@
+import { reasoningRuntimeOutput } from './agent-log-runtime-output.test-support.mjs';
 import type { AgentLogEntry, BotLoopMessage, BotLoopMessagePage, BotRuntimeEvent, BotSummary } from '@bickr/shared/model';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
@@ -1107,4 +1108,31 @@ it('keeps the watched archive and marks a failed refresh at scroll offset zero',
 	expect(container.querySelector('.loop-chat-archive-hint')).not.toBeNull();
 	await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="More"]')!.click());
 	expect([...container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Compact chat')!.disabled).toBe(true);
+});
+
+
+it.each([true, false])('replays actual typed runtime reasoning after an older snapshot when completed=%s', async completed => {
+	const output = await reasoningRuntimeOutput(completed);
+	await answerMessages(0, []);
+	const socket = MonitorSocket.instances.at(-1)!;
+	await act(async () => { for (const event of output.events.slice(0, 2)) socket.emit({ type: 'stream_delta', event }); });
+	const refresh = [...container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Refresh log')!;
+	await act(async () => refresh.click());
+	await act(async () => { for (const event of output.events.slice(2)) socket.emit({ type: 'stream_delta', event }); });
+	await act(async () => pendingMessages[1]!.resolve({ messages: [], entries: output.snapshots[1]!, page: page(1, {}, [{ page: 1, messageCount: 0 }]) }));
+	const assertSafe = () => {
+		const reasoning = container.querySelector('.agent-log-reasoning')!.textContent!;
+		expect(reasoning).toContain('Readable thought.');
+		expect(reasoning.match(/Looking at the result\./g)).toHaveLength(1);
+		expect(reasoning).toContain('2 more parts are encrypted by the provider');
+		expect(container.textContent).not.toContain('PRIVATE_ENCRYPTED_BYTES');
+		expect(container.textContent).not.toContain('PRIVATE_FUTURE_TEXT');
+	};
+	assertSafe();
+	await act(async () => refresh.click());
+	await act(async () => pendingMessages[2]!.resolve({ messages: [], entries: output.snapshots.at(-1)!, page: page(1, {}, [{ page: 1, messageCount: 0 }]) }));
+	assertSafe();
+	await act(async () => refresh.click());
+	await act(async () => pendingMessages[3]!.resolve({ messages: [], entries: output.settled, page: page(1, {}, [{ page: 1, messageCount: 0 }]) }));
+	assertSafe();
 });

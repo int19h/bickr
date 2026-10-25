@@ -1,6 +1,8 @@
 # Catalog text for Markdown tool results.
 result.reference.deleted: |-
   (삭제됨)
+result.comment.timestamp_tag: |-
+  [타임스탬프: {{when}}]
 result.comment.reply:
   self: |-
     {{parent}}에 대한 나의 답글:

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { logStreamDelta } from './agent-log-codecs';
 import { RepositoryError } from '@bickr/shared/repository';
 import { readLogAttemptOutcome, readLogAttemptKind, readLogCompactionOutcome, logAttemptOutcome, logAuthor, logCompactionOutcome, logFailure, logPartial, logToolDelta, logTrigger } from './agent-log-codecs';
 
@@ -50,7 +51,7 @@ describe('agent log API boundaries', () => {
 	});
 
 	it('selects every nested field of partial tool calls', () => {
-		const partial = { content: 'Text', reasoning: 'Reason', toolCalls: [{ index: 0, id: 'call', type: 'function', function: { name: 'action', arguments: '{}' } }] };
+		const partial = { content: 'Text', reasoning: 'Reason', reasoningParts: [{ kind: 'text', text: 'Reason' }], toolCalls: [{ index: 0, id: 'call', type: 'function', function: { name: 'action', arguments: '{}' } }] };
 		expect(logPartial(extraFields(partial))).toEqual(partial);
 	});
 
@@ -88,4 +89,16 @@ it('keeps partial progress when its stored failure is unsupported', () => {
 });
 it.each([null, { kind: 'future_failure' }, { kind: 'runtime_error', message: 42 }])('contains an invalid nested session failure: %s', error => {
 	expect(readLogCompactionOutcome(JSON.stringify({ kind: 'failed', error }))).toEqual({ kind: 'failed', error: { kind: 'unknown' } });
+});
+
+it('builds compatibility text only from proven readable parts', () => {
+	const readable = { kind: 'readable', type: 'reasoning.summary', text: 'Readable' };
+	expect(logStreamDelta({ kind: 'reasoning', source: 'detail', text: 'PRIVATE', part: readable }))
+		.toEqual({ kind: 'reasoning', source: 'detail', text: 'Readable', part: readable });
+	const opaque = { kind: 'readable', type: 'future.type', text: 'OPAQUE' };
+	expect(logStreamDelta({ kind: 'reasoning', source: 'detail', text: 'OPAQUE', part: opaque }))
+		.toEqual({ kind: 'reasoning', source: 'detail', part: { kind: 'opaque', type: 'future.type' } });
+	expect(logPartial({ content: '', reasoning: 'OPAQUE', reasoningParts: [
+		{ kind: 'text', text: 'Plain' }, readable, opaque,
+	], toolCalls: [] }).reasoning).toBe('PlainReadable');
 });

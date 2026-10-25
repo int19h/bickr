@@ -1,3 +1,4 @@
+import { maxNoteContentLength } from "@bickr/shared/note-settings";
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -53,6 +54,23 @@ afterEach(async () => {
 });
 
 describe('owner note editor', () => {
+	it('counts code points at the note limit before saving', async () => {
+		await act(async () => root.render(<BotNotesPanel botId="bot-one" enabled instructionLocale="en" onReference={() => undefined} worldHandle="main" />));
+		await act(async () => button('draft').click());
+		await act(async () => button('Edit note').click());
+		const textarea = container.querySelector<HTMLTextAreaElement>('.modal textarea')!;
+		const content = 'a'.repeat(maxNoteContentLength - 1) + '😀';
+		await act(async () => type(textarea, content + '😀'));
+		expect(button('Save note').disabled).toBe(true);
+		await act(async () => button('Save note').click());
+		expect(requests.some(request => request.path.endsWith('/edit'))).toBe(false);
+		await act(async () => type(textarea, content));
+		expect(button('Save note').disabled).toBe(false);
+		expect(container.textContent).toContain(`${maxNoteContentLength} / ${maxNoteContentLength}`);
+		await act(async () => button('Save note').click());
+		expect(requests.find(request => request.path.endsWith('/edit'))?.body?.content).toBe(content);
+	});
+
 	it('reloads the selected note view when the resolved instruction language changes', async () => {
 		await act(async () => root.render(<BotNotesPanel botId="bot-one" enabled instructionLocale="en" onReference={() => undefined} worldHandle="main" />));
 		await act(async () => button('draft').click());

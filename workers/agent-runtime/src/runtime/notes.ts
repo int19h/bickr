@@ -7,16 +7,15 @@ import { extractCanonicalEntityReferences, type CanonicalEntityReference } from 
 import { RepositoryError } from '@bickr/shared/repository';
 import { d1SafeBoundParameters, type D1DatabaseLike } from '@bickr/shared/storage';
 import { InputError, normalizeHandleText } from '@bickr/shared/validation';
-import { planNoteId } from '@bickr/shared/note-settings';
+import { maxNoteContentLength, planNoteId } from '@bickr/shared/note-settings';
 
 export const minNoteTitleLength = 1;
 export const maxNoteTitleLength = 64;
 export const maxNotesPerBot = 500;
-export const maxNoteContentLength = 4_000;
 export const maxNoteLinks = 50;
 export const maxNoteListPage = 50;
 export const maxNoteFilters = participantListLimits.maximumNoteFilters;
-export { planNoteId };
+export { maxNoteContentLength, planNoteId };
 // Historical bytes identify untouched revision-zero defaults in the one-time migration.
 const legacyDefaultPlanContent = '- Keep PLAN current with write_note.';
 export const factoryPlanMigrationKey = 'notes_factory_plan_v1';

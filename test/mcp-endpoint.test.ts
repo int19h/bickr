@@ -1,3 +1,4 @@
+import { maxNoteContentLength } from "@bickr/shared/note-settings";
 import { beforeEach, describe, expect, it } from "vitest";
 import { env as testEnv } from "cloudflare:test";
 import { localizedText, type BotDocument, type LanguageTag, type LocalizedText, type UserDocument } from "../packages/shared/src/model";
@@ -1183,6 +1184,14 @@ describe("MCP endpoint", () => {
 		const write = (operationId: string) => call("write_bot_note", { operations: [{ operationId, botId: "bot_1", id: "met u/alice", content: "hello" }] });
 		const remove = (operationId: string) => call("delete_bot_note", { operations: [{ operationId, botId: "bot_1", id: "met u/alice" }] });
 		expect(await write("write-1")).toMatchObject({ structuredContent: { results: [{ status: "succeeded", result: { outcome: "created" } }] } });
+		const content = '😀'.repeat(maxNoteContentLength);
+		expect(await call("write_bot_note", { operations: [{ operationId: "boundary", botId: "bot_1", id: "boundary", content }] }))
+			.toMatchObject({ structuredContent: { results: [{ status: "succeeded" }] } });
+		expect(requests.at(-1)?.body.content).toBe(content);
+		const beforeOversize = requests.length;
+		expect(await call("write_bot_note", { operations: [{ operationId: "oversize", botId: "bot_1", id: "boundary", content: content + '😀' }] }))
+			.toMatchObject({ isError: true, structuredContent: { error: "bad_request" } });
+		expect(requests).toHaveLength(beforeOversize);
 		const beforeBlankBot = requests.length;
 		expect(await call("write_bot_note", { operations: [{ operationId: "blank-bot", botId: " ", id: "met u/alice", content: "hello" }] }))
 			.toMatchObject({ structuredContent: { results: [{ status: "failed", error: { error: "bad_request" } }] } });

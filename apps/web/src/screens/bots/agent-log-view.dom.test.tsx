@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AgentLogView, type AgentLogViewProps } from './agent-log-view';
 import { AgentLogRequestModal, AgentLogSessionModal, attemptCause, attemptRequestMetadata } from './agent-log-details';
 import { LoopMessageLogsModal } from './loop-messages';
-import { storedResponseMessage } from './agent-log-content';
+import { storedPartialMessage } from './agent-log-content';
 import { entriesFixture, messageFixture, pageFixture, requestFixture, sessionFixture } from './agent-log.fixtures';
 
 let container: HTMLDivElement;
@@ -192,7 +192,7 @@ describe('Loop cards', () => {
 		expect(more.textContent).toBe('less');
 	});
 	it('combines streamed tool fragments before rendering a call', () => {
-		const message = storedResponseMessage(
+		const message = storedPartialMessage(
 			JSON.stringify({
 				content: '',
 				toolCalls: [

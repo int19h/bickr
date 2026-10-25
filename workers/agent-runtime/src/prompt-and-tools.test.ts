@@ -1,3 +1,4 @@
+import { maxNoteContentLength } from "@bickr/shared/note-settings";
 import { botText } from './localization';
 import { instructionLocales } from '@bickr/shared/instruction-language';
 const text = botText('en');
@@ -94,6 +95,12 @@ describe("Bickr function tools", () => {
 		expect(mutableToolNames.has("draw_random_integers")).toBe(false);
 		expect(mutableToolNames.has("write_note")).toBe(false);
 		expect(mutableToolNames.has("delete_note")).toBe(false);
+	});
+
+	it("uses the shared note content limit in the participant schema", () => {
+		const tools = providerFunctionToolsForBot({ text, postingSettings: {}, toolSettings: {}, tickSettings: promptParticipant().tickSettings });
+		const write = tools.find(definition => 'function' in definition && definition.function.name === 'write_note');
+		expect(write).toMatchObject({ function: { parameters: { properties: { content: { maxLength: maxNoteContentLength } } } } });
 	});
 
 	it("omits all note tools when the participant disables notes", () => {

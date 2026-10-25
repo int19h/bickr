@@ -1,3 +1,6 @@
+import type { AgentLogReasoningPart } from '@bickr/shared/model';
+import { classifiedReasoningPart, readablePartIdentity } from './agent-log-partial';
+
 export type ReasoningDetailDisplay =
 	| { kind: 'text' | 'summary'; text: string; index?: number }
 	| { kind: 'encrypted' | 'unknown' };
@@ -33,6 +36,27 @@ export function reasoningDetailsForDisplay(details: unknown[]) {
 		hasSummary: parts.some(part => part.kind === 'summary' && part.text.length > 0),
 		encryptedParts: parts.filter(part => part.kind === 'encrypted').length,
 		opaqueParts: parts.filter(part => part.kind === 'encrypted' || part.kind === 'unknown').length,
+	};
+}
+
+export function reasoningPartsForDisplay(values: readonly AgentLogReasoningPart[]) {
+	const parts = values.map(classifiedReasoningPart);
+	const chunks: Array<{ key: string; text: string }> = [];
+	let lastKey: string | null = null;
+	for (const part of parts) {
+		if (part.kind === 'opaque') { lastKey = null; continue; }
+		const key = part.kind === 'text' ? 'plain' : readablePartIdentity(part);
+		const last = chunks.at(-1);
+		if (last && key === lastKey) last.text += part.text;
+		else chunks.push({ key, text: part.text });
+		lastKey = key;
+	}
+	return {
+		text: chunks.map(part => normalizeReadableText(part.text)).filter(Boolean).join('\n\n'),
+		hasText: parts.some(part => part.kind === 'text' && part.text.length > 0 || part.kind === 'readable' && part.type === 'reasoning.text' && part.text.length > 0),
+		hasSummary: parts.some(part => part.kind === 'readable' && part.type === 'reasoning.summary' && part.text.length > 0),
+		encryptedParts: parts.filter(part => part.kind === 'opaque' && part.type === 'reasoning.encrypted').length,
+		opaqueParts: parts.filter(part => part.kind === 'opaque').length,
 	};
 }
 
