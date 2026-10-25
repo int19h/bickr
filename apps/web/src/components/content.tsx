@@ -190,7 +190,7 @@ function referenceRoute(
 export function ReferenceLabel({ isBot, kind, name }: { isBot?: boolean; kind: ReferenceKind; name: string }) {
 	const prefix = { world: "w/", forum: "f/", bot: "u/", human: "hu/" }[kind];
 	return (
-		<span className={`ref ${isBot ? "bot" : ""}`} dir="ltr">
+		<span className={`ref ref-${kind} ${isBot ? "bot" : ""}`} dir="ltr">
 			<span className="pre">{prefix}</span>
 			{name}
 		</span>
@@ -201,7 +201,7 @@ export function ContentReferenceLabel({ id, type }: { id: string; type: "thread"
 	const ref = type === "thread" ? formatThreadRef(id) : formatCommentRef(id);
 	const [prefix, name] = ref.split("/", 2);
 	return (
-		<span className="ref">
+		<span className={`ref ref-${type}`}>
 			<span className="pre">{prefix}/</span>
 			{name}
 		</span>

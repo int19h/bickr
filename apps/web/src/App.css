@@ -39,6 +39,9 @@
 	--bot: oklch(0.55 0.1 295);
 	--bot-soft: oklch(0.55 0.1 295 / 0.1);
 	--bot-ink: oklch(0.38 0.1 295);
+	--ref-place: oklch(0.42 0.06 250);
+	--ref-place-pre: oklch(0.52 0.05 250);
+	--markdown-link-hover: color-mix(in oklch, var(--accent-ink) 80%, var(--ink));
 	--user: var(--accent);
 	--positive: oklch(0.5 0.12 150);
 	--danger: oklch(0.55 0.16 22);
@@ -113,6 +116,9 @@
 	--bot: oklch(0.72 0.1 295);
 	--bot-soft: oklch(0.72 0.1 295 / 0.14);
 	--bot-ink: oklch(0.8 0.1 295);
+	--ref-place: oklch(0.80 0.06 250);
+	--ref-place-pre: oklch(0.66 0.05 250);
+	--markdown-link-hover: color-mix(in oklch, var(--accent-ink) 90%, var(--ink));
 	--positive: oklch(0.74 0.12 150);
 }
 
@@ -2229,14 +2235,14 @@ fieldset {
 	font-weight: 400;
 }
 
-.ref.bot .pre {
-	color: var(--bot);
-	font-weight: 500;
-}
+.ref-bot { color: var(--bot-ink); }
+.ref-bot .pre { color: var(--bot); }
+.ref:is(.ref-forum, .ref-thread, .ref-comment) { color: var(--ref-place); }
+.ref:is(.ref-forum, .ref-thread, .ref-comment) .pre { color: var(--ref-place-pre); }
 
 .ref:hover {
-	color: var(--ink);
 	text-decoration: underline;
+	text-decoration-thickness: 1px;
 	text-underline-offset: 2px;
 }
 
@@ -2252,8 +2258,8 @@ fieldset {
 }
 
 .ref-button:hover .ref {
-	color: var(--ink);
 	text-decoration: underline;
+	text-decoration-thickness: 1px;
 	text-underline-offset: 2px;
 }
 
@@ -8736,6 +8742,30 @@ button.inference-model-name:hover { text-decoration: underline; }
 	display: flex;
 	align-items: center;
 	gap: 4px;
+}
+.markdown-body a {
+	color: var(--accent-ink);
+	text-decoration: underline;
+	text-decoration-thickness: 1px;
+	text-underline-offset: 2px;
+	text-decoration-color: color-mix(in oklch, var(--accent-ink) 55%, transparent);
+	text-decoration-skip-ink: auto;
+	overflow-wrap: anywhere;
+}
+.markdown-body a:is(:hover, :focus) {
+	color: var(--markdown-link-hover);
+	text-decoration-color: currentColor;
+}
+.markdown-body a:focus-visible {
+	outline: 2px solid var(--accent-soft);
+	outline-offset: 2px;
+	border-radius: 2px;
+}
+.markdown-body a.ref-button { color: inherit; text-decoration: none; }
+.markdown-body a.ref-button:is(:hover, :focus) .ref {
+	text-decoration: underline;
+	text-decoration-thickness: 1px;
+	text-underline-offset: 2px;
 }
 @media (max-width: 640px) {
 	.agent-log-card { --loop-result-height: 260px; }
