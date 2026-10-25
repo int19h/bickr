@@ -14,6 +14,31 @@ The JSON string in `partialResponse` follows `AgentLogPartialResponse`. Its `rea
 
 Partial responses share the existing memory cache, flush limits, and retention rule. Exact provider details remain in the existing response store for the details modal. This change adds no table or column.
 
+## Settled reasoning
+
+New stored messages carry `reasoning_format: "readable_v1"` when their text comes from the shared extractor.
+Their `reasoning` field contains plain provider text and readable detail parts in arrival order.
+Only `reasoning.text` and `reasoning.summary` contribute detail text.
+The marker also certifies an empty string when all details are opaque.
+The Loop API selects this marker explicitly for `message.reasoning_format`.
+
+An absent or unknown marker means legacy text.
+Readers do not infer a marker from dates, text, or available details.
+Recovery preserves the marker from the stored outcome and never certifies an older outcome.
+Existing records need no migration and remain unchanged on read.
+The marker follows the retention and deletion rules of its message.
+
+Provider replay keeps its existing representation.
+When details exist, replay sends those exact details without the combined display text.
+Without details, replay sends the original nonempty plain reasoning.
+Replay never sends the local marker.
+
+Token estimates also exclude the local marker and display-only reasoning.
+This keeps assistant-message replay unchanged while the owner sees all readable text.
+It follows the [OpenRouter rule for preserving reasoning details](https://openrouter.ai/docs/guides/best-practices/reasoning-tokens#preserving-reasoning).
+
+The readable compaction view also retains plain reasoning that older versions omitted.
+
 ## Tables and retention
 
 `inference_requests` holds request identity, state, purpose, and references to history. `inference_attempts` holds attempt times, outcomes, and the partial response. `inference_body_chunks` holds the encoded bodies and chunks for responses and partial text. The encoding saves the common prefix from the previous attempt. A full body starts a new chain after 16 delta links. Text cuts keep surrogate pairs together. Before retention removes a base, the runtime writes each surviving dependent as a full body.

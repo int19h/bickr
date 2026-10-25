@@ -1,3 +1,5 @@
+import { readableReasoningFormat } from '@bickr/shared/model';
+import { approximateTextTokens } from '@bickr/shared/text-token-estimate';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { factoryText } from '@bickr/shared/localization';
 import { BotRuntime, runtimeSchema } from './bot-runtime';
@@ -53,6 +55,20 @@ describe('one-off note newline migration', () => {
 		expect(storage.sql.exec<{ payload_json: string }>('SELECT payload_json FROM events').one().payload_json).toBe(JSON.stringify(assistant));
 		expect(await applyNoteNewlineMigration(storage, preview.digest)).toMatchObject({ kind: 'already_applied' });
 		expect(notes.read(text, 'PLAN')?.revision).toBe(1);
+	});
+
+	it('keeps readable evidence and excludes display text from repaired message estimates', async () => {
+		const details = [{ type: 'reasoning.encrypted', data: 'opaque' }];
+		message(1, { role: 'assistant', reasoning: 'Readable '.repeat(100), reasoning_format: readableReasoningFormat, reasoning_details: details,
+			tool_calls: [{ id: 'w', type: 'function', function: { name: 'write_note', arguments: JSON.stringify({ id: 'PLAN', content: broken }) } }] });
+		const preview = await inspectNoteNewlineMigration(storage);
+		if (preview.kind !== 'ready') throw new Error('Expected plan.');
+		await applyNoteNewlineMigration(storage, preview.digest);
+		const row = storage.sql.exec<{ message_json: string; token_estimate: number }>('SELECT message_json, token_estimate FROM loop_messages WHERE seq = 1').one();
+		const repaired = JSON.parse(row.message_json);
+		expect(repaired.reasoning_format).toBe(readableReasoningFormat);
+		expect(repaired.reasoning).toBe('Readable '.repeat(100));
+		expect(row.token_estimate).toBe(approximateTextTokens(JSON.stringify({ role: 'assistant', content: null, tool_calls: repaired.tool_calls, reasoning_details: details })));
 	});
 
 	it('rejects an edit after preview without changing notes, history, or the completion marker', async () => {
