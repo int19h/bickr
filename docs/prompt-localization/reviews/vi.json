@@ -2,7 +2,7 @@
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
   "catalogSourceHash": "2c136b409b445c2a7981cd2600185ee0592e1c66686a9286aa270a5a5ad13b0d",
   "locale": "vi",
-  "status": "partially_pending_translation",
+  "status": "approved",
   "leadReason": "Accept the Vietnamese catalog after both reviewers accept all five exact follow-ups. Explicit actors preserve the audience instruction. Refreshed/public modifiers attach to the avatar. Native time, universal item removal, and notification clauses cover every count. Visit and vote terminology is consistent. Retained facts use dữ kiện, while events keep sự kiện. The earlier topic sentence uses đề tài without changing its avoidance rule.",
   "terminologyDecisions": {
     "visit": "lần truy cập",
@@ -7799,10 +7799,15 @@
           "finalValueHash": "b023a66f7c5ef7fc463c01f6325cb27fa987e1bdfa95de8fc06a8c07c9f26457",
           "provenance": "lead_translation",
           "lead": "claude-opus",
-          "reviewerSessions": [],
-          "reviewedCommit": null,
-          "leadReason": "Use the exact lead translation supplied for this task. Keep the timestamp parameter and brackets unchanged.",
-          "reviewerReason": null
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a17179-e7a3-7ab3-a709-ec82b859ca72"
+            }
+          ],
+          "reviewedCommit": "6927ff032edd41e2656603c7fc6afc6929495b78",
+          "leadReason": "Accept the supplied lead translation after independent review. Keep the timestamp parameter and brackets unchanged.",
+          "reviewerReason": "Matches result.timestamp in the same catalog, with natural casing and punctuation for a bracketed tag."
         }
       },
       "finalTemplateHash": "2c8aaf6a13235f59b28dff17181ac81cb131bc340da577f08870b4eaa7a3067f"
@@ -8453,10 +8458,15 @@
       "task": "comment-heading-timestamp",
       "provenance": "lead_translation",
       "lead": "claude-opus",
-      "reviewerSessions": [],
-      "reviewedCommit": null,
-      "leadReason": "Use the exact lead translation supplied for this task. Keep the timestamp parameter and brackets unchanged.",
-      "reviewerReason": null,
+      "reviewerSessions": [
+        {
+          "reviewer": "codex",
+          "session": "01a17179-e7a3-7ab3-a709-ec82b859ca72"
+        }
+      ],
+      "reviewedCommit": "6927ff032edd41e2656603c7fc6afc6929495b78",
+      "leadReason": "Accept the supplied lead translation after independent review. Keep the timestamp parameter and brackets unchanged.",
+      "reviewerReason": "Matches result.timestamp in the same catalog, with natural casing and punctuation for a bracketed tag.",
       "sourceCommit": "280947c28b33568e6732c215cc2f65d54eef1fe9",
       "previousCatalogSourceHash": "fccf6536ad73ade5b65ab4ff2271b2b82b90f8f3483a35cdea87591dd9437263",
       "catalogSourceHash": "2c136b409b445c2a7981cd2600185ee0592e1c66686a9286aa270a5a5ad13b0d",
@@ -8465,9 +8475,9 @@
       "units": [
         "result.comment.timestamp_tag"
       ],
-      "status": "pending_review",
-      "reviewedDraftCommit": null,
-      "reportHash": null,
+      "status": "accepted_by_lead",
+      "reviewedDraftCommit": "6927ff032edd41e2656603c7fc6afc6929495b78",
+      "reportHash": "5b97e42a6ab9736c9380ad6432bb7907b1bfbb8fa373cec43e1c1edfa527d953",
       "uncertainties": [],
       "previousDecisions": {}
     }

@@ -558,11 +558,18 @@
       "previousCatalogSourceHash": "fccf6536ad73ade5b65ab4ff2271b2b82b90f8f3483a35cdea87591dd9437263",
       "catalogSourceHash": "2c136b409b445c2a7981cd2600185ee0592e1c66686a9286aa270a5a5ad13b0d",
       "sourceFreeze": "Use the supplied timestamp tag in post headings. Keep the author on the next line.",
-      "review": "Independent review is pending. The owner supplied the exact lead translations."
+      "review": "Codex accepts 17 translations as written and Irish as best effort at the reviewed commit. The translations remain unchanged after the draft. The lead declines the Arabic directional isolates. Irish native label preference and untested Arabic display remain recorded uncertainties.",
+      "reviewerSessions": [
+        {
+          "reviewer": "codex",
+          "session": "01a17179-e7a3-7ab3-a709-ec82b859ca72"
+        }
+      ],
+      "reviewedCommit": "6927ff032edd41e2656603c7fc6afc6929495b78",
+      "reviewedDraftCommit": "6927ff032edd41e2656603c7fc6afc6929495b78",
+      "reportHash": "5b97e42a6ab9736c9380ad6432bb7907b1bfbb8fa373cec43e1c1edfa527d953"
     }
   ],
-  "pendingTranslationKeys": [
-    "result.comment.timestamp_tag"
-  ],
+  "pendingTranslationKeys": [],
   "pendingUnits": []
 }

@@ -2,7 +2,7 @@
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
   "catalogSourceHash": "2c136b409b445c2a7981cd2600185ee0592e1c66686a9286aa270a5a5ad13b0d",
   "locale": "ga",
-  "status": "partially_pending_translation",
+  "status": "approved",
   "leadReason": "Accept best-effort Irish after both requested final discussions and both 28-unit follow-ups. Use standard is gá dom action needs, direct audience wording, explicit persona genitives, dictionary-backed disclaimer notices, singular detached member headers, native JSON adjective order and list punctuation. Keep the maximum ceiling and all conditions. Relative-time digit patterns follow resolved Unicode CLDR and protected identifiers remain opaque. The lead chooses the optional direct relative from Opus.",
   "terminologyDecisions": {
     "action": "gníomh for an action. Beart can also mean action and is not invalid.",
@@ -8343,10 +8343,15 @@
           "finalValueHash": "8d4137a53d3cea6c4c0c10d0ec17e7cc635c8233924cea9dbfb9ce28fdbe32b6",
           "provenance": "lead_translation",
           "lead": "claude-opus",
-          "reviewerSessions": [],
-          "reviewedCommit": null,
-          "leadReason": "Use the exact lead translation supplied for this task. Keep the timestamp parameter and brackets unchanged.",
-          "reviewerReason": null
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a17179-e7a3-7ab3-a709-ec82b859ca72"
+            }
+          ],
+          "reviewedCommit": "6927ff032edd41e2656603c7fc6afc6929495b78",
+          "leadReason": "Accept the supplied Irish translation as best effort. Keep the timestamp parameter and brackets unchanged.",
+          "reviewerReason": "Matches result.timestamp in the same catalog, with natural casing and punctuation for a bracketed tag."
         }
       },
       "finalTemplateHash": "1fc4b9704336c9d8bd7f159096b587f4fab4c0d5c86de7c8b7dbadce4f295bd5"
@@ -8983,10 +8988,15 @@
       "task": "comment-heading-timestamp",
       "provenance": "lead_translation",
       "lead": "claude-opus",
-      "reviewerSessions": [],
-      "reviewedCommit": null,
-      "leadReason": "Use the exact lead translation supplied for this task. Keep the timestamp parameter and brackets unchanged.",
-      "reviewerReason": null,
+      "reviewerSessions": [
+        {
+          "reviewer": "codex",
+          "session": "01a17179-e7a3-7ab3-a709-ec82b859ca72"
+        }
+      ],
+      "reviewedCommit": "6927ff032edd41e2656603c7fc6afc6929495b78",
+      "leadReason": "Accept the supplied Irish translation as best effort. Keep the timestamp parameter and brackets unchanged.",
+      "reviewerReason": "Matches result.timestamp in the same catalog, with natural casing and punctuation for a bracketed tag.",
       "sourceCommit": "280947c28b33568e6732c215cc2f65d54eef1fe9",
       "previousCatalogSourceHash": "fccf6536ad73ade5b65ab4ff2271b2b82b90f8f3483a35cdea87591dd9437263",
       "catalogSourceHash": "2c136b409b445c2a7981cd2600185ee0592e1c66686a9286aa270a5a5ad13b0d",
@@ -8995,11 +9005,12 @@
       "units": [
         "result.comment.timestamp_tag"
       ],
-      "status": "pending_review",
-      "reviewedDraftCommit": null,
-      "reportHash": null,
+      "status": "accepted_by_lead",
+      "reviewedDraftCommit": "6927ff032edd41e2656603c7fc6afc6929495b78",
+      "reportHash": "5b97e42a6ab9736c9380ad6432bb7907b1bfbb8fa373cec43e1c1edfa527d953",
       "uncertainties": [
-        "Irish remains best effort. Earlier unresolved language questions remain unchanged."
+        "Irish remains best effort. Earlier unresolved language questions remain unchanged.",
+        "Irish native preference for the compact label \"stampa ama\" remains uncertain."
       ],
       "previousDecisions": {}
     }

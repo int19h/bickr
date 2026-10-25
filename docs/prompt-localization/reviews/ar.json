@@ -2,7 +2,7 @@
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
   "catalogSourceHash": "2c136b409b445c2a7981cd2600185ee0592e1c66686a9286aa270a5a5ad13b0d",
   "locale": "ar",
-  "status": "partially_pending_translation",
+  "status": "approved",
   "leadReason": "Accept the Arabic catalog after both reviewers accept all twelve exact follow-up units. Compact count-neutral time phrases retain the interval direction, numeric value, and unit in all six native categories. The corrected tanwin and title quotes preserve meaning. Count-neutral wording deliberately avoids redundant numeric duals.",
   "terminologyDecisions": {
     "continue": "Use الاستمرار, distinct from following a participant (متابعة).",
@@ -7823,10 +7823,15 @@
           "finalValueHash": "a10f18c8b5109757abed70d86eae35dee4bac0f771038894a4c0375b77f26720",
           "provenance": "lead_translation",
           "lead": "claude-opus",
-          "reviewerSessions": [],
-          "reviewedCommit": null,
-          "leadReason": "Use the exact lead translation supplied for this task. Keep the timestamp parameter and brackets unchanged.",
-          "reviewerReason": null
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a17179-e7a3-7ab3-a709-ec82b859ca72"
+            }
+          ],
+          "reviewedCommit": "6927ff032edd41e2656603c7fc6afc6929495b78",
+          "leadReason": "The reader is a model that reads logical order, which the reviewer confirmed is correct. Invisible control characters add tokens and noise to every heading, and result.timestamp in the same catalog does not use them. A display problem belongs in the owner UI renderer, not in model-facing text.",
+          "reviewerReason": "The wording is correct. Isolates would keep the time value in order when an RTL heading is displayed."
         }
       },
       "finalTemplateHash": "f881fe42b3162e8cc4ba53c844a5da589bcc1e563278e41aed9c846a2b5e4f7a"
@@ -8425,10 +8430,15 @@
       "task": "comment-heading-timestamp",
       "provenance": "lead_translation",
       "lead": "claude-opus",
-      "reviewerSessions": [],
-      "reviewedCommit": null,
-      "leadReason": "Use the exact lead translation supplied for this task. Keep the timestamp parameter and brackets unchanged.",
-      "reviewerReason": null,
+      "reviewerSessions": [
+        {
+          "reviewer": "codex",
+          "session": "01a17179-e7a3-7ab3-a709-ec82b859ca72"
+        }
+      ],
+      "reviewedCommit": "6927ff032edd41e2656603c7fc6afc6929495b78",
+      "leadReason": "The reader is a model that reads logical order, which the reviewer confirmed is correct. Invisible control characters add tokens and noise to every heading, and result.timestamp in the same catalog does not use them. A display problem belongs in the owner UI renderer, not in model-facing text.",
+      "reviewerReason": "The wording is correct. Isolates would keep the time value in order when an RTL heading is displayed.",
       "sourceCommit": "280947c28b33568e6732c215cc2f65d54eef1fe9",
       "previousCatalogSourceHash": "fccf6536ad73ade5b65ab4ff2271b2b82b90f8f3483a35cdea87591dd9437263",
       "catalogSourceHash": "2c136b409b445c2a7981cd2600185ee0592e1c66686a9286aa270a5a5ad13b0d",
@@ -8437,11 +8447,14 @@
       "units": [
         "result.comment.timestamp_tag"
       ],
-      "status": "pending_review",
-      "reviewedDraftCommit": null,
-      "reportHash": null,
-      "uncertainties": [],
-      "previousDecisions": {}
+      "status": "accepted_by_lead",
+      "reviewedDraftCommit": "6927ff032edd41e2656603c7fc6afc6929495b78",
+      "reportHash": "5b97e42a6ab9736c9380ad6432bb7907b1bfbb8fa373cec43e1c1edfa527d953",
+      "uncertainties": [
+        "The reviewer did not test Arabic display in the owner UI renderer."
+      ],
+      "previousDecisions": {},
+      "summary": "The lead declines the suggested U+2066 and U+2069 directional isolates around {{when}}. The catalog text remains unchanged."
     }
   ],
   "followUpReviews": [

@@ -2,7 +2,7 @@
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
   "catalogSourceHash": "2c136b409b445c2a7981cd2600185ee0592e1c66686a9286aa270a5a5ad13b0d",
   "locale": "eo",
-  "status": "partially_pending_translation",
+  "status": "approved",
   "leadReason": "Accept the Esperanto catalog after both reviewers accept all five exact follow-up units. JSON-objekto and resumo de memoroj stay consistent. The explicit quotation-mark phrase states the repair precisely. Native list and time patterns do not depend on the platform’s unsupported list or relative-time formatters.",
   "terminologyDecisions": {
     "quoted": "Use enfermitaj en citiloj in malformed-call recovery to mean enclosed in quotation marks.",
@@ -7799,10 +7799,15 @@
           "finalValueHash": "c0100bc51e98bb148c204d3d3b1f626a52729db1717aaf2c010e612fd65fda60",
           "provenance": "lead_translation",
           "lead": "claude-opus",
-          "reviewerSessions": [],
-          "reviewedCommit": null,
-          "leadReason": "Use the exact lead translation supplied for this task. Keep the timestamp parameter and brackets unchanged.",
-          "reviewerReason": null
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a17179-e7a3-7ab3-a709-ec82b859ca72"
+            }
+          ],
+          "reviewedCommit": "6927ff032edd41e2656603c7fc6afc6929495b78",
+          "leadReason": "Accept the supplied lead translation after independent review. Keep the timestamp parameter and brackets unchanged.",
+          "reviewerReason": "Matches result.timestamp in the same catalog, with natural casing and punctuation for a bracketed tag."
         }
       },
       "finalTemplateHash": "a34fe47de0ebd1104ec37db0f52c994e603cea3d7da5e39b0a7f0a920062389b"
@@ -8400,10 +8405,15 @@
       "task": "comment-heading-timestamp",
       "provenance": "lead_translation",
       "lead": "claude-opus",
-      "reviewerSessions": [],
-      "reviewedCommit": null,
-      "leadReason": "Use the exact lead translation supplied for this task. Keep the timestamp parameter and brackets unchanged.",
-      "reviewerReason": null,
+      "reviewerSessions": [
+        {
+          "reviewer": "codex",
+          "session": "01a17179-e7a3-7ab3-a709-ec82b859ca72"
+        }
+      ],
+      "reviewedCommit": "6927ff032edd41e2656603c7fc6afc6929495b78",
+      "leadReason": "Accept the supplied lead translation after independent review. Keep the timestamp parameter and brackets unchanged.",
+      "reviewerReason": "Matches result.timestamp in the same catalog, with natural casing and punctuation for a bracketed tag.",
       "sourceCommit": "280947c28b33568e6732c215cc2f65d54eef1fe9",
       "previousCatalogSourceHash": "fccf6536ad73ade5b65ab4ff2271b2b82b90f8f3483a35cdea87591dd9437263",
       "catalogSourceHash": "2c136b409b445c2a7981cd2600185ee0592e1c66686a9286aa270a5a5ad13b0d",
@@ -8412,9 +8422,9 @@
       "units": [
         "result.comment.timestamp_tag"
       ],
-      "status": "pending_review",
-      "reviewedDraftCommit": null,
-      "reportHash": null,
+      "status": "accepted_by_lead",
+      "reviewedDraftCommit": "6927ff032edd41e2656603c7fc6afc6929495b78",
+      "reportHash": "5b97e42a6ab9736c9380ad6432bb7907b1bfbb8fa373cec43e1c1edfa527d953",
       "uncertainties": [],
       "previousDecisions": {}
     }
