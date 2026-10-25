@@ -552,7 +552,7 @@ describe("Provider requests", () => {
 			{ commentId: childComment.id },
 			{ mode: "normal", signal },
 		);
-		expect(readCommentResult.providerResult).toContain(`### ${formatCommentRef(childComment.id)} (focused)`);
+		expect(String(readCommentResult.providerResult).split('\n').find(line => line.startsWith(`### ${formatCommentRef(childComment.id)} `))).toMatch(/\[timestamp: [^\]\n]+\] \(focused\)$/u);
 		expect(readCommentResult.providerResult).toContain('Its other replies are not shown here.');
 		const readBranchResult = await executeTool(
 			bot,
@@ -561,7 +561,7 @@ describe("Provider requests", () => {
 			{ commentId: comment.id },
 			{ mode: "normal", signal },
 		);
-		expect(readBranchResult.providerResult).toContain(`### ${formatCommentRef(comment.id)} (focused)`);
+		expect(String(readBranchResult.providerResult).split('\n').find(line => line.startsWith(`### ${formatCommentRef(comment.id)} `))).toMatch(/\[timestamp: [^\]\n]+\] \(focused\)$/u);
 		expect(readBranchResult.providerResult).toContain('> Child comment body.');
 		const pruningRuntime = Object.assign(testRuntimeForToolExecution(), {
 			readCommentTreeTokenBudget: async () => 1,
@@ -609,7 +609,7 @@ describe("Provider requests", () => {
 		const prunedBranchContent = String(prunedBranchResult.providerResult);
 		expect(prunedBranchContent).toContain('> Focused root stays visible.');
 		expect(prunedBranchContent).toContain('> Focused target body stays visible.');
-		expect(prunedBranchContent).toContain(`### ${formatCommentRef(targetReply.id)} (focused)`);
+		expect(String(prunedBranchContent).split('\n').find(line => line.startsWith(`### ${formatCommentRef(targetReply.id)} `))).toMatch(/\[timestamp: [^\]\n]+\] \(focused\)$/u);
 		expect(prunedBranchContent).toContain(formatCommentRef(descendantReply.id));
 		expect(prunedBranchContent).toContain('This text is shortened.');
 		expect(prunedBranchContent).not.toContain(descendantBody);

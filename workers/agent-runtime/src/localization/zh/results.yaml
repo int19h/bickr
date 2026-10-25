@@ -1,6 +1,8 @@
 # Catalog text for Markdown tool results.
 result.reference.deleted: |-
   （已删除）
+result.comment.timestamp_tag: |-
+  [时间戳：{{when}}]
 result.comment.reply:
   self: |-
     我回复了 {{parent}}：

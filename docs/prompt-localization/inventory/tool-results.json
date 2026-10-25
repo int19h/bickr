@@ -12,6 +12,11 @@
           "file": "workers/agent-runtime/src/runtime/tools.ts",
           "line": 451,
           "kind": "direct"
+        },
+        {
+          "file": "workers/agent-runtime/src/localization/templates/log_off.md",
+          "line": 7,
+          "kind": "direct"
         }
       ],
       "protectedTokens": [
