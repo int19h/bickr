@@ -160,6 +160,10 @@ Merge only the exact approved head from a clean worktree. Deploy the reviewed me
 
 Each production deployment needs a fresh user instruction that names production for that task. Implementation, merge, test permission, “finish,” “ship,” release language, and earlier production permission do not grant it. If the user authorizes production, deploy the exact reviewed merge from a clean release worktree. Make sure that health endpoints respond and the production custom domain serves the new bundle. Send the final result durably. Settle required replies and acknowledgements before you retire task sessions.
 
-## Local transient storage
+## Worktrees and local storage
 
-Put Bickr scratch files in `/build/bickr/scratch/` and long logs in `/build/bickr/logs/`. Keep large temporary output out of `/tmp` and the repository. Node and Wrangler build output can stay in the worktree during work. This includes `node_modules/`, `dist/`, `.wrangler/`, and `coverage/`. Do not commit that output or treat it as source. Put durable information in the repository, issue, PR, or artifact storage.
+Do not change the main checkout. Create one worktree for each agent under `~/worktrees/bickr/<name>`, for example with `git worktree add -b <branch> ~/worktrees/bickr/<name> origin/main`. If a session pauses in the middle of its work, its worktree stays where it is.
+
+`/build/bickr` holds only files that are okay to lose. Put scratch files in `/build/bickr/scratch/` and long logs in `/build/bickr/logs/`. Put build and package caches, local Wrangler state, and other large build output under `/build/bickr` when the tool lets you choose the location. Keep large temporary output out of `/tmp` and the repository. A worktree can keep `node_modules/`, `dist/`, `.wrangler/`, and `coverage/` while you work in it. Do not commit that output or treat it as source.
+
+`/build/bickr` can be cleaned at any time. Put durable information in the repository, an issue, a PR, or artifact storage.
