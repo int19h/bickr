@@ -59,6 +59,7 @@ export function LoopChatView(props: LoopChatViewProps) {
 	const [older, setOlder] = useState<BotLoopMessagesResponse[]>([]);
 	const [loading, setLoading] = useState(false);
 	const [loadError, setLoadError] = useState('');
+	const [archiveRefreshError, setArchiveRefreshError] = useState('');
 	const [visiblePage, setVisiblePage] = useState(page?.currentPage ?? 1);
 	const visibleSection = useRef('main');
 	const [newMessages, setNewMessages] = useState(false);
@@ -83,9 +84,10 @@ export function LoopChatView(props: LoopChatViewProps) {
 	useLayoutEffect(() => {
 		// A fresh page map also removes archives after a missed reset frame.
 		if (retainedOlder.length !== older.length) setOlder(retainedOlder);
+		if (retainedOlder.length === 0) setArchiveRefreshError('');
 	}, [retainedOlder, older.length]);
 	useLayoutEffect(() => {
-		setOlder([]); setNewMessages(false); setVisiblePage(page?.currentPage ?? 1); visibleSection.current = 'main'; anchor.current = null;
+		setOlder([]); setArchiveRefreshError(''); setNewMessages(false); setVisiblePage(page?.currentPage ?? 1); visibleSection.current = 'main'; anchor.current = null;
 	}, [props.navigationKey, bot.id]);
 	useEffect(() => {
 		generation.current++; setLoading(false);
@@ -100,24 +102,20 @@ export function LoopChatView(props: LoopChatViewProps) {
 		const sources = cached.flatMap(snapshot => {
 			const source = snapshot.page.pages.find(item => item.page === snapshot.page.currentPage)?.sourceCompactionSeq;
 			const number = source == null ? undefined : page.compactionPageBySeq[String(source)];
-			return source != null && number !== undefined ? [{ source, number }] : [];
+			return source != null && number !== undefined ? [{ source, number, cached: snapshot }] : [];
 		});
 		void Promise.all(sources.map(async ({ source, number }) => props.loadPage(number, source))).then(snapshots => {
 			if (requestGeneration !== generation.current) return;
 			setLoading(false);
 			const element = logRef.current?.querySelector('[data-chat-page] .agent-log-card');
 			if (element) anchor.current = { element, top: element.getBoundingClientRect().top };
-			// Failed archive reads invalidate the cache instead of retaining stale content.
-			setOlder(snapshots.filter((snapshot): snapshot is BotLoopMessagesResponse => snapshot !== null));
+			const failed = snapshots.some(snapshot => snapshot === null);
+			setArchiveRefreshError(failed ? 'Failed to refresh an archive. Showing its saved messages. Try Refresh log again.' : '');
+			// Keep the watched archive on a failed read, with an explicit stale-content notice.
+			setOlder(snapshots.map((snapshot, index) => snapshot ?? sources[index]!.cached));
 		});
 	}, [props.archiveRefreshKey, pageMapIdentity]);
 
-	useEffect(() => {
-		if (!page) return;
-		const selected = visibleSection.current === 'main' ? page.currentPage : page.compactionPageBySeq[visibleSection.current] ?? page.currentPage;
-		setVisiblePage(selected);
-		setLoopChatPage(selected);
-	}, [page]);
 	useEffect(() => {
 		const timer = window.setInterval(() => setNow(Date.now()), 1000);
 		return () => window.clearInterval(timer);
@@ -190,15 +188,20 @@ export function LoopChatView(props: LoopChatViewProps) {
 		cancelAnimationFrame(anchorFrame.current);
 		anchorFrame.current = requestAnimationFrame(() => { restoringAnchor.current = false; });
 	}
-	useLayoutEffect(restoreAnchor, [older, logRef]);
+	useLayoutEffect(() => {
+		restoreAnchor();
+		syncVisibleSection();
+	}, [retainedOlder, page, logRef]);
 	useEffect(() => {
 		const column = logRef.current?.firstElementChild;
 		if (!column || typeof ResizeObserver === 'undefined') return;
 		// Markdown and clamp controls can change height after the first render.
-		const observer = new ResizeObserver(() => { if (!resizing.current) restoreAnchor(); });
+		const observer = new ResizeObserver(() => {
+			if (!resizing.current) { restoreAnchor(); syncVisibleSection(); }
+		});
 		observer.observe(column);
 		return () => observer.disconnect();
-	}, [logRef]);
+	}, [logRef, page]);
 	useEffect(() => {
 		if (!logRef.current || typeof ResizeObserver === 'undefined') return;
 		const heights = new WeakMap<Element, number>();
@@ -217,11 +220,17 @@ export function LoopChatView(props: LoopChatViewProps) {
 		anchor.current = null;
 		props.onScroll();
 		if (pinned.current) setNewMessages(false);
+		syncVisibleSection();
+	}
+	function syncVisibleSection() {
+		if (!page) return;
 		const log = logRef.current;
 		if (!log) return;
 		const top = log.getBoundingClientRect().top;
 		const sections = [...log.querySelectorAll<HTMLElement>('[data-chat-page]')];
-		const section = sections.find(item => item.getBoundingClientRect().bottom > top + 1);
+		const section = sections.find(item => item.getBoundingClientRect().bottom > top + 1)
+			?? sections.find(item => item.dataset.chatSource === visibleSection.current)
+			?? sections.at(-1);
 		if (section) {
 			const selected = Number(section.dataset.chatPage);
 			setVisiblePage(selected);
@@ -306,7 +315,7 @@ export function LoopChatView(props: LoopChatViewProps) {
 		</div>
 		<div className="loop-chat-composer-wrap">
 			{newMessages && <button className="loop-chat-new" onClick={bottom}>New messages <Icon name="arrowDown" size={14} /></button>}
-			{(props.message || loadError) && <div className="loop-chat-feedback" role="status">{loadError || props.message}</div>}
+			{(props.message || loadError || archiveRefreshError) && <div className="loop-chat-feedback" role="status">{loadError || archiveRefreshError || props.message}</div>}
 			<div className="loop-chat-composer-column">
 				{archive && <div className="loop-chat-archive-hint">Injects into the newest page</div>}
 				<form className="loop-chat-composer" onSubmit={event => { event.preventDefault(); if (props.injecting || !props.injection.trim()) return; void props.onInject().then(sent => { if (sent) bottom(); }); }}>

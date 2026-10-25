@@ -237,3 +237,37 @@ it.each([
 ])('formats a scheduled wait of %s minutes', (minutes, expected) => {
 	expect(formatChatWait(minutes * 60000)).toBe(expected);
 });
+
+it('recomputes the visible page after a watched archive is removed at scroll offset zero', async () => {
+	props.loadPage = vi.fn(async () => ({ messages: [], entries: [messageFixture(1)], page: { ...page, currentPage: 2 } })); render();
+	await act(async () => button('Load page 2').click());
+	const log = props.logRef.current!;
+	vi.spyOn(log, 'getBoundingClientRect').mockReturnValue({ top: 50 } as DOMRect);
+	for (const section of log.querySelectorAll('[data-chat-page]')) vi.spyOn(section, 'getBoundingClientRect').mockReturnValue({ bottom: 200 } as DOMRect);
+	await act(async () => new Promise<void>(resolve => requestAnimationFrame(() => resolve())));
+	log.scrollTop = 0; act(() => log.dispatchEvent(new Event('scroll')));
+	expect(button('Page 2 · archive')).toBeDefined();
+	props = { ...props, page: { ...page, compactionPageBySeq: {} } }; render();
+	expect(log.scrollTop).toBe(0); expect(button('Page 3 · newest')).toBeDefined();
+	expect(new URLSearchParams(location.search).has('page')).toBe(false);
+	expect(container.querySelector('.loop-chat-archive-hint')).toBeNull();
+	click('More'); expect(button('Compact chat').disabled).toBe(false);
+});
+it('recomputes the visible page after an archive replacement changes the visible section', async () => {
+	props.loadPage = vi.fn(async () => ({ messages: [], entries: [messageFixture(1)], page: { ...page, currentPage: 2 } })); render();
+	await act(async () => button('Load page 2').click());
+	const log = props.logRef.current!;
+	vi.spyOn(log, 'getBoundingClientRect').mockReturnValue({ top: 50 } as DOMRect);
+	const archive = log.querySelector('[data-chat-source="10"]')!;
+	vi.spyOn(archive, 'getBoundingClientRect').mockImplementation(() => ({ bottom: archive.textContent?.includes('Shorter retained content') ? 40 : 200 } as DOMRect));
+	vi.spyOn(log.querySelector('[data-chat-source="main"]')!, 'getBoundingClientRect').mockReturnValue({ bottom: 400 } as DOMRect);
+	await act(async () => new Promise<void>(resolve => requestAnimationFrame(() => resolve())));
+	log.scrollTop = 0; act(() => log.dispatchEvent(new Event('scroll')));
+	expect(button('Page 2 · archive')).toBeDefined();
+	props = { ...props, archiveRefreshKey: 1, loadPage: vi.fn(async () => ({ messages: [], entries: [messageFixture(2, { kind: 'model' }, 'Shorter retained content')], page: { ...page, currentPage: 2 } })) };
+	await act(async () => root.render(<LoopChatView {...props} />));
+	expect(button('Page 3 · newest')).toBeDefined();
+	expect(new URLSearchParams(location.search).has('page')).toBe(false);
+	expect(container.querySelector('.loop-chat-archive-hint')).toBeNull();
+	click('More'); expect(button('Compact chat').disabled).toBe(false);
+});

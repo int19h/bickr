@@ -1075,3 +1075,36 @@ it.each(['Refresh log', 'reconnect'])('refreshes loaded archives by source after
 	expect(container.textContent).not.toContain('Deleted elsewhere');
 	expect(container.textContent).toContain('Still retained');
 });
+
+it('keeps the watched archive and marks a failed refresh at scroll offset zero', async () => {
+	history.replaceState({}, '', '/w/local/u/runtime-dom/loop');
+	vi.stubGlobal('matchMedia', () => ({ matches: false }));
+	const previous = globalThis.fetch;
+	let failArchive = false;
+	vi.stubGlobal('fetch', (input: RequestInfo | URL, init?: RequestInit) => failArchive && String(input).endsWith('/runtime/messages?page=2')
+		? Promise.resolve(json({ ok: false, error: 'unavailable', message: 'Archive unavailable' }, 503)) : previous(input, init));
+	const pages = [{ page: 1, messageCount: 1 }, { page: 2, messageCount: 1, sourceCompactionSeq: 50 }];
+	await answerMessages(0, [loopMessage(10, 'Newest content')], page(1, { 50: 2 }, pages));
+	await act(async () => container.querySelector<HTMLButtonElement>('.loop-chat-enter')!.click());
+	await act(async () => [...container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Load page 1')!.click());
+	await answerMessages(1, [{ ...loopMessage(4, 'Watched archive content'), compactedBy: 50 }], page(2, { 50: 2 }, pages));
+	const log = container.querySelector<HTMLElement>('.loop-chat-log')!;
+	vi.spyOn(log, 'getBoundingClientRect').mockReturnValue({ top: 50 } as DOMRect);
+	for (const section of log.querySelectorAll('[data-chat-page]')) vi.spyOn(section, 'getBoundingClientRect').mockReturnValue({ bottom: 200 } as DOMRect);
+	await act(async () => new Promise<void>(resolve => requestAnimationFrame(() => resolve())));
+	log.scrollTop = 0;
+	await act(async () => log.dispatchEvent(new Event('scroll')));
+	expect(container.querySelector('.chat-page-chip')?.textContent).toBe('Page 1 · archive');
+	failArchive = true;
+	await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="More"]')!.click());
+	await act(async () => [...container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Refresh log')!.click());
+	await answerMessages(2, [loopMessage(10, 'Newest content')], page(1, { 50: 2 }, pages));
+	expect(log.scrollTop).toBe(0);
+	expect(container.textContent).toContain('Watched archive content');
+	expect(container.textContent).toContain('Failed to refresh an archive. Showing its saved messages. Try Refresh log again.');
+	expect(container.querySelector('.chat-page-chip')?.textContent).toBe('Page 1 · archive');
+	expect(new URLSearchParams(location.search).get('page')).toBe('2');
+	expect(container.querySelector('.loop-chat-archive-hint')).not.toBeNull();
+	await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="More"]')!.click());
+	expect([...container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Compact chat')!.disabled).toBe(true);
+});
