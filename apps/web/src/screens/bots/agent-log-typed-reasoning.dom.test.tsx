@@ -94,3 +94,22 @@ it.each([true, false])('renders certified runtime text once in finished requests
 		}
 	} finally { act(() => root.unmount()); container.remove(); }
 });
+
+it.each([true, false])('keeps runtime reasoning labels through settlement and history when completed=%s', async completed => {
+	(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+	const container = document.createElement('div'); document.body.append(container); const root = createRoot(container);
+	try {
+		for (const scenario of ['summary-only', 'plain-summary', 'text-summary'] as const) {
+			const output = await reasoningRuntimeOutput(completed, scenario);
+			const outcome = output.request.attempts.at(-1)!.outcome!;
+			if (outcome.kind !== 'success' && outcome.kind !== 'interrupted') throw new Error('Expected a stored response.');
+			const response = JSON.parse(outcome.response!).message;
+			for (const entries of [output.snapshots.at(-1)!, output.settled, output.history]) {
+				act(() => root.render(<AgentLogView entries={entries} page={pageFixture()} participantName="Reader" onDelete={() => {}} onLogs={() => {}} onRequest={() => {}} onSession={() => {}} onPage={() => {}} />));
+				expect(container.querySelector('.agent-log-reasoning-label')?.textContent?.trim()).toBe(scenario === 'summary-only' ? 'Reasoning summary' : 'Reasoning');
+			}
+			// Settlement changes the label source, but the certified content stays intact.
+			expect([...container.querySelectorAll('.agent-log-reasoning .markdown-body p')].map(node => node.textContent)).toEqual(response.reasoning.split('\n\n'));
+		}
+	} finally { act(() => root.unmount()); container.remove(); }
+});

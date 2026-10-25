@@ -1,7 +1,7 @@
 import type { AgentLogReasoningPart, BotInferenceSubmissionMessage } from '@bickr/shared/model';
 import { readableReasoningFormat } from '@bickr/shared/model';
 import { useLayoutEffect, useRef, useState } from 'react';
-import { normalizeReadableText, reasoningDetailsForDisplay, reasoningOpaqueCountsForDisplay, reasoningPartsForDisplay } from '../reasoning-formatting';
+import { normalizeReadableText, reasoningDetailsForDisplay, reasoningOpaqueCountsForDisplay, reasoningPartsForDisplay, settledReasoningHasOnlySummaries } from '../reasoning-formatting';
 import { LoopMarkdown } from './loop-markdown';
 import { Icon } from '../ui';
 
@@ -14,7 +14,8 @@ export function LoopReasoning({ message }: { message: BotInferenceSubmissionMess
 		: reasoningDetailsForDisplay(message.reasoning_details ?? []);
 	const classified = live || readableSettled || message.reasoning_details !== undefined;
 	const text = classified ? details.text : message.reasoning || message.reasoning_content || '';
-	const summaryOnly = details.hasSummary && !details.hasText;
+	const summaryOnly = readableSettled ? settledReasoningHasOnlySummaries(message.reasoning ?? '', message.reasoning_details ?? [])
+		: details.hasSummary && !details.hasText;
 	const opaqueOnly = !text && (details.opaqueParts > 0 || (!live && !readableSettled && message.reasoning_details !== undefined));
 	const opaqueNote = details.encryptedParts > 0
 		? `encrypted by the provider${details.opaqueParts > 1 ? ` · ${details.opaqueParts} parts` : ''}`

@@ -19,6 +19,24 @@ export function reasoningOpaqueCountsForDisplay(details: readonly unknown[]) {
 	return { encryptedParts, opaqueParts };
 }
 
+export function settledReasoningHasOnlySummaries(reasoning: string, details: readonly unknown[]): boolean {
+	let summaries = '';
+	for (const detail of details) {
+		const record = recordValue(detail);
+		if (record.type === 'reasoning.text') return false;
+		if (record.type !== 'reasoning.summary') continue;
+		const value = record.summary ?? record.text;
+		if (typeof value === 'string') summaries += value;
+		else if (Array.isArray(value)) summaries += value.map(item => {
+			if (typeof item === 'string') return item;
+			const piece = recordValue(item);
+			return typeof piece.text === 'string' ? piece.text : typeof piece.summary === 'string' ? piece.summary : '';
+		}).join('');
+	}
+	// Certified text includes every readable source. Text beyond summaries needs the general label.
+	return summaries.length > 0 && reasoning === summaries;
+}
+
 export function reasoningDetailForDisplay(detail: unknown): ReasoningDetailDisplay {
 	const record = recordValue(detail);
 	const index = typeof record.index === 'number' && Number.isSafeInteger(record.index) && record.index >= 0 ? { index: record.index } : {};
