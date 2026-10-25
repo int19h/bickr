@@ -19,9 +19,25 @@ Partial responses share the existing memory cache, flush limits, and retention r
 New stored messages carry `reasoning_format: "readable_v1"` when their text comes from the shared extractor.
 Their `reasoning` field contains plain provider text and readable detail parts in arrival order.
 Only `reasoning.text` and `reasoning.summary` contribute detail text.
+
 The marker also certifies an empty string when all details are opaque.
 The Loop API selects this marker explicitly for `message.reasoning_format`.
 
+The settled extractor uses the same mirror rule as the live formatter.
+It joins consecutive plain chunks and consecutive readable chunks with the same identity.
+Readable identity uses the type and index, then the ID when no index exists.
+Without an index or ID, consecutive chunks of the same readable type share an identity.
+A nonempty plain run is a mirror only when an adjacent readable run has exactly the same complete text.
+The extractor removes that plain run and keeps the readable detail.
+
+Each readable run can match one plain run, with the following detail preferred over the preceding detail.
+Opaque parts block adjacency, and repeated opaque markers with the same identity add no new barrier.
+The extractor does not trim text, match substrings, or remove non-adjacent repeats.
+Distinct plain reasoning stays even when details exist.
+Exact provider details and provider replay remain unchanged.
+The response size limit bounds the retained stream parts, and mirror extraction runs once at settlement.
+
+No deployed release used the earlier `readable_v1` text, so this fix needs no data migration.
 An absent or unknown marker means legacy text.
 Readers do not infer a marker from dates, text, or available details.
 Recovery preserves the marker from the stored outcome and never certifies an older outcome.
