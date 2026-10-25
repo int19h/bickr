@@ -881,3 +881,54 @@ it('shows nothing to compact and keeps the summary after the manual request', as
 	expect(container.textContent).not.toContain('Compacted 1 loop chat message');
 	expect(container.querySelector('.modal')).toBeNull();
 });
+
+it('keeps the monitor and restores the Loop scroll offset when chat view closes', async () => {
+	vi.stubGlobal('matchMedia', () => ({ matches: false }));
+	await answerMessages(0, [loopMessage(1, 'A retained response')]);
+	const log = container.querySelector<HTMLDivElement>('.agent-log-scroll')!;
+	log.scrollTop = 123;
+	const entry = [...container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Chat view')!;
+	await act(async () => entry.click());
+	expect(container.querySelector('.loop-chat')).not.toBeNull(); expect(MonitorSocket.instances).toHaveLength(1);
+	await act(async () => { history.replaceState({}, '', '/'); window.dispatchEvent(new PopStateEvent('popstate')); });
+	expect(container.querySelector('.loop-chat')).toBeNull(); expect(container.querySelector('.agent-log-scroll')!.scrollTop).toBe(123);
+	expect(MonitorSocket.instances).toHaveLength(1);
+});
+it('keeps a pasted archive selection when the monitor opens before the first snapshot', async () => {
+	vi.stubGlobal('matchMedia', () => ({ matches: false }));
+	await act(async () => root.unmount()); pendingMessages = [];
+	history.replaceState({}, '', '/w/local/u/runtime-dom/loop?page=2&view=chat'); root = createRoot(container);
+	await act(async () => root.render(<BotRuntimePanel bot={bot} busy={false} onSave={async () => true} />));
+	expect(pendingMessages[0]!.path).toContain('page=2');
+	await act(async () => MonitorSocket.instances.at(-1)!.open());
+	expect(pendingMessages[1]!.path).toContain('page=2');
+	const archive = page(2, { 50: 2 }, [{ page: 1, messageCount: 1 }, { page: 2, messageCount: 1, sourceCompactionSeq: 50 }]);
+	await answerMessages(1, [loopMessage(4, 'Selected archive')], archive);
+	await answerMessages(0, [loopMessage(3, 'Stale archive')], archive);
+	expect(container.textContent).toContain('Selected archive'); expect(container.textContent).not.toContain('Stale archive');
+	expect(container.textContent).toContain('Page 1 · archive');
+});
+it('restores the entry scroll offset after Back reloads its page', async () => {
+	vi.stubGlobal('matchMedia', () => ({ matches: false }));
+	history.replaceState({}, '', '/w/local/u/runtime-dom/loop');
+	const pages = [{ page: 1, messageCount: 1 }, { page: 2, messageCount: 1, sourceCompactionSeq: 50 }];
+	await answerMessages(0, [loopMessage(10, 'Newest response')], page(1, { 50: 2 }, pages));
+	container.querySelector('.agent-log-scroll')!.scrollTop = 123;
+	await act(async () => [...container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Chat view')!.click());
+	await act(async () => container.querySelector<HTMLButtonElement>('.chat-page-chip')!.click());
+	await act(async () => [...container.querySelectorAll<HTMLButtonElement>('.loop-chat-pages button')].find(button => button.textContent === 'Page 1')!.click());
+	await answerMessages(1, [loopMessage(4, 'Archive response')], page(2, { 50: 2 }, pages));
+	await act(async () => { history.replaceState({}, '', '/w/local/u/runtime-dom/loop'); window.dispatchEvent(new PopStateEvent('popstate')); });
+	await answerMessages(2, [loopMessage(10, 'Newest response')], page(1, { 50: 2 }, pages));
+	expect(container.querySelector('.agent-log-scroll')!.scrollTop).toBe(123);
+});
+
+it('keeps the bottom pin at the 24 px boundary', async () => {
+	await answerMessages(0, [loopMessage(1, 'First response')]);
+	const log = container.querySelector('.agent-log-scroll')!;
+	Object.defineProperties(log, { scrollHeight: { configurable: true, value: 1000 }, clientHeight: { configurable: true, value: 400 }, scrollTop: { configurable: true, writable: true, value: 576 } });
+	await act(async () => log.dispatchEvent(new Event('scroll')));
+	const bottom = vi.spyOn(runtimeUtils, 'scrollLogToBottom');
+	await act(async () => MonitorSocket.instances.at(-1)!.emit({ type: 'loop_message', loopMessage: loopMessage(2, 'Another response') }));
+	expect(bottom).toHaveBeenCalled();
+});

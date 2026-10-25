@@ -42,6 +42,11 @@ export type IconName =
 	| "refresh"
 	| "clock"
 	| "play"
+	| "expand"
+	| "collapse"
+	| "more"
+	| "send"
+	| "stop"
 	| "sun"
 	| "moon"
 	| "monitor"
@@ -448,6 +453,11 @@ export function Icon({ className, name, size = 16 }: { className?: string; name:
 				<path d="M12 7v5l3 2" />
 			</svg>
 		),
+		expand: <svg height={size} viewBox="0 0 24 24" width={size} {...stroke}><path d="M8 3H3v5M16 3h5v5M3 16v5h5M21 16v5h-5M3 3l6 6M21 3l-6 6M3 21l6-6M21 21l-6-6" /></svg>,
+		collapse: <svg height={size} viewBox="0 0 24 24" width={size} {...stroke}><path d="M3 3l6 6M9 4v5H4M21 3l-6 6M15 4v5h5M3 21l6-6M4 15h5v5M21 21l-6-6M15 20v-5h5" /></svg>,
+		more: <svg height={size} viewBox="0 0 24 24" width={size} {...stroke}><circle cx="5" cy="12" r="1" /><circle cx="12" cy="12" r="1" /><circle cx="19" cy="12" r="1" /></svg>,
+		send: <svg height={size} viewBox="0 0 24 24" width={size} {...stroke}><path d="m3 3 19 9-19 9 4-9zM7 12h15" /></svg>,
+		stop: <svg height={size} viewBox="0 0 24 24" width={size} {...stroke}><rect x="5" y="5" width="14" height="14" rx="1" /></svg>,
 		play: (
 			<svg height={size} viewBox="0 0 24 24" width={size} {...stroke}>
 				<path d="M8 5v14l11-7z" />
