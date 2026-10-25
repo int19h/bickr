@@ -1,3 +1,4 @@
+import { maxNoteContentLength } from "@bickr/shared/note-settings";
 import { afterEach, describe, expect, it } from "vitest";
 import { runCli, startStubApi, type StubApi } from "./test-harness.ts";
 
@@ -30,6 +31,17 @@ async function startStub(): Promise<StubApi> {
 }
 
 describe("bickr bots notes", () => {
+	it("accepts the code-point limit and rejects one more before sending", async () => {
+		const api = await startStub();
+		const content = '😀'.repeat(maxNoteContentLength);
+		expect((await runCli(api.port, ['bots', 'notes', 'write', 'bot_1', 'boundary', '--content', content])).code).toBe(0);
+		expect(api.requests[0]?.body.content).toBe(content);
+		const rejected = await runCli(api.port, ['bots', 'notes', 'write', 'bot_1', 'boundary', '--content', content + '😀']);
+		expect(rejected.code).toBe(1);
+		expect(rejected.stderr).toContain(`${maxNoteContentLength} Unicode code points`);
+		expect(api.requests).toHaveLength(1);
+	}, 30_000);
+
 	it("sends filters and a title cursor in a POST body", async () => {
 		const api = await startStub();
 		const result = await runCli(api.port, ["--json", "bots", "notes", "list", "bot_1", "--entity", "u/alice", "--entity", "f/news", "--cursor", "met u/alice", "--limit", "10"]);

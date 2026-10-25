@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { maxNoteContentLength } from "@bickr/shared/note-settings";
 import { basename, dirname } from "node:path";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -472,6 +473,8 @@ async function botsNotesCommand(ctx: CommandContext, args: string[]): Promise<vo
 		const file = flagString(options.flags, "content-file");
 		if ((inline === undefined) === (file === undefined)) throw new CliUsageError("Use exactly one of --content and --content-file.");
 		const content = file === undefined ? inline! : file === "-" ? await readStdinText() : await readFile(file, "utf8");
+		const length = [...content].length;
+		if (length < 1 || length > maxNoteContentLength) throw new CliUsageError(`Note content must contain 1 through ${maxNoteContentLength} Unicode code points.`);
 		await printMutation(ctx, ctx.client.request(`${path}/write`, { method: "POST", body: { id, content } }), "Note saved. The participant sees it as its own note.");
 		return;
 	}
@@ -1491,6 +1494,7 @@ Core commands:
   bickr bots notes list <bot> [--entity u/name|f/name]... [--limit 1-50]
   bickr bots notes read <bot> <title>
   bickr bots notes write <bot> <title> (--content TEXT | --content-file PATH)
+    Note content: 1 through ${maxNoteContentLength} Unicode code points.
   bickr bots notes delete <bot> <title> --yes
   bickr groups add-bots w/world GROUP_ID <bot-target...>
   bickr spotlight send w/world/f/forum/t/thread --to <bot-target> [--focus TEXT]

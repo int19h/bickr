@@ -1,3 +1,5 @@
+import type { AgentLogStreamDelta } from '@bickr/shared/model';
+import { reasoningDetailForStream, reasoningTextFromDetails } from './reasoning-stream';
 import { fetchProviderResponse, ProviderTransportError } from '@bickr/shared/provider-transport';
 import {
 	providerBodyReadTimeoutMs,
@@ -61,12 +63,11 @@ export type ProviderSseRuntime = {
 	metadataProviderName(value: unknown): string | null;
 	streamErrorFromChunk(chunk: ProviderSseChunk): Error | null;
 	normalizeReasoningDetails(details: readonly unknown[]): ReasoningDetail[];
-	reasoningTextFromDetails(details: ReasoningDetail[]): string;
 	repairInvalidUnicodeText(text: string): string;
 	repairInvalidUnicodeValue<T>(value: T): { value: T };
 	isAbortError(error: unknown): boolean;
 	throwIfStopped(runId: string, signal: AbortSignal): void;
-	broadcastProviderDelta(runId: string, streamSeq: number, payload: Record<string, unknown>): void;
+	broadcastProviderDelta(runId: string, streamSeq: number, payload: AgentLogStreamDelta): void;
 };
 
 export async function readProviderErrorBody(response: Response, signal: AbortSignal): Promise<string> {
@@ -467,22 +468,29 @@ export async function consumeProviderResponse(
 			if (!delta) {
 				continue;
 			}
-			if (delta.content) {
+			if (typeof delta.content === 'string' && delta.content) {
 				content += delta.content;
 				hasContentText ||= delta.content.trim().length > 0;
 				runtime.broadcastProviderDelta(runId, streamSeq, { kind: 'content', text: delta.content });
 			}
-			const plainReasoning = delta.reasoning ?? delta.reasoning_content;
+			const plainValue = delta.reasoning ?? delta.reasoning_content;
+			const plainReasoning = typeof plainValue === 'string' ? plainValue : '';
 			let detailsReasoning = '';
+			if (plainReasoning) runtime.broadcastProviderDelta(runId, streamSeq, { kind: 'reasoning', source: 'plain', text: plainReasoning });
 			if (Array.isArray(delta.reasoning_details) && delta.reasoning_details.length > 0) {
 				reasoningStream.append(delta.reasoning_details);
-				detailsReasoning = runtime.reasoningTextFromDetails(delta.reasoning_details);
+				detailsReasoning = reasoningTextFromDetails(delta.reasoning_details);
+				for (const detail of delta.reasoning_details) {
+					const part = reasoningDetailForStream(detail);
+					runtime.broadcastProviderDelta(runId, streamSeq, part.kind === 'readable'
+						? { kind: 'reasoning', source: 'detail', part, text: part.text }
+						: { kind: 'reasoning', source: 'detail', part });
+				}
 			}
-			const deltaReasoning = plainReasoning || detailsReasoning;
+			const deltaReasoning = plainReasoning + detailsReasoning;
 			if (deltaReasoning) {
 				reasoning += deltaReasoning;
 				hasReasoningText ||= deltaReasoning.trim().length > 0;
-				runtime.broadcastProviderDelta(runId, streamSeq, { kind: 'reasoning', text: deltaReasoning });
 			}
 			for (const part of delta.tool_calls ?? []) {
 				const current =
@@ -502,7 +510,15 @@ export async function consumeProviderResponse(
 					current.function.arguments += part.function.arguments;
 				}
 				toolCalls.set(part.index, current);
-				runtime.broadcastProviderDelta(runId, streamSeq, { kind: 'tool_call', part });
+				runtime.broadcastProviderDelta(runId, streamSeq, { kind: 'tool_call', part: {
+					index: part.index,
+					...(part.id === undefined ? {} : { id: part.id }),
+					...(part.type === undefined ? {} : { type: part.type }),
+					...(part.function === undefined ? {} : { function: {
+						...(part.function.name === undefined ? {} : { name: part.function.name }),
+						...(part.function.arguments === undefined ? {} : { arguments: part.function.arguments }),
+					} }),
+				} });
 			}
 		}
 		if (!completed) throw new ProviderStreamIncompleteError();
