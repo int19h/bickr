@@ -107,10 +107,10 @@ describe("provider SSE parsing", () => {
 			expect(error).toBeInstanceOf(ProviderResponseInterruptedError);
 			response = (error as ProviderResponseInterruptedError).response;
 		}
-		expect(response.reasoning).toBe('PlainTextSummary');
+		expect(response.reasoning).toBe('Plain\n\nText\n\nSummary');
 		expect(response.reasoningDetails).toEqual([...details, { type: 'future.type', text: 'OPAQUE_LATE' }]);
 		const legacyText = deltas.filter(delta => delta.kind === 'reasoning').map(delta => delta.text ?? '').join('');
-		expect(legacyText).toBe(response.reasoning);
+		expect(legacyText).toBe('PlainTextSummary');
 		expect(JSON.stringify(deltas)).not.toContain('OPAQUE');
 		expect(JSON.stringify(deltas)).not.toContain('EXACT_SIGNATURE');
 	});
@@ -140,7 +140,7 @@ describe("provider SSE parsing", () => {
 		]);
 		expect(JSON.stringify(deltas)).not.toContain('OPAQUE');
 		expect(JSON.stringify(deltas)).not.toContain('PRIVATE');
-		expect(response.reasoning).toBe('Plain thoughtReadable thoughtReadable summary');
+		expect(response.reasoning).toBe('Plain thought\n\nReadable thought\n\nReadable summary');
 		expect(response.reasoningDetails).toEqual([...details, { ...details[2], data: 'OPAQUE_MORE' }, { type: 'future.type', id: 'id-only', text: 'OPAQUE_ID' }]);
 	});
 
