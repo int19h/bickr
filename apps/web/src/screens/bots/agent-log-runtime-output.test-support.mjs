@@ -31,6 +31,14 @@ export async function reasoningRuntimeOutput(completed, scenario = 'mixed') {
             { reasoning: 'Readable plain thought.\n\n' },
             { reasoning_details: [{ type: 'reasoning.summary', summary: 'A readable summary.' }] },
             { content: 'A public reply.' },
+        ] : scenario === 'summary-only' ? [
+            { reasoning_details: [{ type: 'reasoning.summary', summary: [{ text: 'A readable ' }] }] },
+            { reasoning_details: [{ type: 'reasoning.summary', text: 'summary.' }] },
+            { content: 'A public reply.' },
+        ] : scenario === 'text-summary' ? [
+            { reasoning_details: [{ type: 'reasoning.text', text: 'A readable thought.\n\n' }] },
+            { reasoning_details: [{ type: 'reasoning.summary', summary: 'A readable summary.' }] },
+            { content: 'A public reply.' },
         ] : scenario === 'opaque-only' ? [
             { reasoning_details: [{ type: 'reasoning.encrypted', data: 'PRIVATE_ENCRYPTED_BYTES' }] },
             { content: 'A public reply.' },
