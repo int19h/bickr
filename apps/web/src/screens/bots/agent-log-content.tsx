@@ -58,12 +58,14 @@ export { LoopReasoning as AgentLogReasoning } from '../../readable/loop-reasonin
 
 export function AgentLogCall({
 	number,
+	idPrefix = '',
 	call,
 	context,
 	active,
 	onActive,
 }: {
 	number: number;
+	idPrefix?: string;
 	call: NonNullable<BotInferenceSubmissionMessage['tool_calls']>[number];
 	context?: LoopToolCallContext;
 	active: boolean;
@@ -72,13 +74,13 @@ export function AgentLogCall({
 	return (
 		<div
 			className={`agent-log-call${active ? ' call-highlight' : ''}`}
-			id={`loop-call-${number}`}
+			id={`${idPrefix}loop-call-${number}`}
 			onMouseEnter={() => onActive(true)}
 			onMouseLeave={() => onActive(false)}
 			onFocus={() => onActive(true)}
 			onBlur={() => onActive(false)}
 		>
-			<a className="agent-log-call-number" href={`#loop-result-${number}`} aria-label={`Open result of call ${number}`}>
+			<a className="agent-log-call-number" href={`#${idPrefix}loop-result-${number}`} aria-label={`Open result of call ${number}`}>
 				{number}
 			</a>
 			<ReadableToolCall toolCall={call} context={context} />

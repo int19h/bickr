@@ -370,3 +370,14 @@ describe('Loop detail views', () => {
 			expect(attemptCause(outcome as Parameters<typeof attemptCause>[0])).toBe(text);
 	});
 });
+
+it('keeps call and result links inside their own loaded page', () => {
+	act(() => root.render(<>
+		<AgentLogView entries={entriesFixture()} page={pageFixture()} participantName="Reader" idPrefix="first-" {...actions} />
+		<AgentLogView entries={entriesFixture()} page={pageFixture()} participantName="Reader" idPrefix="second-" {...actions} />
+	</>));
+	expect(container.querySelector('#first-loop-call-1 a')?.getAttribute('href')).toBe('#first-loop-result-1');
+	expect(container.querySelector('#second-loop-result-1 a')?.getAttribute('href')).toBe('#second-loop-call-1');
+	const ids = [...container.querySelectorAll('[id]')].map(node => node.id);
+	expect(new Set(ids).size).toBe(ids.length);
+});
