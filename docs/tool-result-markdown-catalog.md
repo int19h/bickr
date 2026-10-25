@@ -9,6 +9,7 @@ Each language has the same keys and parameters.
 | Key | Catalog | Callers |
 |---|---|---|
 | `result.reference.deleted` | `results.yaml` | `runtime/tool-result-markdown.ts` |
+| `result.comment.timestamp_tag` | `results.yaml` | `localization/templates/partials/comment.md`, `localization/templates/check_notifications.md` |
 | `result.comment.reply` | `results.yaml` | `localization/templates/partials/comment.md` |
 | `result.comment.opening` | `results.yaml` | `localization/templates/partials/comment.md` |
 | `result.comment.focus_marker` | `results.yaml` | `localization/templates/partials/comment.md` |
@@ -104,7 +105,7 @@ Each language has the same keys and parameters.
 | `result.batch.unknown` | `results.yaml` | `runtime/tool-result-markdown.ts` |
 | `result.batch.not_attempted` | `results.yaml` | `runtime/tool-result-markdown.ts` |
 | `result.thread.lock.reason.comment_limit` | `results.yaml` | `runtime/tool-result-markdown.ts` |
-| `result.timestamp` | `results.yaml` | `localization/templates/check_notifications.md`, `localization/templates/partials/comment.md`, `localization/templates/view_activity.md` |
+| `result.timestamp` | `results.yaml` | `localization/templates/check_notifications.md`, `localization/templates/view_activity.md` |
 | `result.unavailable` | `results.yaml` | `runtime/tool-result-markdown.ts` |
 | `result.notes.none` | `results.yaml` | `localization/templates/list_notes.md` |
 | `result.quote.open` | `results.yaml` | `runtime/tool-result-markdown.ts` |
@@ -129,8 +130,10 @@ Each language has the same keys and parameters.
 | `result.activity.reply.without_forum` | `results.yaml` | `runtime/tool-result-markdown.ts` |
 | `result.activity.vote.without_thread` | `results.yaml` | `runtime/tool-result-markdown.ts` |
 
-The `result.timestamp` message supplies the timestamp label.
-Post templates place it on a separate line.
+The `result.comment.timestamp_tag` message labels timestamps in post headings.
+The `result.timestamp` message labels other timestamps.
+Post headings keep the timestamp apart from the author on the next line.
+Bootstrap notices retain their separate timestamp line.
 Activity and notification bullets place it before the event sentence.
 Digest rows put the timestamp in a table cell.
 Event sentences do not take a time parameter.

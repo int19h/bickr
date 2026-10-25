@@ -8,6 +8,10 @@ export const resultMessageDefinitions = {
 		"kind": "text",
 		"parameters": []
 	},
+	"result.comment.timestamp_tag": {
+		"kind": "text",
+		"parameters": ["when"]
+	},
 	"result.comment.reply": {
 		"kind": "select",
 		"parameters": [

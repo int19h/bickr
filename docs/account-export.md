@@ -61,7 +61,8 @@ Each API request authenticates the current user and matches the account ID that 
 Collection cursors bind the owner, section, and immutable record positions.
 D1 queries use bounded pages and owner or author indexes. Exports do not enumerate the global KV namespace.
 Definition and content reads also compare document ownership with the D1 selection.
-Private notes use the existing runtime ownership gate. The export preserves factory PLAN state without rendering it as authored text.
+Private notes use the existing runtime ownership gate.
+Their content follows the [shared note limit](notes.md). The export preserves factory PLAN state without rendering it as authored text.
 
 The image endpoint accepts an entity reference and expected object key.
 It resolves the current avatar through ownership checks before it reads R2.

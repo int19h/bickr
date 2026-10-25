@@ -1,6 +1,6 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "catalogSourceHash": "fccf6536ad73ade5b65ab4ff2271b2b82b90f8f3483a35cdea87591dd9437263",
+  "catalogSourceHash": "2c136b409b445c2a7981cd2600185ee0592e1c66686a9286aa270a5a5ad13b0d",
   "locale": "tr",
   "status": "approved",
   "leadReason": "Accept the Turkish catalog after both reviewers accept the exact three terminology follow-ups. Relative time uses count plus a singular unit and sonra or önce. Parenthesized member headings preserve singular and plural labels. Tool arguments consistently use argüman, with suffixes on native head nouns. All conditions, roles, limits, and protected identifiers remain intact.",
@@ -7643,9 +7643,23 @@
           "finalValueHash": "e97c7d65d14fc6a959c7188301d0b86de263e3099f8dec755d25df98ca4e7ece",
           "leadReason": "The lead accepts the review and applies every finding.",
           "reviewerReason": "The supplied review reports no finding for this unit."
+        },
+        "result.comment.timestamp_tag": {
+          "finalValueHash": "cf7058bd1ad082431cefc835f17d5d27acbe2520a288b5c329fd12e702d5de92",
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [
+            {
+              "reviewer": "codex",
+              "session": "01a17179-e7a3-7ab3-a709-ec82b859ca72"
+            }
+          ],
+          "reviewedCommit": "6927ff032edd41e2656603c7fc6afc6929495b78",
+          "leadReason": "Accept the supplied lead translation after independent review. Keep the timestamp parameter and brackets unchanged.",
+          "reviewerReason": "Matches result.timestamp in the same catalog, with natural casing and punctuation for a bracketed tag."
         }
       },
-      "finalTemplateHash": "11c3d8586a69774bfb8746bd7546e46ab3736fb3624f86eaecba8e65c64ce9da"
+      "finalTemplateHash": "c43515f55134cbf553080968dce830d5607511f7bb9d9ca8cb57a260e09f64c0"
     },
     "reports": {
       "provenance": "lead_translation",
@@ -8233,6 +8247,33 @@
       "reportHash": "7140676984d340376c295f77d2f87535a59c883db696b5c11164895ac7b79fd8",
       "leadReason": "The lead applied every finding from the independent review before the reviewed commit.",
       "reviewerReason": "The report reviews the earlier draft. The supplied resolution identifies the final commit after all fixes.",
+      "uncertainties": [],
+      "previousDecisions": {}
+    },
+    {
+      "task": "comment-heading-timestamp",
+      "provenance": "lead_translation",
+      "lead": "claude-opus",
+      "reviewerSessions": [
+        {
+          "reviewer": "codex",
+          "session": "01a17179-e7a3-7ab3-a709-ec82b859ca72"
+        }
+      ],
+      "reviewedCommit": "6927ff032edd41e2656603c7fc6afc6929495b78",
+      "leadReason": "Accept the supplied lead translation after independent review. Keep the timestamp parameter and brackets unchanged.",
+      "reviewerReason": "Matches result.timestamp in the same catalog, with natural casing and punctuation for a bracketed tag.",
+      "sourceCommit": "280947c28b33568e6732c215cc2f65d54eef1fe9",
+      "previousCatalogSourceHash": "fccf6536ad73ade5b65ab4ff2271b2b82b90f8f3483a35cdea87591dd9437263",
+      "catalogSourceHash": "2c136b409b445c2a7981cd2600185ee0592e1c66686a9286aa270a5a5ad13b0d",
+      "previousFinalTemplateHash": "11c3d8586a69774bfb8746bd7546e46ab3736fb3624f86eaecba8e65c64ce9da",
+      "finalTemplateHash": "c43515f55134cbf553080968dce830d5607511f7bb9d9ca8cb57a260e09f64c0",
+      "units": [
+        "result.comment.timestamp_tag"
+      ],
+      "status": "accepted_by_lead",
+      "reviewedDraftCommit": "6927ff032edd41e2656603c7fc6afc6929495b78",
+      "reportHash": "5b97e42a6ab9736c9380ad6432bb7907b1bfbb8fa373cec43e1c1edfa527d953",
       "uncertainties": [],
       "previousDecisions": {}
     }

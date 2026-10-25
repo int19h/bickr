@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 import type { BotProfileRelationshipSummary, ForumSummary, LanguageTag, ThreadDocument, ThreadSummary } from '@bickr/shared/model';
 import type { ToolResultEnvelope, ToolResultReadContentItem } from '@bickr/shared/tool-results';
 import { botText } from '../localization';
+import { instructionLocales } from '@bickr/shared/instruction-language';
 import { buildToolResultView, renderToolResultView, failureResultView, settlementResultView, batchResultView, type ViewBuildContext, notificationContentIds } from './tool-result-views';
 import { ResultContextScope, hydrateResultFacets } from './result-context-scope';
 
@@ -142,7 +143,7 @@ describe('Markdown result views', () => {
 		notes.omittedCount = 2;
 		expect(renderToolResultView(notes, testViewRenderContext(notes, text))).toBe(text.format('result.list.omitted', { count: 2 }));
 	});
-	it('puts each timestamp in one post line, bullet prefix, or table cell', async () => {
+	it('puts each timestamp in one post heading, bullet prefix, or table cell', async () => {
 		for (const event of notificationPayloads.slice(2)) {
 			const view = (await buildToolResultView({ kind: 'notifications_checked', events: [event] }, context()))!;
 			const output = renderToolResultView(view, testViewRenderContext(view, text));
@@ -150,7 +151,7 @@ describe('Markdown result views', () => {
 			const lines = output.split('\n').filter(line => line.includes('22d10h0m'));
 			const expected = event.kind === 'reply' || event.kind === 'follower_activity_digest' ? 2 : 1;
 			expect(lines).toHaveLength(expected);
-			for (const line of lines) expect(line).toMatch(/^(?:Timestamp: 22d10h0m$|- Timestamp: 22d10h0m\. |\| .+ \| 22d10h0m \|$)/u);
+			for (const line of lines) expect(line).toMatch(/^(?:#{2,3} [tc]\/.* \[timestamp: 22d10h0m\]$|- Timestamp: 22d10h0m\. |\| .+ \| 22d10h0m \|$)/u);
 		}
 		for (const item of activities) {
 			const view = (await buildToolResultView({ kind: 'activity_viewed', feed: { bot: profile, activities: [item] } }, context()))!;
@@ -158,6 +159,23 @@ describe('Markdown result views', () => {
 			expect(output.match(/Timestamp:/gu)).toHaveLength(1);
 			expect(output).toContain('- Timestamp: 22d10h0m. ');
 			expect(output).not.toContain('at timestamp');
+		}
+	});
+	it.each(instructionLocales)('keeps the %s post timestamp in the heading before focus and author', async locale => {
+		const localized = botText(locale);
+		for (const focused of [false, true]) {
+			const view = (await buildToolResultView({ kind: 'posts_read', items: [], read: { ...read, content: [{ ...comment, ...(focused ? { focused: true as const } : {}) }] } }, context()))!;
+			for (const mode of ['relative', 'absolute'] as const) {
+				const output = renderToolResultView(view, testViewRenderContext(view, localized, undefined, { ...time, settings: { mode, timezone: 'UTC' } }));
+				const lines = output.split('\n');
+				const index = lines.findIndex(line => line.startsWith('### c/cmt_root '));
+				const when = mode === 'relative' ? '22d10h0m' : '2026-10-23T10:00+00:00';
+				const marker = focused ? ` ${localized.format('result.comment.focus_marker')}` : '';
+				expect(index).toBeGreaterThanOrEqual(0);
+				expect(lines[index]).toBe(`### c/cmt_root ${localized.format('result.comment.timestamp_tag', { when })}${marker}`);
+				expect(lines[index + 1]).toBe(localized.format('result.comment.opening', { author: { kind: 'select', select: 'other', text: 'Alice u/alice' } }));
+				expect(lines).not.toContain(localized.format('result.timestamp', { when }));
+			}
 		}
 	});
 	it('trims render endings and composed cells without trimming quote lines', async () => {

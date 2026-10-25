@@ -28,8 +28,7 @@ Example output:
 
 {{message | quote}}
 {{:case thread_post}}
-## {{thread}}
-{{t "result.timestamp" when=when}}
+## {{thread}} {{t "result.comment.timestamp_tag" when=when}}
 {{message | text}}
 
 {{> body post}}
