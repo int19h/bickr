@@ -1850,7 +1850,7 @@ describe("Tick flow", () => {
 		expect(commentResult).toContain('### c/cmt_spotlight_root');
 		expect(commentResult).toContain('replied to c/cmt_spotlight_root:');
 		expect(commentResult).toContain('replied to c/cmt_spotlight_parent:');
-		expect(commentResult).toContain('### c/cmt_spotlight (focused)');
+		expect(commentResult).toMatch(/^### c\/cmt_spotlight \[timestamp: [^\]\n]+\] \(focused\)$/mu);
 		expect(commentResult).toContain('> Target comment.');
 		expect(threadResult).toContain('## t/thr_spotlight_thread “Thread spotlight”');
 		expect(threadResult).toContain('> Thread target.');
@@ -1962,7 +1962,7 @@ describe("Tick flow", () => {
 		expect(result).toContain('## t/thr_self_spotlight');
 		expect(result).toContain('### c/cmt_self_root');
 		expect(result).toContain('I posted:');
-		expect(result).toContain('### c/cmt_self_reply (focused)');
+		expect(result).toMatch(/^### c\/cmt_self_reply \[timestamp: [^\]\n]+\] \(focused\)$/mu);
 		expect(result).toContain('I replied to c/cmt_other_reply:');
 		expect(result).toContain(`u/${otherProfile.handle}`);
 		expect(result).not.toContain(selfProfile.id);
@@ -2044,7 +2044,7 @@ describe("Tick flow", () => {
 		expect(built.find((message) => message.content === "My focus: Please pay attention to the deepest comment.")).toBeTruthy();
 		const result = resultTextForTool(built, 'read_comment_by_id');
 		expect(result).toContain('### c/cmt_deep_spotlight_0');
-		expect(result).toContain('### c/cmt_deep_spotlight_23 (focused)');
+		expect(result).toMatch(/^### c\/cmt_deep_spotlight_23 \[timestamp: [^\]\n]+\] \(focused\)$/mu);
 		expect(result).toContain('replied to c/cmt_deep_spotlight_22:');
 	});
 
