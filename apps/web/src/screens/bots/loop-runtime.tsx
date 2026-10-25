@@ -137,6 +137,10 @@ export function BotRuntimePanel({
 	const [tokenUsage, setTokenUsage] = useState<BotTokenUsageStats | null>(null);
 	const [connected, setConnected] = useState(false);
 	const [injection, setInjection] = useState("");
+	const [injecting, setInjecting] = useState(false);
+	const injectionPendingRef = useRef(false);
+	const [archiveRefreshKey, setArchiveRefreshKey] = useState(0);
+	const archiveRefreshPendingRef = useRef(false);
 	const [message, setMessage] = useState("");
 	const [togglingEnabled, setTogglingEnabled] = useState(false);
 	const [clearConfirm, setClearConfirm] = useState(false);
@@ -398,7 +402,7 @@ export function BotRuntimePanel({
 				reconnectAttemptRef.current = 0;
 				lastMonitorMessageAt = Date.now();
 				setConnected(true);
-				void refreshAuthoritativeCurrentPage();
+				void refreshLog();
 				heartbeatTimer = window.setInterval(() => {
 					if (socket !== currentSocket || currentSocket.readyState !== WebSocket.OPEN) {
 						clearHeartbeatTimer();
@@ -469,7 +473,7 @@ export function BotRuntimePanel({
 		}
 		const frame = scrollLogToBottom(logRef);
 		return () => window.cancelAnimationFrame(frame);
-	}, [loopMessages, loopEntries]);
+	}, [loopMessages, loopEntries, chat.open]);
 
 	useEffect(() => {
 		const id = sessionAnchorRef.current;
@@ -520,7 +524,7 @@ export function BotRuntimePanel({
 		observer.observe(log);
 		Array.from(log.children).forEach((child) => observer.observe(child));
 		return () => observer.disconnect();
-	}, [loopMessages, loopEntries]);
+	}, [loopMessages, loopEntries, chat.open]);
 
 	useEffect(() => {
 		latestPersistentEventSeqRef.current = latestPersistentEventSeq(events);
@@ -580,6 +584,11 @@ export function BotRuntimePanel({
 	function invalidateRefreshes(parts: { events?: boolean; messages?: boolean }): void {
 		if (parts.events) eventsRequestGenerationRef.current += 1;
 		if (parts.messages) messagesRequestGenerationRef.current += 1;
+	}
+
+	function refreshLog(): Promise<void> {
+		archiveRefreshPendingRef.current = true;
+		return refreshAuthoritativeCurrentPage();
 	}
 
 	function refreshAuthoritativeCurrentPage(): Promise<void> {
@@ -687,6 +696,10 @@ export function BotRuntimePanel({
 			watchedMessageSeqRef.current = messagesResult.data.messages.find(message => !isLiveProviderLoopMessage(message))?.seq;
 			compactionSourcesRef.current = new Set(Object.keys(page.compactionPageBySeq));
 			setLoopMessagePage(page);
+			if (archiveRefreshPendingRef.current) {
+				archiveRefreshPendingRef.current = false;
+				setArchiveRefreshKey(current => current + 1);
+			}
 			// The snapshot replaces older live entries. Only newer stream updates
 			// can fill gaps or supersede a live value returned by this snapshot.
 			for (const [id, update] of liveUpdatesRef.current) {
@@ -864,14 +877,22 @@ export function BotRuntimePanel({
 	async function inject(): Promise<boolean> {
 		const draft = injection;
 		const text = draft.trim();
-		if (!text) return false;
-		const result = await api(`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/inject`, {
-			method: "POST",
-			body: { text },
-		});
-		if (result.ok) { setInjection(current => current === draft ? '' : current); shouldStickToBottomRef.current = true; scrollLogToBottom(logRef); }
-		setMessage(result.ok ? "Thought injected." : result.message);
-		return result.ok;
+		if (!text || injectionPendingRef.current) return false;
+		// The ref also guards two submissions before React renders the disabled button.
+		injectionPendingRef.current = true;
+		setInjecting(true);
+		try {
+			const result = await api(`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/inject`, {
+				method: "POST",
+				body: { text },
+			});
+			if (result.ok) { setInjection(current => current === draft ? '' : current); shouldStickToBottomRef.current = true; scrollLogToBottom(logRef); }
+			setMessage(result.ok ? "Thought injected." : result.message);
+			return result.ok;
+		} finally {
+			injectionPendingRef.current = false;
+			setInjecting(false);
+		}
 	}
 
 	useEffect(() => {
@@ -1040,8 +1061,8 @@ export function BotRuntimePanel({
 		<>
 			{chat.open ? <LoopChatView bot={bot} status={status} connected={connected} enabled={runtimeEnabled} starting={startingTick} busy={busy || togglingEnabled}
 				context={tokenUsage?.contextWindow} startedAt={events.find(event => event.type === 'tick_started' && event.runId === status?.activeRunId)?.createdAt}
-				entries={loopEntries} page={loopMessagePage} injection={injection} setInjection={setInjection} onInject={inject} onRun={() => void runTick()} onStop={() => void stopTick()}
-				onPause={() => void setLoopEnabled(!runtimeEnabled)} onCompact={() => setCompactConfirm(true)} canCompact={canCompact} onRefresh={() => void refreshAuthoritativeCurrentPage()} onExit={chat.exit}
+				entries={loopEntries} page={loopMessagePage} injection={injection} injecting={injecting} archiveRefreshKey={archiveRefreshKey} setInjection={setInjection} onInject={inject} onRun={() => void runTick()} onStop={() => void stopTick()}
+				onPause={() => void setLoopEnabled(!runtimeEnabled)} onCompact={() => setCompactConfirm(true)} canCompact={canCompact} onRefresh={() => void refreshLog()} onExit={chat.exit}
 				onPage={(page, notice) => {
 					chatNoticeRef.current = !!notice;
 					if (page === currentLoopPageRef.current && logRef.current) {
@@ -1051,7 +1072,7 @@ export function BotRuntimePanel({
 						else section?.scrollIntoView({ block: 'start' });
 					} else void switchLoopPage(page);
 				}}
-				loadPage={async page => { const result = await api<BotLoopMessagesResponse>(`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/messages?page=${page}`); return result.ok ? result.data : null; }}
+				loadPage={async (page, source) => { const result = await api<BotLoopMessagesResponse>(`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/messages?page=${page}`); return result.ok && (source === undefined || result.data.page.pages.find(item => item.page === result.data.page.currentPage)?.sourceCompactionSeq === source) ? result.data : null; }}
 				renderPage={renderLog} logRef={logRef} pinned={shouldStickToBottomRef} onScroll={trackLogScroll} message={loopMessageLogError || message} deletedSeqs={deletedSeqs} navigationKey={chatNavigation} /> :
 			<div className="runtime-card live-runtime loop-runtime">
 				<label className="switch-row runtime-switch">
@@ -1099,7 +1120,7 @@ export function BotRuntimePanel({
 					>
 						Stop current visit
 					</button>
-					<button className="btn ghost" onClick={() => void refreshAuthoritativeCurrentPage()} type="button">
+					<button className="btn ghost" onClick={() => void refreshLog()} type="button">
 						Refresh log
 					</button>
 					<button
@@ -1136,7 +1157,7 @@ export function BotRuntimePanel({
 						placeholder="Inject a thought or focus"
 						value={injection}
 					/>
-					<button className="btn" disabled={!injection.trim()} type="submit">
+					<button className="btn" disabled={injecting || !injection.trim()} type="submit">
 						Inject
 					</button>
 				</form>

@@ -1,4 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
+import { parseBrowserRoute } from '../../app-routing';
+import { routePath } from '../../routes';
+
+export function setLoopChatPage(page: number) {
+	window.history.replaceState(window.history.state, '', routePath({ ...parseBrowserRoute(), loopPage: page }));
+}
 
 export function loopPageFromUrl(): number {
 	const value = Number(new URLSearchParams(window.location.search).get('page'));
@@ -22,9 +28,7 @@ export function useLoopChatMode() {
 	}, [open]);
 	useEffect(() => () => { if (wasChatOpen.current && document.fullscreenElement) void document.exitFullscreen(); }, []);
 	function enter(page: number) {
-		const url = new URL(window.location.href);
-		url.searchParams.set('view', 'chat');
-		if (page > 1) url.searchParams.set('page', String(page));
+		const url = routePath({ ...parseBrowserRoute(), loopView: 'chat', loopPage: page });
 		window.history.pushState({ ...window.history.state, loopChatReturn: window.location.href }, '', url);
 		setOpen(true);
 	}
@@ -33,8 +37,7 @@ export function useLoopChatMode() {
 		if (typeof previous === 'string' && new URL(previous).pathname === window.location.pathname) {
 			window.history.back();
 		} else {
-			const url = new URL(window.location.href);
-			url.searchParams.delete('view');
+			const url = routePath({ ...parseBrowserRoute(), loopView: undefined });
 			window.history.replaceState(window.history.state, '', url);
 			window.dispatchEvent(new PopStateEvent('popstate'));
 			setOpen(false);

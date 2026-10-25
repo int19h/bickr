@@ -2,6 +2,7 @@ import type { AgentLogEntry, BotLoopMessagePage, BotLoopMessagesResponse, BotRun
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { Avatar, Icon, Modal, textValue } from '../../ui';
 import { loopPagePagerItems } from '../../loop-page-pager';
+import { setLoopChatPage } from './use-loop-chat-mode';
 
 export type LoopChatViewProps = {
 	bot: BotSummary;
@@ -15,6 +16,8 @@ export type LoopChatViewProps = {
 	entries: AgentLogEntry[];
 	page: BotLoopMessagePage | null;
 	injection: string;
+	injecting: boolean;
+	archiveRefreshKey?: number;
 	setInjection: (value: string) => void;
 	onInject: () => Promise<boolean>;
 	onRun: () => void;
@@ -25,7 +28,7 @@ export type LoopChatViewProps = {
 	onRefresh: () => void;
 	onExit: () => void;
 	onPage: (page: number, notice?: boolean) => void;
-	loadPage: (page: number) => Promise<BotLoopMessagesResponse | null>;
+	loadPage: (page: number, source?: number) => Promise<BotLoopMessagesResponse | null>;
 	renderPage: (entries: AgentLogEntry[], page: BotLoopMessagePage | null) => ReactNode;
 	logRef: RefObject<HTMLDivElement | null>;
 	pinned: RefObject<boolean>;
@@ -39,6 +42,15 @@ export function chatPageNumber(page: BotLoopMessagePage, apiPage: number) {
 	return page.pageCount + 1 - apiPage;
 }
 
+export function formatChatWait(milliseconds: number): string {
+	const minutes = Math.max(0, Math.ceil(milliseconds / 60000));
+	const hours = Math.floor(minutes / 60);
+	const days = Math.floor(hours / 24);
+	if (days > 0) return `in ${days} d${hours % 24 ? ` ${hours % 24} h` : ''}`;
+	if (hours > 0) return `in ${hours} h${minutes % 60 ? ` ${minutes % 60} min` : ''}`;
+	return `in ${minutes} min`;
+}
+
 export function LoopChatView(props: LoopChatViewProps) {
 	const { bot, page, logRef, pinned } = props;
 	const root = useRef<HTMLDivElement>(null);
@@ -46,7 +58,6 @@ export function LoopChatView(props: LoopChatViewProps) {
 	const [overlay, setOverlay] = useState<'pages' | 'more' | null>(null);
 	const [older, setOlder] = useState<BotLoopMessagesResponse[]>([]);
 	const [loading, setLoading] = useState(false);
-	const [sending, setSending] = useState(false);
 	const [loadError, setLoadError] = useState('');
 	const [visiblePage, setVisiblePage] = useState(page?.currentPage ?? 1);
 	const visibleSection = useRef('main');
@@ -79,11 +90,33 @@ export function LoopChatView(props: LoopChatViewProps) {
 	useEffect(() => {
 		generation.current++; setLoading(false);
 	}, [mainSource, page?.currentPage, pageMapIdentity, props.navigationKey]);
+	const olderRef = useRef(retainedOlder);
+	olderRef.current = retainedOlder;
+	useEffect(() => {
+		const cached = olderRef.current;
+		if (!page || cached.length === 0) return;
+		const requestGeneration = ++generation.current;
+		setLoading(true);
+		const sources = cached.flatMap(snapshot => {
+			const source = snapshot.page.pages.find(item => item.page === snapshot.page.currentPage)?.sourceCompactionSeq;
+			const number = source == null ? undefined : page.compactionPageBySeq[String(source)];
+			return source != null && number !== undefined ? [{ source, number }] : [];
+		});
+		void Promise.all(sources.map(async ({ source, number }) => props.loadPage(number, source))).then(snapshots => {
+			if (requestGeneration !== generation.current) return;
+			setLoading(false);
+			const element = logRef.current?.querySelector('[data-chat-page] .agent-log-card');
+			if (element) anchor.current = { element, top: element.getBoundingClientRect().top };
+			// Failed archive reads invalidate the cache instead of retaining stale content.
+			setOlder(snapshots.filter((snapshot): snapshot is BotLoopMessagesResponse => snapshot !== null));
+		});
+	}, [props.archiveRefreshKey, pageMapIdentity]);
+
 	useEffect(() => {
 		if (!page) return;
 		const selected = visibleSection.current === 'main' ? page.currentPage : page.compactionPageBySeq[visibleSection.current] ?? page.currentPage;
 		setVisiblePage(selected);
-		const url = new URL(window.location.href); url.searchParams.set('page', String(selected)); window.history.replaceState(window.history.state, '', url);
+		setLoopChatPage(selected);
 	}, [page]);
 	useEffect(() => {
 		const timer = window.setInterval(() => setNow(Date.now()), 1000);
@@ -193,9 +226,7 @@ export function LoopChatView(props: LoopChatViewProps) {
 			const selected = Number(section.dataset.chatPage);
 			setVisiblePage(selected);
 			visibleSection.current = section.dataset.chatSource ?? 'main';
-			const url = new URL(window.location.href);
-			url.searchParams.set('page', String(selected));
-			window.history.replaceState(window.history.state, '', url);
+			setLoopChatPage(selected);
 		}
 	}
 	function bottom() {
@@ -229,7 +260,7 @@ export function LoopChatView(props: LoopChatViewProps) {
 	const elapsed = props.startedAt ? Math.max(0, Math.floor((now - Date.parse(props.startedAt)) / 1000)) : null;
 	const statusText = running ? `visit running${elapsed === null ? '' : ` · ${Math.floor(elapsed / 60)}:${String(elapsed % 60).padStart(2, '0')}`}`
 		: !props.enabled ? 'paused' : !props.connected || !props.status?.nextDueAt ? 'polling'
-			: `next tick in ${Math.max(0, Math.ceil((Date.parse(props.status.nextDueAt) - now) / 60000))} min`;
+			: `next tick ${formatChatWait(Date.parse(props.status.nextDueAt) - now)}`;
 	const percent = props.context ? props.context.promptTokens / props.context.contextWindowTokens * 100 : null;
 	const pageLabel = page ? `Page ${chatPageNumber(page, visiblePage)} · ${archive ? 'archive' : 'newest'}` : 'Loading page';
 	const fullscreen = document.fullscreenEnabled === true;
@@ -278,11 +309,11 @@ export function LoopChatView(props: LoopChatViewProps) {
 			{(props.message || loadError) && <div className="loop-chat-feedback" role="status">{loadError || props.message}</div>}
 			<div className="loop-chat-composer-column">
 				{archive && <div className="loop-chat-archive-hint">Injects into the newest page</div>}
-				<form className="loop-chat-composer" onSubmit={event => { event.preventDefault(); if (sending || !props.injection.trim()) return; setSending(true); void props.onInject().then(sent => { if (sent) bottom(); }).finally(() => setSending(false)); }}>
+				<form className="loop-chat-composer" onSubmit={event => { event.preventDefault(); if (props.injecting || !props.injection.trim()) return; void props.onInject().then(sent => { if (sent) bottom(); }); }}>
 					<textarea className="input" ref={field} aria-label="Inject a thought or focus" placeholder={window.matchMedia('(max-width: 600px), (pointer: coarse)').matches ? 'Inject a thought or focus' : 'Inject a thought or focus · Enter to send, Shift+Enter for a new line'} value={props.injection} onChange={event => props.setInjection(event.target.value)} onKeyDown={event => {
 						if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && !window.matchMedia('(max-width: 600px), (pointer: coarse)').matches) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); }
 					}} />
-					<button className="btn primary chat-inject" type="submit" aria-label="Inject" disabled={sending || !props.injection.trim()}><Icon name="send" /></button>
+					<button className="btn primary chat-inject" type="submit" aria-label="Inject" disabled={props.injecting || !props.injection.trim()}><Icon name="send" /></button>
 					<button className={`btn chat-run ${running ? 'running' : ''}`} type="button" disabled={props.starting || props.busy || (!running && !props.enabled) || (running && Boolean(props.status?.stopState))} title={!running && !props.enabled ? 'Unpause before starting a visit' : undefined} onClick={running ? props.onStop : props.onRun}>
 						{props.starting ? <span className="chat-spinner" aria-label="Starting visit" /> : <Icon name={running ? 'stop' : 'play'} />}{running ? <><span className="chat-phone">Stop</span><span className="chat-desktop">Stop visit</span></> : 'Run'}
 					</button>

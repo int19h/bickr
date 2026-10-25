@@ -994,3 +994,84 @@ it('loads the visible archive when exiting a pasted chat link in place', async (
 	expect(container.querySelector('.agent-log-caption')?.textContent).toBe('archive');
 	expect(container.textContent).toContain('Visible archive content');
 });
+
+
+it('guards injection in the shared controller across both views', async () => {
+	vi.stubGlobal('matchMedia', () => ({ matches: false }));
+	let finish!: (response: Response) => void;
+	const previous = globalThis.fetch;
+	const requests = vi.fn(() => new Promise<Response>(resolve => { finish = resolve; }));
+	vi.stubGlobal('fetch', (input: RequestInfo | URL, init?: RequestInit) => String(input).endsWith('/runtime/inject') ? requests() : previous(input, init));
+	await answerMessages(0, [loopMessage(10, 'Newest content')]);
+	const field = container.querySelector<HTMLInputElement>('[aria-label="Inject a thought or focus"]')!;
+	await act(async () => {
+		Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(field, 'One thought');
+		field.dispatchEvent(new Event('input', { bubbles: true }));
+	});
+	const form = field.form!;
+	await act(async () => {
+		form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+		form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+	});
+	expect(requests).toHaveBeenCalledOnce();
+	expect(form.querySelector<HTMLButtonElement>('[type="submit"]')!.disabled).toBe(true);
+	await act(async () => container.querySelector<HTMLButtonElement>('.loop-chat-enter')!.click());
+	expect(container.querySelector<HTMLButtonElement>('[aria-label="Inject"]')!.disabled).toBe(true);
+	await act(async () => container.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
+	expect(requests).toHaveBeenCalledOnce();
+	await act(async () => finish(json({ ok: false, error: 'unavailable', message: 'Try again' }, 503)));
+	expect(container.querySelector<HTMLButtonElement>('[aria-label="Inject"]')!.disabled).toBe(false);
+	expect(container.querySelector('textarea')!.value).toBe('One thought');
+	await act(async () => container.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
+	expect(requests).toHaveBeenCalledTimes(2);
+	await act(async () => finish(json({ ok: true, data: {} })));
+	expect(container.querySelector('textarea')!.value).toBe('');
+});
+
+it('reconnects the pin observer when the composer grows just after entering chat', async () => {
+	vi.stubGlobal('matchMedia', () => ({ matches: false }));
+	const observers: { targets: Set<Element>; callback: ResizeObserverCallback; disconnected: boolean }[] = [];
+	vi.stubGlobal('ResizeObserver', class {
+		item: typeof observers[number];
+		constructor(callback: ResizeObserverCallback) { this.item = { callback, targets: new Set(), disconnected: false }; observers.push(this.item); }
+		observe(target: Element) { this.item.targets.add(target); }
+		disconnect() { this.item.disconnected = true; }
+	});
+	await answerMessages(0, [loopMessage(10, 'Newest content')]);
+	const normal = container.querySelector('.agent-log-scroll')!;
+	await act(async () => container.querySelector<HTMLButtonElement>('.loop-chat-enter')!.click());
+	const chatLog = container.querySelector<HTMLElement>('.loop-chat-log')!;
+	let height = 500;
+	Object.defineProperty(chatLog, 'scrollHeight', { configurable: true, get: () => height });
+	const observer = observers.find(item => !item.disconnected && item.targets.has(chatLog));
+	expect(observer).toBeDefined();
+	expect(observers.filter(item => item.targets.has(normal)).every(item => item.disconnected)).toBe(true);
+	height += 70;
+	await act(async () => {
+		observer!.callback([], {} as ResizeObserver);
+		await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+	});
+	expect(chatLog.scrollTop).toBe(570);
+});
+
+it.each(['Refresh log', 'reconnect'])('refreshes loaded archives by source after %s misses a deletion', async trigger => {
+	vi.stubGlobal('matchMedia', () => ({ matches: false }));
+	const pages = [{ page: 1, messageCount: 1 }, { page: 2, messageCount: 2, sourceCompactionSeq: 50 }];
+	await answerMessages(0, [loopMessage(10, 'Newest content')], page(1, { 50: 2 }, pages));
+	await act(async () => container.querySelector<HTMLButtonElement>('.loop-chat-enter')!.click());
+	await act(async () => [...container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Load page 1')!.click());
+	await answerMessages(1, [{ ...loopMessage(4, 'Deleted elsewhere'), compactedBy: 50 }, { ...loopMessage(5, 'Still retained'), compactedBy: 50 }], page(2, { 50: 2 }, pages));
+	expect(container.textContent).toContain('Deleted elsewhere');
+	if (trigger === 'reconnect') await act(async () => MonitorSocket.instances.at(-1)!.open());
+	else {
+		await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="More"]')!.click());
+		await act(async () => [...container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Refresh log')!.click());
+	}
+	const freshPages = [pages[0]!, { ...pages[1]!, messageCount: 1 }];
+	await answerMessages(2, [loopMessage(10, 'Newest content')], page(1, { 50: 2 }, freshPages));
+	expect(pendingMessages[3]!.path).toContain('page=2');
+	await answerMessages(3, [{ ...loopMessage(5, 'Still retained'), compactedBy: 50 }], page(2, { 50: 2 }, freshPages));
+	expect(container.querySelectorAll('[data-chat-page]')).toHaveLength(2);
+	expect(container.textContent).not.toContain('Deleted elsewhere');
+	expect(container.textContent).toContain('Still retained');
+});

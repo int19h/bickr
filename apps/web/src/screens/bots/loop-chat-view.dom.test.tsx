@@ -2,7 +2,7 @@ import { act, useRef, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { BotLoopMessagePage, BotLoopMessagesResponse, BotSummary } from '@bickr/shared/model';
-import { LoopChatView, type LoopChatViewProps } from './loop-chat-view';
+import { LoopChatView, formatChatWait, type LoopChatViewProps } from './loop-chat-view';
 import { useLoopChatMode } from './use-loop-chat-mode';
 import { AgentLogView } from './agent-log-view';
 import { messageFixture } from './agent-log.fixtures';
@@ -22,12 +22,13 @@ beforeEach(() => {
 	vi.stubGlobal('matchMedia', (query: string) => ({ matches: query.includes('600') && phone }));
 	phone = false;
 	vi.spyOn(Date, 'now').mockReturnValue(1803420000000);
+	window.history.replaceState({}, '', '/w/local/u/reader/loop?view=chat');
 	container = document.createElement('div'); document.body.append(container); root = createRoot(container);
 	props = {
 		bot: { id: 'chat-participant', handle: 'reader', displayName: { lang: 'en', text: 'Reader' } } as BotSummary,
 		status: { botId: 'chat-participant', status: 'idle', enabled: true, nextDueAt: new Date(Date.now() + 600000).toISOString() },
 		connected: true, enabled: true, busy: false, starting: false,
-		entries: [messageFixture(20)], page, injection: '', setInjection: vi.fn(), onInject: vi.fn(async () => true),
+		entries: [messageFixture(20)], page, injection: '', injecting: false, setInjection: vi.fn(), onInject: vi.fn(async () => true),
 		onRun: vi.fn(), onStop: vi.fn(), onPause: vi.fn(), onCompact: vi.fn(), canCompact: true,
 		onRefresh: vi.fn(), onExit: vi.fn(), onPage: vi.fn(), loadPage: vi.fn(async () => null),
 		renderPage: (entries, metadata) => <AgentLogView entries={entries} page={metadata} participantName="Reader" onDelete={() => {}} onLogs={() => {}} onRequest={() => {}} onSession={() => {}} onPage={() => {}} />,
@@ -110,7 +111,7 @@ function ModeHarness() {
 	return <div ref={ref}>{mode.open ? 'Chat mode' : 'Loop mode'} {ticks}<button onClick={() => mode.enter(2)}>Enter</button><button onClick={mode.exit}>Exit</button></div>;
 }
 it('pushes chat mode into history, restores it on back, and preserves other parameters', () => {
-	window.history.replaceState({}, '', '/w/local/u/reader/loop?page=2&inference=7');
+	window.history.replaceState({}, '', '/w/local/u/reader/loop?page=2&inference=7&sourceBot=source&runId=run-source');
 	act(() => root.render(<ModeHarness />)); click('Enter'); expect(new URLSearchParams(location.search).get('view')).toBe('chat');
 	expect(new URLSearchParams(location.search).get('inference')).toBe('7');
 	const back = vi.spyOn(history, 'back').mockImplementation(() => {}); click('Exit'); expect(back).toHaveBeenCalledOnce();
@@ -207,7 +208,7 @@ it('loads the next distinct archive after compaction renumbers loaded pages', as
 	props = { ...props, page: { ...page, pageCount: 4, currentPage: 2, compactionPageBySeq: { '20': 2, '10': 3, '5': 4 }, pages: [
 		{ page: 1, messageCount: 1 }, { page: 2, messageCount: 1, sourceCompactionSeq: 20 },
 		{ page: 3, messageCount: 1, sourceCompactionSeq: 10 }, { page: 4, messageCount: 1, sourceCompactionSeq: 5 },
-	] } }; render();
+	] } }; await act(async () => root.render(<LoopChatView {...props} />));
 	await act(async () => button('Load page 1').click());
 	expect(props.loadPage).toHaveBeenLastCalledWith(4);
 	expect([...container.querySelectorAll('[data-chat-page]')].map(node => node.getAttribute('data-chat-page'))).toEqual(['4', '3', '2']);
@@ -226,4 +227,13 @@ it('drops cached archives when an authoritative map reveals a missed reset', asy
 	expect(container.textContent).not.toContain('Deleted archive content'); expect(container.querySelectorAll('[data-chat-page]')).toHaveLength(1);
 	props = { ...props, page }; render();
 	expect(container.textContent).not.toContain('Deleted archive content');
+});
+
+
+it.each([
+	[0, 'in 0 min'], [40, 'in 40 min'], [59, 'in 59 min'], [60, 'in 1 h'],
+	[61, 'in 1 h 1 min'], [200, 'in 3 h 20 min'], [1439, 'in 23 h 59 min'],
+	[1440, 'in 1 d'], [1500, 'in 1 d 1 h'], [3120, 'in 2 d 4 h'],
+])('formats a scheduled wait of %s minutes', (minutes, expected) => {
+	expect(formatChatWait(minutes * 60000)).toBe(expected);
 });
