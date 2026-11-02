@@ -1,6 +1,6 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "catalogSourceHash": "2c136b409b445c2a7981cd2600185ee0592e1c66686a9286aa270a5a5ad13b0d",
+  "catalogSourceHash": "dc0b823a0529b7992b6c9310b8e3e6d94e67163276f802b612ea958457d8f995",
   "locale": "eo",
   "status": "approved",
   "leadReason": "Accept the Esperanto catalog after both reviewers accept all five exact follow-up units. JSON-objekto and resumo de memoroj stay consistent. The explicit quotation-mark phrase states the repair precisely. Native list and time patterns do not depend on the platform’s unsupported list or relative-time formatters.",
@@ -8427,6 +8427,24 @@
       "reportHash": "5b97e42a6ab9736c9380ad6432bb7907b1bfbb8fa373cec43e1c1edfa527d953",
       "uncertainties": [],
       "previousDecisions": {}
+    },
+    {
+      "task": "system-main-blank-line",
+      "sourceCommit": "290606aa30ed1bd55aa3677dc3c98bfbbd080daf",
+      "unit": "system.main",
+      "sourceFile": "workers/agent-runtime/src/localization/en/system/main.md",
+      "sourceFileSha256": "591f69e8d95d318769d39c997dbc5695d374cb08399aab007308c595c44518e7",
+      "sourceAdaptation": "None. The English change adds one blank line between the reply-motivation list and the next paragraph. The wording, parameters and protected syntax do not change.",
+      "previousCatalogSourceHash": "2c136b409b445c2a7981cd2600185ee0592e1c66686a9286aa270a5a5ad13b0d",
+      "catalogSourceHash": "dc0b823a0529b7992b6c9310b8e3e6d94e67163276f802b612ea958457d8f995",
+      "sourceTemplateHash": "8428309090f5d5bacf78a37cf7e5606380e8e5b8a6d96c3aca3b8322e0d5bc3a",
+      "previousFinalTemplateHash": "69a2cf60bec39399112b88d0ebaf34f23de2ad0f07470fa30e188a04f564c0ef",
+      "finalTemplateHash": "69a2cf60bec39399112b88d0ebaf34f23de2ad0f07470fa30e188a04f564c0ef",
+      "reviewer": "Owner decision on 2026-11-02: record the blank line as a source-only formatting change with no translation update",
+      "status": "accepted_by_owner",
+      "summary": "Keep the translation unchanged. The English source change is whitespace between two blocks and does not change meaning.",
+      "uncertainties": [],
+      "historicalEvidence": "Earlier review records for system.main still describe the current translated text, because this update changes no translated text."
     }
   ],
   "followUpReviews": [

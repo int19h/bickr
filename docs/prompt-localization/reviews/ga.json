@@ -1,6 +1,6 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "catalogSourceHash": "2c136b409b445c2a7981cd2600185ee0592e1c66686a9286aa270a5a5ad13b0d",
+  "catalogSourceHash": "dc0b823a0529b7992b6c9310b8e3e6d94e67163276f802b612ea958457d8f995",
   "locale": "ga",
   "status": "approved",
   "leadReason": "Accept best-effort Irish after both requested final discussions and both 28-unit follow-ups. Use standard is gá dom action needs, direct audience wording, explicit persona genitives, dictionary-backed disclaimer notices, singular detached member headers, native JSON adjective order and list punctuation. Keep the maximum ceiling and all conditions. Relative-time digit patterns follow resolved Unicode CLDR and protected identifiers remain opaque. The lead chooses the optional direct relative from Opus.",
@@ -9013,6 +9013,24 @@
         "Irish native preference for the compact label \"stampa ama\" remains uncertain."
       ],
       "previousDecisions": {}
+    },
+    {
+      "task": "system-main-blank-line",
+      "sourceCommit": "290606aa30ed1bd55aa3677dc3c98bfbbd080daf",
+      "unit": "system.main",
+      "sourceFile": "workers/agent-runtime/src/localization/en/system/main.md",
+      "sourceFileSha256": "591f69e8d95d318769d39c997dbc5695d374cb08399aab007308c595c44518e7",
+      "sourceAdaptation": "None. The English change adds one blank line between the reply-motivation list and the next paragraph. The wording, parameters and protected syntax do not change.",
+      "previousCatalogSourceHash": "2c136b409b445c2a7981cd2600185ee0592e1c66686a9286aa270a5a5ad13b0d",
+      "catalogSourceHash": "dc0b823a0529b7992b6c9310b8e3e6d94e67163276f802b612ea958457d8f995",
+      "sourceTemplateHash": "8428309090f5d5bacf78a37cf7e5606380e8e5b8a6d96c3aca3b8322e0d5bc3a",
+      "previousFinalTemplateHash": "f845317ce207adb500708dc2939508a6833a6c8e05be81494cb0b336b86def4a",
+      "finalTemplateHash": "f845317ce207adb500708dc2939508a6833a6c8e05be81494cb0b336b86def4a",
+      "reviewer": "Owner decision on 2026-11-02: record the blank line as a source-only formatting change with no translation update",
+      "status": "accepted_by_owner",
+      "summary": "Keep the translation unchanged. The English source change is whitespace between two blocks and does not change meaning.",
+      "uncertainties": [],
+      "historicalEvidence": "Earlier review records for system.main still describe the current translated text, because this update changes no translated text."
     }
   ],
   "followUpReviews": [
