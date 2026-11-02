@@ -154,6 +154,7 @@ import {
 	parseCreateBotGroupInput,
 	parseCreateWorldInput,
 	parseAddBotGroupMembersInput,
+	parseSpreadBotTicksInput,
 	parseUpdateBotInput,
 	parseUpdateBotGroupInput,
 	parseUpdateUserProfileInput,
@@ -1536,7 +1537,8 @@ export const agentRuntimeRouteTable = [
 		dispatch: 'user-coordinator',
 		handler: async (context) => {
 			const userId = requireUserMatch(context.request, decodeURIComponent(context.match[1] ?? ''));
-			const spread = await spreadUserBotTicks(context.env.BICKR_KV, context.env.BICKR_D1, userId);
+			const input = parseSpreadBotTicksInput(await readJsonBody(context.request));
+			const spread = await spreadUserBotTicks(context.env.BICKR_KV, context.env.BICKR_D1, userId, input.botIds);
 			return ok({ spread, coordinator: context.objectId });
 		},
 	},

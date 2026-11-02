@@ -153,6 +153,25 @@ export function myBotsRunTickSelection<Bot extends MyBotsRunTickBot>(
 	};
 }
 
+export type MyBotsSpreadTickSelection<Bot extends MyBotsRunTickBot> = MyBotsRunTickSelection<Bot>;
+
+export function myBotsSpreadTickSelection<Bot extends MyBotsRunTickBot>(
+	selectedBots: readonly Bot[],
+): MyBotsSpreadTickSelection<Bot> {
+	const targetBots = selectedBots.filter((bot) => bot.tickSettings.enabled);
+	const selectedCount = selectedBots.length;
+	const targetCount = targetBots.length;
+	const pausedCount = selectedCount - targetCount;
+	return {
+		disabled: targetCount === 0,
+		pausedCount,
+		selectedCount,
+		targetBots,
+		targetCount,
+		title: myBotsSpreadTickTitle(selectedCount, targetCount),
+	};
+}
+
 export function modelColorHue(model: string): number {
 	let hash = 0x811c9dc5;
 	for (let index = 0; index < model.length; index += 1) {
@@ -160,6 +179,16 @@ export function modelColorHue(model: string): number {
 		hash = Math.imul(hash, 0x01000193);
 	}
 	return (hash >>> 0) % 360;
+}
+
+function myBotsSpreadTickTitle(selectedCount: number, targetCount: number): string {
+	if (selectedCount === 0) {
+		return "Select bots before spreading ticks.";
+	}
+	if (targetCount === 0) {
+		return "All checked bots are paused. Unpause one before spreading ticks.";
+	}
+	return "Spread checked bot ticks across their schedules";
 }
 
 function myBotsRunTickTitle(selectedCount: number, targetCount: number, pausedCount: number): string {

@@ -1232,7 +1232,7 @@ function App() {
 		);
 	}
 
-	async function spreadBotTicks(): Promise<BotTickSpreadResult | null> {
+	async function spreadBotTicks(selectedBots: BotSummary[]): Promise<BotTickSpreadResult | null> {
 		if (!profileReadyFor("editing bots")) {
 			return null;
 		}
@@ -1240,10 +1240,11 @@ function App() {
 		const ok = await submit(async () => {
 			const result = await runApiAction(throwApiError, () => api<{ spread: BotTickSpreadResult }>("/api/me/bots/spread-ticks", {
 				method: "POST",
+				body: { botIds: selectedBots.map((bot) => bot.id) },
 			}));
 			spread = result.data.spread;
 			applySavedBots(spread.bots);
-			const skipped = spread.skipped.paused + spread.skipped.running;
+			const skipped = spread.skipped.paused + spread.skipped.running + spread.skipped.changed;
 			return `Spread ticks for ${spread.scheduled.length} bot${spread.scheduled.length === 1 ? "" : "s"}${skipped ? `; ${skipped} unchanged` : ""}.`;
 		});
 		return ok ? spread : null;

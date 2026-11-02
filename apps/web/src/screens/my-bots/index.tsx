@@ -8,6 +8,7 @@ import {
 	compareMyBotTableRecords,
 	defaultMyBotsSortState,
 	myBotsRunTickSelection,
+	myBotsSpreadTickSelection,
 	myBotsSortStorageKey,
 	myBotsSpendTotal,
 	modelColorHue,
@@ -50,7 +51,7 @@ export function MyBotsScreen({
 	bots: BotSummary[];
 	onDeleteBots: (bots: BotSummary[]) => Promise<{ deleted: BotSummary[]; failed: BotSummary[] }>;
 	onRunBotTicks: (bots: BotSummary[]) => Promise<void>;
-	onSpreadBotTicks: () => Promise<BotTickSpreadResult | null>;
+	onSpreadBotTicks: (bots: BotSummary[]) => Promise<BotTickSpreadResult | null>;
 	worlds: WorldView[];
 }) {
 	const [botFilter, setBotFilter] = useState("");
@@ -155,8 +156,8 @@ export function MyBotsScreen({
 	);
 	const overallSpendTotal = useMemo(() => myBotsSpendTotal(groups.flatMap((group) => group.rows)), [groups]);
 	const selectedTickRun = useMemo(() => myBotsRunTickSelection(selectedBots), [selectedBots]);
+	const selectedTickSpread = useMemo(() => myBotsSpreadTickSelection(selectedBots), [selectedBots]);
 	const selectedCount = selectedBots.length;
-	const enabledBotCount = bots.filter((bot) => bot.tickSettings.enabled).length;
 	const allVisibleSelected = visibleBotIds.length > 0 && visibleBotIds.every((id) => selectedBotIds.has(id));
 	const someVisibleSelected = selectedCount > 0;
 
@@ -255,10 +256,10 @@ export function MyBotsScreen({
 	}
 
 	async function spreadTicks(): Promise<void> {
-		if (enabledBotCount === 0) {
+		if (selectedTickSpread.disabled) {
 			return;
 		}
-		await onSpreadBotTicks();
+		await onSpreadBotTicks(selectedBots);
 	}
 
 	return (
@@ -288,22 +289,18 @@ export function MyBotsScreen({
 								<Icon name="refresh" size={14} />
 								Run tick
 							</button>
+							<button
+								className="btn"
+								disabled={selectedTickSpread.disabled}
+								onClick={() => setConfirmAction("spread")}
+								title={selectedTickSpread.title}
+								type="button"
+							>
+								<Icon name="clock" size={14} />
+								Spread ticks
+							</button>
 						</>
 					)}
-					<button
-						className="btn"
-						disabled={enabledBotCount === 0}
-						onClick={() => setConfirmAction("spread")}
-						title={
-							enabledBotCount === 0 ?
-								"No active bots have scheduled ticks to spread."
-							:	"Spread active bot ticks across their schedules"
-						}
-						type="button"
-					>
-						<Icon name="clock" size={14} />
-						Spread ticks
-					</button>
 				</div>
 			</div>
 			{bots.length === 0 ?
@@ -481,7 +478,11 @@ export function MyBotsScreen({
 						</>
 					: confirmAction === "spread" ?
 						<>
-							This will reschedule {enabledBotCount} active bot{enabledBotCount === 1 ? "" : "s"} so their ticks are spread out. The next scheduled bot becomes due now. Paused or already-running bots stay unchanged.
+							This will reschedule {selectedTickSpread.targetCount} checked bot{selectedTickSpread.targetCount === 1 ? "" : "s"} so their ticks are spread out. The checked bot that is due soonest, among those that are not paused, becomes due now.
+							{selectedTickSpread.pausedCount > 0 && (
+								<> {selectedTickSpread.pausedCount} checked bot{selectedTickSpread.pausedCount === 1 ? "" : "s"} stay{selectedTickSpread.pausedCount === 1 ? "s" : ""} unchanged because {selectedTickSpread.pausedCount === 1 ? "it is" : "they are"} paused.</>
+							)}
+							{" "}A checked bot that is running when you confirm stays unchanged.
 						</>
 					:	null
 				}

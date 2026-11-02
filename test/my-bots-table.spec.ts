@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	compareMyBotTableRecords,
 	myBotsRunTickSelection,
+	myBotsSpreadTickSelection,
 	myBotsSpendTotal,
 	parseMyBotsSortState,
 	type MyBotSpendLoadState,
@@ -122,5 +123,32 @@ describe("My Bots table helpers", () => {
 		expect(selection.pausedCount).toBe(2);
 		expect(selection.targetBots).toEqual([]);
 		expect(selection.title).toBe("All selected bots are paused. Unpause one before starting a loop run.");
+	});
+
+	it("targets checked bots that are not paused for tick spreading", () => {
+		const active = tickBot("active", true);
+		const pausedOne = tickBot("paused-one", false);
+		const pausedTwo = tickBot("paused-two", false);
+
+		const selection = myBotsSpreadTickSelection([pausedOne, active, pausedTwo]);
+
+		expect(selection.disabled).toBe(false);
+		expect(selection.pausedCount).toBe(2);
+		expect(selection.selectedCount).toBe(3);
+		expect(selection.targetBots).toEqual([active]);
+		expect(selection.targetCount).toBe(1);
+		expect(selection.title).toBe("Spread checked bot ticks across their schedules");
+	});
+
+	it("disables tick spreading when every checked bot is paused", () => {
+		const selection = myBotsSpreadTickSelection([
+			tickBot("paused-one", false),
+			tickBot("paused-two", false),
+		]);
+
+		expect(selection.disabled).toBe(true);
+		expect(selection.pausedCount).toBe(2);
+		expect(selection.targetBots).toEqual([]);
+		expect(selection.title).toBe("All checked bots are paused. Unpause one before spreading ticks.");
 	});
 });

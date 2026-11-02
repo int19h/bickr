@@ -3411,7 +3411,8 @@ describe("Pages functions", () => {
 		const response = await handleAgentRuntimeRequest(
 			new Request(`https://internal.bickr/users/${encodeURIComponent(userId)}/bots/spread-ticks`, {
 				method: "POST",
-				headers: { "x-bickr-user-id": userId },
+				headers: { "content-type": "application/json", "x-bickr-user-id": userId },
+				body: JSON.stringify({ botIds: [anchor.id, later.id, running.id, paused.id] }),
 			}),
 			{
 				BICKR_D1: testEnv.BICKR_D1,
@@ -3427,7 +3428,7 @@ describe("Pages functions", () => {
 					anchorBotId?: string;
 					bots: BotBody[];
 					scheduled: Array<{ botId: string; nextDueAt: string; offsetSeconds: number; orderRelaxed: boolean }>;
-					skipped: { paused: number; running: number };
+					skipped: { paused: number; running: number; changed: number };
 				};
 			};
 		};
@@ -3435,7 +3436,7 @@ describe("Pages functions", () => {
 		expect(payload.data.spread.anchorBotId).toBe(anchor.id);
 		expect(payload.data.spread.scheduled.map((schedule) => schedule.botId)).toEqual([anchor.id, later.id]);
 		expect(payload.data.spread.scheduled[0]).toMatchObject({ botId: anchor.id, offsetSeconds: 0, orderRelaxed: false });
-		expect(payload.data.spread.skipped).toEqual({ paused: 1, running: 1 });
+		expect(payload.data.spread.skipped).toEqual({ paused: 1, running: 1, changed: 0 });
 
 		const rows = await testEnv.BICKR_D1.prepare(
 			`SELECT bot_id AS botId, enabled, status, next_due_at AS nextDueAt
@@ -3458,14 +3459,15 @@ describe("Pages functions", () => {
 	it("proxies spread tick requests to the agent runtime service", async () => {
 		const cookie = await authCookie();
 		const userId = await userIdForHandle("octocat");
-		const proxied: { method?: string; path?: string; userId?: string | null } = {};
+		const proxied: { body?: unknown; method?: string; path?: string; userId?: string | null } = {};
 		const response = await spreadBotTicksRoute(
 			contextFor<typeof spreadBotTicksRoute>(
-				jsonRequest("http://example.com/api/me/bots/spread-ticks", "POST", {}, cookie),
+				jsonRequest("http://example.com/api/me/bots/spread-ticks", "POST", { botIds: ["bot-a", "bot-c"] }, cookie),
 				{},
 				{
 					AGENT_RUNTIME: {
 						fetch: async (request: Request) => {
+							proxied.body = await request.json();
 							proxied.method = request.method;
 							proxied.path = new URL(request.url).pathname;
 							proxied.userId = request.headers.get("x-bickr-user-id");
@@ -3475,7 +3477,7 @@ describe("Pages functions", () => {
 									spread: {
 										bots: [],
 										scheduled: [],
-										skipped: { paused: 0, running: 0 },
+										skipped: { paused: 0, running: 0, changed: 0 },
 										usedApproximateHorizon: false,
 									},
 								},
@@ -3488,6 +3490,7 @@ describe("Pages functions", () => {
 
 		expect(response.status).toBe(200);
 		expect(proxied).toEqual({
+			body: { botIds: ["bot-a", "bot-c"], language: testLanguage },
 			method: "POST",
 			path: `/users/${userId}/bots/spread-ticks`,
 			userId,

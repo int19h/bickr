@@ -115,6 +115,7 @@ import {
 	writeJson,
 } from "./storage";
 import { planBotTickSpread, type TickSpreadInput } from "./tick-spread";
+import { botTickSpreadWriteOutcome } from "./tick-spread-writes";
 import { slugifyHandle } from "./validation";
 import { decodeOpaqueJsonCursor, encodeOpaqueJsonCursor } from "./opaque-json-cursor";
 
@@ -1398,27 +1399,34 @@ async function spreadUserBotTicks(
 	kv: KVNamespaceLike,
 	db: D1DatabaseLike,
 	userId: string,
+	botIds: readonly string[],
 	now = new Date().toISOString(),
 ): Promise<BotTickSpreadResult> {
+	const selectedBotIds = [...new Set(botIds)];
 	const result = await db
 		.prepare(
-			`SELECT
+			`WITH requested_bots(bot_id) AS (SELECT value FROM json_each(?))
+			 SELECT
 				runtime.bot_id AS botId,
 				bots.handle AS handle,
 				runtime.enabled AS enabled,
 				runtime.status AS status,
 				runtime.tick_interval_seconds AS tickIntervalSeconds,
 				runtime.next_due_at AS nextDueAt
-			 FROM bot_runtime_index runtime
-			 JOIN bots_index bots ON bots.bot_id = runtime.bot_id
+			 FROM requested_bots selected
+			 JOIN bots_index bots ON bots.bot_id = selected.bot_id
+			 JOIN bot_runtime_index runtime ON runtime.bot_id = selected.bot_id
 			 WHERE runtime.owner_user_id = ?
 			   AND bots.owner_user_id = ?
 			   AND bots.deleted_at IS NULL
 			   AND bots.lifecycle_state = 'active'`,
 		)
-		.bind(userId, userId)
+		.bind(JSON.stringify(selectedBotIds), userId, userId)
 		.all<UserBotRuntimeSpreadRow>();
 	const rows = result.results ?? [];
+	if (rows.length !== selectedBotIds.length) {
+		throw new RepositoryError("not_found", "One or more selected bots were not found.", 404);
+	}
 	const schedulableRows = rows.filter((row) => row.enabled === 1 && row.status !== "running");
 	const plan = planBotTickSpread(
 		schedulableRows.map((row): TickSpreadInput => ({
@@ -1429,30 +1437,31 @@ async function spreadUserBotTicks(
 		})),
 		new Date(now),
 	);
-	if (plan.scheduled.length > 0) {
-		const update = db.prepare(
-			`UPDATE bot_runtime_index
-			 SET next_due_at = ?, updated_at = ?
-			 WHERE bot_id = ?
-			   AND owner_user_id = ?
-			   AND enabled = 1
-			   AND status != 'running'`,
-		);
-		await db.batch(
+	const update = db.prepare(
+		`UPDATE bot_runtime_index
+		 SET next_due_at = ?, updated_at = ?
+		 WHERE bot_id = ?
+		   AND owner_user_id = ?
+		   AND enabled = 1
+		   AND status != 'running'`,
+	);
+	const batchResults = plan.scheduled.length > 0
+		? await db.batch(
 			plan.scheduled.map((schedule) =>
 				update.bind(schedule.nextDueAt, now, schedule.botId, userId),
 			),
-		);
-	}
+		)
+		: [];
+	const outcome = botTickSpreadWriteOutcome(plan, batchResults, {
+		paused: rows.filter((row) => row.enabled !== 1).length,
+		running: rows.filter((row) => row.enabled === 1 && row.status === "running").length,
+	});
 
 	return {
 		bots: await listUserBots(kv, db, userId),
-		scheduled: plan.scheduled,
-		skipped: {
-			paused: rows.filter((row) => row.enabled !== 1).length,
-			running: rows.filter((row) => row.enabled === 1 && row.status === "running").length,
-		},
-		...(plan.anchorBotId ? { anchorBotId: plan.anchorBotId } : {}),
+		scheduled: outcome.scheduled,
+		skipped: outcome.skipped,
+		...(outcome.anchorBotId ? { anchorBotId: outcome.anchorBotId } : {}),
 		...(plan.exactHyperperiodSeconds !== undefined ? { exactHyperperiodSeconds: plan.exactHyperperiodSeconds } : {}),
 		usedApproximateHorizon: plan.usedApproximateHorizon,
 	};
