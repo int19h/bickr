@@ -385,6 +385,7 @@ export type BotTickSpreadResult = {
 	skipped: {
 		paused: number;
 		running: number;
+		changed: number;
 	};
 	anchorBotId?: string;
 	exactHyperperiodSeconds?: number;

@@ -8,6 +8,7 @@ import {
 	compareMyBotTableRecords,
 	defaultMyBotsSortState,
 	myBotsRunTickSelection,
+	myBotsSpreadTickSelection,
 	myBotsSortStorageKey,
 	myBotsSpendTotal,
 	modelColorHue,
@@ -155,9 +156,8 @@ export function MyBotsScreen({
 	);
 	const overallSpendTotal = useMemo(() => myBotsSpendTotal(groups.flatMap((group) => group.rows)), [groups]);
 	const selectedTickRun = useMemo(() => myBotsRunTickSelection(selectedBots), [selectedBots]);
+	const selectedTickSpread = useMemo(() => myBotsSpreadTickSelection(selectedBots), [selectedBots]);
 	const selectedCount = selectedBots.length;
-	const selectedSpreadBots = selectedBots.filter((bot) => bot.tickSettings.enabled && !bot.running);
-	const selectedSpreadSkippedCount = selectedCount - selectedSpreadBots.length;
 	const allVisibleSelected = visibleBotIds.length > 0 && visibleBotIds.every((id) => selectedBotIds.has(id));
 	const someVisibleSelected = selectedCount > 0;
 
@@ -256,7 +256,7 @@ export function MyBotsScreen({
 	}
 
 	async function spreadTicks(): Promise<void> {
-		if (selectedSpreadBots.length === 0) {
+		if (selectedTickSpread.disabled) {
 			return;
 		}
 		await onSpreadBotTicks(selectedBots);
@@ -291,13 +291,9 @@ export function MyBotsScreen({
 							</button>
 							<button
 								className="btn"
-								disabled={selectedSpreadBots.length === 0}
+								disabled={selectedTickSpread.disabled}
 								onClick={() => setConfirmAction("spread")}
-								title={
-									selectedSpreadBots.length === 0 ?
-										"All checked bots are paused or running, so there are no ticks to spread."
-									:	"Spread checked bot ticks across their schedules"
-								}
+								title={selectedTickSpread.title}
 								type="button"
 							>
 								<Icon name="clock" size={14} />
@@ -482,10 +478,11 @@ export function MyBotsScreen({
 						</>
 					: confirmAction === "spread" ?
 						<>
-							This will reschedule {selectedSpreadBots.length} checked bot{selectedSpreadBots.length === 1 ? "" : "s"} so their ticks are spread out. The first checked bot by current due time becomes due now.
-							{selectedSpreadSkippedCount > 0 && (
-								<> {selectedSpreadSkippedCount} checked bot{selectedSpreadSkippedCount === 1 ? "" : "s"} stay{selectedSpreadSkippedCount === 1 ? "s" : ""} unchanged because {selectedSpreadSkippedCount === 1 ? "it is" : "they are"} paused or running.</>
+							This will reschedule {selectedTickSpread.targetCount} checked bot{selectedTickSpread.targetCount === 1 ? "" : "s"} so their ticks are spread out. The checked bot that is due soonest, among those that are not paused, becomes due now.
+							{selectedTickSpread.pausedCount > 0 && (
+								<> {selectedTickSpread.pausedCount} checked bot{selectedTickSpread.pausedCount === 1 ? "" : "s"} stay{selectedTickSpread.pausedCount === 1 ? "s" : ""} unchanged because {selectedTickSpread.pausedCount === 1 ? "it is" : "they are"} paused.</>
 							)}
+							{" "}A checked bot that is running when you confirm stays unchanged.
 						</>
 					:	null
 				}

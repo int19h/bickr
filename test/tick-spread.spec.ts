@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { maxSpreadBotTickIds } from "@bickr/shared/validation";
 import { planBotTickSpread, type TickSpreadInput } from "../packages/shared/src/tick-spread";
+import { botTickSpreadWriteOutcome } from "../packages/shared/src/tick-spread-writes";
 import {
 	authCookie,
 	authCookieFor,
@@ -109,6 +110,40 @@ describe("bot tick spread planning", () => {
 	});
 });
 
+describe("bot tick spread write outcomes", () => {
+	it("reports only schedules whose guarded update changed a row", () => {
+		const plan = planBotTickSpread([
+			row("bot-a", 60, "2026-05-21T12:00:01.000Z"),
+			row("bot-b", 60, "2026-05-21T12:00:02.000Z"),
+		], now);
+
+		const outcome = botTickSpreadWriteOutcome(plan, [
+			{ success: true, meta: { changes: 1 } },
+			{ success: true, meta: { changes: 0 } },
+		], { paused: 2, running: 3 });
+
+		expect(outcome.scheduled.map((schedule) => schedule.botId)).toEqual(["bot-a"]);
+		expect(outcome.skipped).toEqual({ paused: 2, running: 3, changed: 1 });
+		expect(outcome.anchorBotId).toBe("bot-a");
+	});
+
+	it("omits the anchor when its guarded update changed no row", () => {
+		const plan = planBotTickSpread([
+			row("bot-a", 60, "2026-05-21T12:00:01.000Z"),
+			row("bot-b", 60, "2026-05-21T12:00:02.000Z"),
+		], now);
+
+		const outcome = botTickSpreadWriteOutcome(plan, [
+			{ success: true, meta: { changes: 0 } },
+			{ success: true, meta: { changes: 1 } },
+		], { paused: 0, running: 0 });
+
+		expect(outcome.scheduled.map((schedule) => schedule.botId)).toEqual(["bot-b"]);
+		expect(outcome.skipped).toEqual({ paused: 0, running: 0, changed: 1 });
+		expect(outcome).not.toHaveProperty("anchorBotId");
+	});
+});
+
 type SpreadRuntimeRow = {
 	botId: string;
 	enabled: number;
@@ -204,9 +239,9 @@ describe("selected bot tick spread routes", () => {
 			data: {
 				spread: {
 					anchorBotId?: string;
-					bots: Array<BotBody & { running?: boolean }>;
+					bots: BotBody[];
 					scheduled: Array<{ botId: string; nextDueAt: string; offsetSeconds: number; orderRelaxed: boolean }>;
-					skipped: { paused: number; running: number };
+					skipped: { paused: number; running: number; changed: number };
 				};
 			};
 		};
@@ -219,10 +254,8 @@ describe("selected bot tick spread routes", () => {
 		expect(spread.scheduled.map(({ botId, offsetSeconds }) => ({ botId, offsetSeconds })))
 			.toEqual(expected.scheduled.map(({ botId, offsetSeconds }) => ({ botId, offsetSeconds })));
 		expect(spread.scheduled).toHaveLength(2);
-		expect(spread.skipped).toEqual({ paused: 1, running: 1 });
+		expect(spread.skipped).toEqual({ paused: 1, running: 1, changed: 0 });
 		expect(spread.bots).toHaveLength(6);
-		expect(spread.bots.find((bot) => bot.id === running.id)?.running).toBe(true);
-		expect(spread.bots.find((bot) => bot.id === unchecked.id)?.running).toBe(false);
 
 		const rows = await testEnv.BICKR_D1.prepare(
 			`SELECT bot_id AS botId, enabled, status, next_due_at AS nextDueAt, updated_at AS updatedAt
@@ -233,6 +266,11 @@ describe("selected bot tick spread routes", () => {
 		const anchorDueMs = Date.parse(byId.get(anchor.id)?.nextDueAt ?? "");
 		expect(anchorDueMs).toBeGreaterThanOrEqual(before - 1_000);
 		expect(anchorDueMs).toBeLessThanOrEqual(after + 1_000);
+		for (const schedule of spread.scheduled) {
+			const storedDueAt = byId.get(schedule.botId)?.nextDueAt;
+			expect(storedDueAt).toBe(schedule.nextDueAt);
+			expect((Date.parse(storedDueAt ?? "") - anchorDueMs) / 1_000).toBe(schedule.offsetSeconds);
+		}
 		expect(byId.get(unchecked.id)).toMatchObject({ nextDueAt: uncheckedDue, updatedAt });
 		expect(byId.get(running.id)).toMatchObject({ enabled: 1, status: "running", nextDueAt: runningDue, updatedAt });
 		expect(byId.get(paused.id)).toMatchObject({ enabled: 0, nextDueAt: null, updatedAt });
@@ -297,11 +335,26 @@ describe("selected bot tick spread routes", () => {
 			bots.push(await createScheduledBot(cookie, `spread-many-${index}`));
 		}
 
+		const beforeRows = await testEnv.BICKR_D1.prepare(
+			`SELECT bot_id AS botId, next_due_at AS nextDueAt FROM bot_runtime_index WHERE owner_user_id = ?`,
+		).bind(userId).all<{ botId: string; nextDueAt: string | null }>();
+		const previousDueById = new Map((beforeRows.results ?? []).map((entry) => [entry.botId, entry.nextDueAt]));
+
 		const response = await postSpread(userId, { botIds: bots.map((bot) => bot.id) });
 		expect(response.status, await response.clone().text()).toBe(200);
-		const payload = (await response.json()) as { data: { spread: { bots: BotBody[]; scheduled: Array<{ botId: string }> } } };
+		const payload = (await response.json()) as { data: { spread: { bots: BotBody[]; scheduled: Array<{ botId: string; nextDueAt: string }> } } };
 		expect(payload.data.spread.scheduled).toHaveLength(101);
 		expect(new Set(payload.data.spread.scheduled.map((entry) => entry.botId))).toHaveLength(101);
 		expect(payload.data.spread.bots).toHaveLength(101);
+
+		const storedRows = await testEnv.BICKR_D1.prepare(
+			`SELECT bot_id AS botId, next_due_at AS nextDueAt FROM bot_runtime_index WHERE owner_user_id = ?`,
+		).bind(userId).all<{ botId: string; nextDueAt: string | null }>();
+		expect(storedRows.results).toHaveLength(101);
+		const storedDueById = new Map((storedRows.results ?? []).map((entry) => [entry.botId, entry.nextDueAt]));
+		for (const schedule of payload.data.spread.scheduled) {
+			expect(storedDueById.get(schedule.botId)).toBe(schedule.nextDueAt);
+			expect(storedDueById.get(schedule.botId)).not.toBe(previousDueById.get(schedule.botId));
+		}
 	}, 120_000);
 });

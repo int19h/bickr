@@ -115,6 +115,7 @@ import {
 	writeJson,
 } from "./storage";
 import { planBotTickSpread, type TickSpreadInput } from "./tick-spread";
+import { botTickSpreadWriteOutcome } from "./tick-spread-writes";
 import { slugifyHandle } from "./validation";
 import { decodeOpaqueJsonCursor, encodeOpaqueJsonCursor } from "./opaque-json-cursor";
 
@@ -1238,23 +1239,22 @@ export async function listUserBots(
 				selected.updated_at AS updatedAt,
 				selected.handle AS handle,
 				runtime.next_due_at AS nextDueAt,
-				runtime.status AS runtimeStatus,
 				MAX(activity.active_at) AS lastActiveAt
 			 FROM selected
 			 LEFT JOIN bot_runtime_index runtime ON runtime.bot_id = selected.id
 			 LEFT JOIN activity ON activity.bot_id = selected.id
-			 GROUP BY selected.id, runtime.next_due_at, runtime.status, selected.created_at, selected.updated_at, selected.handle
+			 GROUP BY selected.id, runtime.next_due_at, selected.created_at, selected.updated_at, selected.handle
 			 ORDER BY ${resultOrderSql}`,
 		)
 		.bind(...(page
 			? [userId, paging.createdAt, paging.id, paging.queryLimit]
 			: [userId]))
-		.all<{ id: string; createdAt: string; updatedAt: string; handle: string; nextDueAt: string | null; runtimeStatus: string | null; lastActiveAt: string | null }>();
+		.all<{ id: string; createdAt: string; updatedAt: string; handle: string; nextDueAt: string | null; lastActiveAt: string | null }>();
 	const allRows = result.results ?? [];
 	const hasMore = allRows.length > paging.limit;
 	const rows = allRows.slice(0, paging.limit);
 	const runtimeById = new Map(
-		rows.map((row) => [row.id, { nextDueAt: row.nextDueAt, runtimeStatus: row.runtimeStatus, lastActiveAt: row.lastActiveAt }]),
+		rows.map((row) => [row.id, { nextDueAt: row.nextDueAt, lastActiveAt: row.lastActiveAt }]),
 	);
 	const bots = await Promise.all(rows.map((row) => readJson<BotDocument>(kv, kvKeys.bot(row.id))));
 	const activeBots = bots
@@ -1265,14 +1265,11 @@ export async function listUserBots(
 
 	const summaries = await attachBotOwners(db, effectiveBots.map((bot) => {
 		const runtime = runtimeById.get(bot.id);
-		return {
-			...botSummaryWithLastActive(bot, runtime?.lastActiveAt, {
-				includeToolSettings: true,
-				nextDueAt: runtime?.nextDueAt ?? null,
-				worldPostingSettings: worldPostingSettings.get(bot.homeWorldId),
-			}),
-			running: runtime?.runtimeStatus === "running",
-		};
+		return botSummaryWithLastActive(bot, runtime?.lastActiveAt, {
+			includeToolSettings: true,
+			nextDueAt: runtime?.nextDueAt ?? null,
+			worldPostingSettings: worldPostingSettings.get(bot.homeWorldId),
+		});
 	}));
 	if (!page) return summaries;
 	const last = rows.at(-1);
@@ -1440,30 +1437,31 @@ async function spreadUserBotTicks(
 		})),
 		new Date(now),
 	);
-	if (plan.scheduled.length > 0) {
-		const update = db.prepare(
-			`UPDATE bot_runtime_index
-			 SET next_due_at = ?, updated_at = ?
-			 WHERE bot_id = ?
-			   AND owner_user_id = ?
-			   AND enabled = 1
-			   AND status != 'running'`,
-		);
-		await db.batch(
+	const update = db.prepare(
+		`UPDATE bot_runtime_index
+		 SET next_due_at = ?, updated_at = ?
+		 WHERE bot_id = ?
+		   AND owner_user_id = ?
+		   AND enabled = 1
+		   AND status != 'running'`,
+	);
+	const batchResults = plan.scheduled.length > 0
+		? await db.batch(
 			plan.scheduled.map((schedule) =>
 				update.bind(schedule.nextDueAt, now, schedule.botId, userId),
 			),
-		);
-	}
+		)
+		: [];
+	const outcome = botTickSpreadWriteOutcome(plan, batchResults, {
+		paused: rows.filter((row) => row.enabled !== 1).length,
+		running: rows.filter((row) => row.enabled === 1 && row.status === "running").length,
+	});
 
 	return {
 		bots: await listUserBots(kv, db, userId),
-		scheduled: plan.scheduled,
-		skipped: {
-			paused: rows.filter((row) => row.enabled !== 1).length,
-			running: rows.filter((row) => row.enabled === 1 && row.status === "running").length,
-		},
-		...(plan.anchorBotId ? { anchorBotId: plan.anchorBotId } : {}),
+		scheduled: outcome.scheduled,
+		skipped: outcome.skipped,
+		...(outcome.anchorBotId ? { anchorBotId: outcome.anchorBotId } : {}),
 		...(plan.exactHyperperiodSeconds !== undefined ? { exactHyperperiodSeconds: plan.exactHyperperiodSeconds } : {}),
 		usedApproximateHorizon: plan.usedApproximateHorizon,
 	};

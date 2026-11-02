@@ -8,7 +8,7 @@ let container: HTMLDivElement;
 let root: Root;
 let onSpreadBotTicks: ReturnType<typeof vi.fn<(bots: BotSummary[]) => Promise<BotTickSpreadResult | null>>>;
 
-function bot(handle: string, options: { enabled?: boolean; running?: boolean } = {}): BotSummary {
+function bot(handle: string, options: { enabled?: boolean } = {}): BotSummary {
 	return {
 		id: `bot_${handle}`,
 		handle,
@@ -19,7 +19,6 @@ function bot(handle: string, options: { enabled?: boolean; running?: boolean } =
 		shortBio: { lang: "en", text: `${handle} bio` },
 		tickSettings: { enabled: options.enabled ?? true, intervalSeconds: 60 },
 		nextDueAt: "2026-05-21T12:00:00.000Z",
-		running: options.running ?? false,
 		createdAt: "2026-05-21T11:00:00.000Z",
 		updatedAt: "2026-05-21T11:00:00.000Z",
 	} as BotSummary;
@@ -105,34 +104,33 @@ describe("My bots spread selection", () => {
 		expect(onSpreadBotTicks.mock.calls[0]![0].map((entry) => entry.id)).toEqual([first.id, second.id]);
 	});
 
-	it("disables spread when every checked bot is paused or running", async () => {
+	it("disables spread when every checked bot is paused", async () => {
 		await render([
-			bot("paused", { enabled: false }),
-			bot("running", { running: true }),
+			bot("paused-one", { enabled: false }),
+			bot("paused-two", { enabled: false }),
 			bot("unchecked"),
 		]);
 
-		await select("paused");
-		await select("running");
+		await select("paused-one");
+		await select("paused-two");
 		const spread = button("Spread ticks");
 		expect(spread?.disabled).toBe(true);
-		expect(spread?.title).toContain("All checked bots are paused or running");
+		expect(spread?.title).toContain("All checked bots are paused");
 	});
 
-	it("counts selected paused and running bots in the confirmation", async () => {
+	it("counts selected paused bots and warns that running bots stay unchanged", async () => {
 		const active = bot("active");
 		const paused = bot("paused", { enabled: false });
-		const running = bot("running", { running: true });
-		await render([active, paused, running]);
+		await render([active, paused]);
 
 		await select("active");
 		await select("paused");
-		await select("running");
 		await act(async () => button("Spread ticks")!.click());
 
 		const confirmation = container.querySelector(".confirm-body")?.textContent ?? "";
 		expect(confirmation).toContain("This will reschedule 1 checked bot");
-		expect(confirmation).toContain("2 checked bots stay unchanged because they are paused or running");
+		expect(confirmation).toContain("1 checked bot stays unchanged because it is paused");
+		expect(confirmation).toContain("A checked bot that is running when you confirm stays unchanged");
 		expect(confirmation).not.toContain("unchecked");
 	});
 });

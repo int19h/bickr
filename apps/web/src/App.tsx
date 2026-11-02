@@ -1244,7 +1244,7 @@ function App() {
 			}));
 			spread = result.data.spread;
 			applySavedBots(spread.bots);
-			const skipped = spread.skipped.paused + spread.skipped.running;
+			const skipped = spread.skipped.paused + spread.skipped.running + spread.skipped.changed;
 			return `Spread ticks for ${spread.scheduled.length} bot${spread.scheduled.length === 1 ? "" : "s"}${skipped ? `; ${skipped} unchanged` : ""}.`;
 		});
 		return ok ? spread : null;

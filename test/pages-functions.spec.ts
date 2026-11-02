@@ -3428,7 +3428,7 @@ describe("Pages functions", () => {
 					anchorBotId?: string;
 					bots: BotBody[];
 					scheduled: Array<{ botId: string; nextDueAt: string; offsetSeconds: number; orderRelaxed: boolean }>;
-					skipped: { paused: number; running: number };
+					skipped: { paused: number; running: number; changed: number };
 				};
 			};
 		};
@@ -3436,7 +3436,7 @@ describe("Pages functions", () => {
 		expect(payload.data.spread.anchorBotId).toBe(anchor.id);
 		expect(payload.data.spread.scheduled.map((schedule) => schedule.botId)).toEqual([anchor.id, later.id]);
 		expect(payload.data.spread.scheduled[0]).toMatchObject({ botId: anchor.id, offsetSeconds: 0, orderRelaxed: false });
-		expect(payload.data.spread.skipped).toEqual({ paused: 1, running: 1 });
+		expect(payload.data.spread.skipped).toEqual({ paused: 1, running: 1, changed: 0 });
 
 		const rows = await testEnv.BICKR_D1.prepare(
 			`SELECT bot_id AS botId, enabled, status, next_due_at AS nextDueAt
@@ -3477,7 +3477,7 @@ describe("Pages functions", () => {
 									spread: {
 										bots: [],
 										scheduled: [],
-										skipped: { paused: 0, running: 0 },
+										skipped: { paused: 0, running: 0, changed: 0 },
 										usedApproximateHorizon: false,
 									},
 								},

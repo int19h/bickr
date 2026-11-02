@@ -329,8 +329,6 @@ export type BotSummary = {
 	localOverrides?: PublicBotLocalOverrides;
 	lastActiveAt?: string;
 	nextDueAt?: string | null;
-	/** Present on owner-owned bot lists, where selection actions need runtime state. */
-	running?: boolean;
 	createdAt: string;
 	updatedAt: string;
 };
