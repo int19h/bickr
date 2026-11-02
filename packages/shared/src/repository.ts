@@ -1238,22 +1238,23 @@ export async function listUserBots(
 				selected.updated_at AS updatedAt,
 				selected.handle AS handle,
 				runtime.next_due_at AS nextDueAt,
+				runtime.status AS runtimeStatus,
 				MAX(activity.active_at) AS lastActiveAt
 			 FROM selected
 			 LEFT JOIN bot_runtime_index runtime ON runtime.bot_id = selected.id
 			 LEFT JOIN activity ON activity.bot_id = selected.id
-			 GROUP BY selected.id, runtime.next_due_at, selected.created_at, selected.updated_at, selected.handle
+			 GROUP BY selected.id, runtime.next_due_at, runtime.status, selected.created_at, selected.updated_at, selected.handle
 			 ORDER BY ${resultOrderSql}`,
 		)
 		.bind(...(page
 			? [userId, paging.createdAt, paging.id, paging.queryLimit]
 			: [userId]))
-		.all<{ id: string; createdAt: string; updatedAt: string; handle: string; nextDueAt: string | null; lastActiveAt: string | null }>();
+		.all<{ id: string; createdAt: string; updatedAt: string; handle: string; nextDueAt: string | null; runtimeStatus: string | null; lastActiveAt: string | null }>();
 	const allRows = result.results ?? [];
 	const hasMore = allRows.length > paging.limit;
 	const rows = allRows.slice(0, paging.limit);
 	const runtimeById = new Map(
-		rows.map((row) => [row.id, { nextDueAt: row.nextDueAt, lastActiveAt: row.lastActiveAt }]),
+		rows.map((row) => [row.id, { nextDueAt: row.nextDueAt, runtimeStatus: row.runtimeStatus, lastActiveAt: row.lastActiveAt }]),
 	);
 	const bots = await Promise.all(rows.map((row) => readJson<BotDocument>(kv, kvKeys.bot(row.id))));
 	const activeBots = bots
@@ -1264,11 +1265,14 @@ export async function listUserBots(
 
 	const summaries = await attachBotOwners(db, effectiveBots.map((bot) => {
 		const runtime = runtimeById.get(bot.id);
-		return botSummaryWithLastActive(bot, runtime?.lastActiveAt, {
-			includeToolSettings: true,
-			nextDueAt: runtime?.nextDueAt ?? null,
-			worldPostingSettings: worldPostingSettings.get(bot.homeWorldId),
-		});
+		return {
+			...botSummaryWithLastActive(bot, runtime?.lastActiveAt, {
+				includeToolSettings: true,
+				nextDueAt: runtime?.nextDueAt ?? null,
+				worldPostingSettings: worldPostingSettings.get(bot.homeWorldId),
+			}),
+			running: runtime?.runtimeStatus === "running",
+		};
 	}));
 	if (!page) return summaries;
 	const last = rows.at(-1);
@@ -1398,27 +1402,34 @@ async function spreadUserBotTicks(
 	kv: KVNamespaceLike,
 	db: D1DatabaseLike,
 	userId: string,
+	botIds: readonly string[],
 	now = new Date().toISOString(),
 ): Promise<BotTickSpreadResult> {
+	const selectedBotIds = [...new Set(botIds)];
 	const result = await db
 		.prepare(
-			`SELECT
+			`WITH requested_bots(bot_id) AS (SELECT value FROM json_each(?))
+			 SELECT
 				runtime.bot_id AS botId,
 				bots.handle AS handle,
 				runtime.enabled AS enabled,
 				runtime.status AS status,
 				runtime.tick_interval_seconds AS tickIntervalSeconds,
 				runtime.next_due_at AS nextDueAt
-			 FROM bot_runtime_index runtime
-			 JOIN bots_index bots ON bots.bot_id = runtime.bot_id
+			 FROM requested_bots selected
+			 JOIN bots_index bots ON bots.bot_id = selected.bot_id
+			 JOIN bot_runtime_index runtime ON runtime.bot_id = selected.bot_id
 			 WHERE runtime.owner_user_id = ?
 			   AND bots.owner_user_id = ?
 			   AND bots.deleted_at IS NULL
 			   AND bots.lifecycle_state = 'active'`,
 		)
-		.bind(userId, userId)
+		.bind(JSON.stringify(selectedBotIds), userId, userId)
 		.all<UserBotRuntimeSpreadRow>();
 	const rows = result.results ?? [];
+	if (rows.length !== selectedBotIds.length) {
+		throw new RepositoryError("not_found", "One or more selected bots were not found.", 404);
+	}
 	const schedulableRows = rows.filter((row) => row.enabled === 1 && row.status !== "running");
 	const plan = planBotTickSpread(
 		schedulableRows.map((row): TickSpreadInput => ({

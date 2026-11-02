@@ -524,6 +524,40 @@ export function parseUpdateBotGroupInput(input: unknown): UpdateBotGroupInput {
 	};
 }
 
+export const maxSpreadBotTickIds = 1_000;
+
+export function parseSpreadBotTicksInput(input: unknown): { botIds: string[] } {
+	const record = asRecord(input);
+	if (!Array.isArray(record.botIds)) {
+		throw new InputError("Bot IDs must be an array.");
+	}
+	if (record.botIds.length > maxSpreadBotTickIds) {
+		throw new InputError(`You can spread at most ${maxSpreadBotTickIds} bots at once.`);
+	}
+	const botIds: string[] = [];
+	const seen = new Set<string>();
+	for (const value of record.botIds) {
+		if (typeof value !== "string") {
+			throw new InputError("Bot IDs must be text.");
+		}
+		const botId = value.trim();
+		if (!botId) {
+			throw new InputError("Bot IDs must not be empty.");
+		}
+		if (botId.length > 80) {
+			throw new InputError("Bot IDs must be 80 characters or fewer.");
+		}
+		if (!seen.has(botId)) {
+			botIds.push(botId);
+			seen.add(botId);
+		}
+	}
+	if (botIds.length === 0) {
+		throw new InputError("Pick at least one bot.");
+	}
+	return { botIds };
+}
+
 export function parseAddBotGroupMembersInput(input: unknown): AddBotGroupMembersInput {
 	const record = asRecord(input);
 	if (!Array.isArray(record.botIds)) {

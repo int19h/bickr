@@ -2787,7 +2787,7 @@ describe("Avatar", () => {
 			});
 		}
 
-		const routed: { method?: string; path?: string; userId?: string } = {};
+		const routed: { body?: unknown; method?: string; path?: string; userId?: string } = {};
 		const namespace = {
 			idFromName(name: string): DurableObjectId {
 				routed.userId = name;
@@ -2796,6 +2796,7 @@ describe("Avatar", () => {
 			get(): Fetcher {
 				return {
 					fetch: async (request: Request) => {
+						routed.body = await request.json();
 						routed.method = request.method;
 						routed.path = new URL(request.url).pathname;
 						return Response.json({ ok: true });
@@ -2805,7 +2806,8 @@ describe("Avatar", () => {
 		};
 		const request = new Request(`https://internal.bickr/users/${userId}/bots/spread-ticks`, {
 			method: "POST",
-			headers: { "x-bickr-user-id": userId, "x-bickr-internal-auth": "avatar-route-secret" },
+			headers: { "content-type": "application/json", "x-bickr-user-id": userId, "x-bickr-internal-auth": "avatar-route-secret" },
+			body: JSON.stringify({ botIds: ["bot-a", "bot-c"] }),
 		});
 		const response = await agentRuntimeWorker.fetch(
 			request as unknown as Parameters<typeof agentRuntimeWorker.fetch>[0],
@@ -2814,6 +2816,7 @@ describe("Avatar", () => {
 
 		expect(response.status).toBe(200);
 		expect(routed).toEqual({
+			body: { botIds: ["bot-a", "bot-c"] },
 			method: "POST",
 			path: `/users/${userId}/bots/spread-ticks`,
 			userId,
