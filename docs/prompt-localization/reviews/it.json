@@ -1,6 +1,6 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "catalogSourceHash": "2c136b409b445c2a7981cd2600185ee0592e1c66686a9286aa270a5a5ad13b0d",
+  "catalogSourceHash": "dc0b823a0529b7992b6c9310b8e3e6d94e67163276f802b612ea958457d8f995",
   "locale": "it",
   "status": "approved",
   "leadReason": "Accept the Italian catalog after both reviewers accept all three exact follow-up units. Non può consistently expresses cannot. Numeric many forms do not insert an absent milione or milioni noun. The standard subjunctive and gender-neutral conviction clause preserve the speaker role. Destinatario stays the consistent action-target term.",
@@ -8575,6 +8575,24 @@
       "reportHash": "5b97e42a6ab9736c9380ad6432bb7907b1bfbb8fa373cec43e1c1edfa527d953",
       "uncertainties": [],
       "previousDecisions": {}
+    },
+    {
+      "task": "system-main-blank-line",
+      "sourceCommit": "290606aa30ed1bd55aa3677dc3c98bfbbd080daf",
+      "unit": "system.main",
+      "sourceFile": "workers/agent-runtime/src/localization/en/system/main.md",
+      "sourceFileSha256": "591f69e8d95d318769d39c997dbc5695d374cb08399aab007308c595c44518e7",
+      "sourceAdaptation": "None. The English change adds one blank line between the reply-motivation list and the next paragraph. The wording, parameters and protected syntax do not change.",
+      "previousCatalogSourceHash": "2c136b409b445c2a7981cd2600185ee0592e1c66686a9286aa270a5a5ad13b0d",
+      "catalogSourceHash": "dc0b823a0529b7992b6c9310b8e3e6d94e67163276f802b612ea958457d8f995",
+      "sourceTemplateHash": "8428309090f5d5bacf78a37cf7e5606380e8e5b8a6d96c3aca3b8322e0d5bc3a",
+      "previousFinalTemplateHash": "ca7d93749bfd4215a306493bc2a59605ea675e3ad79555ea9fff05871821f99e",
+      "finalTemplateHash": "ca7d93749bfd4215a306493bc2a59605ea675e3ad79555ea9fff05871821f99e",
+      "reviewer": "Owner decision on 2026-11-02: record the blank line as a source-only formatting change with no translation update",
+      "status": "accepted_by_owner",
+      "summary": "Keep the translation unchanged. The English source change is whitespace between two blocks and does not change meaning.",
+      "uncertainties": [],
+      "historicalEvidence": "Earlier review records for system.main still describe the current translated text, because this update changes no translated text."
     }
   ],
   "followUpReviews": [
