@@ -133,24 +133,23 @@ If the application uses Durable Objects or Workflows, refer to the relevant best
 - Durable Objects: https://developers.cloudflare.com/durable-objects/best-practices/rules-of-durable-objects/
 - Workflows: https://developers.cloudflare.com/workflows/build/rules-of-workflows/
 
-## Herdr Collab
+## Working with other agent sessions
 
-The Herdr Collab project ID for this repository is exactly `bickr`.
-Use the `herdr-collab` skill and MCP tools to coordinate. Do not infer the project from the checkout path.
+To work with other agent sessions, follow the global instructions on this machine.
 
 ## Coordination conventions
 
-Herdr Collab records coordination conventions. It does not enforce a fixed workflow or reviewer roster. Choose participants, groups, duties, review order, write boundaries, and end conditions for the task. A small fix can use a lead, an implementer, and one reviewer. A storage or runtime change can need domain, security, and release reviewers. Record the chosen roster and order in the task brief or linked GitHub issue. Do not silently use a fixed fallback order.
+This file records coordination conventions. Nothing enforces a fixed workflow or reviewer roster. Choose participants, groups, duties, review order, write boundaries, and end conditions for the task. A small fix can use a lead, an implementer, and one reviewer. A storage or runtime change can need domain, security, and release reviewers. Record the chosen roster and order in the task brief or linked GitHub issue. Do not silently use a fixed fallback order.
 
-A self-contained task can start from its prompt or durable mail. Use a GitHub issue or PR for public acceptance criteria or backlog work. Do not create an issue only because product behavior changes or several sessions take part. Search before you create an issue. The task determines whether the primary session implements or delegates. Use Herdr Collab for durable coordination between sessions.
+A self-contained task can start from its prompt or a brief. Use a GitHub issue or PR for public acceptance criteria or backlog work. Do not create an issue only because product behavior changes or several sessions take part. Search before you create an issue. The task determines whether the primary session implements or delegates.
 
-Before a long pause, send a durable handoff. Name the task, issue, branch, worktree, write boundary, and exact HEAD. Include finished and remaining checks, decisions, blockers, live environment state, and relevant message IDs.
+Before a long pause, write a handoff. Name the task, issue, branch, worktree, write boundary, and exact HEAD. Include finished and remaining checks, decisions, blockers, live environment state, and relevant report files.
 
 ### Task-tailored implementation and review
 
-Choose a workflow that fits the task. Inspect affected code, tests, stored data, API boundaries, and relevant live behavior. Read current primary documentation to match the risk. For Cloudflare work, follow the documentation and skill rules above. Herdr Collab does not supply those sources. Record acceptance criteria, data rules, migration and retention needs, observability, checks, participants, and review order in the prompt, durable mail, issue, or PR.
+Choose a workflow that fits the task. Inspect affected code, tests, stored data, API boundaries, and relevant live behavior. Read current primary documentation to match the risk. For Cloudflare work, follow the documentation and skill rules above. Record acceptance criteria, data rules, migration and retention needs, observability, checks, participants, and review order in the prompt, brief, issue, or PR.
 
-The primary session can implement or delegate. If you delegate work or review, state each duty, write boundary, branch or worktree, checks, and handoff order. Herdr Collab records these rules but does not enforce them. Do not edit overlapping files or worktrees at the same time without coordination. Give significant changes independent review that matches their risk. Choose reviewers and models for the work.
+The primary session can implement or delegate. If you delegate work or review, state each duty, write boundary, branch or worktree, checks, and handoff order. Nothing enforces these rules. Do not edit overlapping files or worktrees at the same time without coordination. Give significant changes independent review that matches their risk. Choose reviewers and models for the work.
 
 For a review, give the full base and head SHAs, actual check results, and worktree status. Reviewers must inspect that exact commit and make sure that cited files came from it. Send findings to the session that will fix them. A code change voids approval of the earlier head. Review each new head until all required reviewers approve the same commit. Empty command output does not prove a review finished. Inspect the live session, recover any durable result, or record the failure.
 
