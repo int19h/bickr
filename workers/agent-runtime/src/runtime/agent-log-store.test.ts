@@ -586,6 +586,23 @@ describe('agent log storage', () => {
 		expect(store.responsePublication('run')).toBeNull();
 	});
 
+	it('plans unlinked requests on the partial index', () => {
+		const queries: string[] = [];
+		const exec = storage.sql.exec.bind(storage.sql);
+		const sql = vi.spyOn(storage.sql, 'exec');
+		sql.mockImplementation(((query: string, ...bindings: unknown[]) => {
+			queries.push(query);
+			return exec(query, ...bindings);
+		}) as typeof storage.sql.exec);
+		store.entries([], null);
+		sql.mockRestore();
+		const unlinked = queries.filter((query) => query.includes('FROM inference_requests') && query.includes('r.message_seq IS NULL'));
+		expect(unlinked).toHaveLength(1);
+		const plan = storage.database.prepare(`EXPLAIN QUERY PLAN ${unlinked[0]}`).all() as Array<{ detail: string }>;
+		expect(plan.some((row) => row.detail.includes('USING INDEX inference_requests_unlinked'))).toBe(true);
+		expect(plan.some((row) => row.detail.includes('USE TEMP B-TREE FOR ORDER BY'))).toBe(false);
+	});
+
 	it('keeps structured provider status and error type', () => {
 		expect(agentLogFailure(new ProviderRequestError(429, 'test', 'https://example.test', 'Refused', { providerError: { kind: 'provider_error', status: 429, errorType: 'rate_limit' } }))).toMatchObject({ kind: 'provider_error', status: 429, errorType: 'rate_limit' });
 	});
