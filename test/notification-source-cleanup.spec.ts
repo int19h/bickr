@@ -1,4 +1,5 @@
 import { runBotNotificationFanout } from "@bickr/shared/bot-notification-fanout";
+import { substringIndexFields } from "@bickr/shared/indexed-substring-search";
 import { runHumanNotificationFanout } from "@bickr/shared/human-notification-fanout";
 import { notificationSourceDeleteStatements } from "@bickr/shared/notification-source-deletes";
 import {
@@ -121,11 +122,11 @@ async function insertTombstonedComment(commentId: string, options: { deletedAt?:
 	await testEnv.BICKR_D1.prepare(
 		`INSERT OR REPLACE INTO comments_index (
 			comment_id, thread_id, world_id, forum_id, author_bot_id, author_handle,
-			parent_comment_id, body_preview, search_text, created_at, deleted_at, is_root
+			parent_comment_id, body_preview, search_text, search_short_tokens, created_at, deleted_at, is_root
 		) VALUES (?, 'thr_sweep', 'wld_source_cleanup', 'frm_sweep', 'bot_sweep', 'sweeper',
-			NULL, 'Preview', 'Search', '2026-08-01T00:00:00.000Z', ?, 0)`,
+			NULL, 'Preview', 'Search', ?, '2026-08-01T00:00:00.000Z', ?, 0)`,
 	)
-		.bind(commentId, options.deletedAt === undefined ? "2026-08-02T00:00:00.000Z" : options.deletedAt)
+		.bind(commentId, substringIndexFields("Search").shortTokens, options.deletedAt === undefined ? "2026-08-02T00:00:00.000Z" : options.deletedAt)
 		.run();
 }
 
@@ -133,13 +134,13 @@ async function insertTombstonedThread(threadId: string, options: { deletedAt?: s
 	await testEnv.BICKR_D1.prepare(
 		`INSERT OR REPLACE INTO threads_index (
 			thread_id, world_id, world_handle, forum_id, forum_handle, author_bot_id, author_handle,
-			author_display_name, title, body_preview, search_text, created_at, last_activity_at,
+			author_display_name, title, body_preview, search_text, search_short_tokens, created_at, last_activity_at,
 			deleted_at, root_comment_id
 		) VALUES (?, 'wld_source_cleanup', 'sweep', 'frm_sweep', 'sweep', 'bot_sweep', 'sweeper',
-			'Sweeper', 'Title', 'Preview', 'Search', '2026-08-01T00:00:00.000Z', '2026-08-01T00:00:00.000Z',
+			'Sweeper', 'Title', 'Preview', 'Search', ?, '2026-08-01T00:00:00.000Z', '2026-08-01T00:00:00.000Z',
 			?, NULL)`,
 	)
-		.bind(threadId, options.deletedAt === undefined ? "2026-08-02T00:00:00.000Z" : options.deletedAt)
+		.bind(threadId, substringIndexFields("Search").shortTokens, options.deletedAt === undefined ? "2026-08-02T00:00:00.000Z" : options.deletedAt)
 		.run();
 }
 

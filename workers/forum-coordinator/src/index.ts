@@ -1,7 +1,5 @@
 import { pruneFollowerActivity } from "@bickr/shared/follower-activity";
 import { botServiceIssue, isCommittedBotServiceIssue } from '@bickr/shared/bot-service-issues';
-import { rebuildForumSearchIndexes, forumSearchPending } from "@bickr/shared/indexed-substring-search";
-import { isForumSearchMaintenanceRequest } from "@bickr/shared/maintenance";
 import { runHumanNotificationFanout } from "@bickr/shared/human-notification-fanout";
 import { finishForumCreation, readForumCreationIntent } from "@bickr/shared/forum-creation";
 import { runBotNotificationFanout } from "@bickr/shared/bot-notification-fanout";
@@ -956,7 +954,7 @@ export async function runScheduledForumCoordinatorTasks(env: Env, scheduledTime:
 			return await runForumCoordinatorNotificationPrune(env, now);
 		case "recovery":
 			if (!(await readMaintenanceState(env.BICKR_D1)).enabled) {
-				const results = await Promise.allSettled([recoverGovernanceDeletions(env, now), recoverForumCreations(env, now), recoverThreadMutations(env, now), runHumanNotificationFanout(env.BICKR_D1, now), rebuildForumSearchIndexes(env.BICKR_D1), runBotNotificationFanout(env.BICKR_KV, env.BICKR_D1, now), refreshThreadHotScores(env.BICKR_D1, now)]);
+				const results = await Promise.allSettled([recoverGovernanceDeletions(env, now), recoverForumCreations(env, now), recoverThreadMutations(env, now), runHumanNotificationFanout(env.BICKR_D1, now), runBotNotificationFanout(env.BICKR_KV, env.BICKR_D1, now), refreshThreadHotScores(env.BICKR_D1, now)]);
 				console.log(JSON.stringify({ event: "coordinator_recovery", scheduledTime: now, results }));
 				for (const result of results) if (result.status === "rejected") throw result.reason;
 			}
@@ -1090,12 +1088,6 @@ async function handleForumWorkerFetch(request: Request, env: Env): Promise<Respo
 	const url = new URL(request.url);
 	if (!isTrustedInternalServiceRequest(request, env.INTERNAL_SERVICE_SECRET)) {
 		return forumCoordinatorNotFoundResponse();
-	}
-	if (isForumSearchMaintenanceRequest(request)) {
-		if (request.headers.get("x-bickr-scheduler") !== "1") throw new RepositoryError("forbidden", "Search maintenance requires scheduler authority.", 403);
-		return request.method === "GET"
-			? ok({ ready: !(await forumSearchPending(env.BICKR_D1)) })
-			: ok(await rebuildForumSearchIndexes(env.BICKR_D1));
 	}
 	const maintenanceResponse = await mutationMaintenanceResponse(request, env.BICKR_D1);
 	if (maintenanceResponse) {

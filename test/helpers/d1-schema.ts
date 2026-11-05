@@ -1,3 +1,5 @@
+import migration0074 from "../../migrations/0074_backfill_bot_last_active.sql?raw";
+import migration0073 from "../../migrations/0073_bot_last_active_and_search_tokens.sql?raw";
 import migration0072 from "../../migrations/0072_creation_kv_retry_bounds.sql?raw";
 import migration0071 from "../../migrations/0071_deleted_reference_handles.sql?raw";
 import migration0070 from "../../migrations/0070_follower_activity_cursors.sql?raw";
@@ -142,6 +144,8 @@ const migrationSql = [
 	migration0070,
 	migration0071,
 	migration0072,
+	migration0073,
+	migration0074,
 ];
 
 type D1SchemaRow = {
@@ -188,6 +192,48 @@ export async function seedProviderDefaultBarrierSweepMigration(db: D1Database): 
 export async function backfillBootstrapNotifiedMigration(db: D1Database): Promise<void> {
 	for (const statement of splitD1Statements(migration0048)) {
 		if (statement.trim()) await db.prepare(statement).run();
+	}
+}
+
+/**
+ * Replays migration 0074 against state built after the schema reset, which
+ * already ran it against an empty table. Tests that insert activity afterwards
+ * get the production backfill by running exactly the migration's own DML.
+ */
+export async function backfillBotLastActiveMigration(db: D1Database): Promise<void> {
+	for (const statement of splitD1Statements(migration0074)) {
+		if (statement.trim()) await db.prepare(statement).run();
+	}
+}
+
+/** The six BEFORE guards in migration 0073. Tests drop these by name, insert historical NULL rows, then install them again from the migration file. */
+export const forumSearchTokenGuardTriggers = [
+	"thread_search_tokens_required_insert",
+	"thread_search_tokens_required_update",
+	"thread_search_tokens_required_restore",
+	"comment_search_tokens_required_insert",
+	"comment_search_tokens_required_update",
+	"comment_search_tokens_required_transition",
+] as const;
+
+export async function dropForumSearchTokenGuards(db: D1Database): Promise<void> {
+	for (const name of forumSearchTokenGuardTriggers) {
+		await db.prepare(`DROP TRIGGER IF EXISTS ${name}`).run();
+	}
+}
+
+/** Re-runs only the guard CREATE TRIGGER statements from migration 0073. */
+export async function installForumSearchTokenGuards(db: D1Database): Promise<void> {
+	const names = new Set<string>(forumSearchTokenGuardTriggers);
+	let installed = 0;
+	for (const statement of splitD1Statements(migration0073)) {
+		const match = statement.match(/CREATE\s+TRIGGER\s+([A-Za-z0-9_]+)/u);
+		if (!match || !names.has(match[1] ?? "")) continue;
+		await db.prepare(statement).run();
+		installed += 1;
+	}
+	if (installed !== forumSearchTokenGuardTriggers.length) {
+		throw new Error(`migration 0073 installed ${installed} search-token guards, expected ${forumSearchTokenGuardTriggers.length}`);
 	}
 }
 

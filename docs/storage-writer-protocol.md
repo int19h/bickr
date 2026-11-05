@@ -63,12 +63,12 @@ Its 8,000-row budget gives it 2,304,000 rows of daily capacity.
 The prune reserves capacity for expiry before it processes orphan cleanup.
 These are local deployment configuration changes, not a live schedule update.
 
-The recovery pass also refreshes at most 64 due hot-count entries and rebuilds a
-bounded search-index page. During a release, the authenticated test service proxy
-can call `POST /maintenance/search-index/rebuild` with scheduler authority while
-maintenance stays enabled. `GET /maintenance/search-index/status` reports
-readiness. The shared route classifier admits only these exact derived-index
-operations. Public mutations retain the maintenance gate.
+The recovery pass refreshes at most 64 due hot-count entries. It does not rebuild
+search tokens. A write that stores NULL tokens is rejected. A state change that
+makes a NULL-token row searchable is rejected. The routes
+`GET /maintenance/search-index/status` and `POST /maintenance/search-index/rebuild`
+are gone. After a restore or import from before the 0061 sweep drained, follow
+the restore procedure in `docs/forum-query-indexes.md` before the service resumes.
 
 Migrations 0060, 0062, 0065, and 0066 create the deletion, thread recovery, bot
 fanout, and forum creation records. Their retention rules are beside each schema.

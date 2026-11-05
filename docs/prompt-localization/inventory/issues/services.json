@@ -10,7 +10,7 @@
       "sinks": [
         {
           "file": "workers/forum-coordinator/src/index.ts",
-          "line": 1645,
+          "line": 1637,
           "kind": "direct"
         },
         {
@@ -77,12 +77,12 @@
         },
         {
           "file": "packages/shared/src/social.ts",
-          "line": 7577,
+          "line": 7575,
           "kind": "direct"
         },
         {
           "file": "packages/shared/src/social.ts",
-          "line": 7582,
+          "line": 7580,
           "kind": "direct"
         }
       ],
@@ -98,7 +98,7 @@
       "sinks": [
         {
           "file": "workers/forum-coordinator/src/index.ts",
-          "line": 762,
+          "line": 760,
           "kind": "direct"
         },
         {
@@ -129,7 +129,7 @@
         },
         {
           "file": "packages/shared/src/repository.ts",
-          "line": 4165,
+          "line": 4098,
           "kind": "direct"
         },
         {
@@ -254,42 +254,42 @@
         },
         {
           "file": "packages/shared/src/repository.ts",
-          "line": 1895,
+          "line": 1849,
           "kind": "direct"
         },
         {
           "file": "packages/shared/src/repository.ts",
-          "line": 1902,
+          "line": 1856,
           "kind": "direct"
         },
         {
           "file": "packages/shared/src/repository.ts",
-          "line": 1934,
+          "line": 1888,
           "kind": "direct"
         },
         {
           "file": "packages/shared/src/repository.ts",
-          "line": 2082,
+          "line": 2036,
           "kind": "direct"
         },
         {
           "file": "packages/shared/src/repository.ts",
-          "line": 2087,
+          "line": 2041,
           "kind": "direct"
         },
         {
           "file": "packages/shared/src/repository.ts",
-          "line": 2098,
+          "line": 2052,
           "kind": "direct"
         },
         {
           "file": "packages/shared/src/repository.ts",
-          "line": 3230,
+          "line": 3163,
           "kind": "direct"
         },
         {
           "file": "packages/shared/src/repository.ts",
-          "line": 3238,
+          "line": 3171,
           "kind": "direct"
         },
         {
@@ -330,7 +330,7 @@
         },
         {
           "file": "packages/shared/src/social.ts",
-          "line": 7710,
+          "line": 7708,
           "kind": "direct"
         }
       ],
@@ -425,12 +425,12 @@
         },
         {
           "file": "packages/shared/src/social.ts",
-          "line": 7721,
+          "line": 7719,
           "kind": "direct"
         },
         {
           "file": "packages/shared/src/social.ts",
-          "line": 7732,
+          "line": 7730,
           "kind": "direct"
         }
       ],
@@ -764,11 +764,6 @@
           "file": "packages/shared/src/bot-service-issues.ts",
           "line": 130,
           "kind": "direct"
-        },
-        {
-          "file": "packages/shared/src/indexed-substring-search.ts",
-          "line": 59,
-          "kind": "direct"
         }
       ],
       "protectedTokens": [],
@@ -788,7 +783,7 @@
         },
         {
           "file": "packages/shared/src/maintenance.ts",
-          "line": 122,
+          "line": 115,
           "kind": "direct"
         }
       ],
@@ -816,7 +811,7 @@
         },
         {
           "file": "packages/shared/src/maintenance.ts",
-          "line": 122,
+          "line": 115,
           "kind": "direct"
         }
       ],
@@ -876,7 +871,7 @@
         },
         {
           "file": "workers/forum-coordinator/src/index.ts",
-          "line": 1917,
+          "line": 1909,
           "kind": "direct"
         },
         {
@@ -904,7 +899,7 @@
       "sinks": [
         {
           "file": "workers/forum-coordinator/src/index.ts",
-          "line": 1766,
+          "line": 1758,
           "kind": "direct"
         },
         {
@@ -927,7 +922,7 @@
       "sinks": [
         {
           "file": "workers/forum-coordinator/src/index.ts",
-          "line": 1854,
+          "line": 1846,
           "kind": "direct"
         },
         {
@@ -971,7 +966,7 @@
       "sinks": [
         {
           "file": "workers/forum-coordinator/src/index.ts",
-          "line": 1923,
+          "line": 1915,
           "kind": "direct"
         },
         {
@@ -994,7 +989,7 @@
       "sinks": [
         {
           "file": "workers/forum-coordinator/src/index.ts",
-          "line": 1922,
+          "line": 1914,
           "kind": "direct"
         },
         {
@@ -1023,7 +1018,7 @@
         },
         {
           "file": "workers/forum-coordinator/src/index.ts",
-          "line": 1916,
+          "line": 1908,
           "kind": "direct"
         },
         {
