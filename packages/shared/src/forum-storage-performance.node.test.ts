@@ -1,6 +1,6 @@
 /// <reference types="node" />
 import { DatabaseSync } from "node:sqlite";
-import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath, URL } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { refreshThreadHotScores, searchForumThreads } from "./social";
@@ -285,7 +285,5 @@ describe("production-order last-active reads", () => {
 		const backfillMs = performance.now() - backfillStarted;
 		const report = { listMs, backfillMs, bots: listed.length, worldPlan, backfillPlan };
 		console.log(JSON.stringify({ event: "d1_overload_scale", ...report }));
-		mkdirSync("/build/bickr/logs", { recursive: true });
-		writeFileSync("/build/bickr/logs/d1-overload-scale.json", JSON.stringify(report, null, 2));
 	}, 180_000);
 });
