@@ -33,6 +33,8 @@ CREATE TABLE IF NOT EXISTS inference_requests (
 CREATE INDEX IF NOT EXISTS inference_requests_anchor ON inference_requests(anchor_seq, position);
 CREATE INDEX IF NOT EXISTS inference_requests_age ON inference_requests(created_at, id);
 CREATE INDEX IF NOT EXISTS inference_requests_session ON inference_requests(session_id, created_at);
+-- Age pruning skips unanchored unlinked requests, so this index covers the part of the table that can grow past 7 days.
+CREATE INDEX IF NOT EXISTS inference_requests_unlinked ON inference_requests(purpose, position, created_at) WHERE message_seq IS NULL;
 CREATE TABLE IF NOT EXISTS inference_attempts (
  id INTEGER PRIMARY KEY AUTOINCREMENT, request_id TEXT NOT NULL, event_seq INTEGER NOT NULL, started_at TEXT NOT NULL,
  -- These nullable fields share attempt retention. A removed usage row resolves to null.
