@@ -81,7 +81,9 @@ END;
 
 -- A bots_index insert can arrive after the activity it should reflect (index
 -- repair, lifecycle compensation). INDEXED BY keeps the covering activity
--- indexes from migration 0004. The export indexes also match the author
+-- indexes from migration 0004. A migration that drops or renames one of these
+-- indexes must replace this trigger in the same migration. The export indexes
+-- also match the author
 -- predicate but do not include the timestamp, so the planner can pick them and
 -- then read the table. An aggregate MAX over the four result rows stays NULL
 -- only when every source is empty; the scalar max() would be NULL if any one

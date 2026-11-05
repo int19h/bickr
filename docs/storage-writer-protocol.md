@@ -10,7 +10,7 @@ through index repair.
 
 Thread mutations first build a write plan. One Durable Object transaction stores
 the canonical thread, the pending projection plan, a retry receipt, and an alarm.
-If the alarm fails, a D1 wake record lets the scheduled recovery find the object.
+A D1 wake record lets the scheduled recovery find the object if the alarm fails.
 Recovery takes the same queue as a new mutation. It finishes the pending plan
 before accepting another write. The D1 projection batch includes a unique plan
 receipt, so a retry cannot repeat counters or notification inserts.
@@ -30,7 +30,7 @@ trigger makes sure that the account and world are still active in that batch. If
 account deletion wins, recovery removes the unpublished KV document and records
 cancellation.
 
-The world queue also serializes recovery with world renames and deletion. When it resumes a pending creation, it uses the current world handle.
+The world queue also serializes recovery with world renames and deletion. It uses the current world handle when it resumes a pending creation.
 Completed creation receipts retain only request/result identities for 30 days.
 The recovery pass examines at most 25 pending creations and removes at most 100
 expired receipts.

@@ -3,8 +3,8 @@
 Migration 0061 adds indexes for the existing substring search. Result order,
 reply handling, scope checks, and literal `%`, `_`, and backslash rules stay the
 same. Forum and world search select candidate row IDs from the indexes, then
-apply the existing escaped `LIKE` predicate. When the full-text tokenizer folds
-a character differently, that predicate preserves SQLite's matching rules.
+apply the existing escaped `LIKE` predicate. That predicate preserves SQLite's
+matching rules when the full-text tokenizer folds a character differently.
 
 A trigram contains three consecutive characters. FTS5 trigrams cover queries with at least three Unicode characters. The existing
 search also accepts two UTF-16 code units, including a single emoji. A second
