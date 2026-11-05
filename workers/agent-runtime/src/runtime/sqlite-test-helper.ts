@@ -71,6 +71,8 @@ export function createRuntimeTestStorage(): RuntimeTestStorage {
 			ON loop_messages (origin, seq DESC);
 		CREATE INDEX loop_messages_retention
 			ON loop_messages (created_at, seq);
+		CREATE INDEX IF NOT EXISTS loop_messages_active ON loop_messages (compacted_by, position, seq);
+		CREATE INDEX IF NOT EXISTS loop_messages_visible ON loop_messages (deleted_at, compacted_by, position, seq);
 		CREATE INDEX loop_message_logs_message
 			ON loop_message_logs (message_seq, id);
 	`);

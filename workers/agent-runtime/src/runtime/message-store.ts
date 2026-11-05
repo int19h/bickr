@@ -667,12 +667,19 @@ export class RuntimeMessageStore {
 	}
 
 	private loopMessagePageCount(sourceCompactionSeq: number | null): { messageCount: number; fromSeq: number | null; toSeq: number | null } {
-		const rows = this.loopMessageRowsForPage(sourceCompactionSeq, 0);
-		const seqs = rows.map((row) => row.seq);
+		// `IS ?` is NULL for the active page and the archive seq otherwise.
+		// loop_messages_visible covers deleted_at, compacted_by, and seq, so this
+		// aggregate does not read message bodies.
+		const row = this.storage.sql.exec<{ message_count: number; from_seq: number | null; to_seq: number | null }>(
+			`SELECT COUNT(*) AS message_count, MIN(seq) AS from_seq, MAX(seq) AS to_seq
+			 FROM loop_messages
+			 WHERE deleted_at IS NULL AND compacted_by IS ?`,
+			sourceCompactionSeq,
+		).one();
 		return {
-			messageCount: rows.length,
-			fromSeq: seqs.length > 0 ? Math.min(...seqs) : null,
-			toSeq: seqs.length > 0 ? Math.max(...seqs) : null,
+			messageCount: row.message_count,
+			fromSeq: row.from_seq,
+			toSeq: row.to_seq,
 		};
 	}
 

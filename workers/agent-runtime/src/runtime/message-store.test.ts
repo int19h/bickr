@@ -60,6 +60,82 @@ describe('RuntimeMessageStore', () => {
 		expect(store.loopMessagesPage(testResultContext, { page: 2 }).messages.map((message) => message.seq)).toEqual([1, 2]);
 	});
 
+	it('counts nested pages, sibling pages, a soft-deleted row, and an empty active page without reading bodies', () => {
+		insertNestedPageFixture(storage);
+
+		const listed = store.loopMessagesPage(testResultContext, { page: 1 }).page;
+		// Child pages are depth-first: the nested page of the newer sibling comes before the older sibling.
+		expect(listed.pages).toEqual([
+			{
+				page: 1,
+				isNewest: true,
+				compactionSessionId: 'session-30',
+				messageCount: 3,
+				fromSeq: 1,
+				toSeq: 40,
+				olderPage: 2,
+			},
+			{
+				page: 2,
+				isNewest: false,
+				compactionSessionId: 'session-20',
+				messageCount: 3,
+				fromSeq: 10,
+				toSeq: 20,
+				sourceCompactionSeq: 40,
+				newerPage: 1,
+				olderPage: 3,
+			},
+			{
+				page: 3,
+				isNewest: false,
+				compactionSessionId: null,
+				messageCount: 2,
+				fromSeq: 8,
+				toSeq: 9,
+				sourceCompactionSeq: 20,
+				newerPage: 2,
+			},
+			{
+				page: 4,
+				isNewest: false,
+				compactionSessionId: null,
+				messageCount: 2,
+				fromSeq: 5,
+				toSeq: 6,
+				sourceCompactionSeq: 30,
+				newerPage: 1,
+			},
+		]);
+		expect(listed.compactionPageBySeq).toEqual({ '40': 2, '20': 3, '30': 4 });
+		expect(store.loopMessagesPage(testResultContext, { page: 2 }).messages.map((message) => message.seq)).toEqual([10, 11, 20]);
+
+		const queries: string[] = [];
+		const exec = storage.sql.exec.bind(storage.sql);
+		const sql = vi.spyOn(storage.sql, 'exec');
+		sql.mockImplementation(((query: string, ...bindings: unknown[]) => {
+			queries.push(query);
+			return exec(query, ...bindings);
+		}) as typeof storage.sql.exec);
+		store.loopMessagePageRows({ page: 2 });
+		sql.mockRestore();
+
+		expect(queries.filter((query) => query.includes('message_json'))).toHaveLength(1);
+		const countQueries = queries.filter((query) => query.includes('AS message_count'));
+		expect(countQueries.length).toBeGreaterThan(0);
+		for (const query of countQueries) {
+			const plan = storage.database.prepare(`EXPLAIN QUERY PLAN ${query}`).all() as Array<{ detail: string }>;
+			expect(plan.map((row) => row.detail).join('\n')).toContain('USING COVERING INDEX loop_messages_visible');
+		}
+
+		storage.sql.exec(`UPDATE loop_messages SET deleted_at = ? WHERE compacted_by IS NULL`, '2026-07-11T00:00:00.000Z');
+		const empty = store.loopMessagesPage(testResultContext, { page: 1 }).page;
+		expect(empty.pages).toEqual([{ page: 1, isNewest: true, compactionSessionId: null, messageCount: 0 }]);
+		expect(empty.compactionPageBySeq).toEqual({});
+		expect(empty.pages[0]).not.toHaveProperty('fromSeq');
+		expect(empty.pages[0]).not.toHaveProperty('toSeq');
+	});
+
 	it('names the session of the starting summary after a later compaction replaces only that summary', () => {
 		insertMessage(storage, 1, 1, { compactedBy: 10 });
 		insertMessage(storage, 2, 2, { compactedBy: 20 });
@@ -728,6 +804,24 @@ describe('RuntimeMessageStore', () => {
 			.toBe(runtimeDiagnosticLoopMessageRetentionCount);
 	});
 });
+
+function insertNestedPageFixture(storage: RuntimeTestStorage): void {
+	insertMessage(storage, 1, 1);
+	insertMessage(storage, 2, 2, { deletedAt: '2026-07-11T00:00:00.000Z' });
+	insertMessage(storage, 30, 3, { origin: 'compaction' });
+	insertMessage(storage, 40, 4, { origin: 'compaction' });
+	insertMessage(storage, 10, 1, { compactedBy: 40 });
+	insertMessage(storage, 11, 2, { compactedBy: 40 });
+	insertMessage(storage, 20, 3, { compactedBy: 40, origin: 'compaction' });
+	insertMessage(storage, 8, 1, { compactedBy: 20 });
+	insertMessage(storage, 9, 2, { compactedBy: 20 });
+	insertMessage(storage, 5, 1, { compactedBy: 30 });
+	insertMessage(storage, 6, 2, { compactedBy: 30 });
+	insertMessage(storage, 7, 3, { compactedBy: 30, deletedAt: '2026-07-11T00:00:00.000Z' });
+	storage.sql.exec('UPDATE loop_messages SET session_id = ? WHERE seq = ?', 'session-30', 30);
+	storage.sql.exec('UPDATE loop_messages SET session_id = ? WHERE seq = ?', 'session-40', 40);
+	storage.sql.exec('UPDATE loop_messages SET session_id = ? WHERE seq = ?', 'session-20', 20);
+}
 
 function insertMessage(
 	storage: RuntimeTestStorage,
