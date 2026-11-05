@@ -10,7 +10,7 @@ through index repair.
 
 Thread mutations first build a write plan. One Durable Object transaction stores
 the canonical thread, the pending projection plan, a retry receipt, and an alarm.
-A D1 wake record lets the scheduled recovery find the object if the alarm fails.
+If the alarm fails, a D1 wake record lets the scheduled recovery find the object.
 Recovery takes the same queue as a new mutation. It finishes the pending plan
 before accepting another write. The D1 projection batch includes a unique plan
 receipt, so a retry cannot repeat counters or notification inserts.
@@ -30,7 +30,7 @@ trigger makes sure that the account and world are still active in that batch. If
 account deletion wins, recovery removes the unpublished KV document and records
 cancellation.
 
-The world queue also serializes recovery with world renames and deletion. It uses the current world handle when it resumes a pending creation.
+The world queue also serializes recovery with world renames and deletion. When it resumes a pending creation, it uses the current world handle.
 Completed creation receipts retain only request/result identities for 30 days.
 The recovery pass examines at most 25 pending creations and removes at most 100
 expired receipts.
@@ -63,12 +63,12 @@ Its 8,000-row budget gives it 2,304,000 rows of daily capacity.
 The prune reserves capacity for expiry before it processes orphan cleanup.
 These are local deployment configuration changes, not a live schedule update.
 
-The recovery pass also refreshes at most 64 due hot-count entries and rebuilds a
-bounded search-index page. During a release, the authenticated test service proxy
-can call `POST /maintenance/search-index/rebuild` with scheduler authority while
-maintenance stays enabled. `GET /maintenance/search-index/status` reports
-readiness. The shared route classifier admits only these exact derived-index
-operations. Public mutations retain the maintenance gate.
+The recovery pass refreshes at most 64 due hot-count entries. It does not rebuild
+search tokens. A write that stores NULL tokens is rejected. A state change that
+makes a NULL-token row searchable is rejected. The routes
+`GET /maintenance/search-index/status` and `POST /maintenance/search-index/rebuild`
+are gone. After a restore or import from before the 0061 sweep drained, follow
+the restore procedure in `docs/forum-query-indexes.md` before the service resumes.
 
 Migrations 0060, 0062, 0065, and 0066 create the deletion, thread recovery, bot
 fanout, and forum creation records. Their retention rules are beside each schema.

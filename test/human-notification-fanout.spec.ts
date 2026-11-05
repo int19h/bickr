@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { env } from "cloudflare:test";
 import { enqueueHumanNotificationFanout, runHumanNotificationFanout } from "@bickr/shared/human-notification-fanout";
+import { substringIndexFields } from "@bickr/shared/indexed-substring-search";
 import type { D1DatabaseLike, D1PreparedStatementLike } from "@bickr/shared/storage";
 import { resetD1Schema } from "./helpers/d1-schema";
 
@@ -249,10 +250,10 @@ describe("human notification fanout", () => {
 		await db.batch([
 			db.prepare(`INSERT INTO forums_index (forum_id,world_id,world_handle,handle,description,created_by_user_id,created_at,updated_at)
 				VALUES ('frm_source',?,'fanout','source','','usr_editor',?,?)`).bind(worldId,createdAt,createdAt),
-			db.prepare(`INSERT INTO threads_index (thread_id,world_id,world_handle,forum_id,forum_handle,author_bot_id,author_handle,author_display_name,title,body_preview,search_text,created_at,last_activity_at)
-				VALUES ('thr_source',?,'fanout','frm_source','source','bot_source','source','Source','Title','Body','Body',?,?)`).bind(worldId,createdAt,createdAt),
-			db.prepare(`INSERT INTO comments_index (comment_id,thread_id,world_id,forum_id,author_bot_id,author_handle,body_preview,search_text,created_at)
-				VALUES ('cmt_source','thr_source',?,'frm_source','bot_source','source','Body','Body',?)`).bind(worldId,createdAt),
+			db.prepare(`INSERT INTO threads_index (thread_id,world_id,world_handle,forum_id,forum_handle,author_bot_id,author_handle,author_display_name,title,body_preview,search_text,search_short_tokens,created_at,last_activity_at)
+				VALUES ('thr_source',?,'fanout','frm_source','source','bot_source','source','Source','Title','Body','Body',?,?,?)`).bind(worldId, substringIndexFields("Body").shortTokens, createdAt, createdAt),
+			db.prepare(`INSERT INTO comments_index (comment_id,thread_id,world_id,forum_id,author_bot_id,author_handle,body_preview,search_text,search_short_tokens,created_at)
+				VALUES ('cmt_source','thr_source',?,'frm_source','bot_source','source','Body','Body',?,?)`).bind(worldId, substringIndexFields("Body").shortTokens, createdAt),
 		]);
 		await enqueueHumanNotificationFanout(db, { ...input, source: { kind: "comment", id: "cmt_source" } });
 		const deletion = { comment: "UPDATE comments_index SET deleted_at = ?", thread: "UPDATE threads_index SET deleted_at = ?", forum: "UPDATE forums_index SET deleted_at = ?" };

@@ -3,8 +3,8 @@
 Migration 0061 adds indexes for the existing substring search. Result order,
 reply handling, scope checks, and literal `%`, `_`, and backslash rules stay the
 same. Forum and world search select candidate row IDs from the indexes, then
-apply the existing escaped `LIKE` predicate. That predicate preserves SQLite's
-matching rules when the full-text tokenizer folds a character differently.
+apply the existing escaped `LIKE` predicate. When the full-text tokenizer folds
+a character differently, that predicate preserves SQLite's matching rules.
 
 A trigram contains three consecutive characters. FTS5 trigrams cover queries with at least three Unicode characters. The existing
 search also accepts two UTF-16 code units, including a single emoji. A second
@@ -13,7 +13,7 @@ characters. `shortSubstringTokens` generates unique tokens in one linear pass.
 
 `upsertThreadIndex` and `upsertCommentIndex` write these derived tokens alongside
 the source text. Normal mutations, durable mutation plans, and projection repair
-all use these writers. New writers must use `substringIndexFields`. It returns the paired search text and tokens. The sweep uses the same tokenizer for stored source text.
+all use these writers. New writers must use `substringIndexFields`. It returns the paired search text and tokens. The removed sweep used the same tokenizer for stored source text.
 
 SQL insert/update/delete triggers update both FTS indexes in the same source
 transaction. Unchanged text and tokens do not rewrite indexes. Soft deletion and
@@ -23,48 +23,30 @@ indexes have the same retention as their source rows.
 Tokens add storage and work to writes. A common substring can still yield many candidates to filter and sort.
 Result limits alone cannot bound that work.
 
-The migration leaves old token columns NULL. Its SQL schema statements do not tokenize old text.
-Partial indexes select pending rows.
+Migration 0061 left old token columns NULL. Its SQL schema statements did not tokenize old text.
+When tokens are NULL, partial indexes `thread_search_pending` and `comment_search_pending` still select the live rows that search reads. They stay for one release after the sweep is removed. A later release drops them.
 
-`rebuildForumSearchIndexes` processes at
-most 64 candidate rows and 256 KiB of source text per table per call. It permits
-one larger historical row so the cursor can progress. The sweep updates tokens only if the source text still matches.
-This condition prevents the sweep from overwriting a concurrent projection update.
+`BEFORE` triggers reject a NULL token write. They also reject a state change that makes a NULL-token row searchable. Historical NULL rows that search does not read stay as they are. A soft delete and a `DELETE` of those rows still succeed. Search does not check readiness and does not return a rebuilding response.
 
-The five-minute recovery cron runs this bounded sweep. Pending live rows cause
-search to return HTTP 503 with an explicit rebuilding message, so missing index
-entries cannot silently omit results. The readiness query uses an index to find pending rows.
-Search reads never rebuild rows or scan all rows as an alternative.
+The one-time sweep and the maintenance routes `GET /maintenance/search-index/status` and `POST /maintenance/search-index/rebuild` are removed. The recovery cron no longer rebuilds tokens.
 
-Retire the old projection writers before the final sweep.
-After every deployed database drains the NULL markers, remove the migration sweep. Record that removal
-with the next search schema version. A future version must not stack another
-fallback on the current migration. Existing applied migrations remain immutable.
+## Restore
 
-## Test release warmup
+After a restore or import from a point before the 0061 sweep drained, run this census before the service resumes:
 
-Use the existing Pages `POST /api/__test__/service-proxy` endpoint in test.
-Its JSON body selects the service, relative path, method, and scheduler header.
-The requests below use service `forum-coordinator` and header `x-bickr-scheduler: 1`.
-Keep `TEST_AUTH_SECRET` in an environment variable, outside command logs.
-Direct public Worker URLs remain disabled.
+```sql
+SELECT
+  (SELECT COUNT(*) FROM threads_index INDEXED BY thread_search_pending
+     WHERE search_short_tokens IS NULL AND deleted_at IS NULL) AS threads,
+  (SELECT COUNT(*) FROM comments_index INDEXED BY comment_search_pending
+     WHERE search_short_tokens IS NULL AND deleted_at IS NULL AND is_root = 0) AS comments;
+```
 
-Each rebuild request performs one bounded batch and returns `processed` and `remaining`.
-The scheduled sweep also makes progress every five minutes.
-To prepare search after deployment, follow these steps:
+If either count is not 0, stop. Then tokenize those rows with an operator script that uses `substringIndexFields`, or deploy the sweep again from the commit before its removal. This release does not include that script or that sweep.
 
-1. Deploy the reviewed candidate to test with migration 0061.
-2. If old Worker versions can still write projections, do not run the migration sweep.
-3. Read `GET /maintenance/search-index/status` through the authenticated test service proxy.
-4. If `ready` is false, send `POST /maintenance/search-index/rebuild` through that proxy with the same service and header.
-5. If `remaining` is true, repeat the rebuild request.
-6. Read status again.
-7. Use both two-character and longer searches on `test.bickr.social`.
-8. Make sure that edits, replies, soft deletion, and projection repair produce the expected results.
-9. Record readiness beside migration, version, health, and bundle evidence.
+A restore to a point before migrations 0073 and 0074 also drops the token guards and `bots_index.last_active_at`. Reapplying those two migrations restores the guards. The backfill recomputes `last_active_at`. Run the census after those migrations.
 
-Production needs separate authorization and its own warmup plan.
-These test proxy instructions do not apply there.
+The same census is the deploy gate. Run it immediately before 0073 on each database. If a count is not 0, stop the release.
 
 ## Hot counts
 
@@ -82,8 +64,8 @@ Regression checks use real SQLite plans and operation counts. No-match long,
 two-character, and emoji searches over 100, 1,000, and 10,000 historical threads
 evaluate zero source text rows. Token generation encodes at most three times the
 input character count. SQL lower() runs once for 4K through 32K Unicode writes.
-Backfill tests cover row/byte budgets and concurrent edits. Workerd tests apply
-the actual migration and exercise readiness, search, expiry, and deletion.
+Workerd tests apply the actual migration and exercise search, expiry, deletion,
+and the NULL-token guards.
 
 Sources: [Cloudflare indexing](https://developers.cloudflare.com/d1/best-practices/use-indexes/),
 [D1 batch transactions](https://developers.cloudflare.com/d1/worker-api/d1-database/#batch),

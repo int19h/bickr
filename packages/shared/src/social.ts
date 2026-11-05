@@ -3,7 +3,7 @@ import { encodeOwnedNotificationCursor, parseOwnedNotificationCursor, selectFoll
 import { participantListLimits } from './content-limits';
 import { botServiceIssue } from './bot-service-issues';
 import { refreshDueThreadCommentCounts } from "./thread-hot-refresh";
-import { substringSearchQuery, substringCandidateSql, substringIndexFields, requireForumSearchReady } from "./indexed-substring-search";
+import { substringSearchQuery, substringCandidateSql, substringIndexFields } from "./indexed-substring-search";
 import { enqueueBotNotificationFanout, type BotNotificationTemplate } from "./bot-notification-fanout";
 import { enqueueHumanNotificationFanout, type HumanNotificationAudience } from "./human-notification-fanout";
 import { insertHumanNotification, type HumanNotificationInput } from "./human-notifications";
@@ -3892,7 +3892,6 @@ export async function searchThreads(
 	if (!search) {
 		return [];
 	}
-	await requireForumSearchReady(db);
 	const threadResults = await safeD1Search(() =>
 		db
 			.prepare(
@@ -3969,7 +3968,6 @@ export async function searchForumThreads(
 	if (!search) {
 		return [];
 	}
-	await requireForumSearchReady(db);
 	const threadResults = await safeD1Search(() =>
 		db
 			.prepare(

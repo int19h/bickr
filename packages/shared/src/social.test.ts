@@ -1,6 +1,7 @@
 /// <reference path="../../../test/env.d.ts" />
 /// <reference path="../../../apps/web/worker-configuration.d.ts" />
 import { selectFollowerActivity } from "./follower-activity";
+import { substringIndexFields } from "./indexed-substring-search";
 import { describe, expect, it, vi } from "vitest";
 import { env } from "cloudflare:test";
 import { resetD1Schema } from "../../../test/helpers/d1-schema";
@@ -1779,10 +1780,10 @@ async function notificationFixture(options: FixtureOptions) {
 	}
 	for (const thread of options.existingThreads) {
 		await real.prepare(`INSERT INTO threads_index (thread_id, world_id, world_handle, forum_id, forum_handle, author_bot_id,
-			author_handle, author_display_name, title, title_lang, body_preview, search_text, created_at, last_activity_at, deleted_at)
-			VALUES (?, 'wld_primary', ?, ?, ?, ?, ?, 'Alice', ?, 'en', '', '', ?, ?, ?)`)
+			author_handle, author_display_name, title, title_lang, body_preview, search_text, search_short_tokens, created_at, last_activity_at, deleted_at)
+			VALUES (?, 'wld_primary', ?, ?, ?, ?, ?, 'Alice', ?, 'en', '', '', ?, ?, ?, ?)`)
 			.bind(thread.id, thread.worldHandle, thread.forumId, thread.forumHandle, built.bot.id, built.bot.handle,
-				thread.title, thread.createdAt, thread.createdAt, thread.deletedAt ?? null).run();
+				thread.title, substringIndexFields("").shortTokens, thread.createdAt, thread.createdAt, thread.deletedAt ?? null).run();
 	}
 	const queries = new WeakMap<D1PreparedStatementLike, string>();
 	const mentionLookups: string[] = [];

@@ -1209,29 +1209,10 @@ export async function listUserBots(
 	const result = await db
 		.prepare(
 			`WITH selected AS (
-				SELECT bot_id AS id, created_at, updated_at, handle
+				SELECT bot_id AS id, created_at, updated_at, handle, last_active_at
 				FROM bots_index
 				WHERE owner_user_id = ? AND deleted_at IS NULL AND lifecycle_state = 'active'
 					${selectedPageSql}
-			 ),
-			 activity AS (
-				SELECT threads.author_bot_id AS bot_id, threads.created_at AS active_at
-				FROM threads_index threads
-				JOIN selected ON selected.id = threads.author_bot_id
-				WHERE threads.deleted_at IS NULL
-				UNION ALL
-				SELECT comments.author_bot_id AS bot_id, comments.created_at AS active_at
-				FROM comments_index comments
-				JOIN selected ON selected.id = comments.author_bot_id
-				WHERE comments.deleted_at IS NULL
-				UNION ALL
-				SELECT votes.bot_id AS bot_id, votes.updated_at AS active_at
-				FROM votes
-				JOIN selected ON selected.id = votes.bot_id
-				UNION ALL
-				SELECT follows.follower_bot_id AS bot_id, follows.created_at AS active_at
-				FROM follows
-				JOIN selected ON selected.id = follows.follower_bot_id
 			 )
 			 SELECT
 				selected.id AS id,
@@ -1239,11 +1220,9 @@ export async function listUserBots(
 				selected.updated_at AS updatedAt,
 				selected.handle AS handle,
 				runtime.next_due_at AS nextDueAt,
-				MAX(activity.active_at) AS lastActiveAt
+				selected.last_active_at AS lastActiveAt
 			 FROM selected
 			 LEFT JOIN bot_runtime_index runtime ON runtime.bot_id = selected.id
-			 LEFT JOIN activity ON activity.bot_id = selected.id
-			 GROUP BY selected.id, runtime.next_due_at, selected.created_at, selected.updated_at, selected.handle
 			 ORDER BY ${resultOrderSql}`,
 		)
 		.bind(...(page
@@ -1332,39 +1311,14 @@ export async function listUserBotsByIds(
 	const placeholders = selected.map(() => "?").join(", ");
 	const result = await db
 		.prepare(
-			`WITH selected AS (
-				SELECT bot_id AS id
-				FROM bots_index
-				WHERE owner_user_id = ? AND deleted_at IS NULL AND lifecycle_state = 'active'
-				  AND bot_id IN (${placeholders})
-			 ),
-			 activity AS (
-				SELECT threads.author_bot_id AS bot_id, threads.created_at AS active_at
-				FROM threads_index threads
-				JOIN selected ON selected.id = threads.author_bot_id
-				WHERE threads.deleted_at IS NULL
-				UNION ALL
-				SELECT comments.author_bot_id AS bot_id, comments.created_at AS active_at
-				FROM comments_index comments
-				JOIN selected ON selected.id = comments.author_bot_id
-				WHERE comments.deleted_at IS NULL
-				UNION ALL
-				SELECT votes.bot_id AS bot_id, votes.updated_at AS active_at
-				FROM votes
-				JOIN selected ON selected.id = votes.bot_id
-				UNION ALL
-				SELECT follows.follower_bot_id AS bot_id, follows.created_at AS active_at
-				FROM follows
-				JOIN selected ON selected.id = follows.follower_bot_id
-			 )
-			 SELECT
-				selected.id AS id,
+			`SELECT
+				bots.bot_id AS id,
 				runtime.next_due_at AS nextDueAt,
-				MAX(activity.active_at) AS lastActiveAt
-			 FROM selected
-			 LEFT JOIN bot_runtime_index runtime ON runtime.bot_id = selected.id
-			 LEFT JOIN activity ON activity.bot_id = selected.id
-			 GROUP BY selected.id, runtime.next_due_at`,
+				bots.last_active_at AS lastActiveAt
+			 FROM bots_index bots
+			 LEFT JOIN bot_runtime_index runtime ON runtime.bot_id = bots.bot_id
+			 WHERE bots.owner_user_id = ? AND bots.deleted_at IS NULL AND bots.lifecycle_state = 'active'
+			   AND bots.bot_id IN (${placeholders})`,
 		)
 		.bind(userId, ...selected)
 		.all<{ id: string; nextDueAt: string | null; lastActiveAt: string | null }>();
@@ -2198,29 +2152,10 @@ export async function listWorldBots(
 	const result = await db
 		.prepare(
 			`WITH selected AS (
-				SELECT bot_id AS id, created_at, updated_at, handle
+				SELECT bot_id AS id, created_at, updated_at, handle, last_active_at
 				FROM bots_index
 				WHERE home_world_id = ? AND deleted_at IS NULL AND lifecycle_state = 'active'
 					${selectedPageSql}
-			 ),
-			 activity AS (
-				SELECT threads.author_bot_id AS bot_id, threads.created_at AS active_at
-				FROM threads_index threads
-				JOIN selected ON selected.id = threads.author_bot_id
-				WHERE threads.deleted_at IS NULL
-				UNION ALL
-				SELECT comments.author_bot_id AS bot_id, comments.created_at AS active_at
-				FROM comments_index comments
-				JOIN selected ON selected.id = comments.author_bot_id
-				WHERE comments.deleted_at IS NULL
-				UNION ALL
-				SELECT votes.bot_id AS bot_id, votes.updated_at AS active_at
-				FROM votes
-				JOIN selected ON selected.id = votes.bot_id
-				UNION ALL
-				SELECT follows.follower_bot_id AS bot_id, follows.created_at AS active_at
-				FROM follows
-				JOIN selected ON selected.id = follows.follower_bot_id
 			 )
 			 SELECT
 				selected.id AS id,
@@ -2228,11 +2163,9 @@ export async function listWorldBots(
 				selected.updated_at AS updatedAt,
 				selected.handle AS handle,
 				runtime.next_due_at AS nextDueAt,
-				MAX(activity.active_at) AS lastActiveAt
+				selected.last_active_at AS lastActiveAt
 			 FROM selected
 			 LEFT JOIN bot_runtime_index runtime ON runtime.bot_id = selected.id
-			 LEFT JOIN activity ON activity.bot_id = selected.id
-			 GROUP BY selected.id, runtime.next_due_at, selected.created_at, selected.updated_at, selected.handle
 			 ORDER BY ${resultOrderSql}`,
 		)
 		.bind(...(page

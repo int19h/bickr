@@ -17,20 +17,17 @@ function request(path: string, method = "POST", scheduler = true) {
 	} });
 }
 
-describe("forum search maintenance routes", () => {
-	it("allows bounded warmup while maintenance remains enabled and rejects ordinary mutations", async () => {
-		expect((await forumWorker.fetch(request("/maintenance/search-index/rebuild", "POST", false) as never, env())).status).toBe(403);
+describe("removed forum search maintenance routes", () => {
+	it("falls through to ordinary maintenance handling", async () => {
 		expect((await forumWorker.fetch(new Request("https://public.example/maintenance/search-index/rebuild", { method: "POST" }) as never, env())).status).toBe(404);
-		const result = await forumWorker.fetch(request("/maintenance/search-index/rebuild") as never, env());
-		expect(result.status).toBe(200);
-		expect(await result.json()).toMatchObject({ data: { processed: 0, remaining: false } });
-		const status = await forumWorker.fetch(request("/maintenance/search-index/status", "GET") as never, env());
-		expect(await status.json()).toMatchObject({ data: { ready: true } });
-		expect((await forumWorker.fetch(request("/worlds/patch-notes/forums") as never, env())).status).toBe(503);
+		expect((await forumWorker.fetch(request("/maintenance/search-index/rebuild", "POST", false) as never, env())).status).toBe(503);
+		expect((await forumWorker.fetch(request("/maintenance/search-index/rebuild") as never, env())).status).toBe(503);
+		expect((await forumWorker.fetch(request("/maintenance/search-index/status", "GET") as never, env())).status).toBe(404);
 		expect((await forumWorker.fetch(request("/maintenance/search-index/status") as never, env())).status).toBe(503);
+		expect((await forumWorker.fetch(request("/worlds/patch-notes/forums") as never, env())).status).toBe(503);
 	});
 
-	it("uses the same exact route classification in the authenticated test proxy", async () => {
+	it("no longer exempts the search routes in the authenticated test proxy", async () => {
 		const invoke = (service: string, path: string) => testServiceProxy(contextFor<typeof testServiceProxy>(jsonRequest(
 			"https://test.bickr.social/api/__test__/service-proxy", "POST",
 			{ service, method: "POST", path, headers: { "x-bickr-scheduler": "1" } }, undefined, { "x-test-auth-secret": "test-secret" },
@@ -38,7 +35,7 @@ describe("forum search maintenance routes", () => {
 			TEST_AUTH_SECRET: "test-secret", TEST_AUTH_ALLOWED_HOSTS: "test.bickr.social,test.bickr.pages.dev", INTERNAL_SERVICE_SECRET: "warmup-secret",
 			FORUM_COORDINATOR_SERVICE: { fetch: (inner: Request) => forumWorker.fetch(inner as never, env()) } as Fetcher,
 		}));
-		expect((await invoke("forum-coordinator", "/maintenance/search-index/rebuild")).status).toBe(200);
+		expect((await invoke("forum-coordinator", "/maintenance/search-index/rebuild")).status).toBe(503);
 		expect((await invoke("forum-coordinator", "/maintenance/search-index/rebuild/other")).status).toBe(503);
 		expect((await invoke("agent-runtime", "/maintenance/search-index/rebuild")).status).toBe(503);
 	});
