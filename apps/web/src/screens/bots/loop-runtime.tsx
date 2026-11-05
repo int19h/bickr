@@ -45,6 +45,8 @@ import {
 } from "./runtime-utils";
 import { ContextWindowBar, TokenUsagePanel } from "./token-usage";
 
+const tokenUsageIntervalMs = 10_000;
+
 export type RuntimeMonitorPayload = {
 	type?: string;
 	event?: BotRuntimeEvent;
@@ -172,6 +174,10 @@ export function BotRuntimePanel({
 	const liveUpdatesRef = useRef(new Map<string, { revision: number; runId: string; attemptId?: number; deltas: Array<AgentLogStreamPayload & { arrival: number; revision?: number }> }>());
 	const endedRunsRef = useRef(new Set<string>());
 	const usageRequestGenerationRef = useRef(0);
+	const tokenUsageInFlightRef = useRef(false);
+	const tokenUsageQueuedRef = useRef(false);
+	const tokenUsageWindowStartedAtRef = useRef<number | null>(null);
+	const tokenUsageTrailingTimerRef = useRef<number | undefined>(undefined);
 	const trailingRefreshTimerRef = useRef<number | undefined>(undefined);
 	const reconnectAttemptRef = useRef(0);
 	const runtimeEnabled = status?.enabled ?? bot.tickSettings.enabled;
@@ -203,6 +209,7 @@ export function BotRuntimePanel({
 		eventsRequestGenerationRef.current += 1;
 		messagesRequestGenerationRef.current += 1;
 		usageRequestGenerationRef.current += 1;
+		resetTokenUsageHelper();
 		reconnectAttemptRef.current = 0;
 		streamRevisionRef.current = 0;
 		liveUpdatesRef.current.clear();
@@ -227,6 +234,7 @@ export function BotRuntimePanel({
 		setTokenUsage(null);
 		setConnected(false);
 		void refresh({ page: loopPageFromUrl() });
+		requestTokenUsage({ immediate: true });
 
 		const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
 		const monitorUrl = `${protocol}//${window.location.host}/api/me/bots/${encodeURIComponent(bot.id)}/runtime/monitor`;
@@ -274,6 +282,7 @@ export function BotRuntimePanel({
 				currentLoopPageRef.current = 1;
 				currentLoopSourceCompactionSeqRef.current = null;
 				setMessage("Loop history erased.");
+				requestTokenUsage({ immediate: true });
 				scheduleTrailingRefresh({ page: 1 });
 				return;
 			}
@@ -284,6 +293,7 @@ export function BotRuntimePanel({
 				latestLoopMessageSeqRef.current = 0;
 				// A compaction renumbers nested pages. Preserve the generation anchor
 				// and resolve its new page from the authoritative page-1 index.
+				requestTokenUsage({ immediate: true });
 				scheduleTrailingRefresh();
 				return;
 			}
@@ -307,12 +317,13 @@ export function BotRuntimePanel({
 				return;
 			}
 			if (payload.type === "loop_message" && payload.loopMessage) {
+				// The context bar still moves during a run when this frame belongs to another page.
+				requestTokenUsage();
 				if (currentLoopPageRef.current !== 1) {
 					return;
 				}
 				rememberLoopMessageSeq(payload.loopMessage);
 				setLoopMessages((current) => upsertLoopMessage(removeLiveProviderLoopMessagesForFinalizedMessage(current, payload.loopMessage!), payload.loopMessage!));
-				void refreshTokenUsage();
 				scheduleTrailingRefresh();
 				return;
 			}
@@ -450,6 +461,9 @@ export function BotRuntimePanel({
 				window.clearTimeout(trailingRefreshTimerRef.current);
 				trailingRefreshTimerRef.current = undefined;
 			}
+			// Drop an in-flight result after unmount. A bot switch bumps this again in the setup below.
+			usageRequestGenerationRef.current += 1;
+			resetTokenUsageHelper();
 			socket?.close();
 		};
 	}, [bot.id]);
@@ -459,6 +473,8 @@ export function BotRuntimePanel({
 			return undefined;
 		}
 		const interval = window.setInterval(() => {
+			// Usage keeps moving on an archive page. The message refresh stays on page 1.
+			if (status?.status === "running") requestTokenUsage();
 			if (document.visibilityState === "visible" && currentLoopPageRef.current === 1) {
 				void refreshAuthoritativeCurrentPage();
 			}
@@ -574,10 +590,14 @@ export function BotRuntimePanel({
 	}
 
 	function rememberEndedRun(runId: string): void {
+		const added = !endedRunsRef.current.has(runId);
 		endedRunsRef.current.add(runId);
 		// Only recent runs can still have delayed socket frames or snapshots.
 		if (endedRunsRef.current.size > 1_000) endedRunsRef.current.delete(endedRunsRef.current.values().next().value!);
 		for (const [id, update] of liveUpdatesRef.current) if (update.runId === runId) liveUpdatesRef.current.delete(id);
+		// Snapshots repeat terminal events on every refresh. Both the socket path and the
+		// snapshot path come through here, so usage is requested only for a newly recorded run.
+		if (added) requestTokenUsage({ immediate: true });
 	}
 
 	function invalidateRefreshes(parts: { events?: boolean; messages?: boolean }): void {
@@ -587,6 +607,7 @@ export function BotRuntimePanel({
 
 	function refreshLog(): Promise<void> {
 		archiveRefreshPendingRef.current = true;
+		requestTokenUsage({ immediate: true });
 		return refreshAuthoritativeCurrentPage();
 	}
 
@@ -620,17 +641,15 @@ export function BotRuntimePanel({
 		const eventsGeneration = ++eventsRequestGenerationRef.current;
 		const messagesGeneration = ++messagesRequestGenerationRef.current;
 		const streamRevisionAtStart = streamRevisionRef.current;
-		const usageGeneration = ++usageRequestGenerationRef.current;
 		const messageQuery = new URLSearchParams();
 		if (requestedPage > 1) {
 			messageQuery.set("page", String(requestedPage));
 		}
 		const messagePath = `/api/me/bots/${encodeURIComponent(bot.id)}/runtime/messages${messageQuery.toString() ? `?${messageQuery.toString()}` : ""}`;
-		const [statusResult, eventsResult, messagesResult, tokenUsageResult] = await Promise.all([
+		const [statusResult, eventsResult, messagesResult] = await Promise.all([
 			api<{ status: BotRuntimeStatus }>(`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/status`),
 			api<{ events: BotRuntimeEvent[] }>(`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/events`),
 			api<BotLoopMessagesResponse>(messagePath),
-			api<{ usage: BotTokenUsageStats }>(`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/token-usage`),
 		]);
 		if (statusResult.ok && statusGeneration === statusRequestGenerationRef.current) {
 			setStatus(statusResult.data.status);
@@ -743,17 +762,61 @@ export function BotRuntimePanel({
 				setLoopMessages(messagesResult.data.messages);
 			}
 		}
-		if (tokenUsageResult.ok && usageGeneration === usageRequestGenerationRef.current) {
-			setTokenUsage(tokenUsageResult.data.usage);
+	}
+
+	function resetTokenUsageHelper(): void {
+		tokenUsageInFlightRef.current = false;
+		tokenUsageQueuedRef.current = false;
+		tokenUsageWindowStartedAtRef.current = null;
+		if (tokenUsageTrailingTimerRef.current !== undefined) {
+			window.clearTimeout(tokenUsageTrailingTimerRef.current);
+			tokenUsageTrailingTimerRef.current = undefined;
 		}
 	}
 
-	async function refreshTokenUsage(): Promise<void> {
-		const generation = ++usageRequestGenerationRef.current;
-		const result = await api<{ usage: BotTokenUsageStats }>(`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/token-usage`);
-		if (result.ok && generation === usageRequestGenerationRef.current) {
-			setTokenUsage(result.data.usage);
+	function requestTokenUsage(options?: { immediate?: boolean }): void {
+		const startedAt = tokenUsageWindowStartedAtRef.current;
+		const elapsed = startedAt === null ? tokenUsageIntervalMs : Date.now() - startedAt;
+		if (options?.immediate || elapsed >= tokenUsageIntervalMs) {
+			if (tokenUsageInFlightRef.current) {
+				tokenUsageQueuedRef.current = true;
+				return;
+			}
+			void startTokenUsageFetch();
+			return;
 		}
+		if (tokenUsageTrailingTimerRef.current !== undefined) return;
+		tokenUsageTrailingTimerRef.current = window.setTimeout(() => {
+			tokenUsageTrailingTimerRef.current = undefined;
+			// The response is still out. Keep one follow-up, the same as an immediate request.
+			if (tokenUsageInFlightRef.current) {
+				tokenUsageQueuedRef.current = true;
+				return;
+			}
+			void startTokenUsageFetch();
+		}, tokenUsageIntervalMs - elapsed);
+	}
+
+	async function startTokenUsageFetch(): Promise<void> {
+		const generation = ++usageRequestGenerationRef.current;
+		const botId = bot.id;
+		tokenUsageInFlightRef.current = true;
+		tokenUsageQueuedRef.current = false;
+		if (tokenUsageTrailingTimerRef.current !== undefined) {
+			window.clearTimeout(tokenUsageTrailingTimerRef.current);
+			tokenUsageTrailingTimerRef.current = undefined;
+		}
+		// The next slot is measured from this start, including while the response is still outstanding.
+		tokenUsageWindowStartedAtRef.current = Date.now();
+		const result = await api<{ usage: BotTokenUsageStats }>(`/api/me/bots/${encodeURIComponent(botId)}/runtime/token-usage`);
+		// A bot switch bumps the generation and is not a timer. Drop the result, and do not
+		// start a follow-up that would still read the previous participant.
+		if (generation !== usageRequestGenerationRef.current) return;
+		tokenUsageInFlightRef.current = false;
+		if (result.ok) setTokenUsage(result.data.usage);
+		if (!tokenUsageQueuedRef.current) return;
+		tokenUsageQueuedRef.current = false;
+		void startTokenUsageFetch();
 	}
 
 	async function switchLoopPage(page: number): Promise<void> {
@@ -812,6 +875,7 @@ export function BotRuntimePanel({
 				:	`Tick ${result.data.run.status}.`
 			:	result.message,
 		);
+		requestTokenUsage({ immediate: true });
 		await refresh({ page: 1 });
 		setStartingTick(false);
 		window.setTimeout(() => void refresh({ page: 1 }), 750);
@@ -868,6 +932,7 @@ export function BotRuntimePanel({
 					break;
 			}
 		}
+		requestTokenUsage({ immediate: true });
 		await refreshAuthoritativeCurrentPage();
 	}
 
@@ -996,6 +1061,7 @@ export function BotRuntimePanel({
 			setLoopEntries(current => current.filter(entry => entry.kind !== 'message' || entry.message.seq !== loopMessage.seq));
 			setOpenLoopMessageLogs((current) => current && current.message.seq === loopMessage.seq ? null : current);
 			setMessage("Loop message deleted.");
+			requestTokenUsage({ immediate: true });
 			scheduleTrailingRefresh();
 			return;
 		}
@@ -1013,6 +1079,7 @@ export function BotRuntimePanel({
 			invalidateRefreshes({ messages: true });
 			const count = result.data.compacted.messageCount;
 			setMessage(count > 0 ? `Compacted ${count} loop chat message${count === 1 ? "" : "s"}.` : "There is no new loop history to compact.");
+			requestTokenUsage({ immediate: true });
 			await refreshAuthoritativeCurrentPage();
 			return;
 		}
@@ -1040,6 +1107,7 @@ export function BotRuntimePanel({
 			currentLoopPageRef.current = 1;
 			currentLoopSourceCompactionSeqRef.current = null;
 			setMessage(`Reset ${result.data.cleared.messages ?? 0} loop chat messages and ${result.data.cleared.events} legacy events.`);
+			requestTokenUsage({ immediate: true });
 			scheduleTrailingRefresh({ page: 1 });
 		} else {
 			setMessage(result.message);

@@ -1,5 +1,5 @@
 import { reasoningRuntimeOutput } from './agent-log-runtime-output.test-support.mjs';
-import type { AgentLogEntry, BotLoopMessage, BotLoopMessagePage, BotRuntimeEvent, BotSummary } from '@bickr/shared/model';
+import type { AgentLogEntry, BotLoopMessage, BotLoopMessagePage, BotRuntimeEvent, BotSummary, BotTokenUsageStats } from '@bickr/shared/model';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -74,6 +74,11 @@ const loopMessage = (seq: number, content: string): BotLoopMessage => ({
 
 let runtimeStatus: 'running' | 'idle';
 let pendingCompactions: Array<{ path: string; method: string | undefined; resolve: (response: Response) => void }>;
+let pendingHistoryResets: Array<{ path: string; method: string | undefined; resolve: (response: Response) => void }>;
+let pendingTokenUsage: Array<{ path: string; resolve: (response: Response) => void }>;
+let tokenUsagePaths: string[];
+let holdTokenUsage: boolean;
+let scriptedEvents: BotRuntimeEvent[] | null;
 let container: HTMLDivElement;
 let root: Root;
 let pendingMessages: PendingMessages[];
@@ -92,6 +97,11 @@ beforeEach(async () => {
 	pendingInference = [];
 	pendingLogs = [];
 	pendingCompactions = [];
+	pendingHistoryResets = [];
+	pendingTokenUsage = [];
+	tokenUsagePaths = [];
+	holdTokenUsage = false;
+	scriptedEvents = null;
 	pendingRequests = [];
 	MonitorSocket.instances = [];
 	vi.stubGlobal('WebSocket', MonitorSocket);
@@ -106,15 +116,21 @@ beforeEach(async () => {
 		if (path.endsWith('/runtime/status')) {
 			return Promise.resolve(json({ ok: true, data: { status: { botId: bot.id, enabled: true, status: runtimeStatus } } }));
 		}
+		if (path.endsWith('/runtime/events') && init?.method === 'DELETE') {
+			return new Promise<Response>((resolve) => pendingHistoryResets.push({ path, method: init.method, resolve }));
+		}
 		if (path.endsWith('/runtime/events')) {
 			if (holdEventSnapshots) {
 				return new Promise<Response>((resolve) => {
 					pendingEvents.push({ resolve: (events) => resolve(json({ ok: true, data: { events } })) });
 				});
 			}
+			if (scriptedEvents) return Promise.resolve(json({ ok: true, data: { events: scriptedEvents } }));
 			return Promise.resolve(json({ ok: true, data: { events: [] } }));
 		}
 		if (path.endsWith('/runtime/token-usage')) {
+			tokenUsagePaths.push(path);
+			if (holdTokenUsage) return new Promise<Response>((resolve) => pendingTokenUsage.push({ path, resolve }));
 			return Promise.resolve(json({ ok: false, error: 'unavailable', message: 'usage unavailable' }, 503));
 		}
 		if (path.includes('/runtime/requests/')) {
@@ -146,6 +162,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
 	await act(async () => root.unmount());
+	vi.useRealTimers();
 	container.remove();
 	window.history.replaceState({}, '', '/');
 	vi.restoreAllMocks();
@@ -865,7 +882,9 @@ async function confirmManualCompaction(origin: 'provider_response' | 'compaction
 it('shows a manual compaction error without reporting success or losing history', async () => {
 	await confirmManualCompaction('provider_response');
 	const message = 'Compaction could not produce a shorter summary.';
+	const usageFetches = tokenUsagePaths.length;
 	await act(async () => pendingCompactions[0]!.resolve(json({ ok: false, error: 'bad_request', message, details: { compactionFailure: { kind: 'validation', issue: 'non_reducing_compaction', message } } }, 422)));
+	expect(tokenUsagePaths).toHaveLength(usageFetches);
 	expect(container.textContent).toContain(message);
 	expect(container.textContent).toContain('Kept history');
 	expect(container.textContent).not.toContain('Compacted 1 loop chat message');
@@ -875,7 +894,9 @@ it('shows a manual compaction error without reporting success or losing history'
 
 it('shows nothing to compact and keeps the summary after the manual request', async () => {
 	await confirmManualCompaction('compaction');
+	const usageFetches = tokenUsagePaths.length;
 	await act(async () => pendingCompactions[0]!.resolve(json({ ok: true, data: { compacted: { messageCount: 0 } } })));
+	expect(tokenUsagePaths).toHaveLength(usageFetches + 1);
 	await answerMessages(2, [{ ...loopMessage(1, 'Kept history'), origin: 'compaction' }]);
 	expect(container.textContent).toContain('There is no new loop history to compact.');
 	expect(container.textContent).toContain('Kept history');
@@ -1135,4 +1156,236 @@ it.each([true, false])('replays actual typed runtime reasoning after an older sn
 	await act(async () => refresh.click());
 	await act(async () => pendingMessages[3]!.resolve({ messages: [], entries: output.settled, page: page(1, {}, [{ page: 1, messageCount: 0 }]) }));
 	assertSafe();
+});
+
+function usageStats(model: string, promptTokens: number): BotTokenUsageStats {
+	const totals = { requestCount: 1, promptTokens, completionTokens: 1, totalTokens: promptTokens + 1, cachedTokens: 0, reasoningTokens: 0, cost: null };
+	return {
+		generatedAt: '2026-10-24T12:06:00Z',
+		windowStart: '2026-10-17T12:06:00Z',
+		windowEnd: '2026-10-24T12:06:00Z',
+		last24Hours: totals,
+		last7Days: totals,
+		dailyAverageTokens: promptTokens,
+		dailyAverageDays: 1,
+		buckets: [],
+		models: [{ ...totals, model, providerName: 'Example provider', firstUsedAt: '2026-10-24T12:00:00Z', lastUsedAt: '2026-10-24T12:05:00Z' }],
+		changeMarkers: [],
+		contextWindow: {
+			usedAt: '2026-10-24T12:05:00Z',
+			runId: 'run',
+			requestSeq: 1,
+			model,
+			requestedModel: model,
+			contextWindowTokens: 16_000,
+			promptTokens,
+			baselineUsedAt: '2026-10-24T12:00:00Z',
+			baselineRequestSeq: 1,
+			baselinePromptTokens: promptTokens,
+			initialTokens: promptTokens,
+			ongoingTokens: 0,
+			freeTokens: 16_000 - promptTokens,
+			compactionCutoffTokens: 12_000,
+			responseReserveTokens: 1_000,
+		},
+	};
+}
+
+function usageResponse(model: string, promptTokens: number): Response {
+	return json({ ok: true, data: { usage: usageStats(model, promptTokens) } });
+}
+
+async function remount(next: BotSummary = bot, options?: { fakeTimers?: boolean }): Promise<void> {
+	await act(async () => root.unmount());
+	if (options?.fakeTimers) vi.useFakeTimers({ now: Date.now() });
+	pendingMessages = [];
+	pendingEvents = [];
+	pendingCompactions = [];
+	pendingHistoryResets = [];
+	pendingTokenUsage = [];
+	tokenUsagePaths = [];
+	pendingInference = [];
+	pendingLogs = [];
+	pendingRequests = [];
+	MonitorSocket.instances = [];
+	root = createRoot(container);
+	await act(async () => root.render(<BotRuntimePanel bot={next} busy={false} onSave={async () => true} />));
+}
+
+async function openArchivePage(): Promise<void> {
+	const pages = [
+		{ page: 1, isNewest: true, messageCount: 1, fromSeq: 40, toSeq: 40, olderPage: 2 },
+		{ page: 2, isNewest: false, messageCount: 1, fromSeq: 12, toSeq: 12, sourceCompactionSeq: 40, newerPage: 1 },
+	];
+	await answerMessages(0, [loopMessage(40, 'Current context')], page(1, { 40: 2 }, pages));
+	const pageTwo = container.querySelector<HTMLAnchorElement>('a[title^="Open loop page 2"]')!;
+	await act(async () => pageTwo.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true })));
+	await answerMessages(1, [{ ...loopMessage(12, 'Selected archive'), compactedBy: 40 }], page(2, { 40: 2 }, pages));
+}
+
+describe('token usage refresh', () => {
+	it('renders the log while token usage is still pending', async () => {
+		holdTokenUsage = true;
+		await remount();
+		await answerMessages(0, [loopMessage(1, 'Visible before usage')]);
+		expect(container.textContent).toContain('Visible before usage');
+		expect(container.textContent).toContain('Loading current context...');
+		expect(tokenUsagePaths).toHaveLength(1);
+		expect(pendingTokenUsage).toHaveLength(1);
+	});
+
+	it('fetches token usage twice when the socket opens during the first fetch', async () => {
+		holdTokenUsage = true;
+		await remount();
+		expect(tokenUsagePaths).toHaveLength(1);
+		await act(async () => MonitorSocket.instances[0]!.open());
+		expect(tokenUsagePaths).toHaveLength(1);
+		await act(async () => pendingTokenUsage[0]!.resolve(usageResponse('startup-usage', 100)));
+		expect(tokenUsagePaths).toHaveLength(2);
+		await act(async () => pendingTokenUsage[1]!.resolve(usageResponse('startup-usage', 100)));
+		expect(tokenUsagePaths).toHaveLength(2);
+		expect(container.textContent).toContain('startup-usage');
+	});
+
+	it('does not request token usage on an idle poll', async () => {
+		runtimeStatus = 'idle';
+		await remount(bot, { fakeTimers: true });
+		await answerMessages(0, [loopMessage(1, 'Idle history')]);
+		const before = tokenUsagePaths.length;
+		await act(async () => { await vi.advanceTimersByTimeAsync(20_000); });
+		expect(tokenUsagePaths).toHaveLength(before);
+	});
+
+	it('applies an in-flight usage result when a refresh starts', async () => {
+		holdTokenUsage = true;
+		await remount();
+		await answerMessages(0, [loopMessage(1, 'Log before usage')]);
+		expect(container.textContent).toContain('Loading current context...');
+		const refresh = [...container.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Refresh log')!;
+		await act(async () => refresh.click());
+		expect(tokenUsagePaths).toHaveLength(1);
+		await answerMessages(1, [loopMessage(1, 'Log before usage')]);
+		await act(async () => pendingTokenUsage[0]!.resolve(usageResponse('usage-still-applied', 3333)));
+		expect(container.textContent).toContain('usage-still-applied');
+		expect(container.textContent).toContain('Log before usage');
+		expect(tokenUsagePaths).toHaveLength(2);
+	});
+
+	it('requests token usage about once per 10 seconds for a stream of loop messages', async () => {
+		await remount(bot, { fakeTimers: true });
+		await answerMessages(0, [loopMessage(1, 'Streaming history')]);
+		expect(tokenUsagePaths).toHaveLength(1);
+		for (let second = 1; second <= 35; second += 1) {
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(1_000);
+				MonitorSocket.instances.at(-1)!.emit({ type: 'loop_message', loopMessage: loopMessage(100 + second, `Frame ${second}`) });
+			});
+		}
+		expect(tokenUsagePaths).toHaveLength(4);
+	});
+
+	it('restarts the usage window when a fetch starts and queues a trailing fire that arrives in flight', async () => {
+		holdTokenUsage = true;
+		await remount(bot, { fakeTimers: true });
+		expect(tokenUsagePaths).toHaveLength(1);
+		await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
+		await act(async () => MonitorSocket.instances.at(-1)!.emit({ type: 'loop_message', loopMessage: loopMessage(2, 'Frame') }));
+		await act(async () => { await vi.advanceTimersByTimeAsync(9_000); });
+		expect(tokenUsagePaths).toHaveLength(1);
+		await act(async () => pendingTokenUsage[0]!.resolve(json({ ok: false, error: 'unavailable', message: 'usage unavailable' }, 503)));
+		expect(tokenUsagePaths).toHaveLength(2);
+		await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
+		await act(async () => MonitorSocket.instances.at(-1)!.emit({ type: 'loop_message', loopMessage: loopMessage(3, 'Again') }));
+		await act(async () => { await vi.advanceTimersByTimeAsync(4_000); });
+		const refresh = [...container.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Refresh log')!;
+		await act(async () => refresh.click());
+		expect(tokenUsagePaths).toHaveLength(2);
+		await act(async () => pendingTokenUsage[1]!.resolve(json({ ok: false, error: 'unavailable', message: 'usage unavailable' }, 503)));
+		expect(tokenUsagePaths).toHaveLength(3);
+		await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+		expect(tokenUsagePaths).toHaveLength(3);
+		await act(async () => MonitorSocket.instances.at(-1)!.emit({ type: 'loop_message', loopMessage: loopMessage(4, 'After') }));
+		await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+		expect(tokenUsagePaths).toHaveLength(3);
+		await act(async () => pendingTokenUsage[2]!.resolve(json({ ok: false, error: 'unavailable', message: 'usage unavailable' }, 503)));
+		expect(tokenUsagePaths).toHaveLength(4);
+	});
+
+	it('fetches token usage when a closed socket sees the run end, and later polls do not refetch it', async () => {
+		holdTokenUsage = true;
+		runtimeStatus = 'running';
+		await remount(bot, { fakeTimers: true });
+		await answerMessages(0, [loopMessage(1, 'During the run')]);
+		await act(async () => pendingTokenUsage[0]!.resolve(usageResponse('during-run', 100)));
+		scriptedEvents = [runtimeEvent(3, 'run-ended', 'tick_completed')];
+		const before = tokenUsagePaths.length;
+		await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+		await answerMessages(pendingMessages.length - 1, [loopMessage(1, 'During the run')]);
+		expect(tokenUsagePaths).toHaveLength(before + 1);
+		await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+		await answerMessages(pendingMessages.length - 1, [loopMessage(1, 'During the run')]);
+		expect(tokenUsagePaths).toHaveLength(before + 1);
+		expect(pendingTokenUsage).toHaveLength(2);
+	});
+
+	it('requests token usage from an archive page during a run', async () => {
+		runtimeStatus = 'idle';
+		await remount(bot, { fakeTimers: true });
+		await openArchivePage();
+		const before = tokenUsagePaths.length;
+		await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+		expect(tokenUsagePaths).toHaveLength(before);
+		await act(async () => MonitorSocket.instances.at(-1)!.emit({ type: 'loop_message', loopMessage: loopMessage(91, 'Live on the archive') }));
+		expect(tokenUsagePaths).toHaveLength(before + 1);
+		expect(container.textContent).not.toContain('Live on the archive');
+		expect(container.textContent).toContain('Selected archive');
+	});
+
+	it('requests token usage on each running poll while an archive page is open', async () => {
+		runtimeStatus = 'running';
+		await remount(bot, { fakeTimers: true });
+		await openArchivePage();
+		const usageBefore = tokenUsagePaths.length;
+		const messagesBefore = pendingMessages.length;
+		await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+		expect(tokenUsagePaths.length).toBeGreaterThan(usageBefore);
+		expect(tokenUsagePaths.length).toBeLessThanOrEqual(usageBefore + 2);
+		expect(pendingMessages).toHaveLength(messagesBefore);
+	});
+
+	it('requests token usage when the owner reset succeeds', async () => {
+		runtimeStatus = 'idle';
+		await remount();
+		await answerMessages(0, [loopMessage(1, 'History to reset')]);
+		const before = tokenUsagePaths.length;
+		const reset = () => [...container.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Reset loop')!;
+		await act(async () => reset().click());
+		await act(async () => [...document.querySelectorAll<HTMLButtonElement>('.modal button')].find((button) => button.textContent === 'Reset loop')!.click());
+		await act(async () => pendingHistoryResets[0]!.resolve(json({ ok: false, error: 'conflict', message: 'Reset failed.' }, 409)));
+		expect(tokenUsagePaths).toHaveLength(before);
+		expect(container.textContent).toContain('Reset failed.');
+		await act(async () => reset().click());
+		await act(async () => [...document.querySelectorAll<HTMLButtonElement>('.modal button')].find((button) => button.textContent === 'Reset loop')!.click());
+		await act(async () => pendingHistoryResets[1]!.resolve(json({ ok: true, data: { cleared: { events: 1, injections: 0, runtimeState: 0, messages: 1 } } })));
+		expect(tokenUsagePaths).toHaveLength(before + 1);
+	});
+
+	it('never renders one participant\'s usage for another, including a queued follow-up', async () => {
+		holdTokenUsage = true;
+		await remount();
+		await answerMessages(0, [loopMessage(1, 'Bot A log')]);
+		const refresh = [...container.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Refresh log')!;
+		await act(async () => refresh.click());
+		expect(tokenUsagePaths).toEqual([expect.stringContaining(`/bots/${bot.id}/runtime/token-usage`)]);
+		const botB = { ...bot, id: 'bot_b_usage' } as BotSummary;
+		await act(async () => root.render(<BotRuntimePanel bot={botB} busy={false} onSave={async () => true} />));
+		expect(tokenUsagePaths.filter((path) => path.includes(`/bots/${bot.id}/`))).toHaveLength(1);
+		expect(tokenUsagePaths.filter((path) => path.includes('/bots/bot_b_usage/'))).toHaveLength(1);
+		await act(async () => pendingTokenUsage[0]!.resolve(usageResponse('usage-model-bot-a', 1111)));
+		expect(container.textContent).not.toContain('usage-model-bot-a');
+		expect(tokenUsagePaths.filter((path) => path.includes(`/bots/${bot.id}/`))).toHaveLength(1);
+		await act(async () => pendingTokenUsage[1]!.resolve(usageResponse('usage-model-bot-b', 2222)));
+		expect(container.textContent).toContain('usage-model-bot-b');
+		expect(container.textContent).not.toContain('usage-model-bot-a');
+	});
 });
