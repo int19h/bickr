@@ -1344,13 +1344,32 @@ describe('token usage refresh', () => {
 	it('requests token usage on each running poll while an archive page is open', async () => {
 		runtimeStatus = 'running';
 		await remount(bot, { fakeTimers: true });
+		// The mount fetch opens the 10s window. Let 3s pass before status becomes
+		// running, so the trailing fetch and the next 5s poll do not share a deadline.
+		await act(async () => { await vi.advanceTimersByTimeAsync(3_000); });
 		await openArchivePage();
 		const usageBefore = tokenUsagePaths.length;
 		const messagesBefore = pendingMessages.length;
-		await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
-		expect(tokenUsagePaths.length).toBeGreaterThan(usageBefore);
-		expect(tokenUsagePaths.length).toBeLessThanOrEqual(usageBefore + 2);
+		await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+		expect(tokenUsagePaths).toHaveLength(usageBefore);
+		await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
+		expect(tokenUsagePaths).toHaveLength(usageBefore + 1);
 		expect(pendingMessages).toHaveLength(messagesBefore);
+	});
+
+	it('gives a first snapshot with retained terminal events the same usage fetch count as one without them', async () => {
+		runtimeStatus = 'idle';
+		await remount();
+		await answerMessages(0, [loopMessage(1, 'Quiet history')]);
+		const withoutTerminalEvents = tokenUsagePaths.length;
+		scriptedEvents = [
+			runtimeEvent(1, 'old-run-a', 'tick_completed'),
+			runtimeEvent(2, 'old-run-b', 'tick_failed'),
+			runtimeEvent(3, 'old-run-c', 'tick_stopped'),
+		];
+		await remount();
+		await answerMessages(0, [loopMessage(1, 'Quiet history')]);
+		expect(tokenUsagePaths).toHaveLength(withoutTerminalEvents);
 	});
 
 	it('requests token usage when the owner reset succeeds', async () => {

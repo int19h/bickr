@@ -173,6 +173,7 @@ export function BotRuntimePanel({
 	const streamSnapshotEntriesRef = useRef(new Map<string, RequestLogEntry>());
 	const liveUpdatesRef = useRef(new Map<string, { revision: number; runId: string; attemptId?: number; deltas: Array<AgentLogStreamPayload & { arrival: number; revision?: number }> }>());
 	const endedRunsRef = useRef(new Set<string>());
+	const eventsBaselinePendingRef = useRef(true);
 	const usageRequestGenerationRef = useRef(0);
 	const tokenUsageInFlightRef = useRef(false);
 	const tokenUsageQueuedRef = useRef(false);
@@ -214,6 +215,7 @@ export function BotRuntimePanel({
 		streamRevisionRef.current = 0;
 		liveUpdatesRef.current.clear();
 		endedRunsRef.current.clear();
+		eventsBaselinePendingRef.current = true;
 		normalRestoreRef.current = null;
 		chat.normalScroll.current = 0;
 		setStartingTick(false);
@@ -473,11 +475,10 @@ export function BotRuntimePanel({
 			return undefined;
 		}
 		const interval = window.setInterval(() => {
-			// Usage keeps moving on an archive page. The message refresh stays on page 1.
+			// A hidden tab does not poll. Usage still moves on an archive page.
+			if (document.visibilityState !== "visible") return;
 			if (status?.status === "running") requestTokenUsage();
-			if (document.visibilityState === "visible" && currentLoopPageRef.current === 1) {
-				void refreshAuthoritativeCurrentPage();
-			}
+			if (currentLoopPageRef.current === 1) void refreshAuthoritativeCurrentPage();
 		}, status?.status === "running" ? 5_000 : 15_000);
 		return () => window.clearInterval(interval);
 	}, [bot.id, connected, status?.status]);
@@ -589,15 +590,15 @@ export function BotRuntimePanel({
 		shouldStickToBottomRef.current = log.scrollHeight - log.scrollTop - log.clientHeight <= 24;
 	}
 
-	function rememberEndedRun(runId: string): void {
+	function rememberEndedRun(runId: string, options?: { requestUsage?: boolean }): void {
 		const added = !endedRunsRef.current.has(runId);
 		endedRunsRef.current.add(runId);
 		// Only recent runs can still have delayed socket frames or snapshots.
 		if (endedRunsRef.current.size > 1_000) endedRunsRef.current.delete(endedRunsRef.current.values().next().value!);
 		for (const [id, update] of liveUpdatesRef.current) if (update.runId === runId) liveUpdatesRef.current.delete(id);
-		// Snapshots repeat terminal events on every refresh. Both the socket path and the
-		// snapshot path come through here, so usage is requested only for a newly recorded run.
-		if (added) requestTokenUsage({ immediate: true });
+		// Snapshots repeat terminal events. Usage is requested only for a newly recorded run,
+		// and the first snapshot after mount or a bot switch declines the request.
+		if (added && options?.requestUsage !== false) requestTokenUsage({ immediate: true });
 	}
 
 	function invalidateRefreshes(parts: { events?: boolean; messages?: boolean }): void {
@@ -662,7 +663,17 @@ export function BotRuntimePanel({
 			// remain additive, but a reconnect snapshot must remove rows whose delete
 			// or history-clear notification was missed while disconnected.
 			setEvents(eventsResult.data.events);
-			for (const event of eventsResult.data.events) if (['tick_completed', 'tick_failed', 'tick_stopped'].includes(event.type)) rememberEndedRun(event.runId);
+			// The first applied snapshot after mount or a bot switch lists runs that
+			// already ended. Record them without a usage request. The usage request
+			// from that open covers this state. Later snapshots still request usage
+			// when a run ends while the page is open.
+			const baselineSnapshot = eventsBaselinePendingRef.current;
+			if (baselineSnapshot) eventsBaselinePendingRef.current = false;
+			for (const event of eventsResult.data.events) {
+				if (['tick_completed', 'tick_failed', 'tick_stopped'].includes(event.type)) {
+					rememberEndedRun(event.runId, { requestUsage: !baselineSnapshot });
+				}
+			}
 			setLoopEntries(current => current.filter(entry => entry.kind !== 'live' || !endedRunsRef.current.has(entry.runId)));
 		}
 		if (messagesResult.ok && messagesGeneration === messagesRequestGenerationRef.current) {
