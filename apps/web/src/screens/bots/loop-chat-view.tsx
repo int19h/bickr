@@ -51,6 +51,27 @@ export function formatChatWait(milliseconds: number): string {
 	return `in ${minutes} min`;
 }
 
+// Card relative times can stay stale while chat view is idle, as in the classic
+// view today. This clock updates only the status line.
+function ChatStatusText({ running, startedAt, enabled, connected, nextDueAt }: {
+	running: boolean;
+	startedAt?: string;
+	enabled: boolean;
+	connected: boolean;
+	nextDueAt?: string | null;
+}) {
+	const [now, setNow] = useState(Date.now());
+	useEffect(() => {
+		const timer = window.setInterval(() => setNow(Date.now()), 1000);
+		return () => window.clearInterval(timer);
+	}, []);
+	const elapsed = startedAt ? Math.max(0, Math.floor((now - Date.parse(startedAt)) / 1000)) : null;
+	const statusText = running ? `visit running${elapsed === null ? '' : ` · ${Math.floor(elapsed / 60)}:${String(elapsed % 60).padStart(2, '0')}`}`
+		: !enabled ? 'paused' : !connected || !nextDueAt ? 'polling'
+			: `next tick ${formatChatWait(Date.parse(nextDueAt) - now)}`;
+	return <small><i className={`live-dot ${connected ? 'on' : ''}`} />{statusText}</small>;
+}
+
 export function LoopChatView(props: LoopChatViewProps) {
 	const { bot, page, logRef, pinned } = props;
 	const root = useRef<HTMLDivElement>(null);
@@ -63,7 +84,6 @@ export function LoopChatView(props: LoopChatViewProps) {
 	const [visiblePage, setVisiblePage] = useState(page?.currentPage ?? 1);
 	const visibleSection = useRef('main');
 	const [newMessages, setNewMessages] = useState(false);
-	const [now, setNow] = useState(Date.now());
 	const generation = useRef(0);
 	const anchor = useRef<{ element: Element; top: number } | null>(null);
 	const restoringAnchor = useRef(false);
@@ -116,10 +136,6 @@ export function LoopChatView(props: LoopChatViewProps) {
 		});
 	}, [props.archiveRefreshKey, pageMapIdentity]);
 
-	useEffect(() => {
-		const timer = window.setInterval(() => setNow(Date.now()), 1000);
-		return () => window.clearInterval(timer);
-	}, []);
 	useLayoutEffect(() => {
 		const textarea = field.current;
 		if (!textarea) return;
@@ -266,10 +282,6 @@ export function LoopChatView(props: LoopChatViewProps) {
 		setOlder(current => [result, ...current]);
 	}
 	const running = props.status?.status === 'running';
-	const elapsed = props.startedAt ? Math.max(0, Math.floor((now - Date.parse(props.startedAt)) / 1000)) : null;
-	const statusText = running ? `visit running${elapsed === null ? '' : ` · ${Math.floor(elapsed / 60)}:${String(elapsed % 60).padStart(2, '0')}`}`
-		: !props.enabled ? 'paused' : !props.connected || !props.status?.nextDueAt ? 'polling'
-			: `next tick ${formatChatWait(Date.parse(props.status.nextDueAt) - now)}`;
 	const percent = props.context ? props.context.promptTokens / props.context.contextWindowTokens * 100 : null;
 	const pageLabel = page ? `Page ${chatPageNumber(page, visiblePage)} · ${archive ? 'archive' : 'newest'}` : 'Loading page';
 	const fullscreen = document.fullscreenEnabled === true;
@@ -295,7 +307,7 @@ export function LoopChatView(props: LoopChatViewProps) {
 		<header className="loop-chat-bar">
 			<button className="btn ghost chat-icon" aria-label="Exit chat view" onClick={props.onExit}><Icon name="collapse" /></button>
 			<Avatar name={bot.displayName} imageUrl={bot.avatarUrl} crop={bot.avatarCrop} size="sm" displayPixels={28} />
-			<div className="loop-chat-identity"><div><strong>{textValue(bot.displayName)}</strong><span className="chat-desktop">u/{bot.handle}</span></div><small><i className={`live-dot ${props.connected ? 'on' : ''}`} />{statusText}</small></div>
+			<div className="loop-chat-identity"><div><strong>{textValue(bot.displayName)}</strong><span className="chat-desktop">u/{bot.handle}</span></div><ChatStatusText running={running} startedAt={props.startedAt} enabled={props.enabled} connected={props.connected} nextDueAt={props.status?.nextDueAt} /></div>
 			<button className={`btn chat-page-chip ${archive ? 'archive' : ''}`} onClick={() => setOverlay('pages')} aria-haspopup="dialog">{pageLabel}</button>
 			{fullscreen && <button className="btn ghost chat-desktop" onClick={() => void browserFullscreen()}>Browser fullscreen</button>}
 			<button className="btn ghost chat-icon" aria-label="More" aria-haspopup="dialog" onClick={() => setOverlay('more')}><Icon name="more" /></button>

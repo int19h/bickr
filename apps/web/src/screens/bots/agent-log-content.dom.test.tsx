@@ -15,7 +15,7 @@ beforeEach(() => {
 	document.body.append(container);
 	root = createRoot(container);
 });
-afterEach(() => { act(() => root.unmount()); container.remove(); vi.restoreAllMocks(); });
+afterEach(() => { act(() => root.unmount()); container.remove(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 it.each([
 	[[{ type: 'reasoning.encrypted', data: 'hidden bytes' }], 'Reasoningencrypted by the provider'],
@@ -71,6 +71,50 @@ it('does not add a control to a short card', () => {
 	vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(299);
 	act(() => root.render(<Result text="Short result" />));
 	expect(container.querySelector('.agent-log-expand')).toBeNull();
+});
+it('does not construct a new observer when the parent re-renders an expandable card', () => {
+	vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(301);
+	let constructions = 0;
+	vi.stubGlobal('ResizeObserver', class {
+		constructor() { constructions += 1; }
+		observe() {}
+		disconnect() {}
+	});
+	function Parent({ label }: { label: string }) {
+		return <><span>{label}</span><Result text="Same long result" /></>;
+	}
+	act(() => root.render(<Parent label="first" />));
+	expect(container.textContent).toContain('Show all');
+	expect(constructions).toBe(1);
+	act(() => root.render(<Parent label="second" />));
+	expect(constructions).toBe(1);
+});
+it('updates Show all when the observed body grows', () => {
+	let height = 120;
+	vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockImplementation(() => height);
+	let callback: ResizeObserverCallback | undefined;
+	vi.stubGlobal('ResizeObserver', class {
+		constructor(next: ResizeObserverCallback) { callback = next; }
+		observe() {}
+		disconnect() {}
+	});
+	act(() => root.render(<Result text="Short result" />));
+	expect(container.querySelector('.agent-log-expand')).toBeNull();
+	height = 420;
+	act(() => root.render(<Result text="Grown result" />));
+	expect(container.querySelector('.agent-log-expand')).toBeNull();
+	act(() => { callback!([], {} as ResizeObserver); });
+	expect(container.querySelector('.agent-log-expand')?.textContent).toContain('Show all');
+});
+it('measures Show all after a content change when ResizeObserver is absent', () => {
+	vi.stubGlobal('ResizeObserver', undefined);
+	let height = 120;
+	vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockImplementation(() => height);
+	act(() => root.render(<Result text="Short result" />));
+	expect(container.querySelector('.agent-log-expand')).toBeNull();
+	height = 420;
+	act(() => root.render(<Result text="Grown result" />));
+	expect(container.querySelector('.agent-log-expand')?.textContent).toContain('Show all');
 });
 it.each(['c/abcdefgh [timestamp: 1d0h0m]', 'c/abcdefgh\nTimestamp: 1d0h0m'])('keeps heading structure for %s', heading => {
 	act(() => root.render(<LoopMarkdown text={'## Any localized title\n\nMetadata\n\n---\n\n### '+heading+'\n\nu/reader\n\n> A quote with https://example.org and f/lobby.\n\n| Link |\n| --- |\n| [Example](https://example.org) and t/abcdefgh |'} worldHandle="sample" />));
