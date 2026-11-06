@@ -127,10 +127,6 @@ export const botServiceIssueManifest = {
 		"parameters": {},
 		"outcome": "refused"
 	},
-	"issue.service.searchRebuilding": {
-		"parameters": {},
-		"outcome": "refused"
-	},
 	"issue.service.maintenanceEnabled": {
 		"parameters": {},
 		"outcome": "refused"

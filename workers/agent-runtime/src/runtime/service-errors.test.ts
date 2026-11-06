@@ -70,8 +70,13 @@ describe('bot service errors', () => {
 		await expect(request(new Error('connection lost'))).rejects.toBeInstanceOf(ToolOutcomeUnknownError);
 	});
 
+	it('rejects a stored search-rebuilding issue at the service boundary', () => {
+		expect(Object.hasOwn(botServiceIssueManifest, 'issue.service.searchRebuilding')).toBe(false);
+		expect(parseInstructionIssue(botServiceIssueManifest, { key: 'issue.service.searchRebuilding', parameters: {} })).toBeNull();
+	});
+
 	it('does not trust a forged known refusal with an invalid shape', async () => {
-		const issue = { ...botServiceIssue('issue.service.searchRebuilding', {}), parameters: { extra: true } };
+		const issue = { ...botServiceIssue('issue.service.maintenanceEnabled', {}), parameters: { extra: true } };
 		await expect(request(refused(503, issue))).rejects.toBeInstanceOf(ToolOutcomeUnknownError);
 		expect(apiErrorPayload({ ok: false, error: 'bad_request', message: 'bad', details: { botIssue: issue } })?.details).toBeUndefined();
 	});
