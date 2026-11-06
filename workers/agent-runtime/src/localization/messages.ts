@@ -2,7 +2,8 @@ import { resultMessageDefinitions } from './result-messages.ts';
 import { sharedMessageDefinitions } from '@bickr/shared/localization/messages';
 import { agentIssueMessageDefinitions } from './issues.ts';
 import { botServiceIssueMessageDefinitions } from '@bickr/shared/bot-service-issues';
-export const messageParameters = { ...resultMessageDefinitions, "result.reference.deleted": { kind: "text", parameters: [] }, ...sharedMessageDefinitions, ...agentIssueMessageDefinitions, ...botServiceIssueMessageDefinitions, ...({
+import { historyOnlyMessageDefinitions } from './history-only-messages.ts';
+export const messageParameters = { ...resultMessageDefinitions, "result.reference.deleted": { kind: "text", parameters: [] }, ...sharedMessageDefinitions, ...agentIssueMessageDefinitions, ...botServiceIssueMessageDefinitions, ...historyOnlyMessageDefinitions, ...({
 	"system.nativeLanguage": {
 		"kind": "text",
 		"parameters": [
