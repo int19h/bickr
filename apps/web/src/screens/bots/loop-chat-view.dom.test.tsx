@@ -1,11 +1,24 @@
 import { act, useRef, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import type { BotLoopMessagePage, BotLoopMessagesResponse, BotSummary } from '@bickr/shared/model';
+import type { AgentLogAuthor, AgentLogEntry, BotLoopMessagePage, BotLoopMessagesResponse, BotSummary } from '@bickr/shared/model';
 import { LoopChatView, formatChatWait, type LoopChatViewProps } from './loop-chat-view';
 import { useLoopChatMode } from './use-loop-chat-mode';
 import { AgentLogView } from './agent-log-view';
 import { messageFixture } from './agent-log.fixtures';
+
+const markdownCalls = vi.hoisted(() => ({ texts: [] as string[] }));
+vi.mock('../../markdown/markdown-body', () => ({
+	MarkdownBody: ({ text }: { text: string }) => {
+		markdownCalls.texts.push(text);
+		return <div className="markdown-body" data-markdown-source={text}>{text}</div>;
+	},
+}));
+function takeMarkdownTexts(): string[] {
+	const texts = markdownCalls.texts.slice();
+	markdownCalls.texts.length = 0;
+	return texts;
+}
 
 let root: Root, container: HTMLDivElement, props: LoopChatViewProps;
 let phone = false;
@@ -35,7 +48,7 @@ beforeEach(() => {
 		logRef: { current: null }, pinned: { current: true }, onScroll: vi.fn(), message: '', deletedSeqs: new Set(),
 	};
 });
-afterEach(() => { act(() => root.unmount()); container.remove(); window.history.replaceState({}, '', '/'); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+afterEach(() => { act(() => root.unmount()); container.remove(); window.history.replaceState({}, '', '/'); markdownCalls.texts.length = 0; vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 function render() { act(() => root.render(<LoopChatView {...props} />)); }
 function button(label: string) { const node = [...container.querySelectorAll<HTMLButtonElement>('button')].find(node => node.getAttribute('aria-label') === label || node.textContent === label); if (!node) throw Error(`Missing button: ${label}`); return node; }
 function click(label: string) { act(() => button(label).click()); }
@@ -270,4 +283,63 @@ it('recomputes the visible page after an archive replacement changes the visible
 	expect(new URLSearchParams(location.search).has('page')).toBe(false);
 	expect(container.querySelector('.loop-chat-archive-hint')).toBeNull();
 	click('More'); expect(button('Compact chat').disabled).toBe(false);
+});
+
+function markdownEntry(seq: number, content: string, author: AgentLogAuthor = { kind: 'model' }): Extract<AgentLogEntry, { kind: 'message' }> {
+	const entry = messageFixture(seq, author, content);
+	entry.requestId = author.kind === 'model' ? `request-${seq}` : null;
+	if (author.kind === 'tool_result') entry.message.message.tool_call_id = `call-${seq}`;
+	return entry;
+}
+function typingPage(pageNumber: number): AgentLogEntry[] {
+	const base = pageNumber * 10;
+	return [
+		markdownEntry(base, `Markdown message ${pageNumber}`),
+		markdownEntry(base + 1, `Second markdown ${pageNumber}`),
+		markdownEntry(base + 2, `### Markdown tool ${pageNumber}`, { kind: 'tool_result', synthetic: false }),
+	];
+}
+function jsonToolEntry(seq: number): Extract<AgentLogEntry, { kind: 'message' }> {
+	const entry = markdownEntry(seq, '{"unrecognized":true}', { kind: 'tool_result', synthetic: false });
+	entry.message.contentFormat = 'json';
+	return entry;
+}
+
+it('does not parse visible markdown while the inject field changes', async () => {
+	props.loadPage = vi.fn(async (target: number) => ({ messages: [], entries: typingPage(target), page: { ...page, currentPage: target } }));
+	props = { ...props, entries: [...typingPage(1), jsonToolEntry(9)] };
+	render();
+	await act(async () => button('Load page 2').click());
+	await act(async () => button('Load page 1').click());
+	expect([...container.querySelectorAll('[data-chat-page]')].map(node => node.getAttribute('data-chat-page'))).toEqual(['3', '2', '1']);
+	expect(container.textContent).toContain('"unrecognized"');
+	expect(takeMarkdownTexts()).toEqual([
+		'Markdown message 1', 'Second markdown 1', '### Markdown tool 1',
+		'Markdown message 2', 'Second markdown 2', '### Markdown tool 2',
+		'Markdown message 3', 'Second markdown 3', '### Markdown tool 3',
+	]);
+	for (const injection of ['T', 'Th', 'Thu', 'Thum', 'Thumb']) {
+		props = { ...props, injection };
+		render();
+	}
+	expect(container.querySelector('textarea')!.value).toBe('Thumb');
+	expect(takeMarkdownTexts()).toEqual([]);
+});
+
+it('does not parse markdown when the chat clock advances', () => {
+	vi.spyOn(Date, 'now').mockRestore();
+	const now = 1_803_420_000_000;
+	vi.useFakeTimers({ now });
+	props = {
+		...props,
+		status: { ...props.status!, status: 'running' },
+		startedAt: new Date(now - 42_000).toISOString(),
+		entries: [markdownEntry(20, 'Clock markdown')],
+	};
+	render();
+	expect(container.textContent).toContain('visit running · 0:42');
+	expect(takeMarkdownTexts()).toEqual(['Clock markdown']);
+	act(() => { vi.advanceTimersByTime(5_000); });
+	expect(container.textContent).toContain('visit running · 0:47');
+	expect(takeMarkdownTexts()).toEqual([]);
 });

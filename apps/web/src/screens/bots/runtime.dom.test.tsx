@@ -1,11 +1,24 @@
 import { reasoningRuntimeOutput } from './agent-log-runtime-output.test-support.mjs';
-import type { AgentLogEntry, BotLoopMessage, BotLoopMessagePage, BotRuntimeEvent, BotSummary, BotTokenUsageStats } from '@bickr/shared/model';
+import type { AgentLogAuthor, AgentLogEntry, BotLoopMessage, BotLoopMessagePage, BotRuntimeEvent, BotSummary, BotTokenUsageStats } from '@bickr/shared/model';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BotRuntimePanel } from './runtime';
-import { requestFixture } from './agent-log.fixtures';
+import { messageFixture, requestFixture } from './agent-log.fixtures';
 import * as runtimeUtils from './runtime-utils';
+
+const markdownCalls = vi.hoisted(() => ({ texts: [] as string[] }));
+vi.mock('../../markdown/markdown-body', () => ({
+	MarkdownBody: ({ text }: { text: string }) => {
+		markdownCalls.texts.push(text);
+		return <div className="markdown-body" data-markdown-source={text}>{text}</div>;
+	},
+}));
+function takeMarkdownTexts(): string[] {
+	const texts = markdownCalls.texts.slice();
+	markdownCalls.texts.length = 0;
+	return texts;
+}
 
 type PendingMessages = {
 	path: string;
@@ -165,6 +178,7 @@ afterEach(async () => {
 	vi.useRealTimers();
 	container.remove();
 	window.history.replaceState({}, '', '/');
+	markdownCalls.texts.length = 0;
 	vi.restoreAllMocks();
 	vi.unstubAllGlobals();
 	(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = false;
@@ -1048,6 +1062,97 @@ it('guards injection in the shared controller across both views', async () => {
 	expect(requests).toHaveBeenCalledTimes(2);
 	await act(async () => finish(json({ ok: true, data: {} })));
 	expect(container.querySelector('textarea')!.value).toBe('');
+});
+
+function markdownEntry(seq: number, content: string, author: AgentLogAuthor = { kind: 'model' }): Extract<AgentLogEntry, { kind: 'message' }> {
+	const entry = messageFixture(seq, author, content);
+	entry.requestId = author.kind === 'model' ? `request-${seq}` : null;
+	if (author.kind === 'tool_result') entry.message.message.tool_call_id = `call-${seq}`;
+	return entry;
+}
+
+function jsonToolEntry(seq: number): Extract<AgentLogEntry, { kind: 'message' }> {
+	const entry = markdownEntry(seq, '{"unrecognized":true}', { kind: 'tool_result', synthetic: false });
+	entry.message.contentFormat = 'json';
+	return entry;
+}
+
+async function showEntries(entries: AgentLogEntry[]): Promise<void> {
+	await act(async () => pendingMessages[0]!.resolve({
+		messages: entries.flatMap(entry => entry.kind === 'message' ? [entry.message] : []),
+		entries,
+		page: page(1, {}, [{ page: 1, messageCount: entries.length }]),
+	}));
+}
+
+it('does not parse visible markdown while the classic inject field changes', async () => {
+	const entries = [
+		markdownEntry(1, 'Markdown message'),
+		markdownEntry(2, 'Second markdown'),
+		markdownEntry(3, '### Markdown tool', { kind: 'tool_result', synthetic: false }),
+		jsonToolEntry(4),
+	];
+	await showEntries(entries);
+	expect(container.textContent).toContain('"unrecognized"');
+	expect(takeMarkdownTexts()).toEqual(['Markdown message', 'Second markdown', '### Markdown tool']);
+	const field = container.querySelector<HTMLInputElement>('[aria-label="Inject a thought or focus"]')!;
+	let draft = '';
+	for (const char of 'Hello') {
+		draft += char;
+		await act(async () => {
+			Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(field, draft);
+			field.dispatchEvent(new Event('input', { bubbles: true }));
+		});
+	}
+	expect(field.value).toBe('Hello');
+	expect(takeMarkdownTexts()).toEqual([]);
+});
+
+it('does not parse unchanged markdown for an identical snapshot, and parses one changed message', async () => {
+	await remount(bot, { fakeTimers: true });
+	const kept = markdownEntry(1, 'Kept markdown');
+	const other = markdownEntry(2, 'Other markdown');
+	const tool = markdownEntry(3, '### Tool markdown', { kind: 'tool_result', synthetic: false });
+	const entries = [kept, other, tool];
+	const responsePage = page(1, {}, [{ page: 1, messageCount: entries.length }]);
+	await showEntries(entries);
+	expect(takeMarkdownTexts()).toEqual(['Kept markdown', 'Other markdown', '### Tool markdown']);
+	await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+	expect(pendingMessages).toHaveLength(2);
+	await act(async () => pendingMessages[1]!.resolve(structuredClone({
+		messages: entries.map(entry => entry.message),
+		entries,
+		page: responsePage,
+	})));
+	expect(takeMarkdownTexts()).toEqual([]);
+	await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+	const changed = structuredClone({
+		messages: entries.map(entry => entry.message),
+		entries,
+		page: responsePage,
+	});
+	const changedEntry = changed.entries[0];
+	if (!changedEntry || changedEntry.kind !== 'message') throw new Error('expected a message entry');
+	changedEntry.message.message.content = 'Changed markdown';
+	changed.messages[0]!.message.content = 'Changed markdown';
+	await act(async () => pendingMessages[2]!.resolve(changed));
+	expect(takeMarkdownTexts()).toEqual(['Changed markdown']);
+});
+
+it('does not parse completed markdown when a stream delta arrives', async () => {
+	const completed = [
+		markdownEntry(1, 'Completed one'),
+		markdownEntry(2, 'Completed two'),
+		markdownEntry(3, '### Completed tool', { kind: 'tool_result', synthetic: false }),
+	];
+	await showEntries(completed);
+	takeMarkdownTexts();
+	await act(async () => streamDelta(MonitorSocket.instances[0]!, 'live-growth', 'Live partial', 1));
+	const recorded = takeMarkdownTexts();
+	expect(recorded.length).toBeGreaterThan(0);
+	expect(recorded.every(text => text === 'Live partial')).toBe(true);
+	expect(container.textContent).toContain('Completed one');
+	expect(container.textContent).toContain('Live partial');
 });
 
 it('reconnects the pin observer when the composer grows just after entering chat', async () => {

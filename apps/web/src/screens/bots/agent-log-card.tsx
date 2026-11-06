@@ -11,6 +11,14 @@ export const AgentLogCard = forwardRef<HTMLDivElement, ComponentPropsWithoutRef<
 	const [expanded, setExpanded] = useState(false);
 	const [long, setLong] = useState(false);
 	useImperativeHandle(forwardedRef, () => ref.current!);
+	// The caller always renders exactly one AgentLogBody, so the observed node
+	// is the same for the life of the card. ResizeObserver reports later size
+	// changes. Without it, the effect still has to measure after every render,
+	// because nothing else reports a size change. The dependency below is stable
+	// per environment: this app does not add or remove ResizeObserver at runtime.
+	// An expanded card can keep a stale `long` after a viewport change across the
+	// 640px breakpoint until the next body resize, when its height sits between
+	// the 260px and 300px values of --loop-result-height.
 	useLayoutEffect(() => {
 		const body = ref.current?.querySelector<HTMLElement>('.agent-log-body');
 		if (!expandable || !body) return;
@@ -23,7 +31,7 @@ export const AgentLogCard = forwardRef<HTMLDivElement, ComponentPropsWithoutRef<
 		const observer = new ResizeObserver(measure);
 		observer.observe(body);
 		return () => observer.disconnect();
-	});
+	}, typeof ResizeObserver === 'undefined' ? undefined : [expandable]);
 	return (
 		<ExpansionContext.Provider value={{ id, expanded, long: expandable && long, toggle: () => setExpanded(value => !value) }}>
 			<div {...props} className={`${className ?? ''}${expandable && !expanded ? ' result-collapsed' : ''}`} ref={ref}>{children}</div>
