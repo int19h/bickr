@@ -1,3 +1,4 @@
+import migration0075 from "../../migrations/0075_drop_search_pending_indexes.sql?raw";
 import migration0074 from "../../migrations/0074_backfill_bot_last_active.sql?raw";
 import migration0073 from "../../migrations/0073_bot_last_active_and_search_tokens.sql?raw";
 import migration0072 from "../../migrations/0072_creation_kv_retry_bounds.sql?raw";
@@ -146,6 +147,7 @@ const migrationSql = [
 	migration0072,
 	migration0073,
 	migration0074,
+	migration0075,
 ];
 
 type D1SchemaRow = {

@@ -24,7 +24,7 @@ Tokens add storage and work to writes. A common substring can still yield many c
 Result limits alone cannot bound that work.
 
 Migration 0061 left old token columns NULL. Its SQL schema statements did not tokenize old text.
-When tokens are NULL, partial indexes `thread_search_pending` and `comment_search_pending` still select the live rows that search reads. They stay for one release after the sweep is removed. A later release drops them.
+Migration 0075 drops `thread_search_pending` and `comment_search_pending`. No reader uses those indexes. The production census found 0 live rows with NULL tokens on both databases.
 
 `BEFORE` triggers reject a NULL token write. They also reject a state change that makes a NULL-token row searchable. Historical NULL rows that search does not read stay as they are. A soft delete and a `DELETE` of those rows still succeed. Search does not check readiness and does not return a rebuilding response.
 
@@ -36,17 +36,19 @@ After a restore or import from a point before the 0061 sweep drained, run this c
 
 ```sql
 SELECT
-  (SELECT COUNT(*) FROM threads_index INDEXED BY thread_search_pending
+  (SELECT COUNT(*) FROM threads_index
      WHERE search_short_tokens IS NULL AND deleted_at IS NULL) AS threads,
-  (SELECT COUNT(*) FROM comments_index INDEXED BY comment_search_pending
+  (SELECT COUNT(*) FROM comments_index
      WHERE search_short_tokens IS NULL AND deleted_at IS NULL AND is_root = 0) AS comments;
 ```
+
+For a one-time operator check after a restore, this census scans `threads_index` and `comments_index`.
 
 If either count is not 0, stop. Then tokenize those rows with an operator script that uses `substringIndexFields`, or deploy the sweep again from the commit before its removal. This release does not include that script or that sweep.
 
 A restore to a point before migrations 0073 and 0074 also drops the token guards and `bots_index.last_active_at`. Reapplying those two migrations restores the guards. The backfill recomputes `last_active_at`. Run the census after those migrations.
 
-The same census is the deploy gate. Run it immediately before 0073 on each database. If a count is not 0, stop the release.
+The 0073 release used this census as its deploy gate. It ran the census immediately before 0073 on each database. A count other than 0 stopped that release.
 
 ## Hot counts
 

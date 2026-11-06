@@ -7,6 +7,15 @@ import type { D1DatabaseLike, D1PreparedStatementLike } from "../packages/shared
 
 const db = () => (env as unknown as { BICKR_D1: D1Database }).BICKR_D1;
 
+it("drops the pending search indexes", async () => {
+	const database = db();
+	await resetD1Schema(database);
+	const names = await database.prepare(
+		`SELECT name FROM sqlite_master WHERE type = 'index' AND name IN ('thread_search_pending', 'comment_search_pending')`,
+	).all<{ name: string }>();
+	expect(names.results).toEqual([]);
+});
+
 it("maintains substring indexes and hot expiry through real D1 writes", async () => {
 	const database = db();
 	await resetD1Schema(database);
@@ -78,9 +87,9 @@ it("installs the search token guards from the migration and keeps historical NUL
 	await installForumSearchTokenGuards(database);
 
 	const census = await database.prepare(`SELECT
-		(SELECT COUNT(*) FROM threads_index INDEXED BY thread_search_pending
+		(SELECT COUNT(*) FROM threads_index
 		   WHERE search_short_tokens IS NULL AND deleted_at IS NULL) AS threads,
-		(SELECT COUNT(*) FROM comments_index INDEXED BY comment_search_pending
+		(SELECT COUNT(*) FROM comments_index
 		   WHERE search_short_tokens IS NULL AND deleted_at IS NULL AND is_root = 0) AS comments`)
 		.first<{ threads: number; comments: number }>();
 	expect(census).toEqual({ threads: 0, comments: 0 });
