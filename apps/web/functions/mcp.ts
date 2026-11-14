@@ -27,6 +27,8 @@ import {
 	botTickIntervalSecondsMax,
 	contextWindowTokensMin,
 	contextWindowTokensMax,
+	maxGeneratedTokensPerRequestMax,
+	maxGeneratedTokensPerRequestMin,
 	type EffectiveBotDocument,
 	type BotGroupSummary,
 	type BotInferenceSettings,
@@ -1983,7 +1985,10 @@ function localizedTextSchema(description: string): InputSchema {
 		type: "object",
 		description,
 		properties: {
-			lang: requiredLanguageSchema("BCP 47 language tag for this text."),
+			// A tool such as update_bot nests several texts, and each tool schema
+			// must stay within 5 KiB, so the nested tag keeps the short guidance.
+			// The tool's own lang field carries the full guidance.
+			lang: { type: "string", description: 'BCP 47 tag for this text, such as "en"; never "und".' },
 			text: stringSchema("Text content."),
 		},
 		required: ["lang", "text"],
@@ -2665,6 +2670,10 @@ function botTickSettingsSchema(): InputSchema {
 			maxSuccessfulToolCallsPerIteration: nullableInteger(1, 32),
 			maxGeneratedTokensPerTick: nullableInteger(1, 1_000_000),
 			maxGeneratedTokensPerIteration: nullableInteger(1, 1_000_000),
+			maxGeneratedTokensPerRequest: {
+				...nullableInteger(maxGeneratedTokensPerRequestMin, maxGeneratedTokensPerRequestMax),
+				description: "Output limit of one model reply. At most half of contextWindowTokens.",
+			},
 		}, additionalProperties: false,
 	};
 }

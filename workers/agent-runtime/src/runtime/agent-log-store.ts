@@ -11,7 +11,7 @@ import { ProviderTransportError } from '@bickr/shared/provider-transport';
 import {
 	CompactionReasoningRefusalError, CompactionSummaryMissingError, PersistentCompactionReductionFailureError,
 	PromptContextBudgetExceededError, PromptContextCompactionLimitError,
-	ProviderCompactionOutputLimitError, ProviderCompactionRequestError, ProviderEmptyResponseError,
+	ProviderCompactionOutputLimitError, ProviderCompactionRequestError, ProviderEmptyResponseError, ProviderOutputLimitError,
 	ProviderLoopRequestError, ProviderRequestError, ProviderRequestTimeoutError,
 	ProviderResponseBodyTimeoutError, ProviderResponseInterruptedError, ProviderStreamIdleTimeoutError,
 	ProviderStreamIncompleteError, ProviderStructuredOutputValidationError, ResponseBodySizeLimitError,
@@ -85,7 +85,7 @@ export function agentLogFailure(error: unknown): AgentLogFailure {
 	if (error instanceof PersistentCompactionReductionFailureError) return { kind: 'validation', issue: 'non_reducing_compaction', message: error.message };
 	if (error instanceof ProviderStructuredOutputValidationError) return { kind: 'validation', issue: error.validationIssue ?? null, message: error.message };
 	if (error instanceof CompactionReasoningRefusalError) return { kind: 'validation', issue: error.refusal.kind, message: error.message };
-	if (error instanceof PromptContextBudgetExceededError || error instanceof PromptContextCompactionLimitError || error instanceof ProviderCompactionOutputLimitError || error instanceof ProviderEmptyResponseError) return { kind: 'validation', issue: error.kind, message: error.message };
+	if (error instanceof PromptContextBudgetExceededError || error instanceof PromptContextCompactionLimitError || error instanceof ProviderCompactionOutputLimitError || error instanceof ProviderEmptyResponseError || error instanceof ProviderOutputLimitError) return { kind: 'validation', issue: error.kind, message: error.message };
 	if (error instanceof ResponseBodySizeLimitError) return { kind: 'validation', issue: 'response_body_size_limit', message: error.message };
 	if (error instanceof InputError) return { kind: 'validation', issue: null, message: error.message };
 	if (error instanceof RepositoryError && error.code === 'bad_request') return { kind: 'validation', issue: error.code, message: error.message };

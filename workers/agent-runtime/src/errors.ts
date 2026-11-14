@@ -314,6 +314,27 @@ export class ProviderCompactionOutputLimitError extends Error {
 	}
 }
 
+/**
+ * A loop reply stopped at its output limit before it finished. Its tool
+ * calls may be cut off and its text is incomplete, so the runtime discards
+ * the reply instead of asking the model to call a tool again.
+ */
+export class ProviderOutputLimitError extends Error {
+	readonly kind = 'provider_output_limit';
+	readonly maxCompletionTokens: number;
+	readonly finishReason: string;
+	readonly nativeFinishReason: string;
+
+	constructor(maxCompletionTokens: number, finishReason: string, nativeFinishReason: string) {
+		const details = [finishReason, nativeFinishReason].filter(Boolean).join('/');
+		super(`Inference provider stopped the reply at the limit of ${maxCompletionTokens} generated tokens per request${details ? ` (${details})` : ''}.`);
+		this.name = 'ProviderOutputLimitError';
+		this.maxCompletionTokens = maxCompletionTokens;
+		this.finishReason = finishReason;
+		this.nativeFinishReason = nativeFinishReason;
+	}
+}
+
 export class ProviderRequestTimeoutError extends Error {
 	readonly kind = 'provider_request_timeout';
 	readonly timeoutMs: number;
@@ -533,6 +554,14 @@ export function runtimeErrorCause(error: unknown): RuntimeErrorCause | string {
 		return {
 			kind: error.kind,
 			...(error.rawResponse ? { rawResponse: error.rawResponse } : {}),
+		};
+	}
+	if (error instanceof ProviderOutputLimitError) {
+		return {
+			kind: error.kind,
+			maxCompletionTokens: error.maxCompletionTokens,
+			finishReason: error.finishReason,
+			nativeFinishReason: error.nativeFinishReason,
 		};
 	}
 	if (

@@ -5,7 +5,7 @@ import type { AgentLogFailure } from '@bickr/shared/model';
 import {
 	CompactionReasoningRefusalError, PersistentCompactionReductionFailureError,
 	PromptContextBudgetExceededError, PromptContextCompactionLimitError,
-	ProviderCompactionOutputLimitError, ProviderCompactionRequestError, ProviderEmptyResponseError,
+	ProviderCompactionOutputLimitError, ProviderCompactionRequestError, ProviderEmptyResponseError, ProviderOutputLimitError,
 	ProviderLoopRequestError, ProviderRequestError, ProviderRequestTimeoutError,
 	ProviderResponseBodyTimeoutError, ProviderResponseInterruptedError, ProviderStreamIdleTimeoutError,
 	ProviderStreamIncompleteError, ProviderStructuredOutputValidationError, ResponseBodySizeLimitError,
@@ -35,6 +35,7 @@ const validations: Array<[Error, string | null]> = [
 	[new PromptContextCompactionLimitError(200, 100, 3), 'prompt_context_compaction_limit'],
 	[new ProviderCompactionOutputLimitError('{}', 'length', ''), 'provider_compaction_output_limit'],
 	[new ProviderEmptyResponseError('{}'), 'provider_empty_response'],
+	[new ProviderOutputLimitError(5_000, 'length', 'MAX_TOKENS'), 'provider_output_limit'],
 	[new ResponseBodySizeLimitError(1024), 'response_body_size_limit'],
 	[new InputError('Invalid input.'), null],
 	[new RepositoryError('bad_request', 'Invalid batch.', 400), 'bad_request'],

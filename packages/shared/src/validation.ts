@@ -44,6 +44,8 @@ import {
 	botTickIntervalSecondsMax,
 	contextWindowTokensMax,
 	contextWindowTokensMin,
+	maxGeneratedTokensPerRequestMax,
+	maxGeneratedTokensPerRequestMin,
 	localizedText,
 } from "./model";
 import {
@@ -1507,7 +1509,8 @@ type TickNullableBoundedIntegerKey =
 	| "maxToolCallsPerTick"
 	| "maxSuccessfulToolCallsPerIteration"
 	| "maxGeneratedTokensPerTick"
-	| "maxGeneratedTokensPerIteration";
+	| "maxGeneratedTokensPerIteration"
+	| "maxGeneratedTokensPerRequest";
 type TickNumberRangeKey = "compactionThreshold";
 
 const nullableTickIntegerSettings: readonly {
@@ -1522,6 +1525,7 @@ const nullableTickIntegerSettings: readonly {
 	{ key: "maxSuccessfulToolCallsPerIteration", label: "Max successful tool calls per iteration", min: 1, max: 32 },
 	{ key: "maxGeneratedTokensPerTick", label: "Max generated tokens per tick", min: 1, max: 1_000_000 },
 	{ key: "maxGeneratedTokensPerIteration", label: "Max generated tokens per iteration", min: 1, max: 1_000_000 },
+	{ key: "maxGeneratedTokensPerRequest", label: "Max generated tokens per request", min: maxGeneratedTokensPerRequestMin, max: maxGeneratedTokensPerRequestMax },
 ];
 
 function assignBoundedIntegerSetting(
@@ -1594,8 +1598,8 @@ function assignNumberRangeSetting(
 
 function pickContextWindowTickSettings(
 	settings: BotTickSettingsInput,
-): Pick<BotTickSettingsInput, "allowEarlyLogOff" | "contextWindowTokens" | "compactionMaxCharacters" | "compactionSummaryPercent"> | undefined {
-	const picked: Pick<BotTickSettingsInput, "allowEarlyLogOff" | "contextWindowTokens" | "compactionMaxCharacters" | "compactionSummaryPercent"> = {};
+): Pick<BotTickSettingsInput, "allowEarlyLogOff" | "contextWindowTokens" | "compactionMaxCharacters" | "compactionSummaryPercent" | "maxGeneratedTokensPerRequest"> | undefined {
+	const picked: Pick<BotTickSettingsInput, "allowEarlyLogOff" | "contextWindowTokens" | "compactionMaxCharacters" | "compactionSummaryPercent" | "maxGeneratedTokensPerRequest"> = {};
 	if (settings.allowEarlyLogOff !== undefined) {
 		picked.allowEarlyLogOff = settings.allowEarlyLogOff;
 	}
@@ -1607,6 +1611,10 @@ function pickContextWindowTickSettings(
 	}
 	if (settings.compactionSummaryPercent !== undefined) {
 		picked.compactionSummaryPercent = settings.compactionSummaryPercent;
+	}
+	// The per-request limit is also the context reserve for the reply.
+	if (settings.maxGeneratedTokensPerRequest !== undefined) {
+		picked.maxGeneratedTokensPerRequest = settings.maxGeneratedTokensPerRequest;
 	}
 	return Object.keys(picked).length === 0 ? undefined : picked;
 }

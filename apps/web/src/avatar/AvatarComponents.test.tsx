@@ -64,6 +64,7 @@ function bot(overrides: Partial<BotSummary> = {}): BotSummary {
 			maxSuccessfulToolCallsPerIteration: 8,
 			maxGeneratedTokensPerTick: 16_000,
 			maxGeneratedTokensPerIteration: 4_000,
+			maxGeneratedTokensPerRequest: 5_000,
 		},
 		createdAt: now,
 		updatedAt: now,

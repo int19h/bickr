@@ -317,6 +317,8 @@ export type ProviderResponse = {
 	responseId?: string;
 	responseModel?: string;
 	responseProviderName?: string;
+	/** Absent when the provider did not report why the reply ended. */
+	finish?: import('./provider/finish-reason').ProviderFinish;
 };
 
 export type ProviderStreamFetchResponse =

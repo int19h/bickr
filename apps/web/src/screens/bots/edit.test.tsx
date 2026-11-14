@@ -5,7 +5,7 @@ import { defaultTickSettings } from "@bickr/shared/repository";
 import { formatExactTokenCount } from './token-usage';
 import { parseUpdateBotInput } from "@bickr/shared/validation";
 import { BotEdit } from "./edit";
-import { botDraftFromExistingBot, botEditDraftFromBot, botPromptBudgetRequestKey, emptyBotDraftForLanguage, parseBotEditDraft, updateBotInputFromEditDraft } from "./bot-drafts";
+import { botDraftFromExistingBot, botEditDraftFromBot, botPromptBudgetRequestKey, emptyBotDraftForLanguage, maxGeneratedTokensPerRequestDraftValid, parseBotEditDraft, updateBotInputFromEditDraft } from "./bot-drafts";
 
 const en = "en" as LanguageTag;
 const now = "2026-08-05T00:00:00.000Z";
@@ -44,6 +44,7 @@ function bot(overrides: Partial<BotSummary> = {}): BotSummary {
 			maxSuccessfulToolCallsPerIteration: 8,
 			maxGeneratedTokensPerTick: 16_000,
 			maxGeneratedTokensPerIteration: 4_000,
+			maxGeneratedTokensPerRequest: 5_000,
 		},
 		createdAt: now,
 		updatedAt: now,
@@ -104,6 +105,7 @@ describe("BotEdit inference boundary", () => {
 			"Max generated tokens per tick",
 			"Max successful tool calls per iteration",
 			"Max generated tokens per iteration",
+			"Max generated tokens per request",
 			"Compaction percentage",
 			"Max number of characters after compaction",
 			"Allow to log off early",
@@ -173,4 +175,30 @@ it("supports a yearly tick interval in the web form and update body", () => {
 	const draft = botEditDraftFromBot(target);
 	expect(draft.tickIntervalMinutes).toBe("525600");
 	expect(parseUpdateBotInput(updateBotInputFromEditDraft(draft, parseBotEditDraft(draft), false)).tickSettings?.intervalSeconds).toBe(31_536_000);
+});
+
+it("sends the per-request output limit and caps it at half of the context budget", () => {
+	const target = bot({ tickSettings: { enabled: false, intervalSeconds: 86_400, compactionThreshold: 0.75, maxGeneratedTokensPerRequest: 16_000 } });
+	expect(render(target)).toContain(`max="${defaultTickSettings.contextWindowTokens / 2}"`);
+	const draft = botEditDraftFromBot(target);
+	expect(draft.maxGeneratedTokensPerRequest).toBe("16000");
+	expect(parseUpdateBotInput(updateBotInputFromEditDraft(draft, parseBotEditDraft(draft), false)).tickSettings?.maxGeneratedTokensPerRequest).toBe(16_000);
+	const cleared = { ...draft, maxGeneratedTokensPerRequest: "" };
+	expect(parseUpdateBotInput(updateBotInputFromEditDraft(cleared, parseBotEditDraft(cleared), false)).tickSettings?.maxGeneratedTokensPerRequest).toBeNull();
+});
+
+it("checks a cleared budget field against the default that the save stores", () => {
+	const target = bot({
+		tickSettings: { enabled: false, intervalSeconds: 86_400, compactionThreshold: 0.75, contextWindowTokens: 200_000, maxGeneratedTokensPerRequest: 50_000 },
+		effectiveTickSettings: { ...bot().effectiveTickSettings, contextWindowTokens: 200_000, maxGeneratedTokensPerRequest: 50_000 },
+	});
+	const valid = (patch: Partial<ReturnType<typeof botEditDraftFromBot>>) =>
+		maxGeneratedTokensPerRequestDraftValid(parseBotEditDraft({ ...botEditDraftFromBot(target), ...patch }));
+	expect(valid({})).toBe(true);
+	// A smaller window with a cleared output limit saves 40,000/5,000, which the server accepts.
+	const smaller = { ...botEditDraftFromBot(target), contextWindowTokens: "40000", maxGeneratedTokensPerRequest: "" };
+	expect(valid(smaller)).toBe(true);
+	expect(parseUpdateBotInput(updateBotInputFromEditDraft(smaller, parseBotEditDraft(smaller), false)).tickSettings).toMatchObject({ contextWindowTokens: 40_000, maxGeneratedTokensPerRequest: null });
+	// A cleared window with the large output limit saves 40,000/50,000, which the server rejects.
+	expect(valid({ contextWindowTokens: "" })).toBe(false);
 });
