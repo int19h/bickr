@@ -36,6 +36,8 @@ import {
 	botEditDraftFromBot,
 	botEditableInferenceSettings,
 	botPromptBudgetRequestKey,
+	maxGeneratedTokensPerRequestDraftValid,
+	savedTickTokenBudget,
 	effectiveIncludeLanguageInSystemPromptDraft,
 	includeLanguageInSystemPromptInputFromDraft,
 	parseBotEditDraft,
@@ -137,15 +139,8 @@ export function BotEdit({
 		commentBodyCharacters,
 	} = parsedDraft;
 	const inheritedPostingSettings = effectivePostingSettings(world?.postingSettings, undefined);
-	const resolvedContextWindowTokens = contextWindowTokens ?? bot.effectiveTickSettings.contextWindowTokens;
-	// The server enforces the same rule: one reply can use at most half of the context window.
-	const resolvedMaxGeneratedTokensPerRequest =
-		maxGeneratedTokensPerRequest ?? bot.effectiveTickSettings.maxGeneratedTokensPerRequest;
-	const maxGeneratedTokensPerRequestValid =
-		(maxGeneratedTokensPerRequest === null ||
-			(maxGeneratedTokensPerRequest >= maxGeneratedTokensPerRequestMin &&
-				maxGeneratedTokensPerRequest <= maxGeneratedTokensPerRequestMax)) &&
-		resolvedMaxGeneratedTokensPerRequest * 2 <= resolvedContextWindowTokens;
+	const resolvedContextWindowTokens = savedTickTokenBudget(parsedDraft).contextWindowTokens;
+	const maxGeneratedTokensPerRequestValid = maxGeneratedTokensPerRequestDraftValid(parsedDraft);
 	const linkedClone = Boolean(bot.cloneSource?.linked);
 	const savedLanguage = bot.localOverrides ? bot.localOverrides.language : bot.language;
 	const savedIncludeLanguageInSystemPrompt = linkedClone ?

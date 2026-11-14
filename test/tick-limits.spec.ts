@@ -1,4 +1,4 @@
-import { agentLogStoreStub, protocolStorageTransaction } from "../workers/agent-runtime/src/runtime/agent-log-store.test-support";
+import { agentLogStoreStub, protocolProviderUsage, protocolStorageTransaction } from "../workers/agent-runtime/src/runtime/agent-log-store.test-support";
 import { formatCommentRef } from '@bickr/shared/ids';
 import { testResultContext } from '../workers/agent-runtime/src/runtime/result-render-context.test-support';
 import { ResultContextScope } from '../workers/agent-runtime/src/runtime/result-context-scope';
@@ -1174,21 +1174,35 @@ describe("Tick limits and recovery", () => {
 		]);
 	});
 
-	it("fails the visit when a reply stops at the per-request output limit", async () => {
+	it.each([
+		{ name: "visible text", reply: providerResponseWithContent("I will post the picture now.") },
+		{
+			// Hidden reasoning used the whole limit, and the tool call was cut off mid-arguments.
+			name: "a cut-off tool call and no text",
+			reply: {
+				...providerResponseWithRawToolCalls([{ id: "call-post", name: "create_thread", arguments: '{"forum":"f/art","body":"```svg\n<svg' }]),
+				usage: providerUsageForTest(7_000, 6_900),
+			},
+		},
+	])("fails the visit when a reply with $name stops at the per-request output limit", async ({ reply }) => {
 		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
 		const settled: unknown[] = [];
 		const finished: string[] = [];
+		const staged: unknown[] = [];
+		const usageRecorded: unknown[] = [];
 		const loopMemory = testLoopMessageMemory([{ role: "user", content: "Act." }]);
 		const callProvider = vi.fn(async (..._args: unknown[]) => ({
-			...providerResponseWithContent("I will post the picture now."),
+			...reply,
 			finish: { kind: "output_limit" as const, finishReason: "length", nativeFinishReason: "MAX_TOKENS" },
 		}));
+		const executeTool = vi.fn();
 		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
 			agentLogStore(this: ThisParameterType<typeof agentLogStoreStub>) {
 				return {
 					...agentLogStoreStub.call(this),
 					settle: (_attemptId: number, outcome: unknown) => { settled.push(outcome); },
 					finish: (_requestId: string, state: string) => { finished.push(state); },
+					stageResponsePublication: (publication: unknown) => { staged.push(publication); },
 				};
 			},
 			runStorageTransactionSync: protocolStorageTransaction,
@@ -1217,14 +1231,13 @@ describe("Tick limits and recovery", () => {
 					) => Array<Record<string, unknown>>;
 				}).activeProviderRequestMessages.bind(runtime, testResultContext)(bot, tools, settings.toolCalls ?? "require"),
 			}),
-			executeTool: testToolExecutor(async (_bot: unknown, _runId: string, name: string) => ({
-				name,
-				result: { ok: true },
-				providerResult: { ok: true },
-			})),
+			executeTool,
 			recordInferenceSubmission: () => {},
 			recordLoopMessageLog: () => {},
-			recordProviderUsage: () => {},
+			recordProviderUsage: (input: unknown, publishResponse?: () => void) => {
+				usageRecorded.push(input);
+				return protocolProviderUsage(input, publishResponse);
+			},
 			throwIfStopped: (_runId: string, signal: AbortSignal) => {
 				if (signal.aborted) {
 					throw new Error("Unexpected abort.");
@@ -1255,9 +1268,12 @@ describe("Tick limits and recovery", () => {
 		expect(callProvider).toHaveBeenCalledTimes(1);
 		expect(callProvider.mock.calls[0]?.[9]).toBe(7_000);
 		expect(events.filter((event) => event.type === "assistant_message")).toEqual([]);
-		expect(loopMemory.activeLoopMessagesForProvider().map((message) => message.content)).not.toContain("I will post the picture now.");
+		expect(loopMemory.activeLoopMessagesForProvider()).toEqual([{ role: "user", content: "Act." }]);
+		expect(executeTool).not.toHaveBeenCalled();
+		expect(usageRecorded).toHaveLength("usage" in reply ? 1 : 0);
 		expect(settled).toEqual([expect.objectContaining({ kind: "validation", issue: "provider_output_limit" })]);
 		expect(finished).toEqual(["failed"]);
+		expect(staged).toEqual([]);
 	});
 
 	it("stops railroad retries after five no-tool responses", async () => {

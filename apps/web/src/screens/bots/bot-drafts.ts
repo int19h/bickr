@@ -3,6 +3,8 @@ import type { ParticipantTimeSettings } from "@bickr/shared/model";
 import { defaultNewBotInstructionLanguage, type InstructionLanguagePreference, type InstructionLocale } from "@bickr/shared/instruction-language";
 import {
 	localizedText,
+	maxGeneratedTokensPerRequestMax,
+	maxGeneratedTokensPerRequestMin,
 	type BotInferenceSettings,
 	type BotSummary,
 	type BotToolSettings,
@@ -12,6 +14,7 @@ import {
 	type UpdateBotInput,
 } from "@bickr/shared/model";
 import { isOpenRouterProviderBaseUrl } from "@bickr/shared/inference-settings";
+import { defaultTickSettings } from "@bickr/shared/repository";
 import { isValidHandleText, maxBotPromptLength, sanitizeHandleInput } from "@bickr/shared/validation";
 import { parseOptionalPositiveInteger, parsePositiveInteger } from "../../components/record-display";
 import { textLang } from "../../components/form-fields";
@@ -279,6 +282,34 @@ export function parseBotEditDraft(draft: BotEditDraft): BotEditParsedDraft {
 		threadBodyCharacters: parseOptionalPositiveInteger(draft.threadBodyCharacters),
 		commentBodyCharacters: parseOptionalPositiveInteger(draft.commentBodyCharacters),
 	};
+}
+
+/**
+ * The context window and the per-request output limit that a save stores. A
+ * blank field saves null, which clears the override, so it resolves to the
+ * default and not to the current effective value.
+ */
+export function savedTickTokenBudget(parsed: Pick<BotEditParsedDraft, "contextWindowTokens" | "maxGeneratedTokensPerRequest">): {
+	contextWindowTokens: number;
+	maxGeneratedTokensPerRequest: number;
+} {
+	return {
+		contextWindowTokens: parsed.contextWindowTokens ?? defaultTickSettings.contextWindowTokens,
+		maxGeneratedTokensPerRequest: parsed.maxGeneratedTokensPerRequest ?? defaultTickSettings.maxGeneratedTokensPerRequest,
+	};
+}
+
+/** The same rule that the server enforces: one reply can use at most half of the context window. */
+export function maxGeneratedTokensPerRequestDraftValid(
+	parsed: Pick<BotEditParsedDraft, "contextWindowTokens" | "maxGeneratedTokensPerRequest">,
+): boolean {
+	const saved = savedTickTokenBudget(parsed);
+	return (
+		(parsed.maxGeneratedTokensPerRequest === null ||
+			(parsed.maxGeneratedTokensPerRequest >= maxGeneratedTokensPerRequestMin &&
+				parsed.maxGeneratedTokensPerRequest <= maxGeneratedTokensPerRequestMax)) &&
+		saved.maxGeneratedTokensPerRequest * 2 <= saved.contextWindowTokens
+	);
 }
 
 export function updateBotInputFromEditDraft(

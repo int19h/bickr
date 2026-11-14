@@ -103,6 +103,19 @@ describe("provider SSE parsing", () => {
 		expect(unreported).not.toHaveProperty("finish");
 	});
 
+	it("returns a cut-off reply with no visible parts and still rejects an empty stop", async () => {
+		const usage = { prompt_tokens: 1_000, completion_tokens: 5_000, total_tokens: 6_000, completion_tokens_details: { reasoning_tokens: 5_000 } };
+		const cutOff = await consumeProviderResponse([
+			`data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: "length", native_finish_reason: "MAX_TOKENS" }], usage })}\n\n`,
+			"data: [DONE]\n\n",
+		]);
+		expect(cutOff).toMatchObject({ content: "", toolCalls: [], finish: { kind: "output_limit" } });
+		await expect(consumeProviderResponse([
+			`data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: "stop" }] })}\n\n`,
+			"data: [DONE]\n\n",
+		])).rejects.toMatchObject({ name: "ProviderEmptyResponseError" });
+	});
+
 	it.each([true, false])('keeps only readable reasoning when completed=%s', async completed => {
 		const details = [
 			{ type: 'reasoning.text', index: 0, text: 'Text' },

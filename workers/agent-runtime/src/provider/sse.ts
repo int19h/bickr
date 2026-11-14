@@ -563,7 +563,9 @@ export async function consumeProviderResponse(
 		...(responseProviderName ? { responseProviderName } : {}),
 		...(finish ? { finish } : {}),
 	};
-	if (providerResponseIsEmpty(response)) {
+	// A model can spend the whole output limit on reasoning that it does not
+	// expose. That reply is cut off, not empty, and the loop reports the limit.
+	if (finish?.kind !== 'output_limit' && providerResponseIsEmpty(response)) {
 		throw new ProviderEmptyResponseError(response.rawResponse, {
 			...(responseId ? { responseId } : {}),
 			...(responseModel ? { responseModel } : {}),
