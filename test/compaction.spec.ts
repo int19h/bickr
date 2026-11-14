@@ -69,6 +69,17 @@ const learnedMinimalCompactionReasoning = {
 } as const satisfies CompactionReasoningDiagnostic;
 
 describe("Compaction", () => {
+	it('reserves the per-request output limit below the prompt cutoff', () => {
+		const bot = (contextWindowTokens: number, maxGeneratedTokensPerRequest: number) => {
+			const document = fakeBotDocument({ contextWindowTokens });
+			return { ...document, tickSettings: { ...document.tickSettings, maxGeneratedTokensPerRequest } };
+		};
+		const calibration = { tokensPerCharacter: 0.25, sampleCount: 0 };
+		expect(providerCompactionSummaryLimitsForChat(bot(40_000, 16_000), [], calibration).nextCompactionTokens).toBe(24_000);
+		// A model whose context is smaller than the configured budget caps the reserve at half of its window.
+		expect(providerCompactionSummaryLimitsForChat(bot(40_000, 16_000), [], calibration, undefined, undefined, 20_000).nextCompactionTokens).toBe(10_000);
+	});
+
 	it('derives the prompt cutoff from the shared minimum and default budgets', () => {
 		for (const contextWindowTokens of [contextWindowTokensMin, defaultTickSettings.contextWindowTokens]) {
 			const limits = providerCompactionSummaryLimitsForChat(fakeBotDocument({ contextWindowTokens }), [], { tokensPerCharacter: 0.25, sampleCount: 0 });

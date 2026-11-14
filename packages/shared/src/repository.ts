@@ -300,6 +300,7 @@ export const defaultTickSettings: BotEffectiveTickSettings = {
 	maxSuccessfulToolCallsPerIteration: 8,
 	maxGeneratedTokensPerTick: 15_000,
 	maxGeneratedTokensPerIteration: 30_000,
+	maxGeneratedTokensPerRequest: 5_000,
 };
 const defaultInferenceSettings: BotInferenceSettings = {};
 const defaultToolSettings: BotToolSettings = { bickrNotes: { enabled: true } };
@@ -1437,6 +1438,7 @@ async function materializeBotCreation(
 	options: CreateBotOptions | string = {},
 ): Promise<{ kind: 'materialized'; document: BotDocument; summary: BotSummary }> {
 	assertContextWindowTokens(input.tickSettings?.contextWindowTokens);
+	assertTickTokenBudget(mergeTickSettings(undefined, input.tickSettings));
 	if (input.instructionLanguage !== undefined) {
 		try { input = { ...input, instructionLanguage: parseInstructionLanguagePreference(input.instructionLanguage) }; }
 		catch (error) {
@@ -1535,9 +1537,14 @@ async function materializeBotCreation(
 	const lifecyclePrefix = cloneSource ? "clone" : "bot";
 	bot = migrateParticipantTime(bot);
 	if (createOptions.lifecycleState === 'pending') {
-		try { assertContextWindowTokens(bot.tickSettings.contextWindowTokens); }
-		catch (error) { if (error instanceof RepositoryError) throw new LifecycleKvReadError('participant_budget'); throw error; }
-	} else assertContextWindowTokens(bot.tickSettings.contextWindowTokens);
+		try {
+			assertContextWindowTokens(bot.tickSettings.contextWindowTokens);
+			assertTickTokenBudget(bot.tickSettings);
+		} catch (error) { if (error instanceof RepositoryError) throw new LifecycleKvReadError('participant_budget'); throw error; }
+	} else {
+		assertContextWindowTokens(bot.tickSettings.contextWindowTokens);
+		assertTickTokenBudget(bot.tickSettings);
+	}
 	await writeJson(kv, kvKeys.bot(bot.id), bot);
 	await createOptions.checkpoint?.(`${lifecyclePrefix}.materialize.kv` as LifecycleFailurePoint);
 	if (cloneSource) {
@@ -1632,6 +1639,7 @@ async function updateBot(
 		assertMaterializedProfileFields(updated.displayName, updated.shortBio, updated.prompt);
 	}
 	assertContextWindowTokens(updated.tickSettings.contextWindowTokens);
+	assertTickTokenBudget(updated.tickSettings);
 	const effectiveUpdated = canInheritProfile ? await effectiveBotDocument(kv, db, updated) : effectiveStandaloneBot(updated);
 	const personalForumUpdate = await personalForumUpdateForBotProfile(kv, db, bot, effectiveUpdated, now);
 
@@ -4602,6 +4610,22 @@ export function assertContextWindowTokens(value: number | null | undefined): voi
 	}
 }
 
+/**
+ * The per-request output limit is also the share of the context window that
+ * stays free for the reply, so it must leave at least half of the window for
+ * the prompt. Writers enforce this on the merged settings.
+ */
+export function assertTickTokenBudget(settings: BotTickSettings): void {
+	const effective = effectiveTickSettings(settings);
+	if (effective.maxGeneratedTokensPerRequest * 2 > effective.contextWindowTokens) {
+		throw new RepositoryError(
+			"bad_request",
+			`Max generated tokens per request must be at most half of the context window (${Math.floor(effective.contextWindowTokens / 2)} tokens).`,
+			400,
+		);
+	}
+}
+
 export function mergeTickSettings(
 	current: BotTickSettings | undefined,
 	patch?: BotTickSettingsInput | BotTickSettings,
@@ -4621,6 +4645,9 @@ export function mergeTickSettings(
 		...(current?.maxGeneratedTokensPerTick !== undefined ? { maxGeneratedTokensPerTick: current.maxGeneratedTokensPerTick } : {}),
 		...(current?.maxGeneratedTokensPerIteration !== undefined ?
 			{ maxGeneratedTokensPerIteration: current.maxGeneratedTokensPerIteration }
+		:	{}),
+		...(current?.maxGeneratedTokensPerRequest !== undefined ?
+			{ maxGeneratedTokensPerRequest: current.maxGeneratedTokensPerRequest }
 		:	{}),
 	};
 	if (!patch) {
@@ -4644,6 +4671,7 @@ export function mergeTickSettings(
 	assignOptionalTickNumber(next, "maxSuccessfulToolCallsPerIteration", patch.maxSuccessfulToolCallsPerIteration);
 	assignOptionalTickNumber(next, "maxGeneratedTokensPerTick", patch.maxGeneratedTokensPerTick);
 	assignOptionalTickNumber(next, "maxGeneratedTokensPerIteration", patch.maxGeneratedTokensPerIteration);
+	assignOptionalTickNumber(next, "maxGeneratedTokensPerRequest", patch.maxGeneratedTokensPerRequest);
 	return next;
 }
 
@@ -4663,6 +4691,8 @@ export function effectiveTickSettings(settings: BotTickSettings | undefined): Bo
 		maxGeneratedTokensPerTick: normalized.maxGeneratedTokensPerTick ?? defaultTickSettings.maxGeneratedTokensPerTick,
 		maxGeneratedTokensPerIteration:
 			normalized.maxGeneratedTokensPerIteration ?? defaultTickSettings.maxGeneratedTokensPerIteration,
+		maxGeneratedTokensPerRequest:
+			normalized.maxGeneratedTokensPerRequest ?? defaultTickSettings.maxGeneratedTokensPerRequest,
 	};
 }
 
@@ -4683,7 +4713,8 @@ function assignOptionalTickNumber(
 		| "maxToolCallsPerTick"
 		| "maxSuccessfulToolCallsPerIteration"
 		| "maxGeneratedTokensPerTick"
-		| "maxGeneratedTokensPerIteration",
+		| "maxGeneratedTokensPerIteration"
+		| "maxGeneratedTokensPerRequest",
 	value: number | null | undefined,
 ): void {
 	assignOptionalSetting(settings, key, value);

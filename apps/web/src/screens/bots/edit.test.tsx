@@ -44,6 +44,7 @@ function bot(overrides: Partial<BotSummary> = {}): BotSummary {
 			maxSuccessfulToolCallsPerIteration: 8,
 			maxGeneratedTokensPerTick: 16_000,
 			maxGeneratedTokensPerIteration: 4_000,
+			maxGeneratedTokensPerRequest: 5_000,
 		},
 		createdAt: now,
 		updatedAt: now,
@@ -104,6 +105,7 @@ describe("BotEdit inference boundary", () => {
 			"Max generated tokens per tick",
 			"Max successful tool calls per iteration",
 			"Max generated tokens per iteration",
+			"Max generated tokens per request",
 			"Compaction percentage",
 			"Max number of characters after compaction",
 			"Allow to log off early",
@@ -173,4 +175,14 @@ it("supports a yearly tick interval in the web form and update body", () => {
 	const draft = botEditDraftFromBot(target);
 	expect(draft.tickIntervalMinutes).toBe("525600");
 	expect(parseUpdateBotInput(updateBotInputFromEditDraft(draft, parseBotEditDraft(draft), false)).tickSettings?.intervalSeconds).toBe(31_536_000);
+});
+
+it("sends the per-request output limit and caps it at half of the context budget", () => {
+	const target = bot({ tickSettings: { enabled: false, intervalSeconds: 86_400, compactionThreshold: 0.75, maxGeneratedTokensPerRequest: 16_000 } });
+	expect(render(target)).toContain(`max="${defaultTickSettings.contextWindowTokens / 2}"`);
+	const draft = botEditDraftFromBot(target);
+	expect(draft.maxGeneratedTokensPerRequest).toBe("16000");
+	expect(parseUpdateBotInput(updateBotInputFromEditDraft(draft, parseBotEditDraft(draft), false)).tickSettings?.maxGeneratedTokensPerRequest).toBe(16_000);
+	const cleared = { ...draft, maxGeneratedTokensPerRequest: "" };
+	expect(parseUpdateBotInput(updateBotInputFromEditDraft(cleared, parseBotEditDraft(cleared), false)).tickSettings?.maxGeneratedTokensPerRequest).toBeNull();
 });

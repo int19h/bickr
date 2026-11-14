@@ -7,6 +7,8 @@ import {
 	botTickIntervalSecondsMax,
 	contextWindowTokensMax,
 	contextWindowTokensMin,
+	maxGeneratedTokensPerRequestMax,
+	maxGeneratedTokensPerRequestMin,
 	defaultReasoningPrefill,
 	localizedText,
 	type BotContextBudget,
@@ -116,6 +118,7 @@ export function BotEdit({
 		bot.tickSettings.maxSuccessfulToolCallsPerIteration,
 		bot.tickSettings.maxGeneratedTokensPerTick,
 		bot.tickSettings.maxGeneratedTokensPerIteration,
+		bot.tickSettings.maxGeneratedTokensPerRequest,
 		bot.updatedAt,
 	]);
 
@@ -129,11 +132,20 @@ export function BotEdit({
 		maxSuccessfulToolCallsPerIteration,
 		maxGeneratedTokensPerTick,
 		maxGeneratedTokensPerIteration,
+		maxGeneratedTokensPerRequest,
 		threadBodyCharacters,
 		commentBodyCharacters,
 	} = parsedDraft;
 	const inheritedPostingSettings = effectivePostingSettings(world?.postingSettings, undefined);
 	const resolvedContextWindowTokens = contextWindowTokens ?? bot.effectiveTickSettings.contextWindowTokens;
+	// The server enforces the same rule: one reply can use at most half of the context window.
+	const resolvedMaxGeneratedTokensPerRequest =
+		maxGeneratedTokensPerRequest ?? bot.effectiveTickSettings.maxGeneratedTokensPerRequest;
+	const maxGeneratedTokensPerRequestValid =
+		(maxGeneratedTokensPerRequest === null ||
+			(maxGeneratedTokensPerRequest >= maxGeneratedTokensPerRequestMin &&
+				maxGeneratedTokensPerRequest <= maxGeneratedTokensPerRequestMax)) &&
+		resolvedMaxGeneratedTokensPerRequest * 2 <= resolvedContextWindowTokens;
 	const linkedClone = Boolean(bot.cloneSource?.linked);
 	const savedLanguage = bot.localOverrides ? bot.localOverrides.language : bot.language;
 	const savedIncludeLanguageInSystemPrompt = linkedClone ?
@@ -194,6 +206,7 @@ export function BotEdit({
 		maxSuccessfulToolCallsPerIteration !== (bot.tickSettings.maxSuccessfulToolCallsPerIteration ?? null) ||
 		maxGeneratedTokensPerTick !== (bot.tickSettings.maxGeneratedTokensPerTick ?? null) ||
 		maxGeneratedTokensPerIteration !== (bot.tickSettings.maxGeneratedTokensPerIteration ?? null) ||
+		maxGeneratedTokensPerRequest !== (bot.tickSettings.maxGeneratedTokensPerRequest ?? null) ||
 		threadBodyCharacters !== (bot.postingSettings.threadBodyCharacters ?? null) ||
 		commentBodyCharacters !== (bot.postingSettings.commentBodyCharacters ?? null) ||
 		draft.recurringPromptEnabled !== (savedInferenceSettings.recurringPromptEnabled !== false) ||
@@ -219,6 +232,7 @@ export function BotEdit({
 		(maxGeneratedTokensPerTick === null || (maxGeneratedTokensPerTick >= 1 && maxGeneratedTokensPerTick <= 1_000_000)) &&
 		(maxGeneratedTokensPerIteration === null ||
 			(maxGeneratedTokensPerIteration >= 1 && maxGeneratedTokensPerIteration <= 1_000_000)) &&
+		maxGeneratedTokensPerRequestValid &&
 		(threadBodyCharacters === null ||
 			(threadBodyCharacters >= 1 && threadBodyCharacters <= inheritedPostingSettings.threadBodyCharacters)) &&
 		(commentBodyCharacters === null ||
@@ -260,6 +274,7 @@ export function BotEdit({
 			!effectiveDraftPrompt ||
 			(contextWindowTokens !== null &&
 				(contextWindowTokens < contextWindowTokensMin || contextWindowTokens > contextWindowTokensMax)) ||
+			!maxGeneratedTokensPerRequestValid ||
 			(threadBodyCharacters !== null &&
 				(threadBodyCharacters < 1 || threadBodyCharacters > inheritedPostingSettings.threadBodyCharacters)) ||
 			(commentBodyCharacters !== null &&
@@ -292,6 +307,7 @@ export function BotEdit({
 						contextWindowTokens,
 						compactionMaxCharacters,
 						compactionSummaryPercent,
+						maxGeneratedTokensPerRequest,
 					},
 				},
 			},
@@ -536,6 +552,28 @@ export function BotEdit({
 											step={1000}
 											type="number"
 											value={draft.maxGeneratedTokensPerIteration}
+										/>
+										<span className="suffix">tokens</span>
+									</div>
+								</Field>
+							</div>
+							<div className="field-row">
+								<Field
+									help={`Maximum tokens that one model reply can generate, reasoning included. The same amount of the context budget stays free for the reply, so it can be at most half of the context budget (${formatExactTokenCount(Math.floor(resolvedContextWindowTokens / 2))} tokens). Blank uses ${formatExactTokenCount(defaultTickSettings.maxGeneratedTokensPerRequest)} tokens.`}
+									label="Max generated tokens per request"
+								>
+									<div className="input-suffix">
+										<input
+											className="input"
+											min={maxGeneratedTokensPerRequestMin}
+											max={Math.min(maxGeneratedTokensPerRequestMax, Math.floor(resolvedContextWindowTokens / 2))}
+											onChange={(event) =>
+												setDraft((current) => ({ ...current, maxGeneratedTokensPerRequest: event.target.value }))
+											}
+											placeholder={String(bot.effectiveTickSettings.maxGeneratedTokensPerRequest)}
+											step={1000}
+											type="number"
+											value={draft.maxGeneratedTokensPerRequest}
 										/>
 										<span className="suffix">tokens</span>
 									</div>

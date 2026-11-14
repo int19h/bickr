@@ -58,6 +58,12 @@ export type RuntimeErrorCause =
 			rawResponse?: string;
 	  }
 	| {
+			kind: "provider_output_limit";
+			maxCompletionTokens: number;
+			finishReason: string;
+			nativeFinishReason: string;
+	  }
+	| {
 			kind: "provider_request_timeout" | "provider_response_body_timeout" | "provider_stream_idle_timeout" | "runtime_operation_timeout";
 			timeoutMs: number;
 			operation?: string;
@@ -88,6 +94,7 @@ const runtimeErrorCauseKinds = new Set<RuntimeErrorCause["kind"]>([
 	"provider_avatar_description_validation",
 	"provider_compaction_output_limit",
 	"provider_empty_response",
+	"provider_output_limit",
 	"provider_request_timeout",
 	"provider_response_body_timeout",
 	"provider_stream_idle_timeout",
@@ -145,6 +152,10 @@ export function ownerFacingRuntimeErrorMessage(error: RuntimeErrorCause | string
 		}
 		case "provider_empty_response":
 			return "Inference provider returned an empty response with no content, reasoning, or tool calls.";
+		case "provider_output_limit": {
+			const details = [error.finishReason, error.nativeFinishReason].filter(Boolean).join("/");
+			return `The model reached the limit of ${error.maxCompletionTokens} generated tokens per request before it finished its reply${details ? ` (${details})` : ""}. Raise "Max generated tokens per request", or lower the reasoning effort.`;
+		}
 		case "provider_request_timeout":
 			return `Inference request did not respond within ${seconds(error.timeoutMs)} seconds.`;
 		case "provider_response_body_timeout":
@@ -199,6 +210,8 @@ export function botFacingRuntimeErrorMessage(error: RuntimeErrorCause | string |
 		}
 		case "provider_empty_response":
 			return "The inference provider returned an empty response.";
+		case "provider_output_limit":
+			return `The Bickr app discarded the last reply because it reached the limit of ${error.maxCompletionTokens} generated tokens for one reply before it was complete. Shorter reasoning leaves room for the tool call.`;
 		case "provider_request_timeout":
 			return `The inference provider did not respond within ${seconds(error.timeoutMs)} seconds.`;
 		case "provider_response_body_timeout":

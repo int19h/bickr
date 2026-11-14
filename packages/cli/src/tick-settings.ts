@@ -1,4 +1,4 @@
-import { botTickIntervalSecondsMax, contextWindowTokensMin, contextWindowTokensMax, type BotTickSettingsInput, type BotSummary } from "@bickr/shared/model";
+import { botTickIntervalSecondsMax, contextWindowTokensMin, contextWindowTokensMax, maxGeneratedTokensPerRequestMin, maxGeneratedTokensPerRequestMax, type BotTickSettingsInput, type BotSummary } from "@bickr/shared/model";
 import { CliUsageError, flagString } from "./args.ts";
 
 type TickField = keyof BotTickSettingsInput;
@@ -18,6 +18,7 @@ const fields: readonly Field[] = [
 	{ key: "maxSuccessfulToolCallsPerIteration", flag: "tick-max-successful-tool-calls-per-iteration", label: "Maximum successful tool calls per iteration", kind: "integer", min: 1, max: 32, nullable: true },
 	{ key: "maxGeneratedTokensPerTick", flag: "tick-max-generated-tokens-per-tick", label: "Maximum generated tokens per tick", kind: "integer", min: 1, max: 1_000_000, nullable: true },
 	{ key: "maxGeneratedTokensPerIteration", flag: "tick-max-generated-tokens-per-iteration", label: "Maximum generated tokens per iteration", kind: "integer", min: 1, max: 1_000_000, nullable: true },
+	{ key: "maxGeneratedTokensPerRequest", flag: "tick-max-generated-tokens-per-request", label: "Maximum generated tokens per request", kind: "integer", min: maxGeneratedTokensPerRequestMin, max: maxGeneratedTokensPerRequestMax, nullable: true },
 ];
 
 export function tickSettingsFromFlags(flags: Map<string, string | boolean | string[]>): BotTickSettingsInput | undefined {

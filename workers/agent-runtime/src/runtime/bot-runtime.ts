@@ -155,6 +155,7 @@ import {
 	type ApiErrorPayload,
 	type BotContextBudget,
 	type BotContextBudgetInput,
+	type BotEffectiveTickSettings,
 	type BotContextWindowBreakdown,
 	defaultReasoningPrefill,
 	defaultTextGenerationTemperature,
@@ -225,6 +226,7 @@ import {
 	withAbortableTimeout,
 	withStandaloneTimeout,
 } from '../provider/sse';
+import { providerOutputLimitReached } from '../provider/finish-reason';
 import {
 	providerIgnoreRetryReason,
 	providerRetryDelayMsForAttempt,
@@ -321,6 +323,7 @@ import {
 	providerCompactionRequiredCompletionTokens,
 	providerCompactionSummaryLimitsForChat,
 	providerPromptEstimateSafetyTokens,
+	providerResponseReserveTokens,
 	type TextTokenCalibration,
 } from '../compaction/limits';
 import {
@@ -370,6 +373,7 @@ import {
 	ProviderResponseBodyTimeoutError,
 	ResponseBodySizeLimitError,
 	ProviderEmptyResponseError,
+	ProviderOutputLimitError,
 	PromptContextBudgetExceededError,
 	PromptContextCompactionLimitError,
 	CompactionSummaryMissingError,
@@ -1181,10 +1185,14 @@ export function providerChatCompletionRequest(
 	};
 }
 
-function providerLoopMaxCompletionTokens(contextWindowTokens: number, estimatedPromptTokens: number): number {
+function providerLoopMaxCompletionTokens(
+	tickSettings: Pick<BotEffectiveTickSettings, 'maxGeneratedTokensPerRequest'>,
+	contextWindowTokens: number,
+	estimatedPromptTokens: number,
+): number {
 	const contextWindow = Math.max(1, Math.floor(contextWindowTokens));
 	const promptTokens = Math.max(0, Math.floor(estimatedPromptTokens));
-	return Math.max(1, Math.min(providerContextCompletionReserveTokens, contextWindow - promptTokens));
+	return Math.max(1, Math.min(providerResponseReserveTokens(tickSettings, contextWindow), contextWindow - promptTokens));
 }
 
 export function providerCompactionRequest(
@@ -3676,7 +3684,7 @@ export class BotRuntime {
 				providerTools = budgetCheck.providerTools;
 				const requestMessages = budgetCheck.requestMessages;
 				const requestContextWindowTokens = budgetCheck.contextWindowTokens ?? tickSettings.contextWindowTokens;
-				const requestMaxCompletionTokens = providerLoopMaxCompletionTokens(requestContextWindowTokens, budgetCheck.promptTokens);
+				const requestMaxCompletionTokens = providerLoopMaxCompletionTokens(tickSettings, requestContextWindowTokens, budgetCheck.promptTokens);
 				requestEvent = this.appendEvent(runId, 'provider_request', providerLoopRequestEventPayload({
 					budgetCheck,
 					generatedTokensThisIteration,
@@ -3732,6 +3740,14 @@ export class BotRuntime {
 						throw error;
 					}
 				}
+				// A reply cut off at its output limit is incomplete, and its tool calls may
+				// be cut off too. Fail the visit with the limit as the cause, so the owner
+				// can raise it, instead of asking the model again for a tool call that
+				// the same limit would cut off.
+				const outputLimitError =
+					responseStatus === 'complete' && response.finish?.kind === 'output_limit'
+						? new ProviderOutputLimitError(requestMaxCompletionTokens, response.finish.finishReason, response.finish.nativeFinishReason)
+						: null;
 				const failedResponse = response;
 				const sanitized = sanitizeProviderResponseToolCalls(response);
 				response = sanitized.response;
@@ -3743,6 +3759,15 @@ export class BotRuntime {
 					? allToolCallsHaveMalformedArguments(sanitized.dropped, sanitized.originalToolCallCount)
 					: null;
 				const publishResponse = () => {
+					if (outputLimitError) {
+						this.runStorageTransactionSync(() => {
+							const log = this.agentLogStore();
+							const attemptId = log.latestAttempt(logicalRequestId!);
+							if (attemptId !== null) log.settle(attemptId, agentLogFailure(outputLimitError));
+							log.finish(logicalRequestId!, 'failed');
+						});
+						return;
+					}
 					if (allToolCallsDroppedResponse) return;
 					this.runStorageTransactionSync(() => {
 						const log = this.agentLogStore();
@@ -3770,6 +3795,7 @@ export class BotRuntime {
 				} else {
 					publishResponse();
 				}
+				if (outputLimitError) throw outputLimitError;
 				await this.recordDroppedProviderToolCalls(
 					runId,
 					requestEvent.seq,
@@ -5464,7 +5490,7 @@ export class BotRuntime {
 			ongoingTokens,
 			freeTokens,
 			compactionCutoffTokens,
-			responseReserveTokens: providerContextCompletionReserveTokens,
+			responseReserveTokens: providerResponseReserveTokens(effectiveTickSettings(bot.tickSettings), requestContextWindowTokens),
 		};
 	}
 
@@ -5576,7 +5602,7 @@ export class BotRuntime {
 		const budget = promptContextBudgetFromCounts({
 			...counts,
 			contextWindowTokens: requestContextWindowTokens,
-			responseReserveTokens: providerContextCompletionReserveTokens,
+			responseReserveTokens: providerResponseReserveTokens(tickSettings, requestContextWindowTokens),
 		});
 		const calibration = this.textTokenCalibration(settings.model);
 		const compactionLimits = providerCompactionSummaryLimitsForChat(
@@ -5642,7 +5668,7 @@ export class BotRuntime {
 			promptContextBudgetFromCounts({
 				...counts,
 				contextWindowTokens: requestContextWindowTokens,
-				responseReserveTokens: providerContextCompletionReserveTokens,
+				responseReserveTokens: providerResponseReserveTokens(tickSettings, requestContextWindowTokens),
 			}).remainingLoopTokens,
 		);
 	}
@@ -5989,7 +6015,7 @@ export class BotRuntime {
 		const responseId = headerResponseId ?? stringValue(payload.id);
 		const responseModel = stringValue(payload.model);
 		const responseProviderName = openRouterMetadataProviderName(payload.openrouter_metadata);
-		if (providerCompactionOutputLimitReached(finishReason, nativeFinishReason)) {
+		if (providerOutputLimitReached(finishReason, nativeFinishReason)) {
 			throw new ProviderCompactionOutputLimitError(rawResponse, finishReason, nativeFinishReason, {
 				...(responseId ? { responseId } : {}),
 				...(responseModel ? { responseModel } : {}),
@@ -7131,7 +7157,7 @@ export class BotRuntime {
 			const allowedPromptTokens = limits.nextCompactionTokens;
 			const estimate = this.estimateProviderPromptTokens(settings, requestMessages, providerTools);
 			const overBudgetTokens = Math.max(0, estimate.promptTokens - allowedPromptTokens);
-			const maxCompletionTokens = providerLoopMaxCompletionTokens(requestContextWindowTokens, estimate.promptTokens);
+			const maxCompletionTokens = providerLoopMaxCompletionTokens(tickSettings, requestContextWindowTokens, estimate.promptTokens);
 			if (options.reason === 'prompt_budget') {
 				this.appendEvent(runId, 'provider_token_estimate', {
 					model: settings.model,
@@ -10083,11 +10109,6 @@ function providerTokenUsageMetadataFromError(
 		};
 	}
 	return null;
-}
-
-function providerCompactionOutputLimitReached(finishReason: string, nativeFinishReason: string): boolean {
-	const normalized = `${finishReason} ${nativeFinishReason}`.toLowerCase();
-	return /\blength\b/.test(normalized) || /\bmax[_-]?output[_-]?tokens\b/.test(normalized);
 }
 
 function providerCompactionFailureResponseText(error: unknown): string | undefined {

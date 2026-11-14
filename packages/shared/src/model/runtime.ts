@@ -31,6 +31,10 @@ export const legacyDefaultTextGenerationTemperature = 0.9;
 export const defaultTranslationPrompt = factoryText('en').format('factory.translationPrompt');
 export const contextWindowTokensMin = 20_000;
 export const contextWindowTokensMax = 1_000_000;
+// One provider request may generate at most half of the context window, so a
+// full reply still leaves the other half for the prompt that produced it.
+export const maxGeneratedTokensPerRequestMin = 1_000;
+export const maxGeneratedTokensPerRequestMax = contextWindowTokensMax / 2;
 
 export function defaultReasoningPrefill(text: FactoryText, handle: string): string {
 	return text.format('factory.reasoningPrefill', { username: `u/${handle}` });
@@ -403,7 +407,7 @@ export type BotContextBudgetInput = {
 	shortBio?: string;
 	toolSettings?: BotToolSettingsInput;
 	postingSettings?: PostingSettingsInput;
-	tickSettings?: Partial<Pick<BotTickSettingsInput, "allowEarlyLogOff" | "contextWindowTokens" | "compactionMaxCharacters" | "compactionSummaryPercent">>;
+	tickSettings?: Partial<Pick<BotTickSettingsInput, "allowEarlyLogOff" | "contextWindowTokens" | "compactionMaxCharacters" | "compactionSummaryPercent" | "maxGeneratedTokensPerRequest">>;
 };
 
 export type BotContextBudget = {

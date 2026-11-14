@@ -1,8 +1,7 @@
 import { reasoningTextForReplay } from '../provider/reasoning-stream';
 import { approximateTextTokens } from '@bickr/shared/text-token-estimate';
 import { effectiveTickSettings } from '@bickr/shared/repository';
-import type { BotInferenceSubmissionMessage } from '@bickr/shared/model';
-import { providerContextCompletionReserveTokens } from '../constants';
+import type { BotEffectiveTickSettings, BotInferenceSubmissionMessage } from '@bickr/shared/model';
 import { toolDefinitionsForProviderRound, type ProviderToolDefinition } from '../prompt-and-tools';
 import type { RuntimeBotDocument, ProviderCompactionSummaryLimits } from '../types';
 import {
@@ -40,6 +39,7 @@ export function providerCompactionSummaryLimitsForChat(
 		1,
 		Math.floor(contextWindowTokensOverride === undefined ? tickSettings.contextWindowTokens : contextWindowTokensOverride),
 	);
+	const responseReserveTokens = providerResponseReserveTokens(tickSettings, contextWindowTokens);
 	const tokensPerCharacter = Math.max(minCalibratedTokensPerCharacter, calibration.tokensPerCharacter || fallbackTokensPerCharacter);
 	const configuredMaxCharacters = Math.max(1, Math.floor(tickSettings.compactionMaxCharacters));
 	const compactedCharacterCount = chatMessagesCharacterCount(compactedMessages);
@@ -51,7 +51,7 @@ export function providerCompactionSummaryLimitsForChat(
 	let compactionRequestOverheadTokens = providerPromptEstimateSafetyTokens;
 	let maxCompletionTokens = Math.max(1, contextWindowTokens - compactionRequestOverheadTokens);
 	let compactionInputTokens = Math.max(1, contextWindowTokens - anticipatedSummaryTokens - compactionRequestOverheadTokens);
-	let nextCompactionTokens = providerPromptCompactionCutoffTokens(contextWindowTokens, anticipatedSummaryTokens);
+	let nextCompactionTokens = providerPromptCompactionCutoffTokens(contextWindowTokens, anticipatedSummaryTokens, responseReserveTokens);
 
 	for (let iteration = 0; iteration < 3; iteration += 1) {
 		maxLength = configuredMaxCharacters;
@@ -75,7 +75,7 @@ export function providerCompactionSummaryLimitsForChat(
 			providerCompactionResponseFormat(bot.text, maxLength, mode),
 		);
 		compactionInputTokens = Math.max(1, contextWindowTokens - anticipatedSummaryTokens - compactionRequestOverheadTokens);
-		nextCompactionTokens = providerPromptCompactionCutoffTokens(contextWindowTokens, anticipatedSummaryTokens);
+		nextCompactionTokens = providerPromptCompactionCutoffTokens(contextWindowTokens, anticipatedSummaryTokens, responseReserveTokens);
 	}
 
 	return {
@@ -94,14 +94,32 @@ export function providerCompactionSummaryLimitsForChat(
 	};
 }
 
-function providerPromptCompactionCutoffTokens(contextWindowTokens: number, anticipatedSummaryTokens: number): number {
+/**
+ * Tokens that one loop reply may generate, and so the share of the context
+ * window that stays free for it. Writers keep the stored limit at most half
+ * of the configured window. The window for one request can still be smaller,
+ * because a model's own context length caps the configured budget, so the
+ * limit is capped again to half of that window.
+ */
+export function providerResponseReserveTokens(
+	tickSettings: Pick<BotEffectiveTickSettings, 'maxGeneratedTokensPerRequest'>,
+	contextWindowTokens: number,
+): number {
+	return Math.max(1, Math.min(tickSettings.maxGeneratedTokensPerRequest, Math.floor(Math.max(1, contextWindowTokens) / 2)));
+}
+
+function providerPromptCompactionCutoffTokens(
+	contextWindowTokens: number,
+	anticipatedSummaryTokens: number,
+	responseReserveTokens: number,
+): number {
 	const summaryAllowanceTokens = Math.max(1, Math.ceil(anticipatedSummaryTokens));
 	// The normal loop response and the future compaction summary are separate provider requests,
 	// so the cutoff reserves whichever one needs more room. That keeps loop max_completion_tokens
 	// at the completion reserve exactly at the cutoff boundary without prematurely summing both.
 	return Math.max(
 		1,
-		Math.floor(contextWindowTokens) - Math.max(providerContextCompletionReserveTokens, summaryAllowanceTokens),
+		Math.floor(contextWindowTokens) - Math.max(responseReserveTokens, summaryAllowanceTokens),
 	);
 }
 

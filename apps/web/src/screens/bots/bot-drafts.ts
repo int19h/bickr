@@ -60,6 +60,7 @@ export type BotEditDraft = {
 	maxSuccessfulToolCallsPerIteration: string;
 	maxGeneratedTokensPerTick: string;
 	maxGeneratedTokensPerIteration: string;
+	maxGeneratedTokensPerRequest: string;
 };
 
 export type BotEditParsedDraft = {
@@ -71,6 +72,7 @@ export type BotEditParsedDraft = {
 	maxSuccessfulToolCallsPerIteration: number | null;
 	maxGeneratedTokensPerTick: number | null;
 	maxGeneratedTokensPerIteration: number | null;
+	maxGeneratedTokensPerRequest: number | null;
 	threadBodyCharacters: number | null;
 	commentBodyCharacters: number | null;
 };
@@ -156,6 +158,7 @@ export function botPromptBudgetRequestKey(
 		compactionMaxCharacters: string;
 		compactionSummaryPercent: string;
 		contextWindowTokens: string;
+		maxGeneratedTokensPerRequest: string;
 		displayName: string;
 		language: string;
 		includeLanguageInSystemPrompt: boolean;
@@ -186,6 +189,7 @@ export function botPromptBudgetRequestKey(
 		compactionMaxCharacters: draft.compactionMaxCharacters.trim(),
 		compactionSummaryPercent: draft.compactionSummaryPercent.trim(),
 		contextWindowTokens: draft.contextWindowTokens.trim(),
+		maxGeneratedTokensPerRequest: draft.maxGeneratedTokensPerRequest.trim(),
 		commentBodyCharacters: draft.commentBodyCharacters.trim(),
 		recurringPrompt:
 			draft.recurringPromptEnabled ?
@@ -257,6 +261,7 @@ export function botEditDraftFromBot(bot: BotSummary): BotEditDraft {
 		maxSuccessfulToolCallsPerIteration: optionalNumberDraftValue(bot.tickSettings.maxSuccessfulToolCallsPerIteration),
 		maxGeneratedTokensPerTick: optionalNumberDraftValue(bot.tickSettings.maxGeneratedTokensPerTick),
 		maxGeneratedTokensPerIteration: optionalNumberDraftValue(bot.tickSettings.maxGeneratedTokensPerIteration),
+		maxGeneratedTokensPerRequest: optionalNumberDraftValue(bot.tickSettings.maxGeneratedTokensPerRequest),
 	};
 }
 
@@ -270,6 +275,7 @@ export function parseBotEditDraft(draft: BotEditDraft): BotEditParsedDraft {
 		maxSuccessfulToolCallsPerIteration: parseOptionalPositiveInteger(draft.maxSuccessfulToolCallsPerIteration),
 		maxGeneratedTokensPerTick: parseOptionalPositiveInteger(draft.maxGeneratedTokensPerTick),
 		maxGeneratedTokensPerIteration: parseOptionalPositiveInteger(draft.maxGeneratedTokensPerIteration),
+		maxGeneratedTokensPerRequest: parseOptionalPositiveInteger(draft.maxGeneratedTokensPerRequest),
 		threadBodyCharacters: parseOptionalPositiveInteger(draft.threadBodyCharacters),
 		commentBodyCharacters: parseOptionalPositiveInteger(draft.commentBodyCharacters),
 	};
@@ -314,6 +320,7 @@ export function updateBotInputFromEditDraft(
 			maxSuccessfulToolCallsPerIteration: parsed.maxSuccessfulToolCallsPerIteration,
 			maxGeneratedTokensPerTick: parsed.maxGeneratedTokensPerTick,
 			maxGeneratedTokensPerIteration: parsed.maxGeneratedTokensPerIteration,
+			maxGeneratedTokensPerRequest: parsed.maxGeneratedTokensPerRequest,
 		},
 	};
 }

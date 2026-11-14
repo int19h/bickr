@@ -21,6 +21,7 @@ import {
 } from '../errors';
 import { StreamReasoningDetails } from './reasoning-stream';
 import { SseFrameBuffer } from './sse-frames';
+import { providerFinish } from './finish-reason';
 import type { ProviderResponse, ProviderUsage, ReasoningDetail, ToolCall } from '../types';
 
 type ReadTextOptions = {
@@ -43,6 +44,8 @@ type ProviderSseChunk = {
 	error?: unknown;
 	openrouter_metadata?: unknown;
 	choices?: Array<{
+		finish_reason?: unknown;
+		native_finish_reason?: unknown;
 		delta?: {
 			content?: string;
 			reasoning?: string;
@@ -432,6 +435,8 @@ export async function consumeProviderResponse(
 	let responseId: string | undefined = generationResponseId;
 	let responseModel: string | undefined;
 	let responseProviderName: string | undefined;
+	let finishReason = '';
+	let nativeFinishReason = '';
 	let rawResponse = '';
 	let skippedRawResponse = '';
 	try {
@@ -463,7 +468,11 @@ export async function consumeProviderResponse(
 			if (providerError) {
 				throw providerError;
 			}
-			const delta = chunk.choices?.[0]?.delta;
+			const choice = chunk.choices?.[0];
+			// The final chunk usually carries the finish reason, sometimes with an empty delta.
+			finishReason = runtime.stringValue(choice?.finish_reason) ?? finishReason;
+			nativeFinishReason = runtime.stringValue(choice?.native_finish_reason) ?? nativeFinishReason;
+			const delta = choice?.delta;
 			if (!delta) {
 				continue;
 			}
@@ -539,6 +548,7 @@ export async function consumeProviderResponse(
 		}
 		throw error;
 	}
+	const finish = providerFinish(finishReason, nativeFinishReason);
 	const response = {
 		content: runtime.repairInvalidUnicodeText(content),
 		reasoning: runtime.repairInvalidUnicodeText(reasoningStream.readableText()),
@@ -551,6 +561,7 @@ export async function consumeProviderResponse(
 		...(responseId ? { responseId } : {}),
 		...(responseModel ? { responseModel } : {}),
 		...(responseProviderName ? { responseProviderName } : {}),
+		...(finish ? { finish } : {}),
 	};
 	if (providerResponseIsEmpty(response)) {
 		throw new ProviderEmptyResponseError(response.rawResponse, {

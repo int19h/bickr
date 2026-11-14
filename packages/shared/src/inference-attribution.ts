@@ -35,7 +35,7 @@ export function inferenceAttributionForRequest(request: unknown, source: Inferen
 	const input = record(request);
 	if (typeof input.model !== "string" || !input.model.trim() || input.model.length > 512) throw new InputError("Inference model is required.");
 	const parameters = pick(input, scalarParameters);
-	const runtime = pick(input.bickr, ["contextWindowTokens", "compactionThreshold", "compactionSummaryPercent", "compactionMaxCharacters", "maxToolCallsPerTick", "maxSuccessfulToolCallsPerIteration", "maxGeneratedTokensPerTick", "maxGeneratedTokensPerIteration"]);
+	const runtime = pick(input.bickr, ["contextWindowTokens", "compactionThreshold", "compactionSummaryPercent", "compactionMaxCharacters", "maxToolCallsPerTick", "maxSuccessfulToolCallsPerIteration", "maxGeneratedTokensPerTick", "maxGeneratedTokensPerIteration", "maxGeneratedTokensPerRequest"]);
 	if (Object.keys(runtime).length) parameters.bickr = runtime;
 	const cache = pick(input.cache_control, ["type", "ttl"]);
 	if (Object.keys(cache).length) parameters.cache_control = cache;

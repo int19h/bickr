@@ -16,6 +16,7 @@ type TestProviderResponse = {
 	toolCalls: Array<Record<string, unknown>>;
 	rawResponse?: string;
 	skippedRawResponse?: string;
+	finish?: Record<string, unknown>;
 };
 
 describe("provider SSE parsing", () => {
@@ -85,6 +86,23 @@ describe("provider SSE parsing", () => {
 		expect(withGarbage.rawResponse).toContain("data: not-json");
 		expect(withGarbage.skippedRawResponse).toContain("data: not-json");
 	});
+	it("reports the finish reason from the final chunk", async () => {
+		const cutOff = await consumeProviderResponse([
+			providerContentFrame("I will post "),
+			`data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: "length", native_finish_reason: "MAX_TOKENS" }] })}\n\n`,
+			"data: [DONE]\n\n",
+		]);
+		const stopped = await consumeProviderResponse([
+			`data: ${JSON.stringify({ choices: [{ delta: { content: "Done." }, finish_reason: "stop", native_finish_reason: "STOP" }] })}\n\n`,
+			"data: [DONE]\n\n",
+		]);
+		const unreported = await consumeProviderResponse([providerContentFrame("Done."), "data: [DONE]\n\n"]);
+
+		expect(cutOff.finish).toEqual({ kind: "output_limit", finishReason: "length", nativeFinishReason: "MAX_TOKENS" });
+		expect(stopped.finish).toEqual({ kind: "other", finishReason: "stop", nativeFinishReason: "STOP" });
+		expect(unreported).not.toHaveProperty("finish");
+	});
+
 	it.each([true, false])('keeps only readable reasoning when completed=%s', async completed => {
 		const details = [
 			{ type: 'reasoning.text', index: 0, text: 'Text' },

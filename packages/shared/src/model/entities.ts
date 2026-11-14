@@ -575,6 +575,7 @@ export type BotTickSettings = {
 	maxSuccessfulToolCallsPerIteration?: number;
 	maxGeneratedTokensPerTick?: number;
 	maxGeneratedTokensPerIteration?: number;
+	maxGeneratedTokensPerRequest?: number;
 };
 
 export type BotEffectiveTickSettings = Required<BotTickSettings>;
@@ -592,6 +593,7 @@ export type BotTickSettingsInput = Partial<{
 	maxSuccessfulToolCallsPerIteration: number | null;
 	maxGeneratedTokensPerTick: number | null;
 	maxGeneratedTokensPerIteration: number | null;
+	maxGeneratedTokensPerRequest: number | null;
 }>;
 
 export type CommentDocument = {
