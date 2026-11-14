@@ -2,12 +2,12 @@ import type { AgentLogEntry, BotLoopMessagesResponse } from '@bickr/shared/model
 import { testResultContext } from './result-render-context.test-support';
 import { botText } from '../localization';
 const text = botText('en');
-import { SelfCorrectingToolCallError } from '../errors';
+import { PersistentCompactionReductionFailureError, ProviderEmptyResponseError, ProviderOutputLimitError, SelfCorrectingToolCallError } from '../errors';
 import { RepositoryError } from '@bickr/shared/repository';
 import { toolDefinitionsForProviderRound } from '../prompt-and-tools';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AgentLogStore } from './agent-log-store';
-import { BotRuntime } from './bot-runtime';
+import { BotRuntime, runFailurePause } from './bot-runtime';
 import { createRuntimeTestStorage } from './sqlite-test-helper';
 import { RunLiveness, cleanupTimeoutMs, transitionTimeoutMs } from './run-liveness';
 import type { AdmittedTick, RuntimeBotDocument } from '../types';
@@ -333,6 +333,14 @@ it('rolls back the response, request link, and journal together if recovery fail
 	expect(page.entries[0]).toMatchObject({ kind: 'message', requestId: id });
 	expect(logs.responsePublication('run')).toBeNull();
 	h.storage.database.close();
+});
+
+it('pauses only for failures that repeat until the owner changes a setting', () => {
+	expect(runFailurePause(new ProviderOutputLimitError(5_000, 'length', 'MAX_TOKENS'))).toEqual({ reason: 'output_limit', maxCompletionTokens: 5_000 });
+	expect(runFailurePause(Object.assign(Object.create(PersistentCompactionReductionFailureError.prototype) as PersistentCompactionReductionFailureError, { attempts: 3 })))
+		.toEqual({ reason: 'persistent_non_reducing_compaction', attempts: 3 });
+	expect(runFailurePause(new ProviderEmptyResponseError('{}'))).toBeNull();
+	expect(runFailurePause(new Error('other'))).toBeNull();
 });
 
 it('retains required pause before release through timeout and retires a superseded retry', async () => {

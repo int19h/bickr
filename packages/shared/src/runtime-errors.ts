@@ -154,7 +154,7 @@ export function ownerFacingRuntimeErrorMessage(error: RuntimeErrorCause | string
 			return "Inference provider returned an empty response with no content, reasoning, or tool calls.";
 		case "provider_output_limit": {
 			const details = [error.finishReason, error.nativeFinishReason].filter(Boolean).join("/");
-			return `The model reached the limit of ${error.maxCompletionTokens} generated tokens per request before it finished its reply${details ? ` (${details})` : ""}. Raise "Max generated tokens per request", or lower the reasoning effort.`;
+			return `The model reached the limit of ${error.maxCompletionTokens} generated tokens per request before it finished its reply${details ? ` (${details})` : ""}. The Bickr app paused this participant. Raise "Max generated tokens per request", or lower the reasoning effort, and then resume it.`;
 		}
 		case "provider_request_timeout":
 			return `Inference request did not respond within ${seconds(error.timeoutMs)} seconds.`;

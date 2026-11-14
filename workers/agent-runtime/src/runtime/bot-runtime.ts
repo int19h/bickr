@@ -1375,6 +1375,19 @@ function loopMessageContributesToCompactionProviderInput(row: LoopMessageRow): b
 	return loopMessageContributesToProviderHistory(row.origin, message);
 }
 
+/**
+ * Failures that repeat on every visit until the owner changes a setting. A
+ * failed visit runs again after a few minutes, so these pause the participant
+ * instead of spending inference on the same failure.
+ */
+export function runFailurePause(
+	error: unknown,
+): { reason: 'persistent_non_reducing_compaction'; attempts: number } | { reason: 'output_limit'; maxCompletionTokens: number } | null {
+	if (error instanceof PersistentCompactionReductionFailureError) return { reason: 'persistent_non_reducing_compaction', attempts: error.attempts };
+	if (error instanceof ProviderOutputLimitError) return { reason: 'output_limit', maxCompletionTokens: error.maxCompletionTokens };
+	return null;
+}
+
 export function runtimeErrorLoopMessageContent(message: unknown): string {
 	return safeContextText(
 		botFacingRuntimeErrorMessage(runtimeErrorCause(message)) ?? 'The Bickr app reported an error during this visit.',
@@ -2919,14 +2932,14 @@ export class BotRuntime {
 				|| (error instanceof ToolOutcomeUnknownError && (error.originalError instanceof TickStoppedError || isAbortError(error.originalError)));
 			const cause = runtimeErrorCause(error);
 			const message = stopped ? 'This Bickr visit was stopped.' : ownerFacingRuntimeErrorMessage(cause) ?? 'Unexpected Bickr visit error.';
-			const persistentCompaction = error instanceof PersistentCompactionReductionFailureError;
+			const pause = stopped ? null : runFailurePause(error);
 			const payload = {
 				message,
 				...(error instanceof PersistentToolFailureError ? { toolName: error.failure.toolName, failure: error.failure } : {}),
 				...(error instanceof PersistentMissingToolCallError ? { toolNames: error.toolNames } : {}),
-				...(persistentCompaction ? { pauseRequested: true, reason: 'persistent_non_reducing_compaction', attempts: error.attempts } : {}),
+				...(pause ? { pauseRequested: true, ...pause } : {}),
 			};
-			const finished = await this.finalizeRun(finalizationContext, runId, stopped ? 'tick_stopped' : 'tick_failed', payload, cause, runtimeFailureLogs(error), persistentCompaction ? { ownerUserId: bot.ownerUserId, revision: bot.revision } : undefined);
+			const finished = await this.finalizeRun(finalizationContext, runId, stopped ? 'tick_stopped' : 'tick_failed', payload, cause, runtimeFailureLogs(error), pause ? { ownerUserId: bot.ownerUserId, revision: bot.revision } : undefined);
 			if (!finished) return { runId, status: 'stopped' };
 			if (!stopped) {
 				await this.reportCleanup(runId, 'failure_notification', () => recordBotRuntimeFailureHumanNotification(this.env.BICKR_D1, { bot, runId, message: cause }));

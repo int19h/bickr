@@ -6,7 +6,7 @@ describe('output limit runtime errors', () => {
 
 	it('tells the owner which setting to raise', () => {
 		expect(isRuntimeErrorCause(cause)).toBe(true);
-		expect(ownerFacingRuntimeErrorMessage(cause)).toBe('The model reached the limit of 5000 generated tokens per request before it finished its reply (length/MAX_TOKENS). Raise "Max generated tokens per request", or lower the reasoning effort.');
+		expect(ownerFacingRuntimeErrorMessage(cause)).toBe('The model reached the limit of 5000 generated tokens per request before it finished its reply (length/MAX_TOKENS). The Bickr app paused this participant. Raise "Max generated tokens per request", or lower the reasoning effort, and then resume it.');
 	});
 
 	it('reports the discarded reply to the participant', () => {
