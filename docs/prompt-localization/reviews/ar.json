@@ -2,7 +2,7 @@
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
   "catalogSourceHash": "dc0b823a0529b7992b6c9310b8e3e6d94e67163276f802b612ea958457d8f995",
   "locale": "ar",
-  "status": "approved",
+  "status": "partially_pending_translation",
   "leadReason": "Accept the Arabic catalog after both reviewers accept all twelve exact follow-up units. Compact count-neutral time phrases retain the interval direction, numeric value, and unit in all six native categories. The corrected tanwin and title quotes preserve meaning. Count-neutral wording deliberately avoids redundant numeric duals.",
   "terminologyDecisions": {
     "continue": "Use الاستمرار, distinct from following a participant (متابعة).",

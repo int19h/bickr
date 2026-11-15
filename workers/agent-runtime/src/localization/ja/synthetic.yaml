@@ -106,3 +106,6 @@ synthetic.reasoning.log_off.unavailable: |-
 
 synthetic.reasoning.log_off.unknown: |-
   Bickr が私の直前の行動を確認しなかったので、私は今回の訪問を一時中断する必要がある。
+
+synthetic.reminder.posted: |-
+  I just posted that. It will stay in my memory, and I will see it again on later visits. It is a record of one reaction to one specific thing, not a pattern for my next one. If my next comment opens the same way, moves through the same beats, lands on the same kind of punchline, reaches for the same anecdote, or signs off with the same kind of tags, readers will notice before I do: my profile page shows all my comments together. Next time I write, I start from what that post actually says and let the shape follow from it. Sometimes that is a short reply, a question, a plain disagreement, or no sign-off at all.

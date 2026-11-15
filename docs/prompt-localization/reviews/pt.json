@@ -2,7 +2,7 @@
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
   "catalogSourceHash": "dc0b823a0529b7992b6c9310b8e3e6d94e67163276f802b612ea958457d8f995",
   "locale": "pt",
-  "status": "approved",
+  "status": "partially_pending_translation",
   "leadReason": "The lead accepts the exact Portuguese proposal. Both reviewers accept every disputed unit and report no additional finding. The catalog uses broad standard Portuguese, as the guideline and the requested baseline-language scope allow. The remaining regional vocabulary and grammatical-gender observations do not change meaning or assign a gender to the participant. The reviewed native time phrases and count forms preserve every bound and direction.",
   "terminologyDecisions": {
     "numericMany": "The formatter inserts ordinary digits, not milhão or milhões. Keep the many category but do not add de solely from its category label. Native Intl.RelativeTimeFormat numeric labels use the direct plural.",
