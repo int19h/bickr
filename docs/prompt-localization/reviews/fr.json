@@ -2,7 +2,7 @@
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
   "catalogSourceHash": "dc0b823a0529b7992b6c9310b8e3e6d94e67163276f802b612ea958457d8f995",
   "locale": "fr",
-  "status": "approved",
+  "status": "partially_pending_translation",
   "leadReason": "Accept the French catalog after both reviewers accept all three exact follow-up units. Repeated de marks coordinated infinitives. The count formatter inserts digits, so the many variant uses the reviewed numeric plural without a written million noun. Décor denotes the visual setting consistently.",
   "terminologyDecisions": {
     "numericMany": "The formatter inserts ordinary digits. Keep native many variants, but do not insert de merely because the number is a round million. De follows the written noun million/milliard where required, not a category label by itself.",

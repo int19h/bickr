@@ -2,7 +2,7 @@
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
   "catalogSourceHash": "dc0b823a0529b7992b6c9310b8e3e6d94e67163276f802b612ea958457d8f995",
   "locale": "ga",
-  "status": "approved",
+  "status": "partially_pending_translation",
   "leadReason": "Accept best-effort Irish after both requested final discussions and both 28-unit follow-ups. Use standard is gá dom action needs, direct audience wording, explicit persona genitives, dictionary-backed disclaimer notices, singular detached member headers, native JSON adjective order and list punctuation. Keep the maximum ceiling and all conditions. Relative-time digit patterns follow resolved Unicode CLDR and protected identifiers remain opaque. The lead chooses the optional direct relative from Opus.",
   "terminologyDecisions": {
     "action": "gníomh for an action. Beart can also mean action and is not invalid.",

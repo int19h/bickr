@@ -1103,6 +1103,10 @@ export const messageParameters = { ...resultMessageDefinitions, "result.referenc
 		],
 		"count": "count"
 	},
+	"synthetic.reminder.posted": {
+		"kind": "text",
+		"parameters": []
+	},
 	"synthetic.malformed.many": {
 		"kind": "plural",
 		"parameters": [

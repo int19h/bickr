@@ -2,7 +2,7 @@
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
   "catalogSourceHash": "dc0b823a0529b7992b6c9310b8e3e6d94e67163276f802b612ea958457d8f995",
   "locale": "hi",
-  "status": "approved",
+  "status": "partially_pending_translation",
   "leadReason": "Accept the Hindi catalog after both reviewers accept all four exact follow-ups. Native time phrases preserve direction and units. Count labels and universal item commands cover zero and one without speaker gender. Website visits, comments, annotations, profiles, and tool-result terminology are consistent. The cycle rule uses an explicit ban without a blanket claim about चाहिए.",
   "terminologyDecisions": {
     "visit": "विज़िट for a Bickr website visit. यात्रा is understandable but can suggest travel.",
