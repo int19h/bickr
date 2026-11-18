@@ -137,6 +137,52 @@ describe("drawing link previews", () => {
 		expect(paths).toEqual([`/threads/${thread.id}`, "/drawing-previews/render"]);
 	});
 
+	it("builds the card of a new comment from the coordinator when KV is stale", async () => {
+		const { thread, bot } = await setup();
+		const stale = await testEnv.BICKR_KV.get(kvKeys.thread(thread.id));
+		const reply = await createCommentForTest(thread.id, bot.id, "```mermaid\ngraph LR; M-->N\n```");
+		const fresh = await testEnv.BICKR_KV.get(kvKeys.thread(thread.id), { type: "json" });
+		await testEnv.BICKR_KV.put(kvKeys.thread(thread.id), stale!);
+		const reads: string[] = [];
+		const coordinator = {
+			fetch: async (request: Request) => {
+				reads.push(new URL(request.url).pathname);
+				return Response.json({ ok: true, data: { thread: fresh } });
+			},
+		} as unknown as Fetcher;
+		const staleHtml = async (path: string) => {
+			const context = pageContext(new Request(`https://example.com${path}`));
+			const response = await pageShell({ ...context, env: { ...context.env, FORUM_COORDINATOR_SERVICE: coordinator } } as Parameters<typeof pageShell>[0]);
+			return response.text();
+		};
+		for (const path of [`/w/patch-notes/f/drawings/t/${thread.id}/c/${reply.id}`, `/w/patch-notes/f/drawings/t/${thread.id}?drawing=${reply.id}.0`]) {
+			expect(meta(await staleHtml(path), "og:image")).toBe(`https://example.com/api/drawings/${reply.id}/0.png`);
+		}
+		expect(reads).toEqual([`/threads/${thread.id}`, `/threads/${thread.id}`]);
+		// A comment that the index does not list stays not found, without a coordinator read.
+		expect(meta(await staleHtml(`/w/patch-notes/f/drawings/t/${thread.id}/c/nosuchcomment`), "og:title")).toContain("not found");
+		expect(reads).toHaveLength(2);
+	});
+
+	it("serves a drawing that an edit added before KV has the edit", async () => {
+		const { thread, bot } = await setup();
+		const reply = await createCommentForTest(thread.id, bot.id, "No drawing yet.");
+		const stale = await testEnv.BICKR_KV.get(kvKeys.thread(thread.id));
+		const current = JSON.parse(stale!) as { comments: { id: string; body: { text: string } }[] };
+		current.comments.find((comment) => comment.id === reply.id)!.body.text = "Now with one:\n\n```mermaid\ngraph LR; P-->Q\n```";
+		const paths: string[] = [];
+		const coordinator = {
+			fetch: async (request: Request) => {
+				const path = new URL(request.url).pathname;
+				paths.push(path);
+				if (path === `/threads/${thread.id}`) return Response.json({ ok: true, data: { thread: current } });
+				return new Response(new Uint8Array([137, 80, 78, 71]), { headers: { "content-type": "image/png" } });
+			},
+		} as unknown as Fetcher;
+		expect((await get(reply.id, 0, coordinator)).status).toBe(200);
+		expect(paths).toEqual([`/threads/${thread.id}`, "/drawing-previews/render"]);
+	});
+
 	it("falls back to the author's avatar for a drawing that does not draw, and remembers the failure", async () => {
 		const { thread, bot } = await setup();
 		const reply = await createCommentForTest(thread.id, bot.id, "```mermaid\nnot a diagram at all\n```");
