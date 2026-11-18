@@ -194,4 +194,33 @@ describe("drawing viewer", () => {
 		await act(async () => document.querySelector<HTMLButtonElement>('[role="dialog"] [aria-label="Close"]')!.click());
 		expect(onClose).toHaveBeenCalledOnce();
 	});
+	it("switches a viewer that a link opened to Source when the drawing does not render", async () => {
+		vi.stubGlobal("IntersectionObserver", undefined);
+		container = document.createElement("div"); document.body.append(container); root = createRoot(container);
+		const render = () => <DrawingBlock language="mermaid" source="not a diagram" viewer={{ open: true, onOpen: () => undefined, onClose: () => undefined }} />;
+		await act(async () => root!.render(render()));
+		const dialog = document.querySelector('[role="dialog"]')!;
+		const selected = () => dialog.querySelector('[role="tab"][aria-selected="true"]')?.textContent;
+		expect(selected()).toBe("Rendered");
+		const frame = dialog.querySelector("iframe")!;
+		const send = vi.spyOn(frame.contentWindow!, "postMessage");
+		await message(frame.contentWindow!, { kind: "loaded" });
+		const token = (send.mock.calls[0]![0] as { token: string }).token;
+		await message(frame.contentWindow!, { kind: "error", token });
+		expect(selected()).toBe("Source");
+	});
+	it("keeps the tab that the reader chose when the drawing fails later", async () => {
+		vi.stubGlobal("IntersectionObserver", undefined);
+		container = document.createElement("div"); document.body.append(container); root = createRoot(container);
+		await act(async () => root!.render(<DrawingBlock language="mermaid" source="not a diagram" viewer={{ open: true, onOpen: () => undefined, onClose: () => undefined }} />));
+		const dialog = document.querySelector('[role="dialog"]')!;
+		const tab = (name: string) => [...dialog.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find((item) => item.textContent === name)!;
+		await act(async () => tab("Source").click());
+		await act(async () => tab("Rendered").click());
+		const frame = dialog.querySelector("iframe")!;
+		const send = vi.spyOn(frame.contentWindow!, "postMessage");
+		await message(frame.contentWindow!, { kind: "loaded" });
+		await message(frame.contentWindow!, { kind: "error", token: (send.mock.calls[0]![0] as { token: string }).token });
+		expect(tab("Rendered").getAttribute("aria-selected")).toBe("true");
+	});
 });

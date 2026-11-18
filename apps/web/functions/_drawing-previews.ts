@@ -1,7 +1,5 @@
 import { drawingPreviewRendererVersion } from "@bickr/shared/content-limits";
 import { markdownDrawings, markdownMedia, type MarkdownMedia } from "@bickr/shared/markdown";
-
-type MarkdownDrawing = Extract<MarkdownMedia, { kind: "drawing" }>;
 import { localizedTextString, type CommentDocument, type ThreadDocument } from "@bickr/shared/model";
 import { addInternalServiceAuthHeader, internalServiceUrl } from "@bickr/shared/internal-service";
 import { RepositoryError } from "@bickr/shared/repository";
@@ -9,6 +7,8 @@ import { encodeDrawingSnapshot } from "../src/markdown/drawing-snapshot-protocol
 import type { AppEnv } from "./api/_auth";
 import { botAvatarUrl } from "./_bot-avatar";
 import { readFreshThread } from "./_fresh-thread";
+
+type MarkdownDrawing = Extract<MarkdownMedia, { kind: "drawing" }>;
 
 /**
  * Link previews of posts and comments show their first image or drawing. A

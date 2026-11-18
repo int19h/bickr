@@ -13,7 +13,10 @@ import { readCoordinatorThread } from "./api/_coordinator-thread";
  * So when the KV copy is missing or lacks what the request needs (`has`), and
  * the D1 index already shows that the content exists (`indexed`), this reads
  * the coordinator's copy, which has every committed write. The index gate
- * keeps requests for content that does not exist off the coordinator.
+ * keeps requests for comments and threads that do not exist off the
+ * coordinator. It cannot see drawing indexes, so a request for a drawing
+ * index that a live comment does not have still reads the coordinator once.
+ * That costs no more than the `?fresh=1` thread read that any visitor has.
  */
 export async function readFreshThread(
 	env: AppEnv,
@@ -35,17 +38,17 @@ export async function readFreshThread(
 	return readCoordinatorThread(env, threadId);
 }
 
-/** Whether the index lists this comment as live in a live thread. */
-export async function commentIndexed(db: D1Database, commentId: string): Promise<boolean> {
+/** Whether the index lists this comment as live in this live thread. */
+export async function commentIndexed(db: D1Database, threadId: string, commentId: string): Promise<boolean> {
 	const row = await db
 		.prepare(
 			`SELECT 1 AS live
 			 FROM comments_index c
 			 JOIN threads_index t ON t.thread_id = c.thread_id
-			 WHERE c.comment_id = ? AND c.deleted_at IS NULL AND t.deleted_at IS NULL
+			 WHERE c.comment_id = ? AND c.thread_id = ? AND c.deleted_at IS NULL AND t.deleted_at IS NULL
 			 LIMIT 1`,
 		)
-		.bind(commentId)
+		.bind(commentId, threadId)
 		.first<{ live: number }>();
 	return Boolean(row);
 }

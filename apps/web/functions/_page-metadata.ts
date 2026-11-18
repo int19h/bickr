@@ -194,8 +194,8 @@ async function threadMetadata(env: AppEnv, route: ParsedRoute): Promise<PageMeta
 			(!drawing || stored.comments.some((comment) => comment.id === drawing.commentId && drawingPreviewImage(comment, drawing.index) !== null)),
 		async () =>
 			(await Promise.all([
-				route.commentId ? commentIndexed(env.BICKR_D1, route.commentId) : threadIndexed(env.BICKR_D1, threadId),
-				drawing ? commentIndexed(env.BICKR_D1, drawing.commentId) : true,
+				route.commentId ? commentIndexed(env.BICKR_D1, threadId, route.commentId) : threadIndexed(env.BICKR_D1, threadId),
+				drawing ? commentIndexed(env.BICKR_D1, threadId, drawing.commentId) : true,
 			])).every(Boolean),
 	);
 	if (thread.forumId !== forum.id) {
