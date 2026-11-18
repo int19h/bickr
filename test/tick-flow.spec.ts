@@ -2333,65 +2333,6 @@ describe("Tick flow", () => {
 		expect(messages.find((message) => message.origin === 'self_correction')?.message.content).toContain('private notes are disabled');
 	});
 
-	it.each([
-		{ name: "reply_to_comment", args: { commentId: "cmt_parent", body: "A reply." }, expected: true },
-		{ name: "make_additional_reply_to_the_same_comment", args: { commentId: "cmt_parent", body: "Another reply." }, expected: true },
-		{ name: "create_thread", args: { forum: "f/general", title: "A thread", body: "A body." }, expected: true },
-		{ name: "vote", args: { targets: [{ commentId: "cmt_parent", direction: "up" }] }, expected: false },
-	])("reminds the participant after publishing with $name only when a post was published", async ({ name, args, expected }) => {
-		const appendedLoopMessages: Array<{ message: Record<string, unknown>; origin: string }> = [];
-		const callProvider = vi.fn()
-			.mockResolvedValueOnce(providerResponseWithToolCall("call-publish", name, args))
-			.mockResolvedValueOnce(providerResponseWithContent("I am done for now."));
-		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), { agentLogStore: agentLogStoreStub, runStorageTransactionSync: protocolStorageTransaction,
-			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) => runtimeEvent(1, runId, type as BotRuntimeEvent["type"], payload),
-			appendLoopMessage: (_context: typeof testResultContext, _runId: string, message: Record<string, unknown>, origin: string) => {
-				appendedLoopMessages.push({ message, origin });
-				return { seq: appendedLoopMessages.length, runId: "run-post-reminder", role: message.role, message, origin, tokenEstimate: 0, createdAt: new Date().toISOString() };
-			},
-			appendProviderMessages: async () => {},
-			callProvider,
-			ensureProviderPromptWithinBudget: async () => ({renderContext: testResultContext,
-				allowedPromptTokens: 13_500,
-				providerTools: toolDefinitionsForProviderRound(englishInstructions),
-				promptTokens: 100,
-				requestMessages: [{ role: "assistant", content: "I am ready." }],
-			}),
-			executeTool: testToolExecutor(async (_bot: unknown, _runId: string, toolName: string) => ({ name: toolName, result: { ok: true }, providerResult: { ok: true } })),
-			hasRuntimeStorage: () => true,
-			loopGeneratedTokenCountSinceLastLogOff: () => 0,
-			prematureLogOffCorrectedSinceLastLogOff: () => false,
-			providerLoopInitialSuccessfulToolCallCount: () => 0,
-			recordInferenceSubmission: () => {},
-			recordLoopMessageLog: () => {},
-			recordProviderUsage: () => {},
-			successfulMutatingToolCallSinceLastLogOff: () => true,
-			throwIfStopped: () => {},
-		}));
-		const runProviderLoop = (BotRuntime.prototype as unknown as {
-			runProviderLoop: (bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>, settings: LocalizedProviderSettings,
-				runId: string, messages: Array<Record<string, unknown>>, runContext: { mode: 'normal'; signal: AbortSignal }) => Promise<unknown>;
-		}).runProviderLoop.bind(runtime);
-		await runProviderLoop(
-			fakeBotDocument({ allowEarlyLogOff: true }),
-			{ text: englishInstructions, baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
-			"run-post-reminder", [], { mode: "normal", signal: new AbortController().signal },
-		);
-		const reminders = appendedLoopMessages.filter((message) => message.origin === "reminder");
-		if (!expected) {
-			expect(reminders).toEqual([]);
-			return;
-		}
-		expect(reminders).toEqual([{ origin: "reminder", message: { role: "assistant", content: englishInstructions.format("synthetic.reminder.posted") } }]);
-		// The note follows the tool result and precedes the next provider response.
-		const toolIndex = appendedLoopMessages.findIndex((message) => message.message.role === "tool");
-		const reminderIndex = appendedLoopMessages.findIndex((message) => message.origin === "reminder");
-		const nextResponseIndex = appendedLoopMessages.findIndex((message) => message.message.content === "I am done for now.");
-		expect(toolIndex).toBeGreaterThanOrEqual(0);
-		expect(reminderIndex).toBeGreaterThan(toolIndex);
-		expect(nextResponseIndex).toBeGreaterThan(reminderIndex);
-	});
-
 	it("drops malformed generated tool calls while executing valid calls from the same response", async () => {
 		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
 		const appendedLoopMessages: Array<{ message: Record<string, unknown>; origin: string }> = [];

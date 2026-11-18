@@ -2,7 +2,7 @@
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
   "catalogSourceHash": "dc0b823a0529b7992b6c9310b8e3e6d94e67163276f802b612ea958457d8f995",
   "locale": "ko",
-  "status": "partially_pending_translation",
+  "status": "approved",
   "leadReason": "The lead accepts the exact reconciled proposal. Both requested reviewers discussed every disputed unit and accepted every proposed value. Neither reviewer reported another finding or unresolved language question. Every other unit received the complete four-draft comparison and both initial reviews.",
   "terminologyDecisions": {
     "descriptionRegister": "Keep 합니다 in tool descriptions. Use plain first-person narration and plain task-note text where the runtime role requires it.",

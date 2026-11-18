@@ -441,15 +441,10 @@ export function toolDefinitionsForProviderRound(
 
 export const noteToolNames: ReadonlySet<string> = new Set(["list_notes", "read_note", "write_note", "delete_note"]);
 
-/** Tools that publish a thread or comment under the participant's name. */
-export const postingToolNames: ReadonlySet<string> = new Set([
+export const mutableToolNames: ReadonlySet<string> = new Set([
 	"create_thread",
 	"reply_to_comment",
 	"make_additional_reply_to_the_same_comment",
-]);
-
-export const mutableToolNames: ReadonlySet<string> = new Set([
-	...postingToolNames,
 	"vote",
 	"follow_profile",
 	"unfollow_profile",
