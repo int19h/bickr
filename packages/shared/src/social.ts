@@ -3203,6 +3203,69 @@ export async function softDeleteComment(
 	return updated;
 }
 
+/**
+ * Replaces the Markdown body of one comment, or of the root comment that is a
+ * thread's post. The caller has already authorized the edit: see
+ * `editComment` in governance.ts.
+ *
+ * The thread coordinator serializes this with every other write to the thread,
+ * so the `expectedUpdatedAt` compare cannot race. A concurrent edit, or a
+ * reparent from a sibling deletion, changes `updatedAt` and yields a 409.
+ *
+ * An edit is new authored content, so it passes the same gates as creation:
+ * a live, writable forum, mention canonicalization, and the author's posting
+ * limit. It is not new activity: `lastActivityAt` and the read state of the
+ * thread stay as they are, and no notification is sent.
+ */
+export async function editCommentBody(
+	kv: KVNamespaceLike,
+	db: D1DatabaseLike,
+	thread: ThreadDocument,
+	input: { commentId: string; text: string; expectedUpdatedAt: string },
+	now = new Date().toISOString(),
+): Promise<ThreadDocument> {
+	thread = normalizeThreadDefaults(thread);
+	if (thread.deletedAt) {
+		throw repositoryError("not_found", "Thread not found.", 404, { botIssue: botServiceIssue("issue.service.threadMissing", {}) });
+	}
+	const target = thread.comments.find((comment) => comment.id === input.commentId);
+	if (!target) {
+		throw repositoryError("not_found", "Comment not found.", 404, { botIssue: botServiceIssue("issue.service.commentMissing", {}) });
+	}
+	if (target.updatedAt !== input.expectedUpdatedAt) {
+		throw repositoryError("conflict", "The comment changed after you opened it. Reload the thread and edit it again.", 409);
+	}
+	const forum = await assertThreadForumIsLive(kv, db, thread);
+	await assertForumAcceptsNewContent(db, forum.id);
+	const bot = await botById(kv, db, target.authorBotId);
+	const postingSettings = await effectivePostingSettingsForAuthor(kv, thread.worldId, bot);
+	const isRoot = target.id === thread.rootCommentId;
+	// The edit keeps the language tag of the comment: the owner edits the text,
+	// not the metadata that the author supplied with it.
+	const { texts } = await canonicalizeMentions(db, thread.worldId, { body: { ...target.body, text: input.text } });
+	const { body } = texts;
+	requiredPostingBody(
+		body.text,
+		isRoot ? "Thread body" : "Comment body",
+		postingHardLimit(isRoot ? postingSettings.threadBodyCharacters : postingSettings.commentBodyCharacters),
+		"body.text",
+	);
+	if (body.text === target.body.text) {
+		return thread;
+	}
+	const edited: CommentDocument = { ...target, body, updatedAt: now, editedAt: now };
+	const updated: ThreadDocument = {
+		...thread,
+		comments: thread.comments.map((comment) => comment.id === edited.id ? edited : comment),
+		revision: thread.revision + 1,
+		updatedAt: now,
+	};
+	await writeJson(kv, kvKeys.thread(updated.id), updated);
+	await upsertThreadIndex(db, updated);
+	await upsertCommentIndex(db, updated, edited);
+	return updated;
+}
+
 export async function listVotesForTarget(
 	db: D1DatabaseLike,
 	worldId: string,
@@ -7345,9 +7408,9 @@ export function orderedDeliveryReasons(reasons: ReadonlySet<NotificationDelivery
 	return [...reasons].sort((left, right) => notificationDeliveryReasonOrder[left] - notificationDeliveryReasonOrder[right]);
 }
 
-type MentionCanonicalization<Field extends string> = {
+type MentionCanonicalization<Field extends string, Text extends LocalizedText = RequiredLocalizedText> = {
 	/** Rewritten fields, keyed exactly as supplied. Each keeps its `lang`. */
-	readonly texts: Readonly<Record<Field, RequiredLocalizedText>>;
+	readonly texts: Readonly<Record<Field, Text>>;
 	/** Participants the stored text references, once each. */
 	readonly mentioned: readonly ResolvedMention[];
 };
@@ -7365,12 +7428,12 @@ type MentionCanonicalization<Field extends string> = {
  * but they are still mentions, and after rewriting they are indistinguishable
  * from the candidates that just became canonical.
  */
-async function canonicalizeMentions<Field extends string>(
+async function canonicalizeMentions<Field extends string, Text extends LocalizedText = RequiredLocalizedText>(
 	db: D1DatabaseLike,
 	worldId: string,
-	fields: Readonly<Record<Field, RequiredLocalizedText>>,
-): Promise<MentionCanonicalization<Field>> {
-	const extracted = (Object.entries(fields) as Array<[Field, RequiredLocalizedText]>).map(([field, value]) => ({
+	fields: Readonly<Record<Field, Text>>,
+): Promise<MentionCanonicalization<Field, Text>> {
+	const extracted = (Object.entries(fields) as Array<[Field, Text]>).map(([field, value]) => ({
 		field,
 		value,
 		candidates: extractMentionCandidates(value.text, field === "body" ? "markdown" : "plain"),
@@ -7388,7 +7451,7 @@ async function canonicalizeMentions<Field extends string>(
 	const resolved = handles.size === 0 ?
 		new Map<string, ResolvedMention>()
 	:	await resolveMentionHandles(db, worldId, [...handles]);
-	const texts = {} as Record<Field, RequiredLocalizedText>;
+	const texts = {} as Record<Field, Text>;
 	for (const { field, value, candidates } of extracted) {
 		const text = rewriteMentions(value.text, candidates, resolved);
 		texts[field] = text === value.text ? value : { ...value, text };

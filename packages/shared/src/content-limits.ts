@@ -13,3 +13,10 @@ export const participantListLimits = {
 	defaultProfiles: 20, maximumProfiles: 50, maximumFollowers: 50,
 	defaultActivity: 10, maximumActivity: 20, maximumNoteFilters: 10,
 } as const;
+
+/**
+ * The R2 prefix of the cached link preview images of drawings. A bucket
+ * lifecycle rule deletes these objects 30 days after upload; the avatar
+ * janitor skips the prefix. See docs/markdown.md.
+ */
+export const drawingPreviewObjectPrefix = "drawing-previews/";

@@ -14,6 +14,8 @@ import {
 } from "@bickr/shared/repository";
 import { botPublicProfileByHandle, forumByHandle, readThread } from "@bickr/shared/social";
 import { parsePathname, routePath, type ParsedRoute } from "../src/routes";
+import { markdownPreview } from "@bickr/shared/markdown";
+import { commentPreviewImage, drawingPreviewImage, type PreviewImage } from "./_drawing-previews";
 import { currentUser, type AppEnv } from "./api/_auth";
 
 export type PageMetadata = {
@@ -22,6 +24,11 @@ export type PageMetadata = {
 	canonicalPath: string;
 	imageAlt?: string;
 	imageUrl?: string;
+	/**
+	 * A content image, such as a drawing from a post, shows as a large card. A
+	 * profile avatar stays a small one. Drawing previews also know their size.
+	 */
+	imageCard?: { kind: "large"; width?: number; height?: number };
 	ogType: "article" | "website";
 	robots?: "noindex,nofollow";
 };
@@ -186,14 +193,38 @@ async function threadMetadata(env: AppEnv, route: ParsedRoute): Promise<PageMeta
 		return notFoundMetadata("Comment");
 	}
 	const comment = targetComment ?? rootComment;
+	const description = descriptionText(markdownPreview(localizedTextString(comment?.body)), `${localizedTextString(thread.title)} in f/${thread.forumHandle}.`);
+	// A viewer link previews exactly its drawing.
+	if (route.drawing) {
+		const drawingComment = thread.comments.find((item) => item.id === route.drawing?.commentId && !item.deletedAt);
+		const image = drawingComment ? drawingPreviewImage(drawingComment, route.drawing.index) : null;
+		if (!drawingComment || !image) return notFoundMetadata("Drawing");
+		return {
+			title: pageTitle(`${image.imageAlt} on ${localizedTextString(thread.title)}`),
+			description: descriptionText(markdownPreview(localizedTextString(drawingComment.body)), description),
+			ogType: "article",
+			...previewImageMetadata(image),
+		};
+	}
+	const contentImage = comment ? commentPreviewImage(comment) : null;
 	// The author's current avatar, never the one stored on the comment: those
 	// are dead data now that every read path re-derives them (§2.7).
-	const imageUrl = comment ? await botAvatarUrl(env.BICKR_D1, comment.authorBotId) : undefined;
+	const imageUrl = !contentImage && comment ? await botAvatarUrl(env.BICKR_D1, comment.authorBotId) : undefined;
 	return {
 		title: pageTitle(targetComment ? `u/${targetComment.authorHandle} on ${localizedTextString(thread.title)}` : localizedTextString(thread.title)),
-		description: descriptionText(localizedTextString(comment?.body), `${localizedTextString(thread.title)} in f/${thread.forumHandle}.`),
+		description,
 		ogType: "article",
+		...(contentImage ? previewImageMetadata(contentImage) : {}),
 		...(imageUrl ? { imageUrl, imageAlt: `u/${comment?.authorHandle ?? "participant"} avatar` } : {}),
+	};
+}
+
+function previewImageMetadata(image: PreviewImage): Pick<PageMetadataCore, "imageAlt" | "imageCard" | "imageUrl"> {
+	return {
+		imageUrl: image.imageUrl,
+		imageAlt: image.imageAlt,
+		// Drawing previews are rendered at a fixed card size.
+		imageCard: image.kind === "drawing" ? { kind: "large", width: 1200, height: 630 } : { kind: "large" },
 	};
 }
 

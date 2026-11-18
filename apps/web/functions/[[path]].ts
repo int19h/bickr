@@ -143,7 +143,7 @@ function metadataTags(metadata: PageMetadata, requestUrl: string): string {
 		metaProperty("og:title", metadata.title),
 		metaProperty("og:description", metadata.description),
 		metaProperty("og:url", canonicalUrl),
-		metaName("twitter:card", "summary"),
+		metaName("twitter:card", metadata.imageUrl && metadata.imageCard?.kind === "large" ? "summary_large_image" : "summary"),
 		metaName("twitter:title", metadata.title),
 		metaName("twitter:description", metadata.description),
 		linkTag("canonical", canonicalUrl),
@@ -152,6 +152,10 @@ function metadataTags(metadata: PageMetadata, requestUrl: string): string {
 	if (imageUrl) {
 		tags.push(metaProperty("og:image", imageUrl));
 		tags.push(metaName("twitter:image", imageUrl));
+		if (metadata.imageCard?.width && metadata.imageCard.height) {
+			tags.push(metaProperty("og:image:width", String(metadata.imageCard.width)));
+			tags.push(metaProperty("og:image:height", String(metadata.imageCard.height)));
+		}
 	}
 	if (imageUrl && metadata.imageAlt) {
 		tags.push(metaProperty("og:image:alt", metadata.imageAlt));

@@ -5,6 +5,7 @@ import {
 	createContext,
 	useContext,
 	useId,
+	useMemo,
 	useState,
 	type ComponentProps,
 	type ReactElement,
@@ -14,7 +15,7 @@ import Markdown, { type Components, type ExtraProps } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkBreaks from 'remark-breaks';
 import { decodeString } from 'micromark-util-decode-string';
-import { markdownMarkerIsEscaped, remarkBickrMath } from '@bickr/shared/markdown';
+import { markdownDrawings, markdownMarkerIsEscaped, remarkBickrMath } from '@bickr/shared/markdown';
 import type { Element, Root as HastRoot } from 'hast';
 import type { Root, RootContent, Literal } from 'mdast';
 
@@ -87,12 +88,21 @@ const markText: Plugin<[], Root> = () => (tree, file) => {
 	walk(tree);
 };
 
+/**
+ * Puts the drawing viewer of one Markdown body in the URL. `openIndex` names
+ * the drawing that the viewer shows, by its index in `markdownDrawings`.
+ * Without links, each drawing keeps its viewer in local state.
+ */
+export type DrawingLinks = { openIndex: number | null; onOpen: (index: number) => void; onClose: () => void };
+
 interface MarkdownContextValue {
 	preserveHeadingLevels?: boolean;
+	drawingLinks?: DrawingLinks;
 	bodyId: string;
 	referencePattern: RegExp;
 	renderText: (text: string) => ReactNode;
 	renderPlain: (text: string) => ReactNode;
+	drawingIndexByStart: ReadonlyMap<number, number>;
 }
 const MarkdownContext = createContext<MarkdownContextValue | null>(null);
 function useMarkdownContext(): MarkdownContextValue {
@@ -100,10 +110,17 @@ function useMarkdownContext(): MarkdownContextValue {
 	if (!value) throw new Error('Markdown components require their context provider');
 	return value;
 }
-export function MarkdownBody({ text, ...callbacks }: Omit<MarkdownContextValue, 'bodyId'> & { text: string }) {
+export function MarkdownBody({ text, ...callbacks }: Omit<MarkdownContextValue, 'bodyId' | 'drawingIndexByStart'> & { text: string }) {
 	const bodyId = useId().replace(/[^a-zA-Z0-9_-]/g, '');
+	// Both this page and the server number drawings with `markdownDrawings`,
+	// so a link names the same drawing on both. A rendered fence finds its
+	// number by its source offset.
+	const drawingIndexByStart = useMemo(
+		() => new Map(markdownDrawings(text).flatMap((drawing) => drawing.start === null ? [] : [[drawing.start, drawing.index] as const])),
+		[text],
+	);
 	return (
-		<MarkdownContext.Provider value={{ bodyId, ...callbacks }}>
+		<MarkdownContext.Provider value={{ bodyId, drawingIndexByStart, ...callbacks }}>
 			<div className="markdown-body" data-markdown-source={text}>
 				<Markdown
 					remarkPlugins={[remarkGfm, remarkBickrMath, markText, remarkBreaks]}
@@ -264,9 +281,17 @@ function MarkdownPre({ node, children }: ComponentProps<'pre'> & ExtraProps) {
 			.join('')
 			.replace(/\n$/, '');
 		if (Array.isArray(classes) && classes.includes('language-math')) return <MathExpression source={source} display />;
-		if (language) return <DrawingBlock language={language === 'language-svg' ? 'svg' : 'mermaid'} source={source} />;
+		if (language) return <MarkdownDrawing language={language === 'language-svg' ? 'svg' : 'mermaid'} source={source} start={node?.position?.start.offset} />;
 	}
 	return <pre data-markdown-block="true">{children}</pre>;
+}
+function MarkdownDrawing({ language, source, start }: { language: 'svg' | 'mermaid'; source: string; start: number | undefined }) {
+	const { drawingIndexByStart, drawingLinks } = useMarkdownContext();
+	const index = start === undefined ? undefined : drawingIndexByStart.get(start);
+	const viewer = drawingLinks && index !== undefined ?
+		{ open: drawingLinks.openIndex === index, onOpen: () => drawingLinks.onOpen(index), onClose: drawingLinks.onClose }
+	:	undefined;
+	return <DrawingBlock language={language} source={source} viewer={viewer} />;
 }
 function MarkdownImage({ src, alt }: { src?: string; alt: string }) {
 	const [loaded, setLoaded] = useState(false);

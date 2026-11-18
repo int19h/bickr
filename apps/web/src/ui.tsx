@@ -1,4 +1,5 @@
 import { createContext, useId, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { localizedTextString, type AvatarCrop, type LocalizedText } from "@bickr/shared/model";
 import { avatarCropImageStyle } from "./avatar-crop";
 import { useUiText } from "./components/ui-text";
@@ -62,12 +63,15 @@ export type IconName =
 	| "chat"
 	| "arrowUp"
 	| "arrowDown"
-	| "replyUp";
+	| "replyUp"
+	| "code"
+	| "download";
 
 export function Modal({
 	children,
 	className,
 	foot,
+	headActions,
 	onClose,
 	open,
 	title,
@@ -76,6 +80,8 @@ export function Modal({
 	children: ReactNode;
 	className?: string;
 	foot?: ReactNode;
+	/** Controls that sit in the header, between the title and the close button. */
+	headActions?: ReactNode;
 	onClose: () => void;
 	open: boolean;
 	title: string;
@@ -135,6 +141,7 @@ export function Modal({
 			<div role="dialog" aria-modal="true" aria-labelledby={titleId} ref={dialogRef} className={["modal", wide ? "wide" : "", className ?? ""].filter(Boolean).join(" ")}>
 				<div className="modal-head">
 					<h2 id={titleId}>{title}</h2>
+					{headActions && <div className="modal-head-actions">{headActions}</div>}
 					<button aria-label="Close" className="x" onClick={onClose} type="button">
 						<svg
 							fill="none"
@@ -492,6 +499,8 @@ export function Icon({ className, name, size = 16 }: { className?: string; name:
 				<path d="M19 16l.7 2.3L22 19l-2.3.7L19 22l-.7-2.3L16 19l2.3-.7zM5 2l.7 2.3L8 5l-2.3.7L5 8l-.7-2.3L2 5l2.3-.7z" />
 			</svg>
 		),
+		code: <svg height={size} viewBox="0 0 24 24" width={size} {...stroke}><path d="m8 7-5 5 5 5M16 7l5 5-5 5M14 4l-4 16" /></svg>,
+		download: <svg height={size} viewBox="0 0 24 24" width={size} {...stroke}><path d="M12 4v11M7 10l5 5 5-5M5 20h14" /></svg>,
 		translate: (
 			<svg height={size} viewBox="0 0 24 24" width={size} {...stroke}>
 				<path d="M4 5h9M8.5 3v2M10 5c-.7 3.6-2.7 6.4-6 8" />
@@ -824,5 +833,19 @@ export function Confirm({
 		>
 			<div className="confirm-body">{body}</div>
 		</Modal>
+	);
+}
+
+/**
+ * Renders a modal at the end of the document. A modal that content opens,
+ * such as a drawing viewer inside a comment, must not inherit the clipping,
+ * containment, or hover styles of that content. React still delivers events
+ * through the component tree, so the wrapper stops clicks and marks the
+ * overlay as outside any text selection.
+ */
+export function OverlayPortal({ children }: { children: ReactNode }) {
+	return createPortal(
+		<div data-selection-exclude="true" onClick={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()}>{children}</div>,
+		document.body,
 	);
 }

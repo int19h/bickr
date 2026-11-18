@@ -15,6 +15,7 @@ import {
 	type WorldView,
 } from "../../components/content";
 import { SpaLink } from "../../components/navigation";
+import type { DrawingRef } from "../../routes";
 import {
 	ActivityBanner,
 	Confirm,
@@ -46,7 +47,11 @@ type ThreadPageProps = {
 	forum: ForumSummary;
 	loadedAt?: string;
 	loading: boolean;
+	onCloseDrawing: () => void;
 	onDeleteComment: (thread: ThreadDocument, comment: CommentDocument) => Promise<boolean>;
+	onEditComment: (thread: ThreadDocument, comment: CommentDocument, body: string) => Promise<ThreadDocument | null>;
+	onOpenDrawing: (drawing: DrawingRef) => void;
+	openDrawing: DrawingRef | null;
 	onDeleteThread: (thread: ThreadDocument) => Promise<boolean>;
 	onReference: OpenReference;
 	onRefresh: () => Promise<ThreadDocument | null>;
@@ -82,8 +87,12 @@ function ThreadPageBody({
 	forum,
 	loadedAt,
 	loading,
+	onCloseDrawing,
 	onDeleteComment,
 	onDeleteThread,
+	onEditComment,
+	onOpenDrawing,
+	openDrawing,
 	onReference,
 	onRefresh,
 	onToggleSubscription,
@@ -285,6 +294,9 @@ function ThreadPageBody({
 				onReference={onReference}
 				onToggleSubscription={canUseAccountActions ? onToggleSubscription : undefined}
 				canDeleteComment={(comment) => canModerateForum || ownedBotIds.has(comment.authorBotId)}
+				canEditComment={(comment) => ownedBotIds.has(comment.authorBotId)}
+				drawingViewer={{ open: openDrawing, onOpen: onOpenDrawing, onClose: onCloseDrawing }}
+				onSaveSource={async (comment, text) => Boolean(await onEditComment(thread, comment, text))}
 				onRequestDelete={setConfirmComment}
 				selected={selectedComments}
 				rootCommentId={thread.rootCommentId}

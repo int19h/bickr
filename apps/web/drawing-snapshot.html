@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1200, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src data: blob:; connect-src 'none'; font-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<title>Drawing preview</title>
+<style>html,body{margin:0;width:1200px;height:630px;overflow:hidden;background:#fff}#drawing{box-sizing:border-box;width:1200px;height:630px;padding:32px;display:flex;align-items:center;justify-content:center}#drawing>svg{display:block;width:100%;height:100%;max-width:100%;max-height:100%}</style>
+</head>
+<body><div id="drawing"></div><script type="module" src="/src/markdown/drawing-snapshot.ts"></script></body>
+</html>

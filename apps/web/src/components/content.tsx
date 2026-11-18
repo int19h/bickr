@@ -3,7 +3,8 @@ import { useRequestIdentity } from "../use-request-identity";
 import { referenceIndex, referenceBot } from "./reference-index";
 import { usePublicBotEffectiveModel } from "../inference/public-bot-model";
 import { shortModelName } from "./inference-attribution";
-import { MarkdownBody } from "../markdown/markdown-body";
+import { MarkdownBody, type DrawingLinks } from "../markdown/markdown-body";
+import { MarkdownSourceView, type MarkdownSourceAccess } from "./markdown-source-view";
 import { createContext, useContext, useEffect, useId, useState, type ReactNode } from "react";
 import {
 	localizedTextLang,
@@ -22,8 +23,10 @@ import { cloudflareImageUrl } from "../avatar-image-urls";
 import { findBickrContentUrlMatches, type BickrContentUrlMatch } from "../content-links";
 import { routePath, type ParsedRoute } from "../routes";
 import {
+	Confirm,
 	FallbackImage,
 	Icon,
+	OverlayPortal,
 	ToastContext,
 	avatarStyle,
 	initials,
@@ -657,7 +660,9 @@ function TranslatableTextContent({
 	className,
 	commentBodyId,
 	directionMode = "element",
+	drawingLinks,
 	markdown = false,
+	sourceAccess,
 	interactiveReferences = true,
 	onReference,
 	rich = false,
@@ -674,7 +679,11 @@ function TranslatableTextContent({
 	 */
 	commentBodyId?: string;
 	directionMode?: "element" | "lines";
+	/** Puts the drawing viewer of the original Markdown text in the URL. */
+	drawingLinks?: DrawingLinks;
 	markdown?: boolean;
+	/** With `markdown`, adds a Source button that shows the stored text. */
+	sourceAccess?: MarkdownSourceAccess;
 	interactiveReferences?: boolean;
 	onReference?: OpenReference;
 	rich?: boolean;
@@ -701,6 +710,13 @@ function TranslatableTextContent({
 		return Boolean(translationCache.read(cacheKey)?.translation && (translationCache.read(cacheKey)?.show ?? true));
 	});
 	const [loading, setLoading] = useState(false);
+	const [showSource, setShowSource] = useState(false);
+	// The draft of the source view. It starts as the stored text. A save
+	// replaces the stored text, and `TranslatableText` then mounts a fresh
+	// instance that shows the rendered result.
+	const [sourceDraft, setSourceDraft] = useState(sourceText);
+	const [confirmDiscard, setConfirmDiscard] = useState(false);
+	const sourceAvailable = markdown && sourceAccess !== undefined;
 	const Tag = as ?? "span";
 	const visibleText = showTranslation && cachedTranslation ? cachedTranslation : sourceText;
 	const visibleLang = showTranslation && cachedTranslation ? null : sourceLang;
@@ -755,8 +771,25 @@ function TranslatableTextContent({
 		setShowTranslation(next);
 	}
 
+	function toggleSource(): void {
+		if (!showSource) {
+			setSourceDraft(sourceText);
+			setShowSource(true);
+			return;
+		}
+		if (sourceDraft !== sourceText) {
+			setConfirmDiscard(true);
+			return;
+		}
+		setShowSource(false);
+	}
+
 	const content =
-		markdown ? <MarkdownBody text={visibleText} referencePattern={richTextReferencePattern}
+		showSource && sourceAccess ? <MarkdownSourceView access={sourceAccess} draft={sourceDraft} lang={sourceLang ?? undefined} onDraftChange={setSourceDraft} saved={sourceText} />
+		: markdown ? <MarkdownBody text={visibleText} referencePattern={richTextReferencePattern}
+			// Drawing links name drawings of the original text; a translation can
+			// number its drawings differently.
+			drawingLinks={visibleText === sourceText ? drawingLinks : undefined}
 			renderText={(text) => rich && onReference ? <RichText interactive={interactiveReferences} onReference={onReference} text={text} worldHandle={worldHandle} verticalScriptHandling={verticalBlockScript ? "none" : "inline"} /> : <PlainText text={text} />}
 			renderPlain={(text) => <PlainText text={text} verticalScriptHandling={verticalBlockScript ? "none" : "inline"} />}
 		/> : verticalBlockScript ?
@@ -795,8 +828,25 @@ function TranslatableTextContent({
 			lang={visibleLang ?? undefined}
 		>
 			{markdown ? <div className="translatable-content">{content}</div> : <span className="translatable-content">{content}</span>}
-			{enabled && (
-				<span className="translation-controls" data-selection-exclude="true">
+			{(enabled || sourceAvailable) && (
+				<span className={showSource ? "translation-controls pinned" : "translation-controls"} data-selection-exclude="true">
+					{sourceAvailable && (
+						<button
+							aria-label={showSource ? "Show rendered" : "Show source"}
+							aria-pressed={showSource}
+							className={showSource ? "translation-action active" : "translation-action"}
+							onClick={(event) => {
+								event.preventDefault();
+								event.stopPropagation();
+								toggleSource();
+							}}
+							title={showSource ? "Show rendered" : "Show source"}
+							type="button"
+						>
+							<Icon name="code" size={13} />
+						</button>
+					)}
+					{enabled && !showSource && <>
 					<button
 						aria-label={cachedTranslation ? "Re-translate" : "Translate"}
 						className="translation-action"
@@ -826,7 +876,22 @@ function TranslatableTextContent({
 							<Icon name={showTranslation ? "original" : "translate"} size={13} />
 						</button>
 					)}
+					</>}
 				</span>
+			)}
+			{sourceAvailable && confirmDiscard && (
+				<OverlayPortal><Confirm
+					body="The source has changes that are not saved."
+					confirmText="Discard changes"
+					danger
+					onClose={() => setConfirmDiscard(false)}
+					onConfirm={() => {
+						setSourceDraft(sourceText);
+						setShowSource(false);
+					}}
+					open
+					title="Discard changes?"
+				/></OverlayPortal>
 			)}
 		</Tag>
 	);

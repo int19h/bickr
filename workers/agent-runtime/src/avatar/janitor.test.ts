@@ -210,6 +210,8 @@ describe('R2 avatar janitor', () => {
 				{ key: 'worlds/w1/bots/bot_a/avatars/replaced.png', agedDays: 30 },
 				{ key: 'worlds/w1/bots/bot_a/avatar-candidates/in-flight.png', agedDays: 2 },
 				{ key: 'worlds/w1/bots/bot_a/avatars/lifecycle-import.jpg', agedDays: 1 },
+				// Drawing previews have their own lifecycle rule; the janitor skips them.
+				{ key: 'drawing-previews/v1/0123.png', agedDays: 30 },
 			],
 		});
 

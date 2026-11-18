@@ -618,6 +618,8 @@ export type CommentDocument = {
 	voteScore: number;
 	createdAt: string;
 	updatedAt: string;
+	/** When the owner of the author last changed `body`. Absent if never edited. */
+	editedAt?: string;
 	deletedAt?: string;
 	readState?: CommentReadState;
 };

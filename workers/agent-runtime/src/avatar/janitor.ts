@@ -1,6 +1,7 @@
 import { type BotDocument, type UserDocument, type WorldDocument } from '@bickr/shared/model';
 import { kvKeys, readJson, type D1DatabaseLike, type D1PreparedStatementLike, type KVNamespaceLike } from '@bickr/shared/storage';
 
+import { drawingPreviewObjectPrefix } from '@bickr/shared/content-limits';
 export const avatarJanitorIntervalMs = 7 * 24 * 60 * 60 * 1_000;
 export const avatarJanitorGraceMs = 7 * 24 * 60 * 60 * 1_000;
 export const avatarJanitorRowPageSize = 10;
@@ -150,12 +151,15 @@ async function listPage(env: AvatarJanitorEnv, state: State): Promise<void> {
 	} else { state.phase = 'mark'; cp.cursor = ''; }
 	const cutoff = Date.parse(cp.startedAt) - avatarJanitorGraceMs;
 	const old: string[] = [];
-	for (const object of page.objects) {
+	// Drawing previews are caches with their own R2 lifecycle rule. No entity
+	// references them, so the janitor neither counts nor deletes them.
+	const objects = page.objects.filter((object) => !object.key.startsWith(drawingPreviewObjectPrefix));
+	for (const object of objects) {
 		if (!Number.isFinite(object.uploaded.getTime())) throw new Error('Avatar object upload timestamp is invalid.');
 		if (object.uploaded.getTime() > cutoff) cp.retainedInGrace++;
 		else old.push(object.key);
 	}
-	cp.objects += page.objects.length;
+	cp.objects += objects.length;
 	statements.push(insertKeys(env.BICKR_D1, state, 'avatar_janitor_objects', old));
 	await save(env.BICKR_D1, state, statements);
 }

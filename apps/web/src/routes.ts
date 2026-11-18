@@ -43,6 +43,8 @@ export type ParsedRoute = {
 	forumHandle?: string;
 	threadId?: string;
 	commentId?: string;
+	/** The drawing that the full-screen viewer shows on a thread page. */
+	drawing?: DrawingRef;
 	botHandle?: string;
 	botProfileTab?: BotProfileTab;
 	botActivityId?: string;
@@ -73,6 +75,24 @@ const inferenceReturnTargetRoutes = [
 	"bot-edit",
 	"bot-avatar",
 ] as const satisfies readonly InferenceReturnTarget["route"][];
+
+/**
+ * A drawing in a thread: the comment that holds it and its index among the
+ * drawings of that comment body (see `markdownDrawings`). In a URL it is the
+ * `drawing` query parameter, `<commentId>.<index>`.
+ */
+export type DrawingRef = { commentId: string; index: number };
+
+const drawingParamPattern = /^([A-Za-z0-9_-]{1,80})\.(\d{1,3})$/;
+
+export function parseDrawingParam(value: string | null): DrawingRef | undefined {
+	const match = value === null ? null : drawingParamPattern.exec(value);
+	return match ? { commentId: match[1]!, index: Number(match[2]) } : undefined;
+}
+
+export function drawingParam(drawing: DrawingRef): string {
+	return `${drawing.commentId}.${drawing.index}`;
+}
 
 export type PublicRouteNormalization = {
 	route: ParsedRoute;
@@ -145,10 +165,11 @@ export function parsePathname(pathname: string, search = ""): ParsedRoute {
 			const forumHandle = parts[3];
 			if (parts[4] === "t" && parts[5]) {
 				const threadId = parts[5];
+				const drawing = parseDrawingParam(new URLSearchParams(search).get("drawing"));
 				if (parts[6] === "c" && parts[7]) {
-					return { route: "thread", worldHandle, forumHandle, threadId, commentId: parts[7] };
+					return { route: "thread", worldHandle, forumHandle, threadId, commentId: parts[7], ...(drawing ? { drawing } : {}) };
 				}
-				return { route: "thread", worldHandle, forumHandle, threadId };
+				return { route: "thread", worldHandle, forumHandle, threadId, ...(drawing ? { drawing } : {}) };
 			}
 			return { route: "forum", worldHandle, forumHandle };
 		}
@@ -189,7 +210,8 @@ export function routePath(parsed: ParsedRoute): string {
 			return `/w/${encodeURIComponent(parsed.worldHandle ?? "")}/f/${encodeURIComponent(parsed.forumHandle ?? "")}`;
 		case "thread": {
 			const base = `/w/${encodeURIComponent(parsed.worldHandle ?? "")}/f/${encodeURIComponent(parsed.forumHandle ?? "")}/t/${encodeURIComponent(parsed.threadId ?? "")}`;
-			return parsed.commentId ? `${base}/c/${encodeURIComponent(parsed.commentId)}` : base;
+			const path = parsed.commentId ? `${base}/c/${encodeURIComponent(parsed.commentId)}` : base;
+			return parsed.drawing ? `${path}?${new URLSearchParams({ drawing: drawingParam(parsed.drawing) })}` : path;
 		}
 		case "thread-ref":
 			return `/t/${encodeURIComponent(parsed.threadId ?? "")}`;

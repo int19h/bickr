@@ -24,14 +24,24 @@ import {
 	useViewportConstrainedPopout,
 } from "../../ui";
 import { TimeAgoLabel } from "../../components/record-display";
+import type { DrawingRef } from "../../routes";
 import { SpotlightTargetCheckbox } from "./spotlight-target-checkbox";
 import type { SubscriptionTarget } from "../subscriptions";
 
 import { commentIndentLimit, layoutCommentTree, type CommentLayoutRow, type CommentTreeNode } from "./comment-layout";
 
+/** The URL state of the drawing viewer on a thread page. */
+export type ThreadDrawingViewer = {
+	open: DrawingRef | null;
+	onOpen: (drawing: DrawingRef) => void;
+	onClose: () => void;
+};
+
 export function CommentNode({
 	comment,
+	drawingViewer,
 	forumHandle,
+	onSaveSource,
 	implied,
 	layout,
 	parentAvailable = true,
@@ -49,7 +59,10 @@ export function CommentNode({
 	worldHandle,
 }: {
 	comment: CommentTreeNode;
+	drawingViewer?: ThreadDrawingViewer;
 	forumHandle: string;
+	/** Present only if the viewer owns the author bot: saves a new body. */
+	onSaveSource?: (comment: CommentDocument, text: string) => Promise<boolean>;
 	implied: Set<string>;
 	layout?: CommentLayoutRow;
 	parentAvailable?: boolean;
@@ -148,6 +161,7 @@ export function CommentNode({
 							worldHandle={worldHandle}
 						/>
 						<TimeAgoLabel className="comment-time" value={comment.createdAt} />
+						{comment.editedAt && <span className="comment-edited" title={`Edited ${new Date(comment.editedAt).toLocaleString()}`}>edited</span>}
 						{comment.readState?.isNew && <span className="new-mark">new</span>}
 					</span>
 					{((onRequestDelete && !isRootComment) || onToggleSubscription) && <span className="comment-actions">
@@ -187,7 +201,13 @@ export function CommentNode({
 				className="body"
 				commentBodyId={comment.id}
 				directionMode="lines"
+				drawingLinks={drawingViewer ? {
+					openIndex: drawingViewer.open?.commentId === comment.id ? drawingViewer.open.index : null,
+					onOpen: (index) => drawingViewer.onOpen({ commentId: comment.id, index }),
+					onClose: drawingViewer.onClose,
+				} : undefined}
 				markdown
+				sourceAccess={onSaveSource ? { kind: "editable", onSave: (text) => onSaveSource(comment, text) } : { kind: "readOnly" }}
 				onReference={onReference}
 				rich
 				text={comment.body}
@@ -203,9 +223,10 @@ type CommentNodeProps = ComponentProps<typeof CommentNode>;
 type CommentTreeProps = Omit<CommentNodeProps, "comment" | "layout" | "parentAvailable" | "onGoToParent" | "parentHighlighted"> & {
 	roots: CommentTreeNode[];
 	canDeleteComment?: (comment: CommentDocument) => boolean;
+	canEditComment?: (comment: CommentDocument) => boolean;
 };
 
-export function CommentTree({ roots, canDeleteComment, ...props }: CommentTreeProps) {
+export function CommentTree({ roots, canDeleteComment, canEditComment, ...props }: CommentTreeProps) {
 	const treeRef = useRef<HTMLDivElement>(null);
 	const probeRef = useRef<HTMLSpanElement>(null);
 	const [indentLimit, setIndentLimit] = useState(0);
@@ -264,6 +285,7 @@ export function CommentTree({ roots, canDeleteComment, ...props }: CommentTreePr
 					key={row.comment.id}
 					layout={row}
 					onRequestDelete={canDeleteComment?.(row.comment) ? props.onRequestDelete : undefined}
+					onSaveSource={canEditComment?.(row.comment) ? props.onSaveSource : undefined}
 					onGoToParent={goToParent}
 					parentAvailable={availableIds.has(row.comment.parentCommentId ?? "")}
 					parentHighlighted={parentHighlight === row.comment.id}

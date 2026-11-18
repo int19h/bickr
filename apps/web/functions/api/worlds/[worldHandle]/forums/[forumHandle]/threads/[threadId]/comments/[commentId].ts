@@ -4,7 +4,12 @@ import { requireCompleteUser, type AppEnv } from "../../../../../../../_auth";
 import { pageErrorResponse } from "../../../../../../../_errors";
 import { serviceRequest } from "../../../../../../../_proxy";
 
-export const onRequestDelete: PagesFunction<
+/**
+ * DELETE removes the comment. PATCH replaces its body; the coordinator allows
+ * that only for the owner of the author bot. Both run on the coordinator of
+ * the thread, which serializes them with every other write to it.
+ */
+const forwardCommentMutation: PagesFunction<
 	AppEnv,
 	"worldHandle" | "forumHandle" | "threadId" | "commentId"
 > = async ({ env, request, params }) => {
@@ -21,9 +26,13 @@ export const onRequestDelete: PagesFunction<
 				request,
 				`/forums/${encodeURIComponent(forum.id)}/threads/${encodeURIComponent(threadId)}/comments/${encodeURIComponent(commentId)}`,
 				user.id,
+				request.method === "PATCH" ? await request.text() : undefined,
 			),
 		);
 	} catch (error) {
 		return pageErrorResponse(error);
 	}
 };
+
+export const onRequestDelete = forwardCommentMutation;
+export const onRequestPatch = forwardCommentMutation;

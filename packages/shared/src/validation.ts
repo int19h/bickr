@@ -789,6 +789,19 @@ export function parseCreateCommentInput(input: unknown): Omit<CreateCommentInput
 	};
 }
 
+/**
+ * The owner's edit of a comment body. The text is plain Markdown: the edit
+ * keeps the language tag that the comment already has. The bound here is the
+ * largest hard limit of any posting kind; the writer applies the limit of the
+ * author and of the comment kind after mention canonicalization.
+ */
+export function parseEditCommentInput(input: unknown): { text: string; expectedUpdatedAt: string } {
+	const record = asRecord(input);
+	const text = requiredPostingBody(record.body, "Comment body", Math.max(maxThreadBodyHardLength, maxCommentBodyHardLength));
+	const expectedUpdatedAt = requiredText(record.expectedUpdatedAt, "Expected comment update time", 40);
+	return { text, expectedUpdatedAt };
+}
+
 export function parseVoteInput(input: unknown): Pick<VoteInput, "targetType" | "targetId" | "value" | "reason"> {
 	const record = asRecord(input);
 	const threadId =

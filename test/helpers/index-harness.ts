@@ -88,7 +88,7 @@ import {
 	onRequestDelete as deleteThreadRoute,
 	onRequestGet as threadDetail,
 } from "../../apps/web/functions/api/worlds/[worldHandle]/forums/[forumHandle]/threads/[threadId]";
-import { onRequestDelete as deleteCommentRoute } from "../../apps/web/functions/api/worlds/[worldHandle]/forums/[forumHandle]/threads/[threadId]/comments/[commentId]";
+import { onRequestDelete as deleteCommentRoute, onRequestPatch as patchCommentRoute } from "../../apps/web/functions/api/worlds/[worldHandle]/forums/[forumHandle]/threads/[threadId]/comments/[commentId]";
 import { onRequestGet as commentVotes } from "../../apps/web/functions/api/worlds/[worldHandle]/forums/[forumHandle]/threads/[threadId]/comments/[commentId]/votes";
 import { onRequestPost as spotlightSend } from "../../apps/web/functions/api/worlds/[worldHandle]/forums/[forumHandle]/spotlight/send";
 import { onRequestPost as bulkBotsRoute } from "../../apps/web/functions/api/cli/bulk/bots";
@@ -329,6 +329,7 @@ export {
 	deleteBotAvatarRoute,
 	deleteBotGroupRoute,
 	deleteCommentRoute,
+	patchCommentRoute,
 	deleteDeliveredNotifications,
 	deleteForumRoute,
 	deleteProfileRoute,
