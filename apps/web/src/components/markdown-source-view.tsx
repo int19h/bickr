@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef } from "react";
 
 /**
  * How a Markdown body shows its source. `readOnly` is for every viewer who
@@ -24,6 +24,7 @@ export function MarkdownSourceView({
 	onDraftChange,
 	onSave,
 	saved,
+	saving,
 }: {
 	changedWhileEditing: boolean;
 	draft: string;
@@ -33,11 +34,10 @@ export function MarkdownSourceView({
 	onDraftChange: (text: string) => void;
 	onSave: () => Promise<void>;
 	saved: string;
+	/** The parent owns this too, so a remount during a save keeps Save off. */
+	saving: boolean;
 }) {
 	const area = useRef<HTMLTextAreaElement>(null);
-	const [saving, setSaving] = useState(false);
-	const mounted = useRef(true);
-	useLayoutEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
 	const changed = draft !== saved;
 	// The textarea grows with its text; CSS caps it, and then it scrolls.
 	useLayoutEffect(() => {
@@ -46,14 +46,9 @@ export function MarkdownSourceView({
 		node.style.height = "auto";
 		node.style.height = `${node.scrollHeight + 2}px`;
 	}, [draft]);
-	async function save(): Promise<void> {
+	function save(): void {
 		if (!editable || !changed || saving || !draft.trim()) return;
-		setSaving(true);
-		await onSave();
-		// A stored save closes this view; a failure keeps the draft here.
-		if (!mounted.current) return;
-		setSaving(false);
-		area.current?.focus();
+		void onSave();
 	}
 	return (
 		<div className="markdown-source" data-selection-exclude="true">
@@ -70,7 +65,7 @@ export function MarkdownSourceView({
 				onKeyDown={(event) => {
 					if (editable && event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
 						event.preventDefault();
-						void save();
+						save();
 					}
 				}}
 				readOnly={!editable}
@@ -83,7 +78,7 @@ export function MarkdownSourceView({
 					<button className="btn ghost" disabled={!changed || saving} onClick={onDiscard} type="button">
 						Discard
 					</button>
-					<button className="btn primary" disabled={!changed || saving || !draft.trim()} onClick={() => void save()} title="Save (Ctrl+Enter)" type="button">
+					<button className="btn primary" disabled={!changed || saving || !draft.trim()} onClick={save} title="Save (Ctrl+Enter)" type="button">
 						{saving && <span className="spinner" />}
 						Save
 					</button>

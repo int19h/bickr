@@ -3,15 +3,17 @@ import { parseDrawingPreviewInput, renderDrawingPreview } from "./drawing-previe
 
 describe("drawing preview rendering", () => {
 	it("accepts only an https origin and a base64url fragment", () => {
-		expect(parseDrawingPreviewInput({ origin: "https://bickr.social", fragment: "eyJh_-" })).toEqual({ origin: "https://bickr.social", fragment: "eyJh_-" });
+		expect(parseDrawingPreviewInput({ origin: "https://bickr.social", fragment: "eyJh_-", authorBotId: "bot_1" })).toEqual({ origin: "https://bickr.social", fragment: "eyJh_-", authorBotId: "bot_1" });
 		for (const input of [
-			{ origin: "http://bickr.social", fragment: "a" },
+			{ origin: "http://bickr.social", fragment: "a", authorBotId: "b" },
 			{ origin: "https://bickr.social/path", fragment: "a" },
 			{ origin: "javascript:alert(1)", fragment: "a" },
 			{ origin: "https://bickr.social", fragment: "a#b" },
 			{ origin: "https://bickr.social", fragment: "" },
 			{ origin: "https://bickr.social", fragment: "a".repeat(200_001) },
 			{ origin: "https://bickr.social" },
+			{ origin: "https://bickr.social", fragment: "a" },
+			{ origin: "https://bickr.social", fragment: "a", authorBotId: "a/b" },
 			null,
 		]) expect(() => parseDrawingPreviewInput(input)).toThrow();
 	});
@@ -21,7 +23,7 @@ describe("drawing preview rendering", () => {
 
 	it("screenshots the snapshot page of the origin, waits for a drawn page, and allows no other requests", async () => {
 		const quickAction = vi.fn(async () => png());
-		const response = await renderDrawingPreview({ BROWSER: { quickAction } as unknown as BrowserRun, DRAWING_PREVIEW_LIMITER: limiter() }, { origin: "https://test.bickr.social", fragment: "abc" });
+		const response = await renderDrawingPreview({ BROWSER: { quickAction } as unknown as BrowserRun, DRAWING_PREVIEW_LIMITER: limiter(), DRAWING_PREVIEW_AUTHOR_LIMITER: limiter() }, { origin: "https://test.bickr.social", fragment: "abc", authorBotId: "bot_1" });
 		expect(response.headers.get("content-type")).toBe("image/png");
 		const [action, options] = quickAction.mock.calls[0] as unknown as [string, { url: string; viewport: unknown; allowRequestPattern: string[]; waitForSelector: { selector: string } }];
 		expect(action).toBe("screenshot");
@@ -35,19 +37,26 @@ describe("drawing preview rendering", () => {
 		expect(pattern.test("https://test.bickr.social.evil/x")).toBe(false);
 	});
 
-	it("names each failure kind", async () => {
-		const input = { origin: "https://bickr.social", fragment: "a" };
+	it("names each failure kind and treats service failures as errors", async () => {
+		const input = { origin: "https://bickr.social", fragment: "a", authorBotId: "bot_1" };
+		const env = (quickAction: () => Promise<Response>, shared = limiter(), author = limiter()) => ({ BROWSER: { quickAction } as unknown as BrowserRun, DRAWING_PREVIEW_LIMITER: shared, DRAWING_PREVIEW_AUTHOR_LIMITER: author });
 		const outcome = async (response: Response) => (await response.json()) as { kind: string };
-		const failed = await renderDrawingPreview({ BROWSER: { quickAction: async () => new Response("no", { status: 422 }) } as unknown as BrowserRun, DRAWING_PREVIEW_LIMITER: limiter() }, input);
+		const failed = await renderDrawingPreview(env(async () => new Response("no", { status: 422 })), input);
 		expect(failed.status).toBe(422);
 		expect(await outcome(failed)).toEqual({ kind: "not_rendered" });
-		const busy = await renderDrawingPreview({ BROWSER: { quickAction: async () => new Response("busy", { status: 429 }) } as unknown as BrowserRun, DRAWING_PREVIEW_LIMITER: limiter() }, input);
-		expect(await outcome(busy)).toEqual({ kind: "rate_limited" });
+		expect(await outcome(await renderDrawingPreview(env(async () => new Response("busy", { status: 429 })), input))).toEqual({ kind: "rate_limited" });
+		for (const status of [400, 403, 500]) {
+			await expect(renderDrawingPreview(env(async () => new Response("down", { status })), input)).rejects.toMatchObject({ status: 502 });
+		}
+		await expect(renderDrawingPreview(env(async () => Response.json({ error: "x" })), input)).rejects.toMatchObject({ status: 502 });
 		const quickAction = vi.fn(async () => png());
-		const limited = await renderDrawingPreview({ BROWSER: { quickAction } as unknown as BrowserRun, DRAWING_PREVIEW_LIMITER: limiter(false) }, input);
-		expect(limited.status).toBe(429);
+		const shared = limiter();
+		const byAuthor = await renderDrawingPreview(env(quickAction, shared, limiter(false)), input);
+		expect(byAuthor.status).toBe(429);
+		// The author limit runs first, so a busy author spends none of the shared budget.
+		expect((shared as unknown as { limit: ReturnType<typeof vi.fn> }).limit).not.toHaveBeenCalled();
+		expect((await renderDrawingPreview(env(quickAction, limiter(false)), input)).status).toBe(429);
 		expect(quickAction).not.toHaveBeenCalled();
-		const unconfigured = await renderDrawingPreview({}, input);
-		expect(await outcome(unconfigured)).toEqual({ kind: "rate_limited" });
+		await expect(renderDrawingPreview({}, input)).rejects.toMatchObject({ status: 503 });
 	});
 });

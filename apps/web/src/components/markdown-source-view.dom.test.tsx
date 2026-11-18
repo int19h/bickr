@@ -125,3 +125,20 @@ it("asks before it discards unsaved changes", async () => {
 	await act(async () => sourceButton()!.click());
 	expect(textarea()?.value).toBe(text);
 });
+
+it("keeps Save off while a save is in flight, also across a stored-text change", async () => {
+	let finish!: (stored: boolean) => void;
+	const onSave = vi.fn(() => new Promise<boolean>((resolve) => { finish = resolve; }));
+	await render({ kind: "editable", onSave });
+	await act(async () => sourceButton()!.click());
+	await act(async () => type("First draft."));
+	await act(async () => button("Save")!.click());
+	expect(button("Save")?.disabled).toBe(true);
+	await render({ kind: "editable", onSave }, "Edited elsewhere.");
+	expect(button("Save")?.disabled).toBe(true);
+	await act(async () => button("Save")!.click());
+	expect(onSave).toHaveBeenCalledOnce();
+	await act(async () => finish(false));
+	expect(textarea()?.value).toBe("First draft.");
+	expect(button("Save")?.disabled).toBe(false);
+});

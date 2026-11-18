@@ -224,8 +224,9 @@ function previewImageMetadata(image: PreviewImage): Pick<PageMetadataCore, "imag
 	return {
 		imageUrl: image.imageUrl,
 		imageAlt: image.imageAlt,
-		// Drawing previews are rendered at a fixed card size.
-		imageCard: image.kind === "drawing" ? { kind: "large", width: 1200, height: 630 } : { kind: "large" },
+		// No declared size: a drawing that does not draw redirects to the square
+		// avatar of its author, and a declared size would then be wrong.
+		imageCard: { kind: "large" },
 	};
 }
 

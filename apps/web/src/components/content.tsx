@@ -5,7 +5,7 @@ import { usePublicBotEffectiveModel } from "../inference/public-bot-model";
 import { shortModelName } from "./inference-attribution";
 import { MarkdownBody, type DrawingLinks } from "../markdown/markdown-body";
 import { MarkdownSourceView, type MarkdownSourceAccess } from "./markdown-source-view";
-import { createContext, useContext, useEffect, useId, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useId, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import {
 	localizedTextLang,
 	localizedTextString,
@@ -662,10 +662,10 @@ export function TranslatableText(props: Omit<Parameters<typeof TranslatableTextC
 			setSourceState(
 				sourceState.draft === sourceState.base ?
 					// No unsaved changes: the view follows the new text.
-					{ draft: source, base: source, changedWhileEditing: false }
+					{ ...sourceState, draft: source, base: source, changedWhileEditing: false }
 					// Unsaved changes stay. A save now replaces the new text, so
 					// the view says so.
-				:	{ draft: sourceState.draft, base: source, changedWhileEditing: true },
+				:	{ ...sourceState, base: source, changedWhileEditing: true },
 			);
 		}
 	}
@@ -675,9 +675,10 @@ export function TranslatableText(props: Omit<Parameters<typeof TranslatableTextC
 /**
  * An open source view. `base` is the stored text that a save expects to
  * replace. `changedWhileEditing` records that the stored text changed under
- * unsaved changes.
+ * unsaved changes. `saving` covers a save in flight, also across a remount of
+ * the content.
  */
-type SourceViewState = { draft: string; base: string; changedWhileEditing: boolean };
+type SourceViewState = { draft: string; base: string; changedWhileEditing: boolean; saving: boolean };
 
 function TranslatableTextContent({
 	as,
@@ -709,7 +710,7 @@ function TranslatableTextContent({
 	markdown?: boolean;
 	/** With `markdown`, adds a Source button that shows the stored text. */
 	sourceAccess?: MarkdownSourceAccess;
-	sourceView: { state: SourceViewState | null; setState: (state: SourceViewState | null) => void };
+	sourceView: { state: SourceViewState | null; setState: Dispatch<SetStateAction<SourceViewState | null>> };
 	interactiveReferences?: boolean;
 	onReference?: OpenReference;
 	rich?: boolean;
@@ -796,7 +797,7 @@ function TranslatableTextContent({
 
 	function toggleSource(): void {
 		if (!sourceState) {
-			sourceView.setState({ draft: sourceText, base: sourceText, changedWhileEditing: false });
+			sourceView.setState({ draft: sourceText, base: sourceText, changedWhileEditing: false, saving: false });
 			return;
 		}
 		if (sourceState.draft !== sourceState.base) {
@@ -807,10 +808,13 @@ function TranslatableTextContent({
 	}
 
 	async function saveSource(): Promise<void> {
-		if (sourceAccess?.kind !== "editable" || !sourceState) return;
+		if (sourceAccess?.kind !== "editable" || !sourceState || sourceState.saving) return;
+		sourceView.setState({ ...sourceState, saving: true });
+		const stored = await sourceAccess.onSave(sourceState.draft, sourceState.base);
 		// A stored save, even one that changed nothing, ends the edit. The view
-		// closes and the body shows the stored text rendered.
-		if (await sourceAccess.onSave(sourceState.draft, sourceState.base)) sourceView.setState(null);
+		// closes and the body shows the stored text rendered. A failure keeps the
+		// draft, as it is now: the stored text can have changed meanwhile.
+		sourceView.setState((current) => stored ? null : current && { ...current, saving: false });
 	}
 
 	const content =
@@ -819,10 +823,11 @@ function TranslatableTextContent({
 			draft={sourceState.draft}
 			editable={sourceAccess.kind === "editable"}
 			lang={sourceLang ?? undefined}
-			onDiscard={() => sourceView.setState({ draft: sourceText, base: sourceText, changedWhileEditing: false })}
+			onDiscard={() => sourceView.setState({ draft: sourceText, base: sourceText, changedWhileEditing: false, saving: false })}
 			onDraftChange={(draft) => sourceView.setState({ ...sourceState, draft })}
 			onSave={saveSource}
 			saved={sourceState.base}
+			saving={sourceState.saving}
 		/>
 		: markdown ? <MarkdownBody text={visibleText} referencePattern={richTextReferencePattern}
 			// Drawing links name drawings of the original text; a translation can

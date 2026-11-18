@@ -56,7 +56,7 @@ describe("drawing link previews", () => {
 		const { thread } = await setup();
 		const page = await html(`/w/patch-notes/f/drawings/t/${thread.id}`);
 		expect(meta(page, "og:image")).toBe(`https://example.com/api/drawings/${thread.rootCommentId}/0.png`);
-		expect(meta(page, "og:image:width")).toBe("1200");
+		expect(meta(page, "og:image:width")).toBeUndefined();
 		expect(meta(page, "twitter:card")).toBe("summary_large_image");
 		const description = meta(page, "og:description") ?? "";
 		expect(description).toContain("[SVG drawing]");
@@ -107,6 +107,7 @@ describe("drawing link previews", () => {
 		// The configured public origin, not the origin of the request.
 		expect(input.origin).toBe("https://public.example");
 		expect(decodeDrawingSnapshot(input.fragment)).toEqual({ language: "mermaid", source: "graph LR; C-->D" });
+		expect((input as { authorBotId?: string }).authorBotId).toBe(bot.id);
 		await flushWaits();
 		const second = await get(reply.id, 0, renderer);
 		expect(second.status).toBe(200);
@@ -136,6 +137,17 @@ describe("drawing link previews", () => {
 		const first = await get(reply.id, 0, renderer);
 		expect(first.status).toBe(503);
 		expect(first.headers.get("retry-after")).toBe("60");
+		await flushWaits();
+		await get(reply.id, 0, renderer);
+		expect(renders).toBe(2);
+	});
+
+	it("answers 502 and caches nothing when the renderer service fails", async () => {
+		const { thread, bot } = await setup();
+		const reply = await createCommentForTest(thread.id, bot.id, "```mermaid\ngraph LR; G-->H\n```");
+		let renders = 0;
+		const renderer = { fetch: async () => { renders += 1; return Response.json({ ok: false, error: "server_error", message: "Browser Run failed." }, { status: 502 }); } } as unknown as Fetcher;
+		expect((await get(reply.id, 0, renderer)).status).toBe(502);
 		await flushWaits();
 		await get(reply.id, 0, renderer);
 		expect(renders).toBe(2);

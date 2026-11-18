@@ -32,4 +32,7 @@
 	"vectorize": [{ "binding": "BICKR_SEARCH_VECTORIZE", "index_name": "bickr-bot-search-test-v2" }],
 	"services": [{ "binding": "AGENT_RUNTIME_SERVICE", "service": "bickr-agent-runtime-test" }],
 	"triggers": { "crons": ["0 0 * * *", "1-59/5 * * * *", "*/5 * * * *"] },
+	// Keep in step with env.test in wrangler.jsonc: drawing link previews.
+	"browser": { "binding": "BROWSER" },
+	"ratelimits": [{ "name": "DRAWING_PREVIEW_LIMITER", "namespace_id": "4102", "simple": { "limit": 20, "period": 60 } }, { "name": "DRAWING_PREVIEW_AUTHOR_LIMITER", "namespace_id": "4104", "simple": { "limit": 5, "period": 60 } }],
 }

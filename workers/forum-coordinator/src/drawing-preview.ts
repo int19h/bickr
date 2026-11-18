@@ -1,3 +1,4 @@
+import { RepositoryError } from "@bickr/shared/repository";
 import { InputError } from "@bickr/shared/validation";
 
 /**
@@ -11,7 +12,7 @@ import { InputError } from "@bickr/shared/validation";
  * drawing. Only the Pages app calls this route, through the authenticated
  * internal service binding.
  */
-export type DrawingPreviewInput = { origin: string; fragment: string };
+export type DrawingPreviewInput = { origin: string; fragment: string; authorBotId: string };
 
 /**
  * A render that did not produce an image. `rate_limited`: the render budget
@@ -20,15 +21,16 @@ export type DrawingPreviewInput = { origin: string; fragment: string };
  */
 export type DrawingPreviewFailure = { kind: "rate_limited" } | { kind: "not_rendered" };
 
-type DrawingPreviewEnv = { BROWSER?: BrowserRun; DRAWING_PREVIEW_LIMITER?: RateLimit };
+type DrawingPreviewEnv = { BROWSER?: BrowserRun; DRAWING_PREVIEW_LIMITER?: RateLimit; DRAWING_PREVIEW_AUTHOR_LIMITER?: RateLimit };
 
 // A drawing source is at most 64 KiB, so its base64url JSON stays below this.
 const maxFragmentLength = 200_000;
 
 export function parseDrawingPreviewInput(body: unknown): DrawingPreviewInput {
 	if (!body || typeof body !== "object" || Array.isArray(body)) throw new InputError("Drawing preview input must be an object.");
-	const { origin, fragment } = body as Record<string, unknown>;
-	if (typeof origin !== "string" || typeof fragment !== "string") throw new InputError("Drawing preview input needs an origin and a fragment.");
+	const { origin, fragment, authorBotId } = body as Record<string, unknown>;
+	if (typeof origin !== "string" || typeof fragment !== "string" || typeof authorBotId !== "string") throw new InputError("Drawing preview input needs an origin, a fragment, and an author.");
+	if (!/^[A-Za-z0-9_-]{1,80}$/.test(authorBotId)) throw new InputError("Drawing preview author is not valid.");
 	let parsed: URL;
 	try {
 		parsed = new URL(origin);
@@ -37,7 +39,7 @@ export function parseDrawingPreviewInput(body: unknown): DrawingPreviewInput {
 	}
 	if (parsed.protocol !== "https:" || parsed.origin !== origin) throw new InputError("Drawing preview origin must be an https origin.");
 	if (!/^[A-Za-z0-9_-]+$/.test(fragment) || fragment.length > maxFragmentLength) throw new InputError("Drawing preview fragment is not valid.");
-	return { origin, fragment };
+	return { origin, fragment, authorBotId };
 }
 
 function failure(status: number, body: DrawingPreviewFailure): Response {
@@ -45,15 +47,17 @@ function failure(status: number, body: DrawingPreviewFailure): Response {
 }
 
 export async function renderDrawingPreview(env: DrawingPreviewEnv, input: DrawingPreviewInput): Promise<Response> {
-	if (!env.BROWSER || !env.DRAWING_PREVIEW_LIMITER) {
+	if (!env.BROWSER || !env.DRAWING_PREVIEW_LIMITER || !env.DRAWING_PREVIEW_AUTHOR_LIMITER) {
 		console.error(JSON.stringify({ event: "drawing_preview_unconfigured" }));
-		return failure(503, { kind: "rate_limited" });
+		throw new RepositoryError("server_error", "Drawing previews are not configured.", 503);
 	}
 	// Anyone can request a preview, and a post can hold many drawings, so the
-	// limiter bounds the browser time that requests can spend. The limit is
-	// per Cloudflare location and approximate; see wrangler.jsonc.
-	const { success } = await env.DRAWING_PREVIEW_LIMITER.limit({ key: "render" });
-	if (!success) return failure(429, { kind: "rate_limited" });
+	// limiters bound the browser time that requests can spend. The author limit
+	// comes first, so the drawings of one author cannot spend the budget of
+	// everyone else. Both limits are per Cloudflare location and approximate;
+	// see wrangler.jsonc.
+	if (!(await env.DRAWING_PREVIEW_AUTHOR_LIMITER.limit({ key: `author:${input.authorBotId}` })).success) return failure(429, { kind: "rate_limited" });
+	if (!(await env.DRAWING_PREVIEW_LIMITER.limit({ key: "render" })).success) return failure(429, { kind: "rate_limited" });
 	const response = await env.BROWSER.quickAction("screenshot", {
 		url: `${input.origin}/drawing-snapshot#${input.fragment}`,
 		viewport: { width: 1200, height: 630 },
@@ -70,10 +74,20 @@ export async function renderDrawingPreview(env: DrawingPreviewEnv, input: Drawin
 		return new Response(response.body, { headers: { "content-type": "image/png" } });
 	}
 	await response.body?.cancel();
-	console.error(JSON.stringify({ event: "drawing_preview_failed", status: response.status }));
-	// Browser Run reports its own limits as 429; every other failure is a
-	// drawing that did not draw within the wait.
-	return response.status === 429 ? failure(429, { kind: "rate_limited" }) : failure(422, { kind: "not_rendered" });
+	// Browser Run answers 422 when the page could not complete the action: here,
+	// the drawing did not draw within the wait. 429 is its own limit. Every
+	// other answer is a failure of the service or of this request, which must
+	// not be remembered as a broken drawing.
+	switch (response.status) {
+		case 422:
+			console.warn(JSON.stringify({ event: "drawing_preview_not_rendered" }));
+			return failure(422, { kind: "not_rendered" });
+		case 429:
+			return failure(429, { kind: "rate_limited" });
+		default:
+			console.error(JSON.stringify({ event: "drawing_preview_service_failed", status: response.status, contentType: response.headers.get("content-type") }));
+			throw new RepositoryError("server_error", "Browser Run could not render the drawing preview.", 502);
+	}
 }
 
 function escapeRegExp(value: string): string {

@@ -130,6 +130,7 @@ export interface Env {
 	/** Browser Run and its render budget, for drawing link previews. Tests run without them. */
 	BROWSER?: BrowserRun;
 	DRAWING_PREVIEW_LIMITER?: RateLimit;
+	DRAWING_PREVIEW_AUTHOR_LIMITER?: RateLimit;
 }
 
 type ForumCoordinatorEnv = Pick<Env, "AI" | "BICKR_D1" | "BICKR_KV" | "BICKR_SEARCH_VECTORIZE"> &

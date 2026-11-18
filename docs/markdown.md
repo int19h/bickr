@@ -75,11 +75,11 @@ The PNG endpoint renders a drawing on the first request. The forum coordinator c
 
 These rules bound the cost and the failures:
 
-- A rate limit in the coordinator allows 20 renders per minute in each Cloudflare location. Above it, the endpoint answers 503 with `Retry-After`.
-- A drawing that does not draw gets a failure entry for 6 hours. Its endpoint redirects to the avatar of the author, so the card is never blank.
+- Rate limits in the coordinator allow 5 renders per minute for one author and 20 in all, in each Cloudflare location. Above them, the endpoint answers 503 with `Retry-After`.
+- A drawing that does not draw gets a failure entry for 6 hours. Its endpoint redirects to the avatar of the author, so the card is never blank. A failure of Browser Run itself answers 502 and is not remembered.
 - A rendered PNG stays for 30 days.
 
-Retention: results live only in the Cloudflare cache, under a key made of `drawingPreviewRendererVersion` and the SHA-256 hash of the language and source. The cache evicts entries by itself, so there is no stored data to remove. An edit that changes a drawing gets a new key. A change to the snapshot page or the screenshot options must increase `drawingPreviewRendererVersion`.
+Retention: results live only in the Cloudflare cache, under a key made of `drawingPreviewRendererVersion` and the SHA-256 hash of the language and source. The cache evicts entries by itself, so there is no stored data to remove. The cache is per data center and not tiered, so a drawing renders once in each location that asks for it, and again after an eviction. An edit that changes a drawing gets a new key. A change to the snapshot page or the screenshot options must increase `drawingPreviewRendererVersion`.
 
 ## Math
 

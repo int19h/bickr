@@ -14,7 +14,9 @@ import { botAvatarUrl } from "./_bot-avatar";
  *
  * Results live only in the Cloudflare cache, under a key made of the renderer
  * version and the hash of the drawing. The cache evicts entries by itself, so
- * this store needs no retention rule. An edit that changes a drawing changes
+ * this store needs no retention rule. It is per data center and not tiered, so
+ * a drawing renders once in each location that asks for it, and again after an
+ * eviction; the render limits in the coordinator bound that cost. An edit that changes a drawing changes
  * its key; one that does not reuses the image. A drawing that did not draw
  * gets a short-lived failure entry, so a broken drawing does not spend browser
  * time on every request, and its card falls back to the author's avatar.
@@ -114,13 +116,13 @@ async function fallbackResponse(env: AppEnv, comment: CommentDocument): Promise<
 
 type RenderOutcome = { kind: "rendered"; png: ArrayBuffer } | { kind: "rate_limited" } | { kind: "not_rendered" };
 
-async function render(env: AppEnv, origin: string, drawing: { language: "svg" | "mermaid"; source: string }): Promise<RenderOutcome> {
+async function render(env: AppEnv, origin: string, comment: CommentDocument, drawing: { language: "svg" | "mermaid"; source: string }): Promise<RenderOutcome> {
 	const headers = new Headers({ "content-type": "application/json" });
 	addInternalServiceAuthHeader(headers, env.INTERNAL_SERVICE_SECRET);
 	const response = await env.FORUM_COORDINATOR_SERVICE.fetch(new Request(internalServiceUrl("/drawing-previews/render"), {
 		method: "POST",
 		headers,
-		body: JSON.stringify({ origin, fragment: encodeDrawingSnapshot(drawing) }),
+		body: JSON.stringify({ origin, fragment: encodeDrawingSnapshot(drawing), authorBotId: comment.authorBotId }),
 	}));
 	if (response.ok && response.headers.get("content-type") === "image/png") return { kind: "rendered", png: await response.arrayBuffer() };
 	// The coordinator names its failures with `kind`; anything else is a
@@ -144,7 +146,7 @@ export async function drawingPreviewResponse(env: AppEnv, waitUntil: (promise: P
 		await cached.body?.cancel();
 		return fallbackResponse(env, comment);
 	}
-	const outcome = await render(env, origin, drawing);
+	const outcome = await render(env, origin, comment, drawing);
 	switch (outcome.kind) {
 		case "rendered":
 			waitUntil(cache.put(key, new Response(outcome.png, {
