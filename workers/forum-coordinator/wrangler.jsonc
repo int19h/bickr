@@ -52,10 +52,16 @@
 	},
 	// Browser Run renders drawing previews for link cards; see drawing-preview.ts.
 	"browser": { "binding": "BROWSER" },
+	// The render budget of drawing previews: at most 20 renders per minute in
+	// each Cloudflare location. A render takes a few seconds of browser time.
+	"ratelimits": [{ "name": "DRAWING_PREVIEW_LIMITER", "namespace_id": "4101", "simple": { "limit": 20, "period": 60 } }],
 	"env": {
 		"test": {
 			"name": "bickr-forum-coordinator-test",
 			"browser": { "binding": "BROWSER" },
+			// The render budget of drawing previews: at most 20 renders per minute in
+			// each Cloudflare location. A render takes a few seconds of browser time.
+			"ratelimits": [{ "name": "DRAWING_PREVIEW_LIMITER", "namespace_id": "4102", "simple": { "limit": 20, "period": 60 } }],
 			"workers_dev": false,
 			"preview_urls": false,
 			"observability": {

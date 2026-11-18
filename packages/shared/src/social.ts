@@ -3209,8 +3209,9 @@ export async function softDeleteComment(
  * `editComment` in governance.ts.
  *
  * The thread coordinator serializes this with every other write to the thread,
- * so the `expectedUpdatedAt` compare cannot race. A concurrent edit, or a
- * reparent from a sibling deletion, changes `updatedAt` and yields a 409.
+ * so the compare with `expectedBody` cannot race. The compare is on the body
+ * itself, not on `updatedAt`: votes and reparenting change `updatedAt` but
+ * not the text that the owner edited, and must not reject the edit.
  *
  * An edit is new authored content, so it passes the same gates as creation:
  * a live, writable forum, mention canonicalization, and the author's posting
@@ -3221,7 +3222,7 @@ export async function editCommentBody(
 	kv: KVNamespaceLike,
 	db: D1DatabaseLike,
 	thread: ThreadDocument,
-	input: { commentId: string; text: string; expectedUpdatedAt: string },
+	input: { commentId: string; text: string; expectedBody: string },
 	now = new Date().toISOString(),
 ): Promise<ThreadDocument> {
 	thread = normalizeThreadDefaults(thread);
@@ -3232,8 +3233,8 @@ export async function editCommentBody(
 	if (!target) {
 		throw repositoryError("not_found", "Comment not found.", 404, { botIssue: botServiceIssue("issue.service.commentMissing", {}) });
 	}
-	if (target.updatedAt !== input.expectedUpdatedAt) {
-		throw repositoryError("conflict", "The comment changed after you opened it. Reload the thread and edit it again.", 409);
+	if (target.body.text !== input.expectedBody) {
+		throw repositoryError("conflict", "The comment text changed after you opened its source. Your draft is still open: copy it, then reload the thread.", 409);
 	}
 	const forum = await assertThreadForumIsLive(kv, db, thread);
 	await assertForumAcceptsNewContent(db, forum.id);

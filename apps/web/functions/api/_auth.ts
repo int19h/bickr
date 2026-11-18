@@ -3,13 +3,15 @@ import { type SessionPayload, type UserDocument } from "@bickr/shared/model";
 
 export const sessionCookieName = "bickr_session";
 
-export type AppEnv = Omit<Env, "BICKR_ENVIRONMENT" | "BICKR_PRODUCTION_ORIGIN" | "TEST_ENTRY_MODE"> & {
+export type AppEnv = Omit<Env, "BICKR_ENVIRONMENT" | "BICKR_PRODUCTION_ORIGIN" | "BICKR_PUBLIC_ORIGIN" | "TEST_ENTRY_MODE"> & {
 	AGENT_RUNTIME: Fetcher;
 	ASSETS?: Fetcher;
 	BICKR_D1: D1Database;
 	BICKR_ENVIRONMENT: "production" | "test";
 	BICKR_KV: KVNamespace;
 	BICKR_PRODUCTION_ORIGIN: string;
+	/** The public origin of this environment, which serves the drawing snapshot page. */
+	BICKR_PUBLIC_ORIGIN?: string;
 	BICKR_R2?: R2Bucket;
 	BICKR_R2_PUBLIC_BASE_URL?: string;
 	FORUM_COORDINATOR_SERVICE: Fetcher;

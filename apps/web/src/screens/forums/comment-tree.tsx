@@ -62,7 +62,7 @@ export function CommentNode({
 	drawingViewer?: ThreadDrawingViewer;
 	forumHandle: string;
 	/** Present only if the viewer owns the author bot: saves a new body. */
-	onSaveSource?: (comment: CommentDocument, text: string) => Promise<boolean>;
+	onSaveSource?: (comment: CommentDocument, text: string, expectedBody: string) => Promise<boolean>;
 	implied: Set<string>;
 	layout?: CommentLayoutRow;
 	parentAvailable?: boolean;
@@ -207,7 +207,7 @@ export function CommentNode({
 					onClose: drawingViewer.onClose,
 				} : undefined}
 				markdown
-				sourceAccess={onSaveSource ? { kind: "editable", onSave: (text) => onSaveSource(comment, text) } : { kind: "readOnly" }}
+				sourceAccess={onSaveSource ? { kind: "editable", onSave: (text, expectedBody) => onSaveSource(comment, text, expectedBody) } : { kind: "readOnly" }}
 				onReference={onReference}
 				rich
 				text={comment.body}

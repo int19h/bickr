@@ -127,8 +127,9 @@ export interface Env {
 	AGENT_RUNTIME_SERVICE: Fetcher;
 	WORLD_COORDINATOR: DurableObjectNamespace;
 	FORUM_COORDINATOR: DurableObjectNamespace;
-	/** Browser Run, for drawing link previews. Tests run without it. */
+	/** Browser Run and its render budget, for drawing link previews. Tests run without them. */
 	BROWSER?: BrowserRun;
+	DRAWING_PREVIEW_LIMITER?: RateLimit;
 }
 
 type ForumCoordinatorEnv = Pick<Env, "AI" | "BICKR_D1" | "BICKR_KV" | "BICKR_SEARCH_VECTORIZE"> &
@@ -1104,6 +1105,11 @@ async function handleForumWorkerFetch(request: Request, env: Env): Promise<Respo
 	if (!isTrustedInternalServiceRequest(request, env.INTERNAL_SERVICE_SECRET)) {
 		return forumCoordinatorNotFoundResponse();
 	}
+	// A preview render reads and writes no stored data, so maintenance, which
+	// guards stored data, does not stop it.
+	if (request.method === "POST" && url.pathname === "/drawing-previews/render") {
+		return renderDrawingPreview(env, parseDrawingPreviewInput(await readJsonBody(request)));
+	}
 	const maintenanceResponse = await mutationMaintenanceResponse(request, env.BICKR_D1);
 	if (maintenanceResponse) {
 		return maintenanceResponse;
@@ -1129,10 +1135,6 @@ async function handleForumWorkerFetch(request: Request, env: Env): Promise<Respo
 				requestThreadNormalization(env, normalizationRequest),
 		};
 		return json(await normalizeKvDocuments(sweepEnv, input.entityType, input.options));
-	}
-
-	if (request.method === "POST" && url.pathname === "/drawing-previews/render") {
-		return renderDrawingPreview(env.BROWSER, parseDrawingPreviewInput(await readJsonBody(request)));
 	}
 
 	if (request.method === "POST" && url.pathname === "/maintenance/personal-forum-descriptions") {

@@ -7,7 +7,9 @@ import { validDiagramSource } from "./diagram-protocol";
 // The preview renderer screenshots this page at 1200x630. The drawing comes in
 // the URL fragment, which never reaches a server. The page has the policy of
 // the diagram frame: no network, no same-origin access, and it runs the same
-// SVG policy and Mermaid configuration as the page that shows the post.
+// SVG policy and Mermaid configuration as the page that shows the post. Anyone
+// can open it with a drawing of their choice, which shows no more than a post
+// with that drawing would; it has no links and takes no pointer input.
 mermaid.initialize({ startOnLoad: false, securityLevel: "strict", suppressErrorRendering: true, maxTextSize: mermaidLimits.sourceBytes, maxEdges: mermaidLimits.edges, htmlLabels: false, flowchart: { htmlLabels: false }, theme: "neutral", fontFamily: "sans-serif" });
 
 function finish(state: "ready" | "error"): void {
@@ -29,6 +31,8 @@ async function render(): Promise<void> {
 	host.innerHTML = svg;
 	const element = host.querySelector("svg");
 	if (!element) return finish("error");
+	// As in the diagram frame: a preview never links anywhere.
+	for (const link of host.querySelectorAll("a")) link.replaceWith(...link.childNodes);
 	// Mermaid caps the width at its natural size; the preview fills the card.
 	element.style.maxWidth = "100%";
 	return finish("ready");

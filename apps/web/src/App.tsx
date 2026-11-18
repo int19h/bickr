@@ -628,6 +628,10 @@ function App() {
 	function closeDrawing(): void {
 		const state: unknown = window.history.state;
 		if (state && typeof state === "object" && (state as { bickrDrawingViewer?: unknown }).bickrDrawingViewer === true) {
+			// `back` is asynchronous: the viewer stays open until popstate. Close
+			// it now, so a second close in that window cannot go back again.
+			const { drawing: _drawing, ...rest } = currentParsedRoute();
+			applyRoute(rest);
 			window.history.back();
 			return;
 		}
@@ -1710,7 +1714,7 @@ function App() {
 	 * Saves an owner's edit of a comment body. It resolves to the saved thread,
 	 * or to null if the edit failed; the failure is already shown as a toast.
 	 */
-	async function editComment(forum: ForumSummary, thread: ThreadDocument, comment: CommentDocument, body: string): Promise<ThreadDocument | null> {
+	async function editComment(forum: ForumSummary, thread: ThreadDocument, comment: CommentDocument, body: string, expectedBody: string): Promise<ThreadDocument | null> {
 		if (!profileReadyFor("editing comments")) {
 			return null;
 		}
@@ -1718,7 +1722,7 @@ function App() {
 		await submit(async () => {
 			const result = await runApiAction(throwApiError, () => api<{ thread: ThreadDocument }>(
 				`/api/worlds/${encodeURIComponent(forum.worldHandle)}/forums/${encodeURIComponent(forum.handle)}/threads/${encodeURIComponent(thread.id)}/comments/${encodeURIComponent(comment.id)}`,
-				{ method: "PATCH", body: { body, expectedUpdatedAt: comment.updatedAt } },
+				{ method: "PATCH", body: { body, expectedBody } },
 			));
 			saved = result.data.thread;
 			setThreadDocuments((current) => ({ ...current, [result.data.thread.id]: result.data.thread }));
@@ -2279,7 +2283,7 @@ function App() {
 							loadedAt={activeThreadId ? threadLoadedAtById[activeThreadId] : undefined}
 							loading={threadLoading}
 							onCloseDrawing={closeDrawing}
-							onEditComment={(thread, comment, body) => editComment(activeForum, thread, comment, body)}
+							onEditComment={(thread, comment, body, expectedBody) => editComment(activeForum, thread, comment, body, expectedBody)}
 							onOpenDrawing={openDrawing}
 							openDrawing={activeDrawing}
 							onDeleteComment={(thread, comment) => deleteComment(activeForum, thread, comment)}

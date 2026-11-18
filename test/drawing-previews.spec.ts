@@ -14,7 +14,6 @@ import {
 } from "./helpers/index-harness";
 import { onRequest as pageShell } from "../apps/web/functions/[[path]]";
 import { onRequestGet as drawingRoute } from "../apps/web/functions/api/drawings/[commentId]/[file]";
-import { drawingPreviewObjectPrefix } from "@bickr/shared/content-limits";
 import { decodeDrawingSnapshot } from "../apps/web/src/markdown/drawing-snapshot-protocol";
 
 const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 4 4"><rect width="4" height="4"/></svg>';
@@ -38,6 +37,20 @@ function meta(page: string, key: string): string | undefined {
 	return new RegExp(`<meta (?:property|name)="${key}" content="([^"]*)"`).exec(page)?.[1]?.replaceAll("&amp;", "&");
 }
 
+const waits: Promise<unknown>[] = [];
+async function flushWaits(): Promise<void> {
+	await Promise.all(waits.splice(0));
+}
+
+async function get(commentId: string, index: number, renderer?: Fetcher): Promise<Response> {
+	const context = contextFor<typeof drawingRoute>(
+		new Request(`https://example.com/api/drawings/${commentId}/${index}.png`),
+		{ commentId, file: `${index}.png` },
+		{ BICKR_PUBLIC_ORIGIN: "https://public.example", ...(renderer ? { FORUM_COORDINATOR_SERVICE: renderer } : {}) },
+	);
+	return await drawingRoute({ ...context, waitUntil: (promise: Promise<unknown>) => { waits.push(promise); } } as typeof context);
+}
+
 describe("drawing link previews", () => {
 	it("uses the first drawing as the card image and hides drawing markup from the description", async () => {
 		const { thread } = await setup();
@@ -49,6 +62,12 @@ describe("drawing link previews", () => {
 		expect(description).toContain("[SVG drawing]");
 		expect(description).not.toContain("<svg");
 		expect(description).not.toContain("graph TD");
+	});
+
+	it("uses a leading https image when it comes first, and skips plain http images", async () => {
+		const plain = await setup("![photo](http://images.example/photo.png)\n\n```mermaid\ngraph TD; A-->B\n```");
+		const plainPage = await html(`/w/patch-notes/f/drawings/t/${plain.thread.id}`);
+		expect(meta(plainPage, "og:image")).toBe(`https://example.com/api/drawings/${plain.thread.rootCommentId}/0.png`);
 	});
 
 	it("uses a leading web image when it comes first", async () => {
@@ -68,7 +87,7 @@ describe("drawing link previews", () => {
 		expect(meta(missing, "og:title")).toContain("not found");
 	});
 
-	it("renders a drawing once and serves the stored PNG afterwards", async () => {
+	it("renders a drawing once and serves the cached PNG afterwards", async () => {
 		const { thread, bot } = await setup();
 		const reply = await createCommentForTest(thread.id, bot.id, "```mermaid\ngraph LR; C-->D\n```");
 		const renders: unknown[] = [];
@@ -79,37 +98,57 @@ describe("drawing link previews", () => {
 				return new Response(new Uint8Array([137, 80, 78, 71]), { headers: { "content-type": "image/png" } });
 			},
 		} as unknown as Fetcher;
-		const get = () => drawingRoute(contextFor<typeof drawingRoute>(
-			new Request(`https://example.com/api/drawings/${reply.id}/0.png`),
-			{ commentId: reply.id, file: "0.png" },
-			{ BICKR_R2: testEnv.BICKR_R2, FORUM_COORDINATOR_SERVICE: renderer },
-		));
-		const first = await get();
+		const first = await get(reply.id, 0, renderer);
 		expect(first.status).toBe(200);
 		expect(first.headers.get("content-type")).toBe("image/png");
 		expect(new Uint8Array(await first.arrayBuffer())).toEqual(new Uint8Array([137, 80, 78, 71]));
 		expect(renders).toHaveLength(1);
 		const input = renders[0] as { origin: string; fragment: string };
-		expect(input.origin).toBe("https://example.com");
+		// The configured public origin, not the origin of the request.
+		expect(input.origin).toBe("https://public.example");
 		expect(decodeDrawingSnapshot(input.fragment)).toEqual({ language: "mermaid", source: "graph LR; C-->D" });
-		const second = await get();
+		await flushWaits();
+		const second = await get(reply.id, 0, renderer);
 		expect(second.status).toBe(200);
-		await second.arrayBuffer();
+		expect(new Uint8Array(await second.arrayBuffer())).toEqual(new Uint8Array([137, 80, 78, 71]));
 		expect(renders).toHaveLength(1);
-		const listed = await testEnv.BICKR_R2.list({ prefix: drawingPreviewObjectPrefix });
-		expect(listed.objects.length).toBeGreaterThan(0);
-		for (const object of listed.objects) await testEnv.BICKR_R2.delete(object.key);
+	});
+
+	it("falls back to the author's avatar for a drawing that does not draw, and remembers the failure", async () => {
+		const { thread, bot } = await setup();
+		const reply = await createCommentForTest(thread.id, bot.id, "```mermaid\nnot a diagram at all\n```");
+		await testEnv.BICKR_D1.prepare(`UPDATE bots_index SET avatar_url = ? WHERE bot_id = ?`).bind("https://assets.example/avatar.png", bot.id).run();
+		let renders = 0;
+		const renderer = { fetch: async () => { renders += 1; return Response.json({ kind: "not_rendered" }, { status: 422 }); } } as unknown as Fetcher;
+		const first = await get(reply.id, 0, renderer);
+		expect(first.status).toBe(302);
+		expect(first.headers.get("location")).toBe("https://assets.example/avatar.png");
+		await flushWaits();
+		expect((await get(reply.id, 0, renderer)).status).toBe(302);
+		expect(renders).toBe(1);
+	});
+
+	it("asks the crawler to retry when the render budget is spent, and caches nothing", async () => {
+		const { thread, bot } = await setup();
+		const reply = await createCommentForTest(thread.id, bot.id, "```mermaid\ngraph LR; E-->F\n```");
+		let renders = 0;
+		const renderer = { fetch: async () => { renders += 1; return Response.json({ kind: "rate_limited" }, { status: 429 }); } } as unknown as Fetcher;
+		const first = await get(reply.id, 0, renderer);
+		expect(first.status).toBe(503);
+		expect(first.headers.get("retry-after")).toBe("60");
+		await flushWaits();
+		await get(reply.id, 0, renderer);
+		expect(renders).toBe(2);
 	});
 
 	it("returns 404 for a missing drawing or a malformed path", async () => {
 		const { thread } = await setup();
-		const call = (commentId: string, file: string) => drawingRoute(contextFor<typeof drawingRoute>(
-			new Request(`https://example.com/api/drawings/${commentId}/${file}`),
-			{ commentId, file },
-			{ BICKR_R2: testEnv.BICKR_R2 },
+		expect((await get(thread.rootCommentId, 9)).status).toBe(404);
+		const malformed = await drawingRoute(contextFor<typeof drawingRoute>(
+			new Request(`https://example.com/api/drawings/${thread.rootCommentId}/0.svg`),
+			{ commentId: thread.rootCommentId, file: "0.svg" },
 		));
-		expect((await call(thread.rootCommentId, "9.png")).status).toBe(404);
-		expect((await call(thread.rootCommentId, "0.svg")).status).toBe(404);
-		expect((await call("nope", "0.png")).status).toBe(404);
+		expect(malformed.status).toBe(404);
+		expect((await get("nope", 0)).status).toBe(404);
 	});
 });

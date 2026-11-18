@@ -435,7 +435,7 @@ export async function editComment(
 	threadId: string,
 	commentId: string,
 	userId: string,
-	input: { text: string; expectedUpdatedAt: string },
+	input: { text: string; expectedBody: string },
 	now = new Date().toISOString(),
 	options: { thread?: ThreadDocument } = {},
 ): Promise<ThreadDocument> {

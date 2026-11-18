@@ -648,12 +648,36 @@ function isTrailingVerticalScriptRunConnector(character: string): boolean {
 	);
 }
 
-export function TranslatableText(props: Parameters<typeof TranslatableTextContent>[0]) {
+export function TranslatableText(props: Omit<Parameters<typeof TranslatableTextContent>[0], "sourceView">) {
 	const config = useContext(TranslationContext);
 	const source = typeof props.text === "string" ? props.text : localizedTextString(props.text);
 	const key = JSON.stringify([config.enabled, config.identity, config.prompt, source]);
-	return <TranslatableTextContent key={key} {...props} />;
+	// The source view lives here, outside the keyed content: a new stored text
+	// remounts the content, and an open draft must survive that.
+	const [sourceState, setSourceState] = useState<SourceViewState | null>(null);
+	const [sourceSeen, setSourceSeen] = useState(source);
+	if (sourceSeen !== source) {
+		setSourceSeen(source);
+		if (sourceState) {
+			setSourceState(
+				sourceState.draft === sourceState.base ?
+					// No unsaved changes: the view follows the new text.
+					{ draft: source, base: source, changedWhileEditing: false }
+					// Unsaved changes stay. A save now replaces the new text, so
+					// the view says so.
+				:	{ draft: sourceState.draft, base: source, changedWhileEditing: true },
+			);
+		}
+	}
+	return <TranslatableTextContent key={key} {...props} sourceView={{ state: sourceState, setState: setSourceState }} />;
 }
+
+/**
+ * An open source view. `base` is the stored text that a save expects to
+ * replace. `changedWhileEditing` records that the stored text changed under
+ * unsaved changes.
+ */
+type SourceViewState = { draft: string; base: string; changedWhileEditing: boolean };
 
 function TranslatableTextContent({
 	as,
@@ -663,6 +687,7 @@ function TranslatableTextContent({
 	drawingLinks,
 	markdown = false,
 	sourceAccess,
+	sourceView,
 	interactiveReferences = true,
 	onReference,
 	rich = false,
@@ -684,6 +709,7 @@ function TranslatableTextContent({
 	markdown?: boolean;
 	/** With `markdown`, adds a Source button that shows the stored text. */
 	sourceAccess?: MarkdownSourceAccess;
+	sourceView: { state: SourceViewState | null; setState: (state: SourceViewState | null) => void };
 	interactiveReferences?: boolean;
 	onReference?: OpenReference;
 	rich?: boolean;
@@ -710,13 +736,10 @@ function TranslatableTextContent({
 		return Boolean(translationCache.read(cacheKey)?.translation && (translationCache.read(cacheKey)?.show ?? true));
 	});
 	const [loading, setLoading] = useState(false);
-	const [showSource, setShowSource] = useState(false);
-	// The draft of the source view. It starts as the stored text. A save
-	// replaces the stored text, and `TranslatableText` then mounts a fresh
-	// instance that shows the rendered result.
-	const [sourceDraft, setSourceDraft] = useState(sourceText);
 	const [confirmDiscard, setConfirmDiscard] = useState(false);
 	const sourceAvailable = markdown && sourceAccess !== undefined;
+	const sourceState = sourceAvailable ? sourceView.state : null;
+	const showSource = sourceState !== null;
 	const Tag = as ?? "span";
 	const visibleText = showTranslation && cachedTranslation ? cachedTranslation : sourceText;
 	const visibleLang = showTranslation && cachedTranslation ? null : sourceLang;
@@ -772,20 +795,35 @@ function TranslatableTextContent({
 	}
 
 	function toggleSource(): void {
-		if (!showSource) {
-			setSourceDraft(sourceText);
-			setShowSource(true);
+		if (!sourceState) {
+			sourceView.setState({ draft: sourceText, base: sourceText, changedWhileEditing: false });
 			return;
 		}
-		if (sourceDraft !== sourceText) {
+		if (sourceState.draft !== sourceState.base) {
 			setConfirmDiscard(true);
 			return;
 		}
-		setShowSource(false);
+		sourceView.setState(null);
+	}
+
+	async function saveSource(): Promise<void> {
+		if (sourceAccess?.kind !== "editable" || !sourceState) return;
+		// A stored save, even one that changed nothing, ends the edit. The view
+		// closes and the body shows the stored text rendered.
+		if (await sourceAccess.onSave(sourceState.draft, sourceState.base)) sourceView.setState(null);
 	}
 
 	const content =
-		showSource && sourceAccess ? <MarkdownSourceView access={sourceAccess} draft={sourceDraft} lang={sourceLang ?? undefined} onDraftChange={setSourceDraft} saved={sourceText} />
+		sourceState && sourceAccess ? <MarkdownSourceView
+			changedWhileEditing={sourceState.changedWhileEditing}
+			draft={sourceState.draft}
+			editable={sourceAccess.kind === "editable"}
+			lang={sourceLang ?? undefined}
+			onDiscard={() => sourceView.setState({ draft: sourceText, base: sourceText, changedWhileEditing: false })}
+			onDraftChange={(draft) => sourceView.setState({ ...sourceState, draft })}
+			onSave={saveSource}
+			saved={sourceState.base}
+		/>
 		: markdown ? <MarkdownBody text={visibleText} referencePattern={richTextReferencePattern}
 			// Drawing links name drawings of the original text; a translation can
 			// number its drawings differently.
@@ -885,10 +923,7 @@ function TranslatableTextContent({
 					confirmText="Discard changes"
 					danger
 					onClose={() => setConfirmDiscard(false)}
-					onConfirm={() => {
-						setSourceDraft(sourceText);
-						setShowSource(false);
-					}}
+					onConfirm={() => sourceView.setState(null)}
 					open
 					title="Discard changes?"
 				/></OverlayPortal>

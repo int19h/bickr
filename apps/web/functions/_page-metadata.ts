@@ -16,6 +16,7 @@ import { botPublicProfileByHandle, forumByHandle, readThread } from "@bickr/shar
 import { parsePathname, routePath, type ParsedRoute } from "../src/routes";
 import { markdownPreview } from "@bickr/shared/markdown";
 import { commentPreviewImage, drawingPreviewImage, type PreviewImage } from "./_drawing-previews";
+import { botAvatarUrl } from "./_bot-avatar";
 import { currentUser, type AppEnv } from "./api/_auth";
 
 export type PageMetadata = {
@@ -421,14 +422,6 @@ async function forumMetadataByHandle(db: D1Database, worldHandle: string, forumH
 		throw new RepositoryError("not_found", "Forum not found.", 404);
 	}
 	return forum;
-}
-
-async function botAvatarUrl(db: D1Database, botId: string): Promise<string | undefined> {
-	const row = await db
-		.prepare(`SELECT avatar_url AS avatarUrl FROM bots_index WHERE bot_id = ? AND deleted_at IS NULL AND lifecycle_state = 'active'`)
-		.bind(botId)
-		.first<{ avatarUrl: string | null }>();
-	return row?.avatarUrl ?? undefined;
 }
 
 function threadRootComment(thread: ThreadDocument): CommentDocument | null {

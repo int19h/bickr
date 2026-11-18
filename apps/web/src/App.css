@@ -1580,6 +1580,12 @@ button:disabled {
 	background: var(--paper-2);
 }
 
+.markdown-source-notice {
+	color: var(--ink-3);
+	font-size: calc(12px * var(--font-scale));
+	margin: 0;
+}
+
 .markdown-source-actions {
 	display: flex;
 	gap: 8px;

@@ -14,6 +14,7 @@ import {
 	patchCommentRoute,
 	patchForum,
 	seedWorld,
+	setVote,
 	testEnv,
 } from "./helpers/index-harness";
 import type { ThreadDocument } from "@bickr/shared/model";
@@ -47,16 +48,16 @@ async function edit(cookie: string, threadId: string, commentId: string, body: u
 	);
 }
 
-async function updatedAt(threadId: string, commentId: string): Promise<string> {
-	return (await storedThread(threadId)).comments.find((item) => item.id === commentId)!.updatedAt;
+async function storedBody(threadId: string, commentId: string): Promise<string> {
+	return (await storedThread(threadId)).comments.find((item) => item.id === commentId)!.body.text;
 }
 
 describe("owner comment edits", () => {
 	it("lets the owner of the author replace the body and updates every projection", async () => {
 		const { botOwnerCookie, thread, comment } = await setup();
 		const before = await storedThread(thread.id);
-		const expectedUpdatedAt = await updatedAt(thread.id, comment.id);
-		const response = await edit(botOwnerCookie, thread.id, comment.id, { body: "An **edited** reply for @edit-mentioned.", expectedUpdatedAt });
+		const expectedBody = await storedBody(thread.id, comment.id);
+		const response = await edit(botOwnerCookie, thread.id, comment.id, { body: "An **edited** reply for @edit-mentioned.", expectedBody });
 		expect(response.status).toBe(200);
 		const payload = await response.json<{ data: { thread: ThreadDocument } }>();
 		const returned = payload.data.thread.comments.find((item) => item.id === comment.id)!;
@@ -76,7 +77,7 @@ describe("owner comment edits", () => {
 
 	it("updates the thread preview when the post is edited", async () => {
 		const { botOwnerCookie, thread } = await setup();
-		const response = await edit(botOwnerCookie, thread.id, thread.rootCommentId, { body: "A rewritten post.", expectedUpdatedAt: await updatedAt(thread.id, thread.rootCommentId) });
+		const response = await edit(botOwnerCookie, thread.id, thread.rootCommentId, { body: "A rewritten post.", expectedBody: await storedBody(thread.id, thread.rootCommentId) });
 		expect(response.status).toBe(200);
 		const row = await testEnv.BICKR_D1.prepare(`SELECT body_preview AS preview FROM threads_index WHERE thread_id = ?`).bind(thread.id).first<{ preview: string }>();
 		expect(row?.preview).toBe("A rewritten post.");
@@ -85,28 +86,39 @@ describe("owner comment edits", () => {
 	it("refuses forum moderators and other users", async () => {
 		const { worldOwnerCookie, thread, comment } = await setup();
 		const outsiderCookie = await authCookieFor({ subject: "333", login: "outsider", displayName: "Out Sider" });
-		const expectedUpdatedAt = await updatedAt(thread.id, comment.id);
+		const expectedBody = await storedBody(thread.id, comment.id);
 		for (const cookie of [worldOwnerCookie, outsiderCookie]) {
-			const response = await edit(cookie, thread.id, comment.id, { body: "Not yours.", expectedUpdatedAt });
+			const response = await edit(cookie, thread.id, comment.id, { body: "Not yours.", expectedBody });
 			expect(response.status).toBe(403);
 		}
 		expect((await storedThread(thread.id)).comments.find((item) => item.id === comment.id)!.body.text).toBe("The original reply.");
 	});
 
+	it("accepts an edit after a vote changed the comment but not its text", async () => {
+		const { botOwnerCookie, worldOwnerCookie, thread, comment } = await setup();
+		const expectedBody = await storedBody(thread.id, comment.id);
+		const before = (await storedThread(thread.id)).comments.find((item) => item.id === comment.id)!.updatedAt;
+		const voter = await createBotForTest(worldOwnerCookie, "edit-voter");
+		await new Promise((resolve) => setTimeout(resolve, 5));
+		await setVote(testEnv.BICKR_KV, testEnv.BICKR_D1, { botId: voter.id, targetType: "comment", targetId: comment.id, value: 1 });
+		expect((await storedThread(thread.id)).comments.find((item) => item.id === comment.id)!.updatedAt).not.toBe(before);
+		expect((await edit(botOwnerCookie, thread.id, comment.id, { body: "Edited after a vote.", expectedBody })).status).toBe(200);
+	});
+
 	it("rejects a stale edit with a conflict", async () => {
 		const { botOwnerCookie, thread, comment } = await setup();
-		const expectedUpdatedAt = await updatedAt(thread.id, comment.id);
-		expect((await edit(botOwnerCookie, thread.id, comment.id, { body: "First edit.", expectedUpdatedAt })).status).toBe(200);
-		const stale = await edit(botOwnerCookie, thread.id, comment.id, { body: "Second edit.", expectedUpdatedAt });
+		const expectedBody = await storedBody(thread.id, comment.id);
+		expect((await edit(botOwnerCookie, thread.id, comment.id, { body: "First edit.", expectedBody })).status).toBe(200);
+		const stale = await edit(botOwnerCookie, thread.id, comment.id, { body: "Second edit.", expectedBody });
 		expect(stale.status).toBe(409);
 		expect((await storedThread(thread.id)).comments.find((item) => item.id === comment.id)!.body.text).toBe("First edit.");
 	});
 
 	it("applies the posting limit of the comment and rejects an empty body", async () => {
 		const { botOwnerCookie, thread, comment } = await setup();
-		const expectedUpdatedAt = await updatedAt(thread.id, comment.id);
-		expect((await edit(botOwnerCookie, thread.id, comment.id, { body: "x".repeat(20_000), expectedUpdatedAt })).status).toBe(400);
-		expect((await edit(botOwnerCookie, thread.id, comment.id, { body: "   ", expectedUpdatedAt })).status).toBe(400);
+		const expectedBody = await storedBody(thread.id, comment.id);
+		expect((await edit(botOwnerCookie, thread.id, comment.id, { body: "x".repeat(20_000), expectedBody })).status).toBe(400);
+		expect((await edit(botOwnerCookie, thread.id, comment.id, { body: "   ", expectedBody })).status).toBe(400);
 	});
 
 	it("rejects an edit in a read-only forum", async () => {
@@ -118,7 +130,7 @@ describe("owner comment edits", () => {
 			),
 		);
 		expect(closed.status).toBe(200);
-		const response = await edit(botOwnerCookie, thread.id, comment.id, { body: "Too late.", expectedUpdatedAt: await updatedAt(thread.id, comment.id) });
+		const response = await edit(botOwnerCookie, thread.id, comment.id, { body: "Too late.", expectedBody: await storedBody(thread.id, comment.id) });
 		expect(response.status).toBe(409);
 	});
 });

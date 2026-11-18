@@ -72,11 +72,32 @@ it("lets the owner edit and save the source", async () => {
 	await act(async () => type("New *text*."));
 	expect(button("Save")?.disabled).toBe(false);
 	await act(async () => button("Save")!.click());
-	expect(onSave).toHaveBeenCalledWith("New *text*.");
-	// The parent stores the new text; a fresh instance shows the result rendered.
+	// The save names the stored text that the edit started from.
+	expect(onSave).toHaveBeenCalledWith("New *text*.", text);
+	expect(textarea()).toBeNull();
 	await render({ kind: "editable", onSave }, "New *text*.");
 	expect(textarea()).toBeNull();
 	expect(box.querySelector("em")?.textContent).toBe("text");
+});
+
+it("keeps a draft when the stored text changes, and says that a save replaces it", async () => {
+	const onSave = vi.fn(async () => true);
+	await render({ kind: "editable", onSave });
+	await act(async () => sourceButton()!.click());
+	await act(async () => type("My draft."));
+	await render({ kind: "editable", onSave }, "Edited elsewhere.");
+	expect(textarea()?.value).toBe("My draft.");
+	expect(box.textContent).toContain("changed while you edited");
+	await act(async () => button("Save")!.click());
+	expect(onSave).toHaveBeenCalledWith("My draft.", "Edited elsewhere.");
+});
+
+it("follows a stored text change when the source view has no unsaved changes", async () => {
+	await render({ kind: "readOnly" });
+	await act(async () => sourceButton()!.click());
+	await render({ kind: "readOnly" }, "Newer text.");
+	expect(textarea()?.value).toBe("Newer text.");
+	expect(box.textContent).not.toContain("changed while you edited");
 });
 
 it("saves with Ctrl+Enter and keeps the draft when the save fails", async () => {
@@ -85,7 +106,7 @@ it("saves with Ctrl+Enter and keeps the draft when the save fails", async () => 
 	await act(async () => sourceButton()!.click());
 	await act(async () => type("Draft."));
 	await act(async () => textarea()!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", ctrlKey: true, bubbles: true })));
-	expect(onSave).toHaveBeenCalledWith("Draft.");
+	expect(onSave).toHaveBeenCalledWith("Draft.", text);
 	expect(textarea()?.value).toBe("Draft.");
 });
 

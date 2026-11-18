@@ -15,8 +15,8 @@ export const participantListLimits = {
 } as const;
 
 /**
- * The R2 prefix of the cached link preview images of drawings. A bucket
- * lifecycle rule deletes these objects 30 days after upload; the avatar
- * janitor skips the prefix. See docs/markdown.md.
+ * The version of the drawing preview renderer: the snapshot page and the
+ * screenshot options. It is part of the cache key of every preview image, so
+ * a change to either must increase it.
  */
-export const drawingPreviewObjectPrefix = "drawing-previews/";
+export const drawingPreviewRendererVersion = 1;

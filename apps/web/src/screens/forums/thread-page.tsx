@@ -49,7 +49,7 @@ type ThreadPageProps = {
 	loading: boolean;
 	onCloseDrawing: () => void;
 	onDeleteComment: (thread: ThreadDocument, comment: CommentDocument) => Promise<boolean>;
-	onEditComment: (thread: ThreadDocument, comment: CommentDocument, body: string) => Promise<ThreadDocument | null>;
+	onEditComment: (thread: ThreadDocument, comment: CommentDocument, body: string, expectedBody: string) => Promise<ThreadDocument | null>;
 	onOpenDrawing: (drawing: DrawingRef) => void;
 	openDrawing: DrawingRef | null;
 	onDeleteThread: (thread: ThreadDocument) => Promise<boolean>;
@@ -296,7 +296,7 @@ function ThreadPageBody({
 				canDeleteComment={(comment) => canModerateForum || ownedBotIds.has(comment.authorBotId)}
 				canEditComment={(comment) => ownedBotIds.has(comment.authorBotId)}
 				drawingViewer={{ open: openDrawing, onOpen: onOpenDrawing, onClose: onCloseDrawing }}
-				onSaveSource={async (comment, text) => Boolean(await onEditComment(thread, comment, text))}
+				onSaveSource={async (comment, text, expectedBody) => Boolean(await onEditComment(thread, comment, text, expectedBody))}
 				onRequestDelete={setConfirmComment}
 				selected={selectedComments}
 				rootCommentId={thread.rootCommentId}
