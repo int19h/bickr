@@ -152,6 +152,11 @@ type ViewerTab = "rendered" | "source";
 
 function DrawingViewer({ initialView, language, onClose, source }: { initialView: ViewerTab; language: DrawingLanguage; onClose: () => void; source: string }) {
 	const [view, setView] = useState<ViewerTab>(initialView);
+	// Until the reader picks a tab, a drawing that does not render opens on its
+	// source. The inline block may not have failed yet when the viewer opens,
+	// for example from a link, so the viewer follows its own render.
+	const [tabChosen, setTabChosen] = useState(false);
+	const chooseView = (next: ViewerTab) => { setTabChosen(true); setView(next); };
 	const [state, setState] = useState<DrawingState>({ kind: "pending" });
 	const [downloading, setDownloading] = useState(false);
 	const exportSvg = useRef<ExportSvg | null>(null);
@@ -167,13 +172,14 @@ function DrawingViewer({ initialView, language, onClose, source }: { initialView
 		setDownloading(false);
 		if (svg) saveFile(renderedFileNames[language], svg);
 	}
+	useEffect(() => { if (state.kind === "error" && !tabChosen) setView("source"); }, [state.kind, tabChosen]);
 	const canDownload = view === "source" || (state.kind === "ready" && !downloading);
 	return <OverlayPortal><Modal
 		className="drawing-viewer"
 		headActions={<>
 			<div aria-label="View" className="tabs drawing-viewer-tabs" role="tablist">
-				<button aria-selected={view === "rendered"} onClick={() => setView("rendered")} role="tab" type="button">Rendered</button>
-				<button aria-selected={view === "source"} onClick={() => setView("source")} role="tab" type="button">Source</button>
+				<button aria-selected={view === "rendered"} onClick={() => chooseView("rendered")} role="tab" type="button">Rendered</button>
+				<button aria-selected={view === "source"} onClick={() => chooseView("source")} role="tab" type="button">Source</button>
 			</div>
 			<button className="btn ghost drawing-viewer-download" disabled={!canDownload} onClick={() => void download()} type="button">
 				{downloading ? <span className="spinner" /> : <Icon name="download" size={14} />}

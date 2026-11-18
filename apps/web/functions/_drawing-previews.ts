@@ -1,12 +1,14 @@
 import { drawingPreviewRendererVersion } from "@bickr/shared/content-limits";
 import { markdownDrawings, markdownMedia, type MarkdownMedia } from "@bickr/shared/markdown";
-import { localizedTextString, type CommentDocument } from "@bickr/shared/model";
+import { localizedTextString, type CommentDocument, type ThreadDocument } from "@bickr/shared/model";
 import { addInternalServiceAuthHeader, internalServiceUrl } from "@bickr/shared/internal-service";
 import { RepositoryError } from "@bickr/shared/repository";
-import { readThread } from "@bickr/shared/social";
 import { encodeDrawingSnapshot } from "../src/markdown/drawing-snapshot-protocol";
 import type { AppEnv } from "./api/_auth";
 import { botAvatarUrl } from "./_bot-avatar";
+import { readFreshThread } from "./_fresh-thread";
+
+type MarkdownDrawing = Extract<MarkdownMedia, { kind: "drawing" }>;
 
 /**
  * Link previews of posts and comments show their first image or drawing. A
@@ -63,8 +65,12 @@ function mediaPreviewImage(comment: CommentDocument, media: MarkdownMedia): Prev
 	}
 }
 
-/** A live comment of a live thread, or a 404. */
-async function liveComment(env: AppEnv, commentId: string): Promise<CommentDocument> {
+/**
+ * A live comment of a live thread and its drawing at `index`, or a 404. A
+ * stale KV copy can lack the comment or, after an edit, the drawing; then the
+ * coordinator's copy decides.
+ */
+async function liveDrawing(env: AppEnv, commentId: string, index: number): Promise<{ comment: CommentDocument; drawing: MarkdownDrawing }> {
 	const row = await env.BICKR_D1
 		.prepare(
 			`SELECT c.thread_id AS threadId
@@ -76,10 +82,15 @@ async function liveComment(env: AppEnv, commentId: string): Promise<CommentDocum
 		.bind(commentId)
 		.first<{ threadId: string }>();
 	if (!row) throw new RepositoryError("not_found", "Comment not found.", 404);
-	const thread = await readThread(env.BICKR_KV, row.threadId);
-	const comment = thread.deletedAt ? undefined : thread.comments.find((item) => item.id === commentId && !item.deletedAt);
-	if (!comment) throw new RepositoryError("not_found", "Comment not found.", 404);
-	return comment;
+	const find = (thread: ThreadDocument) => {
+		const comment = thread.deletedAt ? undefined : thread.comments.find((item) => item.id === commentId && !item.deletedAt);
+		const drawing = comment ? markdownDrawings(localizedTextString(comment.body))[index] : undefined;
+		return comment && drawing ? { comment, drawing } : null;
+	};
+	// The index row above already shows that the comment is live.
+	const found = find(await readFreshThread(env, row.threadId, (thread) => find(thread) !== null, async () => true));
+	if (!found) throw new RepositoryError("not_found", "Drawing not found.", 404);
+	return found;
 }
 
 /**
@@ -134,9 +145,7 @@ async function render(env: AppEnv, origin: string, comment: CommentDocument, dra
 }
 
 export async function drawingPreviewResponse(env: AppEnv, waitUntil: (promise: Promise<unknown>) => void, commentId: string, index: number): Promise<Response> {
-	const comment = await liveComment(env, commentId);
-	const drawing = markdownDrawings(localizedTextString(comment.body))[index];
-	if (!drawing) throw new RepositoryError("not_found", "Drawing not found.", 404);
+	const { comment, drawing } = await liveDrawing(env, commentId, index);
 	const origin = publicOrigin(env);
 	const key = await cacheKey(origin, drawing);
 	const cache = caches.default;

@@ -8178,6 +8178,9 @@ dialog.discord-invite .modal-foot { flex-wrap: wrap; }
 .svg-drawing > svg { display: block; width: 100%; height: 100%; max-height: 600px; }
 /* The cover takes the clicks that the Mermaid frame would otherwise swallow. */
 .drawing-open { position: absolute; inset: 0; z-index: 1; display: block; width: 100%; height: 100%; padding: 0; border: 0; border-radius: 6px; background: transparent; cursor: zoom-in; }
+/* The hover controls of a comment body sit in its bottom-right corner, which a
+   final drawing reaches. The cover leaves that corner to the controls. */
+.comment .body .drawing-open { clip-path: polygon(0 0, 100% 0, 100% calc(100% - 30px), calc(100% - 84px) calc(100% - 30px), calc(100% - 84px) 100%, 0 100%); }
 .drawing-open:focus-visible { outline: 2px solid var(--accent, var(--ink-3)); outline-offset: -2px; }
 .drawing-open-badge { position: absolute; top: 6px; right: 6px; display: inline-grid; place-items: center; width: 26px; height: 26px; border: 1px solid var(--rule); border-radius: 5px; background: color-mix(in oklch, var(--paper) 92%, transparent); color: var(--ink-3); opacity: 0; transition: opacity 80ms; }
 .drawing-open:hover .drawing-open-badge, .drawing-open:focus-visible .drawing-open-badge { opacity: 1; }

@@ -12,11 +12,12 @@ import {
 	listWorlds,
 	worldByHandle,
 } from "@bickr/shared/repository";
-import { botPublicProfileByHandle, forumByHandle, readThread } from "@bickr/shared/social";
+import { botPublicProfileByHandle, forumByHandle } from "@bickr/shared/social";
 import { parsePathname, routePath, type ParsedRoute } from "../src/routes";
 import { markdownPreview } from "@bickr/shared/markdown";
 import { commentPreviewImage, drawingPreviewImage, type PreviewImage } from "./_drawing-previews";
 import { botAvatarUrl } from "./_bot-avatar";
+import { commentIndexed, readFreshThread, threadIndexed } from "./_fresh-thread";
 import { currentUser, type AppEnv } from "./api/_auth";
 
 export type PageMetadata = {
@@ -184,7 +185,19 @@ async function threadMetadata(env: AppEnv, route: ParsedRoute): Promise<PageMeta
 	const forumHandle = requiredRoutePart(route.forumHandle, "Forum");
 	const threadId = requiredRoutePart(route.threadId, "Thread");
 	const forum = await forumByHandle(env.BICKR_KV, env.BICKR_D1, worldHandle, forumHandle);
-	const thread = await readThread(env.BICKR_KV, threadId);
+	const drawing = route.drawing;
+	const thread = await readFreshThread(
+		env,
+		threadId,
+		(stored) =>
+			(!route.commentId || stored.comments.some((comment) => comment.id === route.commentId)) &&
+			(!drawing || stored.comments.some((comment) => comment.id === drawing.commentId && drawingPreviewImage(comment, drawing.index) !== null)),
+		async () =>
+			(await Promise.all([
+				route.commentId ? commentIndexed(env.BICKR_D1, threadId, route.commentId) : threadIndexed(env.BICKR_D1, threadId),
+				drawing ? commentIndexed(env.BICKR_D1, threadId, drawing.commentId) : true,
+			])).every(Boolean),
+	);
 	if (thread.forumId !== forum.id) {
 		return notFoundMetadata("Thread");
 	}
