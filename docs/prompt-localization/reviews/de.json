@@ -2,7 +2,7 @@
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
   "catalogSourceHash": "dc0b823a0529b7992b6c9310b8e3e6d94e67163276f802b612ea958457d8f995",
   "locale": "de",
-  "status": "partially_pending_translation",
+  "status": "approved",
   "leadReason": "Accept the German catalog after both reviewers accept both exact follow-up units. The direct Mermaid imperative keeps the required maximum. The SVG clause names its fence and label plainly. The profile-result actor is explicit. Darf nicht leer sein preserves the required nonempty constraint.",
   "terminologyDecisions": {
     "unfollow": "Use the ordinary social-action verb entfolgen in the tool description, as all four independent drafts do. Explanatory nicht mehr folgen remains acceptable in the schema fields.",

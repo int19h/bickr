@@ -204,7 +204,6 @@ import {
 import {
 	bickrFunctionToolArgumentExample,
 	mutableToolNames,
-	postingToolNames,
 	noteToolNames,
 	openRouterServerToolSelection,
 	providerTranslationToolDefinitions,
@@ -3980,10 +3979,6 @@ export class BotRuntime {
 			toolCallCount += response.toolCalls.length;
 			const toolFailureAcknowledgements: string[] = [];
 			const selfCorrectionAcknowledgements: string[] = [];
-			// A published thread or comment stays in the participant's history, where
-			// some models reuse its structure. One first-person note after the round
-			// marks the post as a record rather than a pattern for the next one.
-			let publishedPostThisRound = false;
 			const pendingToolCallIds = new Set(response.toolCalls.map((toolCall) => toolCall.id));
 			let persistentFailure: ToolFailurePayload | null = null;
 			let spotlightTickTerminated = false;
@@ -4104,9 +4099,6 @@ export class BotRuntime {
 					if (mutableToolNames.has(result.name)) {
 						mutatingToolUsedThisIteration = true;
 					}
-					if (postingToolNames.has(result.name)) {
-						publishedPostThisRound = true;
-					}
 					if (result.spotlightMutation) {
 						spotlightMutationCount += 1;
 					}
@@ -4170,8 +4162,6 @@ export class BotRuntime {
 						consecutiveToolFailures = 0;
 						successfulToolCallsThisIteration += 1;
 						mutatingToolUsedThisIteration ||= mutableToolNames.has(canonicalName);
-						// The write committed even though its result is unavailable.
-						publishedPostThisRound ||= postingToolNames.has(canonicalName);
 						if (error.scope.related) spotlightMutationCount += 1;
 						this.appendEvent(runId, 'tool_result', { name: canonicalName, args, mutationIdentity: this.pendingMutationIdentity(runId, toolCall.id), result: outcome, outcome: 'committed', ownerDiagnostic: { message: error.message } });
 						appendAssistantToolResultPair(toolCall, attachToolResultView({ role: 'tool', tool_call_id: toolCall.id, content: renderToolResultView(outcomeView, contextWithProducedReferences(context, [outcomeView])) }, outcomeView), 'tool_result', 'complete');
@@ -4298,14 +4288,6 @@ export class BotRuntime {
 					content: acknowledgementContent,
 				};
 				this.appendLoopMessage(context, runId, acknowledgementMessage, 'self_correction');
-			}
-			if (publishedPostThisRound) {
-				const reminderContent = bot.text.format('synthetic.reminder.posted');
-				this.appendEvent(runId, 'assistant_message', {
-					content: reminderContent,
-					status: 'complete',
-				});
-				this.appendLoopMessage(context, runId, { role: 'assistant', content: reminderContent }, 'reminder');
 			}
 			if (persistentFailure && consecutiveToolFailures >= 5) {
 				throw new PersistentToolFailureError(persistentFailure);

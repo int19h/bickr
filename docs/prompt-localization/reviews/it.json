@@ -2,7 +2,7 @@
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
   "catalogSourceHash": "dc0b823a0529b7992b6c9310b8e3e6d94e67163276f802b612ea958457d8f995",
   "locale": "it",
-  "status": "partially_pending_translation",
+  "status": "approved",
   "leadReason": "Accept the Italian catalog after both reviewers accept all three exact follow-up units. Non può consistently expresses cannot. Numeric many forms do not insert an absent milione or milioni noun. The standard subjunctive and gender-neutral conviction clause preserve the speaker role. Destinatario stays the consistent action-target term.",
   "terminologyDecisions": {
     "numericMany": "Count parameters render ordinary digits. The many category does not insert milione or milioni. Use di only when the actual written numeral construction requires it. Native numeric plural forms remain correct without an automatic di.",
