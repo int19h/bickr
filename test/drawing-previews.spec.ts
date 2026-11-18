@@ -8,6 +8,7 @@ import {
 	describe,
 	expect,
 	it,
+	kvKeys,
 	pageContext,
 	seedWorld,
 	testEnv,
@@ -113,6 +114,27 @@ describe("drawing link previews", () => {
 		expect(second.status).toBe(200);
 		expect(new Uint8Array(await second.arrayBuffer())).toEqual(new Uint8Array([137, 80, 78, 71]));
 		expect(renders).toHaveLength(1);
+	});
+
+	it("reads the coordinator when the KV thread document does not have the comment yet", async () => {
+		const { thread, bot } = await setup();
+		const stale = await testEnv.BICKR_KV.get(kvKeys.thread(thread.id));
+		const reply = await createCommentForTest(thread.id, bot.id, "```mermaid\ngraph LR; K-->L\n```");
+		const fresh = await testEnv.BICKR_KV.get(kvKeys.thread(thread.id), { type: "json" });
+		// An edge cache still serves the document from before the reply.
+		await testEnv.BICKR_KV.put(kvKeys.thread(thread.id), stale!);
+		const paths: string[] = [];
+		const coordinator = {
+			fetch: async (request: Request) => {
+				const path = new URL(request.url).pathname;
+				paths.push(path);
+				if (path === `/threads/${thread.id}`) return Response.json({ ok: true, data: { thread: fresh } });
+				return new Response(new Uint8Array([137, 80, 78, 71]), { headers: { "content-type": "image/png" } });
+			},
+		} as unknown as Fetcher;
+		const response = await get(reply.id, 0, coordinator);
+		expect(response.status).toBe(200);
+		expect(paths).toEqual([`/threads/${thread.id}`, "/drawing-previews/render"]);
 	});
 
 	it("falls back to the author's avatar for a drawing that does not draw, and remembers the failure", async () => {

@@ -1,12 +1,13 @@
 import { drawingPreviewRendererVersion } from "@bickr/shared/content-limits";
 import { markdownDrawings, markdownMedia, type MarkdownMedia } from "@bickr/shared/markdown";
-import { localizedTextString, type CommentDocument } from "@bickr/shared/model";
+import { localizedTextString, type CommentDocument, type ThreadDocument } from "@bickr/shared/model";
 import { addInternalServiceAuthHeader, internalServiceUrl } from "@bickr/shared/internal-service";
 import { RepositoryError } from "@bickr/shared/repository";
 import { readThread } from "@bickr/shared/social";
 import { encodeDrawingSnapshot } from "../src/markdown/drawing-snapshot-protocol";
 import type { AppEnv } from "./api/_auth";
 import { botAvatarUrl } from "./_bot-avatar";
+import { readCoordinatorThread } from "./api/_coordinator-thread";
 
 /**
  * Link previews of posts and comments show their first image or drawing. A
@@ -76,8 +77,11 @@ async function liveComment(env: AppEnv, commentId: string): Promise<CommentDocum
 		.bind(commentId)
 		.first<{ threadId: string }>();
 	if (!row) throw new RepositoryError("not_found", "Comment not found.", 404);
-	const thread = await readThread(env.BICKR_KV, row.threadId);
-	const comment = thread.deletedAt ? undefined : thread.comments.find((item) => item.id === commentId && !item.deletedAt);
+	const find = (thread: ThreadDocument) => thread.deletedAt ? undefined : thread.comments.find((item) => item.id === commentId && !item.deletedAt);
+	// The KV document can lag a new comment by up to a minute at the edge, and
+	// crawlers fetch a card image right after a link is shared. The index says
+	// that the comment exists, so a miss in KV reads the coordinator's copy.
+	const comment = find(await readThread(env.BICKR_KV, row.threadId)) ?? find(await readCoordinatorThread(env, row.threadId));
 	if (!comment) throw new RepositoryError("not_found", "Comment not found.", 404);
 	return comment;
 }

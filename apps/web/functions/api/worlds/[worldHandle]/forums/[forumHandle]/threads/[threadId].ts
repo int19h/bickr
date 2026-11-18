@@ -1,12 +1,10 @@
 import { ok } from "@bickr/shared/api";
-import { addInternalServiceAuthHeader, internalServiceUrl } from "@bickr/shared/internal-service";
-import { type ApiErrorCode, type ThreadDocument } from "@bickr/shared/model";
-import { RepositoryError } from "@bickr/shared/repository";
 import { forumByHandle, readThreadWithReadState, recordThreadRead, threadWithReadState } from "@bickr/shared/social";
 import { normalizeHandleParam } from "@bickr/shared/validation";
 import { currentUser, requireCompleteUser, type AppEnv } from "../../../../../_auth";
 import { pageErrorResponse } from "../../../../../_errors";
-import { fetchServiceJson, serviceRequest } from "../../../../../_proxy";
+import { readCoordinatorThread } from "../../../../../_coordinator-thread";
+import { serviceRequest } from "../../../../../_proxy";
 
 export const onRequestGet: PagesFunction<
 	AppEnv,
@@ -27,7 +25,7 @@ export const onRequestGet: PagesFunction<
 				// readThreadWithReadState.
 				await threadWithReadState(
 					env.BICKR_D1,
-					await readCoordinatorThread(env, request, threadId),
+					await readCoordinatorThread(env, threadId, request.headers.get("accept")),
 					user?.id ?? null,
 				)
 			:	await readThreadWithReadState(env.BICKR_KV, env.BICKR_D1, threadId, user?.id ?? null);
@@ -45,58 +43,6 @@ export const onRequestGet: PagesFunction<
 		return pageErrorResponse(error);
 	}
 };
-
-async function readCoordinatorThread(
-	env: AppEnv,
-	request: Request,
-	threadId: string,
-): Promise<ThreadDocument> {
-	const headers = new Headers();
-	const accept = request.headers.get("accept");
-	if (accept !== null) {
-		headers.set("accept", accept);
-	}
-	addInternalServiceAuthHeader(headers, env.INTERNAL_SERVICE_SECRET);
-	const { response, payload } = await fetchServiceJson(
-		env.FORUM_COORDINATOR_SERVICE,
-		new Request(internalServiceUrl(`/threads/${encodeURIComponent(threadId)}`), {
-			headers,
-			method: "GET",
-		}),
-	);
-	if (isThreadPayload(payload)) {
-		return payload.data.thread;
-	}
-	if (isErrorPayload(payload)) {
-		throw new RepositoryError(repositoryErrorCode(payload.error), payload.message, response.status);
-	}
-	throw new RepositoryError("server_error", response.statusText || "Thread response was invalid.", response.status || 500);
-}
-
-function isThreadPayload(value: unknown): value is { ok: true; data: { thread: ThreadDocument } } {
-	return (
-		Boolean(value) &&
-		typeof value === "object" &&
-		(value as { ok?: unknown }).ok === true &&
-		Boolean((value as { data?: unknown }).data) &&
-		typeof (value as { data?: unknown }).data === "object" &&
-		Boolean(((value as { data: { thread?: unknown } }).data.thread))
-	);
-}
-
-function isErrorPayload(value: unknown): value is { ok: false; error: ApiErrorCode; message: string } {
-	return (
-		Boolean(value) &&
-		typeof value === "object" &&
-		(value as { ok?: unknown }).ok === false &&
-		typeof (value as { error?: unknown }).error === "string" &&
-		typeof (value as { message?: unknown }).message === "string"
-	);
-}
-
-function repositoryErrorCode(value: ApiErrorCode): RepositoryError["code"] {
-	return value === "oauth_error" ? "server_error" : value;
-}
 
 export const onRequestDelete: PagesFunction<
 	AppEnv,
