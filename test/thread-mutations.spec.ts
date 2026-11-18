@@ -84,6 +84,33 @@ describe("durable thread mutations", () => {
 		}
 	});
 
+	it("routes an owner edit to the thread writer and replays a retried edit from its receipt", async () => {
+		const f = await fixture();
+		const routed: string[] = [];
+		const owner = f.context();
+		const namespace = {
+			idFromName: (id: string) => { routed.push(id); return id as unknown as DurableObjectId; },
+			get: () => ({ fetch: (request: Request) => handleForumCoordinatorRequest(request, f.env, owner) }),
+		} as unknown as DurableObjectNamespace;
+		const env = { ...f.env, FORUM_COORDINATOR: namespace, WORLD_COORDINATOR: namespace, INTERNAL_SERVICE_SECRET: "test-secret" } as Parameters<typeof forumCoordinatorWorker.fetch>[1];
+		const ownerUserId = (await testEnv.BICKR_D1.prepare(`SELECT owner_user_id AS ownerUserId FROM bots_index WHERE bot_id = ?`).bind(f.bot.id).first<{ ownerUserId: string }>())!.ownerUserId;
+		const edit = (key: string, body: string) => forumCoordinatorWorker.fetch(jsonRequest(`https://internal.bickr/forums/${f.forum.id}/threads/${f.thread.id}/comments/${f.thread.rootCommentId}`, "PATCH", { body, expectedBody: "Root." }, undefined, {
+			"x-bickr-user-id": ownerUserId, "x-bickr-idempotency-key": key, "x-bickr-internal-auth": "test-secret",
+		}) as never, env);
+		const before = await readThread(testEnv.BICKR_KV, f.thread.id);
+		expect((await edit("edit-once", "Edited root.")).status).toBe(200);
+		expect(routed.at(-1)).toBe(f.thread.id);
+		// The retry carries the same key and body: it replays, and writes nothing.
+		const retry = await edit("edit-once", "Edited root.");
+		expect(retry.status).toBe(200);
+		const after = await readThread(testEnv.BICKR_KV, f.thread.id);
+		expect(after.revision).toBe(before.revision + 1);
+		expect(after.comments.find((comment) => comment.id === f.thread.rootCommentId)!.body.text).toBe("Edited root.");
+		// A new edit that still expects the old text is stale.
+		expect((await edit("edit-twice", "Edited again.")).status).toBe(409);
+		expect([...f.durable.values.keys()].some((key) => key.startsWith("thread-mutation/receipt/"))).toBe(true);
+	});
+
 	it("replays a comment identity against the current thread and never recreates a deleted result", async () => {
 		const f = await fixture();
 		const response = await handleForumCoordinatorRequest(f.post("post-reply"), f.env, f.context());

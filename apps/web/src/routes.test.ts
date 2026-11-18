@@ -1,7 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { inferenceReturnTargetFromPath, normalizeLoggedOutRoute, parsePathname, routePath } from "./routes";
+import { inferenceReturnTargetFromPath, normalizeLoggedOutRoute, parseDrawingParam, parsePathname, routePath } from "./routes";
 
 describe("routes", () => {
+	it("carries the drawing viewer in the thread URL", () => {
+		const route = parsePathname("/w/w1/f/f1/t/thr_1/c/cmt_2", "?drawing=cmt_2.3");
+		expect(route).toEqual({ route: "thread", worldHandle: "w1", forumHandle: "f1", threadId: "thr_1", commentId: "cmt_2", drawing: { commentId: "cmt_2", index: 3 } });
+		expect(routePath(route)).toBe("/w/w1/f/f1/t/thr_1/c/cmt_2?drawing=cmt_2.3");
+		expect(routePath(parsePathname("/w/w1/f/f1/t/thr_1", "?drawing=abc.0"))).toBe("/w/w1/f/f1/t/thr_1?drawing=abc.0");
+		for (const value of ["", "abc", "abc.", "a/b.1", "abc.1234", "abc.-1"]) expect(parseDrawingParam(value)).toBeUndefined();
+		expect(parsePathname("/w/w1/f/f1/t/thr_1", "?drawing=bad")).toEqual({ route: "thread", worldHandle: "w1", forumHandle: "f1", threadId: "thr_1" });
+	});
+
 	it("parses short comment routes without falling back to worlds", () => {
 		const route = parsePathname("/c/dut6s5lq");
 		expect(route).toEqual({ route: "comment-ref", commentId: "dut6s5lq" });

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { markdownPreview } from "./markdown";
+import { markdownDrawings, markdownMedia, markdownPreview } from "./markdown";
 import { extractMentionCandidates, extractCanonicalMentionHandles, rewriteMentions } from "./mentions";
 describe("Markdown mentions", () => {
 	it("ignores code, links, images, HTML and diagram source", () => {
@@ -17,5 +17,19 @@ describe("Markdown mentions", () => {
 	it("projects snippets without rendering SVG or Mermaid source", () => {
 		expect(markdownPreview('**hello**\nworld')).toBe("hello world");
 		expect(markdownPreview('```svg\n<svg>')).toBe("[SVG drawing]");
+	});
+});
+
+describe("Markdown media", () => {
+	it("lists images and drawings in document order and numbers the drawings", () => {
+		const source = "![a](https://x.example/a.png)\n\n- item\n\n  ```mermaid\n  graph TD; A-->B\n  ```\n\n```js\nnot a drawing\n```\n\n```svg\n<svg/>\n```";
+		const media = markdownMedia(source);
+		expect(media.map((item) => item.kind === "image" ? `image:${item.url}` : `${item.language}:${item.index}:${item.source}`)).toEqual([
+			"image:https://x.example/a.png",
+			"mermaid:0:graph TD; A-->B",
+			"svg:1:<svg/>",
+		]);
+		const drawings = markdownDrawings(source);
+		expect(drawings.map((drawing) => source.slice(drawing.start!, drawing.start! + 3))).toEqual(["```", "```"]);
 	});
 });

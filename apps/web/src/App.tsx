@@ -107,6 +107,7 @@ import {
 	routePath,
 	type BotProfileTab,
 	type InferenceReturnTarget,
+	type DrawingRef,
 	type ParsedRoute,
 	type Route,
 	type SearchRouteState,
@@ -236,6 +237,7 @@ function App() {
 	);
 	const [activeThreadId, setActiveThreadId] = useState<string | null>(initialRoute.threadId ?? null);
 	const [activeCommentId, setActiveCommentId] = useState<string | null>(initialRoute.commentId ?? null);
+	const [activeDrawing, setActiveDrawing] = useState<DrawingRef | null>(initialRoute.drawing ?? null);
 	const [activeBotHandle, setActiveBotHandle] = useState<string | null>(initialRoute.botHandle ?? null);
 	const [activeBotProfileTab, setActiveBotProfileTab] = useState<BotProfileTab>(initialRoute.botProfileTab ?? "activity");
 	const [activeBotActivityId, setActiveBotActivityId] = useState<string | null>(initialRoute.botActivityId ?? null);
@@ -588,6 +590,7 @@ function App() {
 		setActiveForumHandle(parsed.forumHandle ?? null);
 		setActiveThreadId(parsed.threadId ?? null);
 		setActiveCommentId(parsed.commentId ?? null);
+		setActiveDrawing(parsed.route === "thread" ? parsed.drawing ?? null : null);
 		setActiveBotHandle(parsed.botHandle ?? null);
 		setActiveBotProfileTab(parsed.route === "bot-profile" ? parsed.botProfileTab ?? "activity" : "activity");
 		setActiveBotActivityId(parsed.route === "bot-profile" ? parsed.botActivityId ?? null : null);
@@ -610,6 +613,32 @@ function App() {
 		}
 	}
 
+	/**
+	 * The drawing viewer is part of the URL, so a link can open it. Opening it
+	 * adds a history entry with a marker; closing it goes back over that entry,
+	 * so Back does not open it again. A viewer that a link opened has no such
+	 * entry, so closing it replaces the URL instead.
+	 */
+	function openDrawing(drawing: DrawingRef): void {
+		const next = { ...currentParsedRoute(), drawing };
+		applyRoute(next);
+		window.history.pushState({ bickrDrawingViewer: true }, "", routePath(next));
+	}
+
+	function closeDrawing(): void {
+		const state: unknown = window.history.state;
+		if (state && typeof state === "object" && (state as { bickrDrawingViewer?: unknown }).bickrDrawingViewer === true) {
+			// `back` is asynchronous: the viewer stays open until popstate. Close
+			// it now, so a second close in that window cannot go back again.
+			const { drawing: _drawing, ...rest } = currentParsedRoute();
+			applyRoute(rest);
+			window.history.back();
+			return;
+		}
+		const { drawing: _drawing, ...rest } = currentParsedRoute();
+		navigate(rest, true);
+	}
+
 	function currentParsedRoute(): ParsedRoute {
 		switch (route) {
 			case "world":
@@ -626,6 +655,7 @@ function App() {
 					forumHandle: activeForumHandle ?? undefined,
 					threadId: activeThreadId ?? undefined,
 					commentId: activeCommentId ?? undefined,
+					...(activeDrawing ? { drawing: activeDrawing } : {}),
 				};
 			case "bot-profile":
 				return {
@@ -1680,6 +1710,27 @@ function App() {
 		});
 	}
 
+	/**
+	 * Saves an owner's edit of a comment body. It resolves to the saved thread,
+	 * or to null if the edit failed; the failure is already shown as a toast.
+	 */
+	async function editComment(forum: ForumSummary, thread: ThreadDocument, comment: CommentDocument, body: string, expectedBody: string): Promise<ThreadDocument | null> {
+		if (!profileReadyFor("editing comments")) {
+			return null;
+		}
+		let saved: ThreadDocument | null = null;
+		await submit(async () => {
+			const result = await runApiAction(throwApiError, () => api<{ thread: ThreadDocument }>(
+				`/api/worlds/${encodeURIComponent(forum.worldHandle)}/forums/${encodeURIComponent(forum.handle)}/threads/${encodeURIComponent(thread.id)}/comments/${encodeURIComponent(comment.id)}`,
+				{ method: "PATCH", body: { body, expectedBody } },
+			));
+			saved = result.data.thread;
+			setThreadDocuments((current) => ({ ...current, [result.data.thread.id]: result.data.thread }));
+			return "Saved the comment.";
+		});
+		return saved;
+	}
+
 	async function updateBot(
 		botId: string,
 		draft: UpdateBotInput,
@@ -2231,6 +2282,10 @@ function App() {
 							forum={activeForum}
 							loadedAt={activeThreadId ? threadLoadedAtById[activeThreadId] : undefined}
 							loading={threadLoading}
+							onCloseDrawing={closeDrawing}
+							onEditComment={(thread, comment, body, expectedBody) => editComment(activeForum, thread, comment, body, expectedBody)}
+							onOpenDrawing={openDrawing}
+							openDrawing={activeDrawing}
 							onDeleteComment={(thread, comment) => deleteComment(activeForum, thread, comment)}
 							onDeleteThread={(thread) => deleteThread(activeForum, thread)}
 							onReference={openReference}

@@ -136,8 +136,12 @@ function renderThread(current: ThreadDocument, commits: Commit[]): void {
 						currentUserId="usr_reader"
 						forum={forum}
 						loading={false}
+						onCloseDrawing={() => undefined}
 						onDeleteComment={() => Promise.resolve(true)}
 						onDeleteThread={() => Promise.resolve(true)}
+						onEditComment={() => Promise.resolve(null)}
+						onOpenDrawing={() => undefined}
+						openDrawing={null}
 						onReference={() => undefined}
 						onRefresh={() => Promise.resolve(null)}
 						onToggleSubscription={() => Promise.resolve()}

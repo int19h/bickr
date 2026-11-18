@@ -1,4 +1,5 @@
 import { pruneFollowerActivity } from "@bickr/shared/follower-activity";
+import { parseDrawingPreviewInput, renderDrawingPreview } from "./drawing-preview";
 import { botServiceIssue, isCommittedBotServiceIssue } from '@bickr/shared/bot-service-issues';
 import { runHumanNotificationFanout } from "@bickr/shared/human-notification-fanout";
 import { finishForumCreation, readForumCreationIntent } from "@bickr/shared/forum-creation";
@@ -17,6 +18,7 @@ import {
 } from "@bickr/shared/entity-lifecycle";
 import {
 	deleteComment,
+	editComment,
 	deleteThread,
 	coordinatorGovernanceMutations,
 } from "@bickr/shared/governance";
@@ -55,6 +57,7 @@ import {
 	InputError,
 	normalizeHandle,
 	parseCreateCommentInput,
+	parseEditCommentInput,
 	parseCreateForumInput,
 	parseCreateThreadInput,
 	parseCreateWorldInput,
@@ -124,6 +127,10 @@ export interface Env {
 	AGENT_RUNTIME_SERVICE: Fetcher;
 	WORLD_COORDINATOR: DurableObjectNamespace;
 	FORUM_COORDINATOR: DurableObjectNamespace;
+	/** Browser Run and its render budget, for drawing link previews. Tests run without them. */
+	BROWSER?: BrowserRun;
+	DRAWING_PREVIEW_LIMITER?: RateLimit;
+	DRAWING_PREVIEW_AUTHOR_LIMITER?: RateLimit;
 }
 
 type ForumCoordinatorEnv = Pick<Env, "AI" | "BICKR_D1" | "BICKR_KV" | "BICKR_SEARCH_VECTORIZE"> &
@@ -725,14 +732,24 @@ async function handleCommentCoordinatorMutation(
 		return createCommentReply(request, env, coordinator, decodeURIComponent(commentReplyMatch[1] ?? ""));
 	}
 
-	const commentDeleteMatch = /^\/forums\/([^/]+)\/threads\/([^/]+)\/comments\/([^/]+)$/.exec(url.pathname);
-	if (request.method !== "DELETE" || !commentDeleteMatch) {
+	const commentManageMatch = /^\/forums\/([^/]+)\/threads\/([^/]+)\/comments\/([^/]+)$/.exec(url.pathname);
+	if ((request.method !== "DELETE" && request.method !== "PATCH") || !commentManageMatch) {
 		return null;
 	}
 	const userId = requireUserHeader(request);
-	const forumId = decodeURIComponent(commentDeleteMatch[1] ?? "");
-	const threadId = decodeURIComponent(commentDeleteMatch[2] ?? "");
-	const commentId = decodeURIComponent(commentDeleteMatch[3] ?? "");
+	const forumId = decodeURIComponent(commentManageMatch[1] ?? "");
+	const threadId = decodeURIComponent(commentManageMatch[2] ?? "");
+	const commentId = decodeURIComponent(commentManageMatch[3] ?? "");
+	if (request.method === "PATCH") {
+		const input = parseEditCommentInput(await readJsonBody(request));
+		const latestThread = await threadBeforeMutation(env, coordinator, threadId);
+		const overlay = await mutationAvatarOverlay(env, latestThread);
+		const thread = await editComment(env.BICKR_KV, env.BICKR_D1, forumId, threadId, commentId, userId, input, undefined, {
+			...(latestThread ? { thread: latestThread } : {}),
+		});
+		await writeFreshThread(coordinator, thread);
+		return okThread(coordinator, overlay, { thread });
+	}
 	const latestThread = await threadBeforeMutation(env, coordinator, threadId);
 	const overlay = await mutationAvatarOverlay(env, latestThread);
 	const thread = await deleteComment(env.BICKR_KV, env.BICKR_D1, forumId, threadId, commentId, userId, undefined, {
@@ -1088,6 +1105,11 @@ async function handleForumWorkerFetch(request: Request, env: Env): Promise<Respo
 	const url = new URL(request.url);
 	if (!isTrustedInternalServiceRequest(request, env.INTERNAL_SERVICE_SECRET)) {
 		return forumCoordinatorNotFoundResponse();
+	}
+	// A preview render reads and writes no stored data, so maintenance, which
+	// guards stored data, does not stop it.
+	if (request.method === "POST" && url.pathname === "/drawing-previews/render") {
+		return renderDrawingPreview(env, parseDrawingPreviewInput(await readJsonBody(request)));
 	}
 	const maintenanceResponse = await mutationMaintenanceResponse(request, env.BICKR_D1);
 	if (maintenanceResponse) {
@@ -1586,9 +1608,10 @@ async function routeForumCoordinatorRequest(request: Request, env: Env, url: URL
 	if (!url.pathname.startsWith("/forums/")) {
 		return null;
 	}
-	const threadMutationMatch = /^\/forums\/[^/]+\/threads\/([^/]+)(?:\/comments\/[^/]+)?$/.exec(url.pathname);
+	const threadMutationMatch = /^\/forums\/[^/]+\/threads\/([^/]+)(\/comments\/[^/]+)?$/.exec(url.pathname);
+	// Deletes and comment edits change one thread, so its coordinator runs them.
 	const coordinatorName =
-		threadMutationMatch && request.method === "DELETE" ?
+		threadMutationMatch && (request.method === "DELETE" || (request.method === "PATCH" && threadMutationMatch[2])) ?
 			decodeURIComponent(threadMutationMatch[1] ?? "")
 		:	url.pathname.split("/")[2] ?? "unknown";
 	const objectId = env.FORUM_COORDINATOR.idFromName(coordinatorName);
@@ -1832,6 +1855,7 @@ async function routeObjectIndexRepair(env: ForumCoordinatorEnv, input: OwnedObje
 }
 
 function isThreadMutationRequest(request: Request, url: URL): boolean {
+	if (request.method === "PATCH") return /^\/forums\/[^/]+\/threads\/[^/]+\/comments\/[^/]+$/.test(url.pathname);
 	if (!["POST", "DELETE"].includes(request.method)) return false;
 	return url.pathname === "/votes" || /^\/threads\/[^/]+\/(comments|normalize|soft-delete)$/.test(url.pathname)
 		|| /^\/comments\/[^/]+\/replies$/.test(url.pathname)

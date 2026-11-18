@@ -59,6 +59,7 @@
 	"vars": {
 		"BICKR_ENVIRONMENT": "production",
 		"BICKR_PRODUCTION_ORIGIN": "https://bickr.social",
+		"BICKR_PUBLIC_ORIGIN": "https://bickr.social",
 		"BICKR_R2_PUBLIC_BASE_URL": "https://assets.bickr.social",
 		"GITHUB_REDIRECT_URI": "https://bickr.social/api/auth/github/callback",
 		"GOOGLE_REDIRECT_URI": "https://bickr.social/api/auth/google/callback",
@@ -115,6 +116,7 @@
 			"vars": {
 				"BICKR_ENVIRONMENT": "test",
 				"BICKR_PRODUCTION_ORIGIN": "https://bickr.social",
+				"BICKR_PUBLIC_ORIGIN": "https://test.bickr.social",
 				"BICKR_R2_PUBLIC_BASE_URL": "https://test-assets.bickr.social",
 				"GITHUB_REDIRECT_URI": "https://test.bickr.social/api/auth/github/callback",
 				"GOOGLE_REDIRECT_URI": "https://test.bickr.social/api/auth/google/callback",

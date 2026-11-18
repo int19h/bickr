@@ -789,6 +789,25 @@ export function parseCreateCommentInput(input: unknown): Omit<CreateCommentInput
 	};
 }
 
+/**
+ * The owner's edit of a comment body. The text is plain Markdown: the edit
+ * keeps the language tag that the comment already has. `expectedBody` is the
+ * stored text that the editor started from. The bound here is the
+ * largest hard limit of any posting kind; the writer applies the limit of the
+ * author and of the comment kind after mention canonicalization.
+ */
+export function parseEditCommentInput(input: unknown): { text: string; expectedBody: string } {
+	const record = asRecord(input);
+	const maxLength = Math.max(maxThreadBodyHardLength, maxCommentBodyHardLength);
+	const text = requiredPostingBody(record.body, "Comment body", maxLength);
+	// The stored text that the editor started from. It can exceed the posting
+	// limit only by canonicalization, which adds a few characters per mention.
+	if (typeof record.expectedBody !== "string" || record.expectedBody.length > 2 * maxLength) {
+		throw new InputError("Expected comment body is required.");
+	}
+	return { text, expectedBody: record.expectedBody };
+}
+
 export function parseVoteInput(input: unknown): Pick<VoteInput, "targetType" | "targetId" | "value" | "reason"> {
 	const record = asRecord(input);
 	const threadId =

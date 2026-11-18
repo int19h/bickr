@@ -13,3 +13,10 @@ export const participantListLimits = {
 	defaultProfiles: 20, maximumProfiles: 50, maximumFollowers: 50,
 	defaultActivity: 10, maximumActivity: 20, maximumNoteFilters: 10,
 } as const;
+
+/**
+ * The version of the drawing preview renderer: the snapshot page and the
+ * screenshot options. It is part of the cache key of every preview image, so
+ * a change to either must increase it.
+ */
+export const drawingPreviewRendererVersion = 1;

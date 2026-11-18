@@ -51,3 +51,39 @@ export function markdownPreview(source: string): string {
 	}
 	return text(parseMarkdown(source)).replace(/\s+/g, " ").trim();
 }
+
+export type MarkdownDrawingLanguage = "svg" | "mermaid";
+
+/**
+ * Media in a Markdown body, in document order. A drawing carries its index
+ * among the drawings of the body: that index names it in viewer links and in
+ * preview image URLs. The page and the server both number drawings with this
+ * function, so the numbers agree. The `start` offset lets the page map a
+ * rendered code fence back to its drawing.
+ */
+export type MarkdownMedia =
+	| { kind: "image"; url: string; alt: string }
+	| { kind: "drawing"; index: number; language: MarkdownDrawingLanguage; source: string; start: number | null };
+
+export function markdownMedia(source: string): MarkdownMedia[] {
+	const media: MarkdownMedia[] = [];
+	let drawings = 0;
+	function walk(node: Root | RootContent): void {
+		if (node.type === "image") {
+			media.push({ kind: "image", url: node.url, alt: node.alt ?? "" });
+			return;
+		}
+		if (node.type === "code" && (node.lang === "svg" || node.lang === "mermaid")) {
+			media.push({ kind: "drawing", index: drawings, language: node.lang, source: node.value, start: node.position?.start.offset ?? null });
+			drawings += 1;
+			return;
+		}
+		if ("children" in node) for (const child of node.children) walk(child);
+	}
+	walk(parseMarkdown(source));
+	return media;
+}
+
+export function markdownDrawings(source: string): Extract<MarkdownMedia, { kind: "drawing" }>[] {
+	return markdownMedia(source).filter((item): item is Extract<MarkdownMedia, { kind: "drawing" }> => item.kind === "drawing");
+}

@@ -5,6 +5,6 @@ export default defineConfig({
 		outDir: "dist/client",
 		emptyOutDir: false,
 		assetsDir: "diagram-assets",
-		rollupOptions: { input: "diagram-renderer.html" },
+		rollupOptions: { input: { renderer: "diagram-renderer.html", snapshot: "drawing-snapshot.html" } },
 	},
 });

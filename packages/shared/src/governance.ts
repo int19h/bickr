@@ -38,6 +38,7 @@ import {
 } from "./repository";
 import { upsertForumSearchIndex, upsertWorldSearchIndex } from "./search";
 import {
+	editCommentBody,
 	readThread,
 	recordWorldSettingsChangedHumanNotifications,
 	rootCommentForThread,
@@ -420,6 +421,36 @@ export async function deleteComment(
 		throw new RepositoryError("forbidden", "You cannot delete this comment.", 403);
 	}
 	return softDeleteComment(kv, db, thread, commentId, now);
+}
+
+/**
+ * Only the owner of the author bot can edit a comment. Forum moderators can
+ * delete content, but an edit would put new words under another owner's
+ * participant, so moderation does not grant it.
+ */
+export async function editComment(
+	kv: KVNamespaceLike,
+	db: D1DatabaseLike,
+	forumId: string,
+	threadId: string,
+	commentId: string,
+	userId: string,
+	input: { text: string; expectedBody: string },
+	now = new Date().toISOString(),
+	options: { thread?: ThreadDocument } = {},
+): Promise<ThreadDocument> {
+	const thread = options.thread?.id === threadId ? options.thread : await readThread(kv, threadId);
+	if (thread.forumId !== forumId) {
+		throw new RepositoryError("not_found", "Thread not found in this forum.", 404);
+	}
+	const comment = thread.comments.find((item) => item.id === commentId);
+	if (!comment) {
+		throw new RepositoryError("not_found", "Comment not found.", 404);
+	}
+	if (!(await userOwnsBot(db, userId, comment.authorBotId))) {
+		throw new RepositoryError("forbidden", "Only the owner of the participant that wrote this comment can edit it.", 403);
+	}
+	return editCommentBody(kv, db, thread, { commentId, ...input }, now);
 }
 
 async function markForumDeleted(

@@ -3,8 +3,9 @@ import { useRequestIdentity } from "../use-request-identity";
 import { referenceIndex, referenceBot } from "./reference-index";
 import { usePublicBotEffectiveModel } from "../inference/public-bot-model";
 import { shortModelName } from "./inference-attribution";
-import { MarkdownBody } from "../markdown/markdown-body";
-import { createContext, useContext, useEffect, useId, useState, type ReactNode } from "react";
+import { MarkdownBody, type DrawingLinks } from "../markdown/markdown-body";
+import { MarkdownSourceView, type MarkdownSourceAccess } from "./markdown-source-view";
+import { createContext, useContext, useEffect, useId, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import {
 	localizedTextLang,
 	localizedTextString,
@@ -22,8 +23,10 @@ import { cloudflareImageUrl } from "../avatar-image-urls";
 import { findBickrContentUrlMatches, type BickrContentUrlMatch } from "../content-links";
 import { routePath, type ParsedRoute } from "../routes";
 import {
+	Confirm,
 	FallbackImage,
 	Icon,
+	OverlayPortal,
 	ToastContext,
 	avatarStyle,
 	initials,
@@ -645,19 +648,47 @@ function isTrailingVerticalScriptRunConnector(character: string): boolean {
 	);
 }
 
-export function TranslatableText(props: Parameters<typeof TranslatableTextContent>[0]) {
+export function TranslatableText(props: Omit<Parameters<typeof TranslatableTextContent>[0], "sourceView">) {
 	const config = useContext(TranslationContext);
 	const source = typeof props.text === "string" ? props.text : localizedTextString(props.text);
 	const key = JSON.stringify([config.enabled, config.identity, config.prompt, source]);
-	return <TranslatableTextContent key={key} {...props} />;
+	// The source view lives here, outside the keyed content: a new stored text
+	// remounts the content, and an open draft must survive that.
+	const [sourceState, setSourceState] = useState<SourceViewState | null>(null);
+	const [sourceSeen, setSourceSeen] = useState(source);
+	if (sourceSeen !== source) {
+		setSourceSeen(source);
+		if (sourceState) {
+			setSourceState(
+				sourceState.draft === sourceState.base ?
+					// No unsaved changes: the view follows the new text.
+					{ ...sourceState, draft: source, base: source, changedWhileEditing: false }
+					// Unsaved changes stay. A save now replaces the new text, so
+					// the view says so.
+				:	{ ...sourceState, base: source, changedWhileEditing: true },
+			);
+		}
+	}
+	return <TranslatableTextContent key={key} {...props} sourceView={{ state: sourceState, setState: setSourceState }} />;
 }
+
+/**
+ * An open source view. `base` is the stored text that a save expects to
+ * replace. `changedWhileEditing` records that the stored text changed under
+ * unsaved changes. `saving` covers a save in flight, also across a remount of
+ * the content.
+ */
+type SourceViewState = { draft: string; base: string; changedWhileEditing: boolean; saving: boolean };
 
 function TranslatableTextContent({
 	as,
 	className,
 	commentBodyId,
 	directionMode = "element",
+	drawingLinks,
 	markdown = false,
+	sourceAccess,
+	sourceView,
 	interactiveReferences = true,
 	onReference,
 	rich = false,
@@ -674,7 +705,12 @@ function TranslatableTextContent({
 	 */
 	commentBodyId?: string;
 	directionMode?: "element" | "lines";
+	/** Puts the drawing viewer of the original Markdown text in the URL. */
+	drawingLinks?: DrawingLinks;
 	markdown?: boolean;
+	/** With `markdown`, adds a Source button that shows the stored text. */
+	sourceAccess?: MarkdownSourceAccess;
+	sourceView: { state: SourceViewState | null; setState: Dispatch<SetStateAction<SourceViewState | null>> };
 	interactiveReferences?: boolean;
 	onReference?: OpenReference;
 	rich?: boolean;
@@ -701,6 +737,10 @@ function TranslatableTextContent({
 		return Boolean(translationCache.read(cacheKey)?.translation && (translationCache.read(cacheKey)?.show ?? true));
 	});
 	const [loading, setLoading] = useState(false);
+	const [confirmDiscard, setConfirmDiscard] = useState(false);
+	const sourceAvailable = markdown && sourceAccess !== undefined;
+	const sourceState = sourceAvailable ? sourceView.state : null;
+	const showSource = sourceState !== null;
 	const Tag = as ?? "span";
 	const visibleText = showTranslation && cachedTranslation ? cachedTranslation : sourceText;
 	const visibleLang = showTranslation && cachedTranslation ? null : sourceLang;
@@ -755,8 +795,44 @@ function TranslatableTextContent({
 		setShowTranslation(next);
 	}
 
+	function toggleSource(): void {
+		if (!sourceState) {
+			sourceView.setState({ draft: sourceText, base: sourceText, changedWhileEditing: false, saving: false });
+			return;
+		}
+		if (sourceState.draft !== sourceState.base) {
+			setConfirmDiscard(true);
+			return;
+		}
+		sourceView.setState(null);
+	}
+
+	async function saveSource(): Promise<void> {
+		if (sourceAccess?.kind !== "editable" || !sourceState || sourceState.saving) return;
+		sourceView.setState({ ...sourceState, saving: true });
+		const stored = await sourceAccess.onSave(sourceState.draft, sourceState.base);
+		// A stored save, even one that changed nothing, ends the edit. The view
+		// closes and the body shows the stored text rendered. A failure keeps the
+		// draft, as it is now: the stored text can have changed meanwhile.
+		sourceView.setState((current) => stored ? null : current && { ...current, saving: false });
+	}
+
 	const content =
-		markdown ? <MarkdownBody text={visibleText} referencePattern={richTextReferencePattern}
+		sourceState && sourceAccess ? <MarkdownSourceView
+			changedWhileEditing={sourceState.changedWhileEditing}
+			draft={sourceState.draft}
+			editable={sourceAccess.kind === "editable"}
+			lang={sourceLang ?? undefined}
+			onDiscard={() => sourceView.setState({ draft: sourceText, base: sourceText, changedWhileEditing: false, saving: false })}
+			onDraftChange={(draft) => sourceView.setState({ ...sourceState, draft })}
+			onSave={saveSource}
+			saved={sourceState.base}
+			saving={sourceState.saving}
+		/>
+		: markdown ? <MarkdownBody text={visibleText} referencePattern={richTextReferencePattern}
+			// Drawing links name drawings of the original text; a translation can
+			// number its drawings differently.
+			drawingLinks={visibleText === sourceText ? drawingLinks : undefined}
 			renderText={(text) => rich && onReference ? <RichText interactive={interactiveReferences} onReference={onReference} text={text} worldHandle={worldHandle} verticalScriptHandling={verticalBlockScript ? "none" : "inline"} /> : <PlainText text={text} />}
 			renderPlain={(text) => <PlainText text={text} verticalScriptHandling={verticalBlockScript ? "none" : "inline"} />}
 		/> : verticalBlockScript ?
@@ -795,8 +871,25 @@ function TranslatableTextContent({
 			lang={visibleLang ?? undefined}
 		>
 			{markdown ? <div className="translatable-content">{content}</div> : <span className="translatable-content">{content}</span>}
-			{enabled && (
-				<span className="translation-controls" data-selection-exclude="true">
+			{(enabled || sourceAvailable) && (
+				<span className={showSource ? "translation-controls pinned" : "translation-controls"} data-selection-exclude="true">
+					{sourceAvailable && (
+						<button
+							aria-label={showSource ? "Show rendered" : "Show source"}
+							aria-pressed={showSource}
+							className={showSource ? "translation-action active" : "translation-action"}
+							onClick={(event) => {
+								event.preventDefault();
+								event.stopPropagation();
+								toggleSource();
+							}}
+							title={showSource ? "Show rendered" : "Show source"}
+							type="button"
+						>
+							<Icon name="code" size={13} />
+						</button>
+					)}
+					{enabled && !showSource && <>
 					<button
 						aria-label={cachedTranslation ? "Re-translate" : "Translate"}
 						className="translation-action"
@@ -826,7 +919,19 @@ function TranslatableTextContent({
 							<Icon name={showTranslation ? "original" : "translate"} size={13} />
 						</button>
 					)}
+					</>}
 				</span>
+			)}
+			{sourceAvailable && confirmDiscard && (
+				<OverlayPortal><Confirm
+					body="The source has changes that are not saved."
+					confirmText="Discard changes"
+					danger
+					onClose={() => setConfirmDiscard(false)}
+					onConfirm={() => sourceView.setState(null)}
+					open
+					title="Discard changes?"
+				/></OverlayPortal>
 			)}
 		</Tag>
 	);
