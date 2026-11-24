@@ -185,8 +185,10 @@ const simpleName = new RegExp(`^${name}$`);
  * then scales by the exponent. Some spellings of a valid number, such as
  * many leading zeros, therefore reach it as zero or as no number at all.
  * Each numeric rule writes its value again with `spellNumber`, so the
- * browser reads the numbers that the policy checked. A nonzero value below
- * 1e-30 is rejected, because Chromium flushes it to zero in any spelling.
+ * browser reads the numbers that the policy checked. Colors and font weights
+ * do the same, because Firefox misreads long spellings there. The policy
+ * chooses 1e-30 as the smallest nonzero magnitude, far above the float range
+ * where values flush to zero. Path data keeps only its magnitude ceiling.
  */
 const numberParts = /^[+-]?(\d*)(?:\.(\d*))?(?:[eE][+-]?\d+)?$/;
 function finite(token: string, range: Range = any): boolean {
@@ -293,44 +295,58 @@ function keywordIn(values: readonly string[], value: string, css: boolean): bool
  */
 const namedColors = new Set(("aliceblue antiquewhite aqua aquamarine azure beige bisque black blanchedalmond blue blueviolet brown burlywood cadetblue chartreuse chocolate coral cornflowerblue cornsilk crimson cyan darkblue darkcyan darkgoldenrod darkgray darkgreen darkgrey darkkhaki darkmagenta darkolivegreen darkorange darkorchid darkred darksalmon darkseagreen darkslateblue darkslategray darkslategrey darkturquoise darkviolet deeppink deepskyblue dimgray dimgrey dodgerblue firebrick floralwhite forestgreen fuchsia gainsboro ghostwhite gold goldenrod gray green greenyellow grey honeydew hotpink indianred indigo ivory khaki lavender lavenderblush lawngreen lemonchiffon lightblue lightcoral lightcyan lightgoldenrodyellow lightgray lightgreen lightgrey lightpink lightsalmon lightseagreen lightskyblue lightslategray lightslategrey lightsteelblue lightyellow lime limegreen linen magenta maroon mediumaquamarine mediumblue mediumorchid mediumpurple mediumseagreen mediumslateblue mediumspringgreen mediumturquoise mediumvioletred midnightblue mintcream mistyrose moccasin navajowhite navy oldlace olive olivedrab orange orangered orchid palegoldenrod palegreen paleturquoise palevioletred papayawhip peachpuff peru pink plum powderblue purple rebeccapurple red rosybrown royalblue saddlebrown salmon sandybrown seagreen seashell sienna silver skyblue slateblue slategray slategrey snow springgreen steelblue tan teal thistle tomato turquoise violet wheat white whitesmoke yellow yellowgreen transparent currentcolor").split(" "));
 
-const isNumber = (token: string) => cssNumber.test(token) && finite(token);
-const isPercentage = (token: string) => token.endsWith("%") && isNumber(token.slice(0, -1));
-const isAlpha = (token: string) => isNumber(token) || isPercentage(token);
-const isHue = (token: string) => isNumber(token.replace(/(?:deg|grad|rad|turn)$/i, ""));
+/** Each component parser returns the component spelled again, or null. */
+type Component = (token: string) => string | null;
+const number: Component = (token) => cssNumber.test(token) && finite(token) ? spellNumber(Number(token)) : null;
+const percentage: Component = (token) => { if (!token.endsWith("%")) return null; const spelled = number(token.slice(0, -1)); return spelled === null ? null : `${spelled}%`; };
+const numberOrPercentage: Component = (token) => number(token) ?? percentage(token);
+const hue: Component = (token) => {
+	const match = /^(.*?)(deg|grad|rad|turn)?$/i.exec(token)!;
+	const spelled = number(match[1]!);
+	return spelled === null ? null : `${spelled}${asciiLower(match[2] ?? "")}`;
+};
+function components(tokens: readonly string[], parsers: readonly Component[]): string[] | null {
+	const spelled = tokens.map((token, index) => parsers[index]!(token));
+	return spelled.every((token) => token !== null) ? spelled as string[] : null;
+}
 
 /**
  * CSS colors without CSS-wide keywords, variables or math: a named color, a
  * hex color, or an rgb() or hsl() function. The legacy comma syntax takes
  * three numbers or three percentages for rgb(), and percentages for the
  * saturation and lightness of hsl(). The space syntax takes either form in
- * each channel, and an optional alpha after a slash.
+ * each channel, and an optional alpha after a slash. A function is spelled
+ * again from its parsed numbers, because Firefox misreads some long
+ * spellings. Returns the color to emit, or null.
  */
-function color(value: string): boolean {
+function color(value: string): string | null {
 	const trimmed = trimXml(value);
 	// The earlier grammar accepted `inherit`, which only copies the parent value.
-	if (asciiLower(trimmed) === "inherit" || namedColors.has(asciiLower(trimmed))) return true;
-	if (/^#(?:[\da-f]{3,4}|[\da-f]{6}|[\da-f]{8})$/i.test(trimmed)) return true;
+	if (asciiLower(trimmed) === "inherit" || namedColors.has(asciiLower(trimmed))) return trimmed;
+	if (/^#(?:[\da-f]{3,4}|[\da-f]{6}|[\da-f]{8})$/i.test(trimmed)) return trimmed;
 	const call = /^(rgba?|hsla?)\(([^()]*)\)$/i.exec(trimmed);
-	if (!call) return false;
-	const hsl = asciiLower(call[1]!).startsWith("h");
+	if (!call) return null;
+	const functionName = asciiLower(call[1]!);
+	const hsl = functionName.startsWith("h");
 	const inner = call[2]!;
 	if (inner.includes(",")) {
 		const parts = inner.split(",").map(trimXml);
-		if (parts.length !== 3 && parts.length !== 4) return false;
-		const [first, second, third, alpha] = parts as [string, string, string, string | undefined];
+		if (parts.length !== 3 && parts.length !== 4) return null;
 		const channels = hsl
-			? isHue(first) && isPercentage(second) && isPercentage(third)
-			: [first, second, third].every(isNumber) || [first, second, third].every(isPercentage);
-		return channels && (alpha === undefined || isAlpha(alpha));
+			? components(parts.slice(0, 3), [hue, percentage, percentage])
+			: components(parts.slice(0, 3), [number, number, number]) ?? components(parts.slice(0, 3), [percentage, percentage, percentage]);
+		const alpha = parts[3] === undefined ? undefined : numberOrPercentage(parts[3]);
+		if (!channels || alpha === null) return null;
+		return `${functionName}(${[...channels, ...(alpha === undefined ? [] : [alpha])].join(", ")})`;
 	}
 	const sections = inner.split("/").map(trimXml);
-	if (sections.length > 2 || !sections[0]) return false;
-	const channels = sections[0].split(whitespaceRun);
-	const alpha = sections[1];
-	if (channels.length !== 3) return false;
-	const [first, second, third] = channels as [string, string, string];
-	const valid = hsl ? isHue(first) && [second, third].every(isAlpha) : channels.every(isAlpha);
-	return valid && (alpha === undefined || isAlpha(alpha));
+	if (sections.length > 2 || !sections[0]) return null;
+	const tokens = sections[0].split(whitespaceRun);
+	if (tokens.length !== 3) return null;
+	const channels = components(tokens, hsl ? [hue, numberOrPercentage, numberOrPercentage] : [numberOrPercentage, numberOrPercentage, numberOrPercentage]);
+	const alpha = sections[1] === undefined ? undefined : numberOrPercentage(sections[1]);
+	if (!channels || alpha === null) return null;
+	return `${functionName}(${channels.join(" ")}${alpha === undefined ? "" : ` / ${alpha}`})`;
 }
 
 const urlReference = new RegExp(`^url\\((?:#(${name}))\\)$`);
@@ -425,11 +441,16 @@ function check(rule: ValueRule, value: string): ValueCheck {
 		case "keyword":
 			return keywordIn(rule.values, trimmed, rule.css) ? valid : invalid("value is not supported");
 		case "fontWeight":
-			return keywordIn(["normal", "bold", "bolder", "lighter"], trimmed, true) || (cssNumber.test(trimmed) && finite(trimmed, [1, 1000])) ? valid : invalid("value is not supported");
-		case "color":
-			return color(value) ? valid : invalid("must be a color");
+			if (keywordIn(["normal", "bold", "bolder", "lighter"], trimmed, true)) return valid;
+			return cssNumber.test(trimmed) && finite(trimmed, [1, 1000]) ? rewrite(spellNumber(Number(trimmed))) : invalid("value is not supported");
+		case "color": {
+			const spelled = color(value);
+			return spelled ? rewrite(spelled) : invalid("must be a color");
+		}
 		case "paint": {
-			if (asciiLower(trimmed) === "none" || color(value)) return valid;
+			if (asciiLower(trimmed) === "none") return valid;
+			const spelled = color(value);
+			if (spelled) return rewrite(spelled);
 			const id = fragment(value, urlReference);
 			return id ? { kind: "reference", ids: [id], drawsTarget: true, rewrite: ([target]) => `url(#${target})` } : invalid("must be a color or a local gradient");
 		}

@@ -116,7 +116,7 @@ describe("inline SVG attribute values", () => {
 
 	it("uses the CSS number form for presentation values and channel rules for colors", () => {
 		rejects(['<text letter-spacing="1.px">a</text>', '<path fill="rgb(1. 2 3)"/>', '<path fill="rgb(10%, 20, 30)"/>', '<path fill="hsl(120, 50, 50)"/>', '<path opacity="1."/>', '<text font-weight="400.">a</text>', '<path fill="CanvasText"/>']);
-		retains(['<path fill="rgb(10% 20 30)" stroke="hsl(120 50 50 / .5)"/>', '<path fill="hsl(0.5turn, 50%, 50%)" stroke="rgb(1, 2, 3, 50%)"/>']);
+		retains(['<path fill="rgb(10% 20 30)" stroke="hsl(120 50 50 / .5)"/>']);
 		// Browsers ignore a trailing decimal point. Only the coarse path rule still accepts it.
 		rejects(['<rect x="1." width="2" height="3"/>', '<rect width="2." height="3"/>', '<circle r="1.px"/>', '<text x="1 2.">ab</text>', '<g transform="translate(1.)"/>', '<polyline points="1. 2 3 4"/>']);
 		accepts(['<path d="M1. 2L3 4"/>']);
@@ -179,10 +179,23 @@ describe("inline SVG attribute values", () => {
 		const fallback = prepareSvg(`<svg width="${leadingZeros}" height="5"/>`, "x");
 		expect(fallback.kind).toBe("ready");
 		if (fallback.kind === "ready") expect(fallback.fragment.querySelector("svg")?.getAttribute("viewBox")).toBe("0 0 1 5");
-		// Chromium flushes a value below 1e-30 to zero in any spelling. JavaScript rounds 1e-325 itself to zero.
+		// The policy's smallest nonzero magnitude is 1e-30. JavaScript rounds 1e-325 itself to zero.
 		for (const source of ['<svg viewBox="0 0 7.02e-46 5"/>', '<svg viewBox="0 0 5 7.02e-46"/>', '<svg width="7.02e-46" height="5"/>']) expect(prepareSvg(source, "x").kind, source).toBe("rejected");
 		rejects(['<path opacity="1e-31"/>', `<path opacity="0.${"0".repeat(324)}1"/>`, `<polyline points="0.${"0".repeat(324)}1 0"/>`, '<rect width="1e+31" height="1"/>']);
 		spells('<path opacity="0.000" fill-opacity="1e-30"/>', "path", "opacity", "0");
+	});
+
+	it("spells color functions and font weights again", () => {
+		spells('<path fill="hsl(0.5TURN,50%,  50%)"/>', "path", "fill", "hsl(.5turn, 50%, 50%)");
+		spells('<path stroke="rgb(1, 2, 3, 50%)"/>', "path", "stroke", "rgb(1, 2, 3, 50%)");
+		const long200 = `2${"0".repeat(310)}e-308`;
+		spells(`<text font-weight="${long200}">a</text>`, "text", "font-weight", "200");
+		spells(`<path fill="rgb(${long200}, 0, 0)"/>`, "path", "fill", "rgb(200, 0, 0)");
+		spells(`<path stroke="RGBA(10%,20%,30%,2${"0".repeat(310)}e-311)"/>`, "path", "stroke", "rgba(10%, 20%, 30%, .2)");
+		spells(`<path fill="hsl(${long200}DEG 0.50% 50 / 50%)"/>`, "path", "fill", "hsl(200deg .5% 50 / 50%)");
+		spells('<stop stop-color="rgb(1 2 3)" offset="0"/>', "stop", "stop-color", "rgb(1 2 3)");
+		spells('<path fill=" #ABC "/>', "path", "fill", "#ABC");
+		spells('<path fill="RebeccaPurple"/>', "path", "fill", "RebeccaPurple");
 	});
 
 	it("keeps compact arc flags in path data", () => {
