@@ -53,7 +53,8 @@ export function prepareSvg(source: string, prefix: string): SvgResult {
 			}
 		}
 		const edges = new Map<Element, Element[]>(elements.map((element) => [element, Array.from(element.children)]));
-		let geometryBytes = 0;
+		// Measure the source spelling before numeric rules spell values again.
+		const geometry = new Map(elements.map((element) => [element, elementGeometryBytes(element)]));
 		for (const element of elements) for (const attr of Array.from(element.attributes)) {
 			const { name, value } = attr;
 			const found = attributeSpec(attr);
@@ -62,6 +63,7 @@ export function prepareSvg(source: string, prefix: string): SvgResult {
 			const result = checkAttribute(found, element, value);
 			if (result.kind === "invalid") reject(`SVG ${name} ${result.reason}.`);
 			if (name === "id") element.setAttribute(name, `${prefix}-${value}`);
+			else if (result.kind === "rewrite") element.setAttributeNS(attr.namespaceURI, name, result.value);
 			else if (result.kind === "reference") {
 				for (const id of result.ids) {
 					const target = ids.get(id);
@@ -72,7 +74,7 @@ export function prepareSvg(source: string, prefix: string): SvgResult {
 				element.setAttributeNS(attr.namespaceURI, name, result.rewrite(result.ids.map((id) => `${prefix}-${id}`)));
 			}
 		}
-		geometryBytes += elements.reduce((sum, element) => sum + elementGeometryBytes(element), 0);
+		const geometryBytes = elements.reduce((sum, element) => sum + geometry.get(element)!, 0);
 		if (geometryBytes > svgLimits.geometryBytes) reject("SVG geometry data exceeds 64 KiB.");
 		const active = new Set<Element>();
 		const weights = new Map<Element, { elements: number; geometryBytes: number }>();
@@ -80,7 +82,7 @@ export function prepareSvg(source: string, prefix: string): SvgResult {
 			const memo = weights.get(element); if (memo) return memo;
 			if (active.has(element)) reject("SVG references must not form cycles.");
 			active.add(element);
-			const result = { elements: 1, geometryBytes: elementGeometryBytes(element) };
+			const result = { elements: 1, geometryBytes: geometry.get(element)! };
 			for (const target of edges.get(element)!) {
 				const child = weight(target); result.elements += child.elements; result.geometryBytes += child.geometryBytes;
 				if (result.elements > svgLimits.expandedElements || result.geometryBytes > svgLimits.expandedGeometryBytes) reject("SVG reference expansion exceeds the rendering limit.");
@@ -112,6 +114,9 @@ export function prepareSvg(source: string, prefix: string): SvgResult {
 		}
 		const fragment = DOMPurify.sanitize(root, { ALLOWED_TAGS: [...tags], ALLOWED_ATTR: [...svgAttributeNames], ALLOW_DATA_ATTR: false, ALLOW_ARIA_ATTR: false, RETURN_DOM_FRAGMENT: true });
 		if (fragment.childElementCount !== 1 || fragment.firstElementChild?.localName !== "svg") reject("SVG could not be rendered safely.");
+		// Read the viewBox as the browser parsed it, which the app needs to lay the drawing out.
+		const box = (fragment.firstElementChild as SVGSVGElement).viewBox?.baseVal;
+		if (!box || !(box.width > 0 && box.height > 0)) reject("SVG viewBox must contain four numbers with positive dimensions.");
 		return { kind: "ready", fragment };
 	} catch (error) {
 		return { kind: "rejected", reason: error instanceof SvgPolicyError ? error.message : "SVG could not be rendered safely." };

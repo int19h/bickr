@@ -150,6 +150,8 @@ function ruleFor(found: AttributeSpec, element: Element): ValueRule {
 export type ValueCheck =
 	| { kind: "valid" }
 	| { kind: "invalid"; reason: string }
+	/** A valid number value, spelled again from its parsed numbers. */
+	| { kind: "rewrite"; value: string }
 	/**
 	 * A local fragment reference. `drawsTarget` says whether the target adds
 	 * its geometry where the reference appears, which labels do not.
@@ -180,21 +182,25 @@ const simpleName = new RegExp(`^${name}$`);
 
 /**
  * Chromium parses SVG numbers in 32-bit floats: it accumulates the digits,
- * then scales by the exponent. A long digit string can overflow before the
- * exponent scales it back, and a tiny value flushes to zero, so Chromium
- * reads another value than the one checked here. A number token therefore
- * has at most 20 significant digits, an exponent of at most 30, and a
- * nonzero magnitude of at least 1e-30. Every value in that range is a
- * normal float.
+ * then scales by the exponent. Some spellings of a valid number, such as
+ * many leading zeros, therefore reach it as zero or as no number at all.
+ * Each numeric rule writes its value again with `spellNumber`, so the
+ * browser reads the numbers that the policy checked. A nonzero value below
+ * 1e-30 is rejected, because Chromium flushes it to zero in any spelling.
  */
-const numberParts = /^[+-]?(\d*)(?:\.(\d*))?(?:[eE]([+-]?\d+))?$/;
+const numberParts = /^[+-]?(\d*)(?:\.(\d*))?(?:[eE][+-]?\d+)?$/;
 function finite(token: string, range: Range = any): boolean {
 	const parts = numberParts.exec(token);
 	if (!parts) return false;
-	const digits = `${parts[1]}${parts[2] ?? ""}`.replace(/^0+/, "");
+	// Recognize zero from its digits: JavaScript also rounds 1e-325 to zero.
+	const zero = /^0*$/.test(`${parts[1]}${parts[2] ?? ""}`);
 	const number = Number(token);
-	return digits.length <= 20 && Math.abs(Number(parts[3] ?? 0)) <= 30 && Number.isFinite(number)
-		&& (number === 0 || Math.abs(number) >= 1e-30) && number >= range[0] && number <= range[1];
+	return Number.isFinite(number) && (zero || Math.abs(number) >= 1e-30) && number >= range[0] && number <= range[1];
+}
+
+/** The shortest round-trip spelling, without a leading zero before the point. */
+function spellNumber(number: number): string {
+	return String(number).replace(/^(-?)0\./, "$1.");
 }
 
 /** Splits a CSS or SVG list: items separated by whitespace or by one comma. */
@@ -336,26 +342,34 @@ function fragment(value: string, pattern: RegExp): string | null {
 const transformArguments: Record<string, readonly number[]> = { matrix: [6], translate: [1, 2], scale: [1, 2], rotate: [1, 3], skewX: [1], skewY: [1] };
 const transformFunction = /(matrix|translate|scale|rotate|skewX|skewY)[\t\n\r ]*\(([^()]*)\)/y;
 
-/** Parses a transform list: functions separated by whitespace, by one comma, or by nothing. */
-function transformList(value: string): boolean {
+/** Parses a transform list, functions separated by whitespace, by one comma, or by nothing, and spells it again. */
+function transformList(value: string): string | null {
 	const trimmed = trimXml(value);
+	const functions: string[] = [];
 	let index = 0;
 	for (;;) {
 		transformFunction.lastIndex = index;
 		const match = transformFunction.exec(trimmed);
-		if (!match) return false;
+		if (!match) return null;
 		const args = transformNumbers(match[2]!);
-		if (!args || !transformArguments[match[1]!]!.includes(args.length)) return false;
+		if (!args || !transformArguments[match[1]!]!.includes(args.length)) return null;
+		functions.push(`${match[1]}(${args.map(spellNumber).join(" ")})`);
 		index = transformFunction.lastIndex;
-		if (index === trimmed.length) return true;
+		if (index === trimmed.length) return functions.join(" ");
 		while (isXmlSpace(trimmed[index])) index++;
 		if (trimmed[index] === ",") { index++; while (isXmlSpace(trimmed[index])) index++; }
 	}
 }
 
 const pathAlphabet = /^[MmZzLlHhVvCcSsQqTtAa\d\t\n\r .,eE+\-]*$/;
-/** Path data keeps the SVG number form, which allows `1.`. */
+/**
+ * Path data keeps the coarse rule of the earlier policy: its alphabet, and a
+ * magnitude bound on each run of number characters. The runs are not path
+ * arguments, because compact arc flags join the next coordinate, so the rule
+ * neither counts their digits nor writes them again.
+ */
 const pathNumberTokens = /[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?/g;
+function pathNumber(token: string): boolean { const number = Number(token); return Number.isFinite(number) && Math.abs(number) <= valueBound; }
 const cssWideKeywords = new Set(["inherit", "initial", "unset", "revert", "revert-layer", "revert-rule", "default"]);
 
 /**
@@ -385,20 +399,29 @@ function fontFamily(value: string): boolean {
 function check(rule: ValueRule, value: string): ValueCheck {
 	const valid: ValueCheck = { kind: "valid" };
 	const invalid = (reason: string): ValueCheck => ({ kind: "invalid", reason });
+	const rewrite = (spelled: string): ValueCheck => ({ kind: "rewrite", value: spelled });
+	const spellLength = ({ number, unit }: { number: number; unit: Unit }) => `${spellNumber(number)}${unit}`;
 	const trimmed = trimXml(value);
 	switch (rule.kind) {
-		case "length":
-			return (rule.keywords && keywordIn(rule.keywords, trimmed, true)) || parseLength(trimmed, rule.units) ? valid : invalid("must be a bounded number");
+		case "length": {
+			if (rule.keywords && keywordIn(rule.keywords, trimmed, true)) return valid;
+			const parsed = parseLength(trimmed, rule.units);
+			return parsed ? rewrite(spellLength(parsed)) : invalid("must be a bounded number");
+		}
 		case "lengthList": {
 			if (rule.keywords && keywordIn(rule.keywords, trimmed, true)) return valid;
 			const items = listItems(value);
-			return items && items.length <= rule.maxItems && items.every((item) => parseLength(item, rule.units)) ? valid : invalid("must contain bounded numbers");
+			const parsed = items && items.length <= rule.maxItems ? items.map((item) => parseLength(item, rule.units)) : null;
+			return parsed?.every((item) => item) ? rewrite(parsed.map((item) => spellLength(item!)).join(" ")) : invalid("must contain bounded numbers");
 		}
 		case "points": {
-			return pointNumbers(value) ? valid : invalid("must contain coordinate pairs");
+			const numbers = pointNumbers(value);
+			return numbers ? rewrite(numbers.map((number, index) => `${spellNumber(number)}${index % 2 === 0 ? "," : " "}`).join("").trimEnd()) : invalid("must contain coordinate pairs");
 		}
-		case "viewBox":
-			return viewBoxNumbers(value) ? valid : invalid("must contain four numbers with positive dimensions");
+		case "viewBox": {
+			const numbers = viewBoxNumbers(value);
+			return numbers ? rewrite(numbers.map(spellNumber).join(" ")) : invalid("must contain four numbers with positive dimensions");
+		}
 		case "keyword":
 			return keywordIn(rule.values, trimmed, rule.css) ? valid : invalid("value is not supported");
 		case "fontWeight":
@@ -427,10 +450,12 @@ function check(rule: ValueRule, value: string): ValueCheck {
 			if (!pathAlphabet.test(value)) return invalid("must be path data with bounded numbers");
 			const tokens = value.match(pathNumberTokens) ?? [];
 			// Nonempty path data needs a number, as the earlier rule required.
-			return (value === "" || tokens.length > 0) && tokens.every((token) => finite(token)) ? valid : invalid("must be path data with bounded numbers");
+			return (value === "" || tokens.length > 0) && tokens.every(pathNumber) ? valid : invalid("must be path data with bounded numbers");
 		}
-		case "transform":
-			return transformList(value) ? valid : invalid("must be a list of transform functions");
+		case "transform": {
+			const spelled = transformList(value);
+			return spelled ? rewrite(spelled) : invalid("must be a list of transform functions");
+		}
 		case "fontFamily":
 			return fontFamily(value) ? valid : invalid("must be a list of font names");
 		case "aspectRatio":

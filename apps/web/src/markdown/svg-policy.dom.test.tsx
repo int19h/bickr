@@ -127,8 +127,16 @@ describe("inline SVG attribute values", () => {
 		rejects(['<text dominant-baseline="baseline">a</text>', '<text dominant-baseline="before-edge">a</text>', '<text dominant-baseline="use-script">a</text>']);
 	});
 
+	/** Asserts the value that a numeric rule wrote again. */
+	const spells = (body: string, selector: string, name: string, expected: string) => {
+		const result = ready(body); expect(result.kind, body).toBe("ready");
+		if (result.kind === "ready") expect(result.fragment.querySelector(selector)?.getAttribute(name), body).toBe(expected);
+	};
+
 	it("reads compact coordinate pairs and transform arguments", () => {
-		retains(['<polyline points="10-5 20-10"/>', '<polygon points="1,-5,2e1 -3"/>', '<g transform="translate(10-5)rotate(1.5.5.5)"/>']);
+		spells('<polyline points="10-5 20-10"/>', "polyline", "points", "10,-5 20,-10");
+		spells('<polygon points="1,-5,2e1 -3"/>', "polygon", "points", "1,-5 20,-3");
+		spells('<g transform="translate(10-5)rotate(1.5.5.5)"/>', "g", "transform", "translate(10 -5) rotate(1.5 .5 .5)");
 		// Firefox reads no other compact point spelling.
 		rejects(['<polyline points="10-5 20"/>', '<polyline points="1,,2 3 4"/>', '<polyline points="1 2,"/>', '<polygon points="1.5.5 2e1-3"/>', '<polyline points="10+5 20+10"/>', '<polyline points="10-5-20-10"/>']);
 	});
@@ -153,12 +161,32 @@ describe("inline SVG attribute values", () => {
 		rejects(['<text font-family="Orchard, initial, serif">a</text>', '<text font-family="\'Orchard, serif">a</text>', '<text font-family="Orchard,, serif">a</text>']);
 	});
 
-	it("rejects number spellings that Chromium reads as another value", () => {
+	it("spells numbers again so that Chromium reads the checked values", () => {
+		// Chromium parses SVG numbers in 32-bit floats and reads these spellings as zero.
 		const longOne = `1${"0".repeat(40)}e-40`;
-		for (const source of [`<svg viewBox="0 0 7.02e-46 5"/>`, `<svg viewBox="0 0 5 7.02e-46"/>`, `<svg viewBox="0 0 ${longOne} 5"/>`, `<svg width="7.02e-46" height="5"/>`, `<svg width="${longOne}" height="5"/>`]) expect(prepareSvg(source, "x").kind, source).toBe("rejected");
-		rejects([`<polyline points="${longOne} 2 3 4"/>`, `<g transform="rotate(${longOne})"/>`, `<text rotate="${longOne}">a</text>`, `<path pathLength="${longOne}"/>`, `<stop offset="${longOne}"/>`, '<path opacity="1e-31"/>', '<rect width="1e+31" height="1"/>']);
-		retains(['<rect width="1e2" height="12345678901234567890e-19"/>', '<path opacity="1e-30" fill-opacity="0.000"/>']);
-		expect(prepareSvg('<svg viewBox="0 0 1e1 5e0"/>', "x").kind).toBe("ready");
+		const leadingZeros = `${"0".repeat(39)}1`;
+		const fraction = `0.${"0".repeat(45)}1e30`;
+		for (const [width, spelled] of [[longOne, "1"], [leadingZeros, "1"], [fraction, "1e-16"], ["12345678901234567890e-19", "1.2345678901234567"], ["0.5", ".5"]]) {
+			spells(`<rect width="${width}" height="1"/>`, "rect", "width", spelled!);
+			const result = prepareSvg(`<svg viewBox="0 0 ${width} 5"/>`, "x"); expect(result.kind, width).toBe("ready");
+			if (result.kind === "ready") expect(result.fragment.querySelector("svg")?.getAttribute("viewBox")).toBe(`0 0 ${spelled} 5`);
+		}
+		spells(`<polyline points="${leadingZeros} 2 3 4"/>`, "polyline", "points", "1,2 3,4");
+		spells(`<g transform="rotate(${leadingZeros})"/>`, "g", "transform", "rotate(1)");
+		spells(`<text rotate="${leadingZeros} 2">ab</text>`, "text", "rotate", "1 2");
+		spells(`<stop offset="${leadingZeros}%"/>`, "stop", "offset", "1%");
+		spells('<text dy="1.20EM">a</text>', "text", "dy", "1.2em");
+		const fallback = prepareSvg(`<svg width="${leadingZeros}" height="5"/>`, "x");
+		expect(fallback.kind).toBe("ready");
+		if (fallback.kind === "ready") expect(fallback.fragment.querySelector("svg")?.getAttribute("viewBox")).toBe("0 0 1 5");
+		// Chromium flushes a value below 1e-30 to zero in any spelling. JavaScript rounds 1e-325 itself to zero.
+		for (const source of ['<svg viewBox="0 0 7.02e-46 5"/>', '<svg viewBox="0 0 5 7.02e-46"/>', '<svg width="7.02e-46" height="5"/>']) expect(prepareSvg(source, "x").kind, source).toBe("rejected");
+		rejects(['<path opacity="1e-31"/>', `<path opacity="0.${"0".repeat(324)}1"/>`, `<polyline points="0.${"0".repeat(324)}1 0"/>`, '<rect width="1e+31" height="1"/>']);
+		spells('<path opacity="0.000" fill-opacity="1e-30"/>', "path", "opacity", "0");
+	});
+
+	it("keeps compact arc flags in path data", () => {
+		retains(['<path d="M0 0A2 2 0 111.2345678901234567890 1"/>', '<path d="M0 0A5 5 0 0110 10"/>']);
 	});
 
 	it("parses long whitespace runs in linear time", () => {
