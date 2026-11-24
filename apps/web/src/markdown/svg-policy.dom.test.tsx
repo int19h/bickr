@@ -117,7 +117,7 @@ describe("inline SVG attribute values", () => {
 	it("uses the CSS number form for presentation values and channel rules for colors", () => {
 		rejects(['<text letter-spacing="1.px">a</text>', '<path fill="rgb(1. 2 3)"/>', '<path fill="rgb(10%, 20, 30)"/>', '<path fill="hsl(120, 50, 50)"/>', '<path opacity="1."/>', '<text font-weight="400.">a</text>', '<path fill="CanvasText"/>']);
 		retains(['<path fill="rgb(10% 20 30)" stroke="hsl(120 50 50 / .5)"/>', '<path fill="hsl(0.5turn, 50%, 50%)" stroke="rgb(1, 2, 3, 50%)"/>']);
-		// Browsers ignore a trailing decimal point in every attribute except path data.
+		// Browsers ignore a trailing decimal point. Only the coarse path rule still accepts it.
 		rejects(['<rect x="1." width="2" height="3"/>', '<rect width="2." height="3"/>', '<circle r="1.px"/>', '<text x="1 2.">ab</text>', '<g transform="translate(1.)"/>', '<polyline points="1. 2 3 4"/>']);
 		accepts(['<path d="M1. 2L3 4"/>']);
 	});
@@ -149,7 +149,16 @@ describe("inline SVG attribute values", () => {
 
 	it("rejects standalone CSS-wide keywords as font families", () => {
 		rejects(['<text font-family="revert">a</text>', '<text font-family="Unset">a</text>', '<text font-family="revert-rule">a</text>', '<text font-family="revert, serif">a</text>', '<text font-family="inherit, serif">a</text>', '<text font-family="serif,">a</text>', '<text font-family="\u00a0Arial\u00a0">a</text>']);
-		retains(['<text font-family="\'Revert Sans\', serif">a</text>', '<text font-family="inherit">a</text>', '<text font-family="\'revert\'">a</text>']);
+		retains(['<text font-family="\'Revert Sans\', serif">a</text>', '<text font-family="inherit">a</text>', '<text font-family="\'revert\'">a</text>', '<text font-family="\'Orchard, Initial, Grove\', serif">a</text>', '<text font-family="&quot;Orchard,,Grove&quot;, serif">a</text>']);
+		rejects(['<text font-family="Orchard, initial, serif">a</text>', '<text font-family="\'Orchard, serif">a</text>', '<text font-family="Orchard,, serif">a</text>']);
+	});
+
+	it("rejects number spellings that Chromium reads as another value", () => {
+		const longOne = `1${"0".repeat(40)}e-40`;
+		for (const source of [`<svg viewBox="0 0 7.02e-46 5"/>`, `<svg viewBox="0 0 5 7.02e-46"/>`, `<svg viewBox="0 0 ${longOne} 5"/>`, `<svg width="7.02e-46" height="5"/>`, `<svg width="${longOne}" height="5"/>`]) expect(prepareSvg(source, "x").kind, source).toBe("rejected");
+		rejects([`<polyline points="${longOne} 2 3 4"/>`, `<g transform="rotate(${longOne})"/>`, `<text rotate="${longOne}">a</text>`, `<path pathLength="${longOne}"/>`, `<stop offset="${longOne}"/>`, '<path opacity="1e-31"/>', '<rect width="1e+31" height="1"/>']);
+		retains(['<rect width="1e2" height="12345678901234567890e-19"/>', '<path opacity="1e-30" fill-opacity="0.000"/>']);
+		expect(prepareSvg('<svg viewBox="0 0 1e1 5e0"/>', "x").kind).toBe("ready");
 	});
 
 	it("parses long whitespace runs in linear time", () => {

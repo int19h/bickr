@@ -159,7 +159,7 @@ export type ValueCheck =
 /** XML whitespace. JavaScript `\s` also matches characters that SVG does not treat as separators. */
 const whitespaceRun = /[\t\n\r ]+/;
 function isXmlSpace(character: string | undefined): boolean { return character === " " || character === "\t" || character === "\n" || character === "\r"; }
-/** ASCII case folding. CSS keywords ignore ASCII case only, so `K` (Kelvin sign) is not `k`. */
+/** ASCII case folding. CSS keywords ignore ASCII case only, so U+212A KELVIN SIGN is not `k`. */
 function asciiLower(value: string): string { return value.replace(/[A-Z]/g, (letter) => letter.toLowerCase()); }
 function trimXml(value: string): string {
 	let start = 0; let end = value.length;
@@ -178,9 +178,23 @@ const cssNumber = new RegExp(`^${numberSource}$`);
 const name = "[A-Za-z_][\\w.-]*";
 const simpleName = new RegExp(`^${name}$`);
 
+/**
+ * Chromium parses SVG numbers in 32-bit floats: it accumulates the digits,
+ * then scales by the exponent. A long digit string can overflow before the
+ * exponent scales it back, and a tiny value flushes to zero, so Chromium
+ * reads another value than the one checked here. A number token therefore
+ * has at most 20 significant digits, an exponent of at most 30, and a
+ * nonzero magnitude of at least 1e-30. Every value in that range is a
+ * normal float.
+ */
+const numberParts = /^[+-]?(\d*)(?:\.(\d*))?(?:[eE]([+-]?\d+))?$/;
 function finite(token: string, range: Range = any): boolean {
+	const parts = numberParts.exec(token);
+	if (!parts) return false;
+	const digits = `${parts[1]}${parts[2] ?? ""}`.replace(/^0+/, "");
 	const number = Number(token);
-	return Number.isFinite(number) && number >= range[0] && number <= range[1];
+	return digits.length <= 20 && Math.abs(Number(parts[3] ?? 0)) <= 30 && Number.isFinite(number)
+		&& (number === 0 || Math.abs(number) >= 1e-30) && number >= range[0] && number <= range[1];
 }
 
 /** Splits a CSS or SVG list: items separated by whitespace or by one comma. */
@@ -241,9 +255,6 @@ function plainNumbers(value: string): number[] | null {
 	return items?.every((item) => cssNumber.test(item) && finite(item)) ? items.map(Number) : null;
 }
 
-/** Browsers store viewBox and dimensions as 32-bit floats, so `1e-50` becomes zero. */
-function positiveFloat(number: number): boolean { return Math.fround(number) > 0; }
-
 /** Parses one length and returns its number, or null outside the allowed units. */
 function parseLength(value: string, allowed: Units): { number: number; unit: Unit } | null {
 	const match = dimension.exec(value);
@@ -256,13 +267,13 @@ function parseLength(value: string, allowed: Units): { number: number; unit: Uni
 /** The positive size of a root `width` or `height` in user units, for the synthesized viewBox, or null. */
 export function absoluteLength(value: string): number | null {
 	const parsed = parseLength(trimXml(value), { "": any, px: any });
-	return parsed && positiveFloat(parsed.number) ? parsed.number : null;
+	return parsed && parsed.number > 0 ? parsed.number : null;
 }
 
 /** The four numbers of a valid viewBox, or null. */
 function viewBoxNumbers(value: string): readonly [number, number, number, number] | null {
 	const numbers = plainNumbers(value);
-	return numbers?.length === 4 && positiveFloat(numbers[2]!) && positiveFloat(numbers[3]!) ? [numbers[0]!, numbers[1]!, numbers[2]!, numbers[3]!] : null;
+	return numbers?.length === 4 && numbers[2]! > 0 && numbers[3]! > 0 ? [numbers[0]!, numbers[1]!, numbers[2]!, numbers[3]!] : null;
 }
 
 function keywordIn(values: readonly string[], value: string, css: boolean): boolean {
@@ -355,9 +366,20 @@ const cssWideKeywords = new Set(["inherit", "initial", "unset", "revert", "rever
  */
 function fontFamily(value: string): boolean {
 	if (!/^[\p{Letter}\p{Number}\t\n\r ,'"_-]{1,150}$/u.test(value)) return false;
-	const families = value.split(",").map((family) => asciiLower(trimXml(family)));
-	if (families.length === 1 && families[0] === "inherit") return true;
-	return families.every((family) => family !== "" && !cssWideKeywords.has(family));
+	// Split on commas outside quotes, because a quoted name can contain one.
+	const families: string[] = [];
+	let quote: string | null = null; let start = 0;
+	for (let index = 0; index < value.length; index++) {
+		const character = value[index]!;
+		if (quote) { if (character === quote) quote = null; }
+		else if (character === "'" || character === '"') quote = character;
+		else if (character === ",") { families.push(value.slice(start, index)); start = index + 1; }
+	}
+	if (quote) return false;
+	families.push(value.slice(start));
+	const entries = families.map((family) => asciiLower(trimXml(family)));
+	if (entries.length === 1 && entries[0] === "inherit") return true;
+	return entries.every((family) => family !== "" && !cssWideKeywords.has(family));
 }
 
 function check(rule: ValueRule, value: string): ValueCheck {
