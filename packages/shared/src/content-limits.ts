@@ -19,4 +19,4 @@ export const participantListLimits = {
  * screenshot options. It is part of the cache key of every preview image, so
  * a change to either must increase it.
  */
-export const drawingPreviewRendererVersion = 1;
+export const drawingPreviewRendererVersion = 2;

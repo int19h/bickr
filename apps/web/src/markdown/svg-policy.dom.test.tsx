@@ -37,5 +37,62 @@ describe("inline SVG policy", () => {
 		const source = drawing('<defs><text id="t">' + '字'.repeat(4000) + '</text></defs>' + '<use href="#t"/>'.repeat(30));
 		expect(prepareSvg(source, "x")).toMatchObject({ kind: "rejected", reason: expect.stringContaining("expansion") });
 	});
+});
 
+describe("inline SVG attribute values", () => {
+	const ready = (body: string) => prepareSvg(drawing(body), "x");
+	const accepts = (bodies: string[]) => { for (const body of bodies) expect(ready(body).kind, body).toBe("ready"); };
+	const rejects = (bodies: string[]) => { for (const body of bodies) expect(ready(body).kind, body).toBe("rejected"); };
+
+	it("keeps letter and word spacing on text, spans and groups", () => {
+		// The shape of a published drawing that failed only on letter-spacing.
+		const result = ready('<text x="600" y="55" font-family="monospace" font-size="23" font-weight="bold" text-anchor="middle" letter-spacing="2">LABEL</text>');
+		expect(result.kind).toBe("ready");
+		if (result.kind === "ready") expect(result.fragment.querySelector("text")?.getAttribute("letter-spacing")).toBe("2");
+		accepts(['<g letter-spacing="-1.5"><text>a<tspan letter-spacing="normal">b</tspan></text></g>', '<text letter-spacing="2px" word-spacing=".1em">a b</text>', '<text word-spacing="normal">a</text>']);
+		rejects(['<text letter-spacing="2%">a</text>', '<text letter-spacing="2pt">a</text>', '<text letter-spacing="2 3">a</text>', '<text letter-spacing="calc(1px)">a</text>', '<text word-spacing="inherit">a</text>']);
+	});
+
+	it("accepts the static text, paint and gradient keywords", () => {
+		accepts([
+			'<text text-decoration="underline" direction="rtl" writing-mode="vertical-rl" dominant-baseline="ideographic">a</text>',
+			'<text alignment-baseline="middle">a<tspan baseline-shift="super">2</tspan><tspan baseline-shift="-3">3</tspan></text>',
+			'<text rotate="0 15 -30">abc</text>', '<text xml:space="preserve">a  b</text>',
+			'<path d="M0 0L1 1" paint-order="stroke fill" shape-rendering="crispEdges" vector-effect="non-scaling-stroke" stroke-linejoin="miter-clip"/>',
+			'<defs><radialGradient id="g" fx="30%" fy="-5" fr="0" color-interpolation="linearRGB"><stop offset="1"/></radialGradient></defs><rect width="5" height="5" fill="url(#g)"/>',
+		]);
+		rejects(['<text text-decoration="underline red">a</text>', '<text writing-mode="sideways">a</text>', '<path paint-order="stroke stroke"/>', '<path paint-order="normal fill"/>', '<path vector-effect="fixed-position"/>', '<text xml:space="keep">a</text>', '<text xml:lang="en">a</text>', '<text lang="en">a</text>', '<g visibility="hidden"/>', '<g display="none"/>']);
+	});
+
+	it("keeps the XML namespace of xml:space through sanitizing", () => {
+		for (const source of [drawing('<text xml:space="preserve">a  b</text>'), '<svg viewBox="0 0 10 10"><text xml:space="preserve">a  b</text></svg>']) {
+			const result = prepareSvg(source, "x"); expect(result.kind).toBe("ready");
+			if (result.kind === "ready") expect(result.fragment.querySelector("text")?.getAttributeNS("http://www.w3.org/XML/1998/namespace", "space")).toBe("preserve");
+		}
+	});
+
+	it("parses colors instead of accepting any word or function", () => {
+		accepts(['<path fill="currentColor" stroke="inherit" color="RebeccaPurple"/>', '<path fill="#abc" stroke="#abcd"/>', '<path fill="#a1b2c3" stroke="#a1b2c3d4"/>', '<path fill="rgb(1, 2, 3)" stroke="rgba(10%, 20%, 30%, .5)"/>', '<path fill="rgb(1 2 3 / 50%)" stroke="hsl(120deg 50% 50%)"/>', '<path fill="hsla(120, 50%, 50%, 0.3)" stroke="transparent"/>', '<stop stop-color="red" offset="0"/>']);
+		rejects(['<path fill="#12345"/>', '<path fill="bogus"/>', '<path fill="unset"/>', '<path fill="rgb(1, 2)"/>', '<path fill="rgb(1 2 3 4)"/>', '<path fill="rgb(1, 2 3)"/>', '<path fill="rgb(var(--x))"/>', '<path fill="url(#g) red"/>', '<stop stop-color="none"/>']);
+	});
+
+	it("applies each length grammar with its own units", () => {
+		accepts(['<path opacity="50%" fill-opacity=".5" stroke-dasharray="2px 3px"/>', '<path stroke-dasharray="none"/>', '<path stroke-dasharray="1, 2 ,3"/>', '<text font-size="1.2em">a<tspan font-size="120%">b</tspan></text>', '<text x="10 20 30" y="5" dy="1.2em">abc</text>', '<rect rx="auto" width="1" height="1"/>']);
+		rejects(['<path opacity="1px"/>', '<stop offset="3px"/>', '<path stroke-dasharray="2,,3"/>', '<path stroke-dasharray="' + '1 '.repeat(65) + '"/>', '<text font-size="5em">a</text>', '<text font-size="500%">a</text>', '<rect x="10 20" width="1" height="1"/>', '<rect width="2em" height="1"/>', '<path stroke-width="1e7"/>']);
+	});
+
+	it("parses viewBox, points and transform lists", () => {
+		for (const viewBox of ["e 0 10 10", "0,,0 10 10", "0 0 -1 10", "0 0 10"]) expect(prepareSvg(`<svg viewBox="${viewBox}"><rect width="1" height="1"/></svg>`, "x").kind, viewBox).toBe("rejected");
+		expect(prepareSvg('<svg viewBox=" 0,0 10 10 "><rect width="1" height="1"/></svg>', "x").kind).toBe("ready");
+		accepts(['<polygon points="0,0 1,1 2,0"/>', '<g transform="translate(1,2),scale(2)"/>', '<g transform="rotate(10 5 5) translate(1)matrix(1 0 0 1 0 0)"/>', '<g transform="skewX(5) skewY(-5)"/>']);
+		rejects(['<polygon points="0,0 1"/>', '<g transform="rotate(1 2)"/>', '<g transform="matrix(1 0 0 1 0)"/>', '<g transform="rotate(1),"/>', '<g transform="rotate(1),,scale(2)"/>', '<g transform="perspective(1)"/>']);
+		expect(prepareSvg(drawing('<rect width="1" height="1" preserveAspectRatio="xMidYMid  slice"/>'), "x").kind).toBe("ready");
+	});
+
+	it("counts text position lists in the expansion budget", () => {
+		const positions = Array.from({ length: 1000 }, (_, index) => index).join(" ");
+		const source = drawing(`<defs><g id="g">${`<text x="${positions}">a</text>`.repeat(4)}</g></defs>` + '<use href="#g"/>'.repeat(30));
+		expect(prepareSvg(source, "x")).toMatchObject({ kind: "rejected", reason: expect.stringContaining("expansion") });
+		expect(ready(`<text x="${positions} 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25"/>`).kind).toBe("rejected");
+	});
 });
