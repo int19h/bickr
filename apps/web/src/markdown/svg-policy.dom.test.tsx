@@ -196,6 +196,7 @@ describe("inline SVG attribute values", () => {
 		spells('<stop stop-color="rgb(1 2 3)" offset="0"/>', "stop", "stop-color", "rgb(1 2 3)");
 		spells('<path fill=" #ABC "/>', "path", "fill", "#ABC");
 		spells('<path fill="RebeccaPurple"/>', "path", "fill", "RebeccaPurple");
+		for (const separator of ["&#10;", "&#13;", "\u2028", "\u2029"]) expect(prepareSvg(drawing(`<path fill="hsl(1${separator}2,50%,50%)"/>`), "x")).toEqual({ kind: "rejected", reason: "SVG fill must be a color or a local gradient." });
 	});
 
 	it("keeps compact arc flags in path data", () => {

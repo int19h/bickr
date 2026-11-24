@@ -301,7 +301,9 @@ const number: Component = (token) => cssNumber.test(token) && finite(token) ? sp
 const percentage: Component = (token) => { if (!token.endsWith("%")) return null; const spelled = number(token.slice(0, -1)); return spelled === null ? null : `${spelled}%`; };
 const numberOrPercentage: Component = (token) => number(token) ?? percentage(token);
 const hue: Component = (token) => {
-	const match = /^(.*?)(deg|grad|rad|turn)?$/i.exec(token)!;
+	// `.` does not match a line terminator, so a malformed hue can fail to match.
+	const match = /^(.*?)(deg|grad|rad|turn)?$/i.exec(token);
+	if (!match) return null;
 	const spelled = number(match[1]!);
 	return spelled === null ? null : `${spelled}${asciiLower(match[2] ?? "")}`;
 };
