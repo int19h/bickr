@@ -25,17 +25,11 @@ const valueBound = 1_000_000;
 type Unit = "" | "px" | "%" | "em";
 type Range = readonly [min: number, max: number];
 type Units = Partial<Record<Unit, Range>>;
-/**
- * SVG attributes take the SVG number form, which allows `1.`. CSS
- * presentation properties take the CSS number form, which does not, and
- * browsers ignore a CSS value that uses `1.`.
- */
-type NumberSyntax = "svg" | "css";
 
 type ValueRule =
-	| { kind: "length"; syntax: NumberSyntax; units: Units; keywords?: readonly string[] }
+	| { kind: "length"; units: Units; keywords?: readonly string[] }
 	/** A list counts as geometry when it can hold one item per character. */
-	| { kind: "lengthList"; syntax: NumberSyntax; units: Units; maxItems: number; geometry: boolean; keywords?: readonly string[] }
+	| { kind: "lengthList"; units: Units; maxItems: number; geometry: boolean; keywords?: readonly string[] }
 	| { kind: "points" }
 	| { kind: "viewBox" }
 	/** CSS keywords match without regard to ASCII case. SVG attribute keywords match exactly. */
@@ -78,13 +72,10 @@ const units = ["userSpaceOnUse", "objectBoundingBox"];
 const baselineCompatibility = ["text-before-edge", "text-after-edge"];
 
 function spec(rule: ValueRule, textRule?: ValueRule): AttributeSpec { return { namespace: null, rule, ...(textRule ? { textRule } : {}) }; }
-/** An SVG geometry attribute. */
-const geometry = (u: Units, keywords?: readonly string[]): AttributeSpec => spec({ kind: "length", syntax: "svg", units: u, ...(keywords ? { keywords } : {}) });
-/** A CSS presentation property. */
-const presentation = (u: Units, keywords?: readonly string[]): AttributeSpec => spec({ kind: "length", syntax: "css", units: u, ...(keywords ? { keywords } : {}) });
+const length = (u: Units, keywords?: readonly string[]): AttributeSpec => spec({ kind: "length", units: u, ...(keywords ? { keywords } : {}) });
 const cssKeyword = (...values: string[]): AttributeSpec => spec({ kind: "keyword", values, css: true });
 const svgKeyword = (...values: string[]): AttributeSpec => spec({ kind: "keyword", values, css: false });
-const textPositions = (): AttributeSpec => spec({ kind: "length", syntax: "svg", units: coordinate }, { kind: "lengthList", syntax: "svg", units: textPosition, maxItems: 1024, geometry: true });
+const textPositions = (): AttributeSpec => spec({ kind: "length", units: coordinate }, { kind: "lengthList", units: textPosition, maxItems: 1024, geometry: true });
 
 const attributes = {
 	xmlns: { namespace: xmlnsNamespace, rule: { kind: "namespaceDeclaration", value: svgNamespace } },
@@ -102,18 +93,18 @@ const attributes = {
 	d: spec({ kind: "path" }),
 	points: spec({ kind: "points" }),
 	x: textPositions(), y: textPositions(), dx: textPositions(), dy: textPositions(),
-	rotate: spec({ kind: "lengthList", syntax: "svg", units: plainNumber, maxItems: 1024, geometry: true }),
-	x1: geometry(coordinate), y1: geometry(coordinate), x2: geometry(coordinate), y2: geometry(coordinate),
-	cx: geometry(coordinate), cy: geometry(coordinate), r: geometry(coordinate), rx: geometry(coordinate, ["auto"]), ry: geometry(coordinate, ["auto"]),
-	fx: geometry(coordinate), fy: geometry(coordinate), fr: geometry(coordinate),
-	width: geometry(coordinate), height: geometry(coordinate),
-	offset: geometry(fraction), pathLength: geometry(plainNumber), textLength: geometry(coordinate),
-	opacity: presentation(fraction), "fill-opacity": presentation(fraction), "stroke-opacity": presentation(fraction), "stop-opacity": presentation(fraction),
-	"stroke-width": presentation(coordinate), "stroke-dashoffset": presentation(coordinate), "stroke-miterlimit": presentation(plainNumber),
-	"stroke-dasharray": spec({ kind: "lengthList", syntax: "css", units: coordinate, maxItems: 64, geometry: false, keywords: ["none"] }),
-	"font-size": presentation(fontSize),
-	"letter-spacing": presentation(spacing, ["normal"]), "word-spacing": presentation(spacing, ["normal"]),
-	"baseline-shift": presentation(coordinate, ["baseline", "sub", "super"]),
+	rotate: spec({ kind: "lengthList", units: plainNumber, maxItems: 1024, geometry: true }),
+	x1: length(coordinate), y1: length(coordinate), x2: length(coordinate), y2: length(coordinate),
+	cx: length(coordinate), cy: length(coordinate), r: length(coordinate), rx: length(coordinate, ["auto"]), ry: length(coordinate, ["auto"]),
+	fx: length(coordinate), fy: length(coordinate), fr: length(coordinate),
+	width: length(coordinate), height: length(coordinate),
+	offset: length(fraction), pathLength: length(plainNumber), textLength: length(coordinate),
+	opacity: length(fraction), "fill-opacity": length(fraction), "stroke-opacity": length(fraction), "stop-opacity": length(fraction),
+	"stroke-width": length(coordinate), "stroke-dashoffset": length(coordinate), "stroke-miterlimit": length(plainNumber),
+	"stroke-dasharray": spec({ kind: "lengthList", units: coordinate, maxItems: 64, geometry: false, keywords: ["none"] }),
+	"font-size": length(fontSize),
+	"letter-spacing": length(spacing, ["normal"]), "word-spacing": length(spacing, ["normal"]),
+	"baseline-shift": length(coordinate, ["baseline", "sub", "super"]),
 	fill: spec({ kind: "paint" }), stroke: spec({ kind: "paint" }),
 	color: spec({ kind: "color" }), "stop-color": spec({ kind: "color" }),
 	"clip-path": spec({ kind: "fragmentUrl" }), mask: spec({ kind: "fragmentUrl" }),
@@ -124,9 +115,10 @@ const attributes = {
 	"font-style": cssKeyword("normal", "italic", "oblique"),
 	"text-anchor": cssKeyword("start", "middle", "end"),
 	// Each baseline property takes the CSS Inline 3 keywords and the SVG 1.1
-	// spellings that current engines still implement.
+	// spellings that a current engine still implements. Chromium honors
+	// before-edge and after-edge for alignment-baseline only.
 	"dominant-baseline": cssKeyword("auto", "alphabetic", "ideographic", "middle", "central", "mathematical", "hanging", "text-top", "text-bottom", ...baselineCompatibility),
-	"alignment-baseline": cssKeyword("auto", "baseline", "alphabetic", "ideographic", "middle", "central", "mathematical", "hanging", "text-top", "text-bottom", ...baselineCompatibility),
+	"alignment-baseline": cssKeyword("auto", "baseline", "before-edge", "after-edge", "alphabetic", "ideographic", "middle", "central", "mathematical", "hanging", "text-top", "text-bottom", ...baselineCompatibility),
 	"text-decoration": cssKeyword("none", "underline", "overline", "line-through"),
 	direction: cssKeyword("ltr", "rtl"),
 	// SVG 1.1 spellings still render in current engines.
@@ -167,6 +159,8 @@ export type ValueCheck =
 /** XML whitespace. JavaScript `\s` also matches characters that SVG does not treat as separators. */
 const whitespaceRun = /[\t\n\r ]+/;
 function isXmlSpace(character: string | undefined): boolean { return character === " " || character === "\t" || character === "\n" || character === "\r"; }
+/** ASCII case folding. CSS keywords ignore ASCII case only, so `K` (Kelvin sign) is not `k`. */
+function asciiLower(value: string): string { return value.replace(/[A-Z]/g, (letter) => letter.toLowerCase()); }
 function trimXml(value: string): string {
 	let start = 0; let end = value.length;
 	while (start < end && isXmlSpace(value[start])) start++;
@@ -174,13 +168,13 @@ function trimXml(value: string): string {
 	return value.slice(start, end);
 }
 
-const svgNumberSource = "[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][+-]?\\d+)?";
-const cssNumberSource = "[+-]?(?:\\d*\\.\\d+|\\d+)(?:[eE][+-]?\\d+)?";
-const dimensions: Record<NumberSyntax, RegExp> = {
-	svg: new RegExp(`^(${svgNumberSource})(px|%|em)?$`, "i"),
-	css: new RegExp(`^(${cssNumberSource})(px|%|em)?$`, "i"),
-};
-const cssNumber = new RegExp(`^${cssNumberSource}$`);
+/**
+ * The CSS number form, which every rule except path data uses. Browsers
+ * ignore `1.` in SVG attributes too, although the SVG 1.1 grammar allows it.
+ */
+const numberSource = "[+-]?(?:\\d*\\.\\d+|\\d+)(?:[eE][+-]?\\d+)?";
+const dimension = new RegExp(`^(${numberSource})(px|%|em)?$`, "i");
+const cssNumber = new RegExp(`^${numberSource}$`);
 const name = "[A-Za-z_][\\w.-]*";
 const simpleName = new RegExp(`^${name}$`);
 
@@ -201,53 +195,78 @@ function listItems(value: string): string[] | null {
 }
 
 /**
- * Parses an SVG number list, where a sign or a second decimal point also
- * ends a number, as in `10-5`. Points and transform arguments use it.
+ * Reads numbers where a sign or a decimal point can also end the previous
+ * number, as in `10-5`. Each item records whether a separator preceded it.
  */
-const svgNumberAt = new RegExp(svgNumberSource, "y");
-function svgNumbers(value: string): number[] | null {
-	const numbers: number[] = [];
-	let index = 0;
-	const skipSpace = () => { while (isXmlSpace(value[index])) index++; };
+const numberAt = new RegExp(numberSource, "y");
+function compactNumbers(value: string): { number: number; separated: boolean; text: string }[] | null {
+	const numbers: { number: number; separated: boolean; text: string }[] = [];
+	let index = 0; let separated = true;
+	const skipSpace = () => { const start = index; while (isXmlSpace(value[index])) index++; return index > start; };
 	skipSpace();
 	while (index < value.length) {
-		svgNumberAt.lastIndex = index;
-		const match = svgNumberAt.exec(value);
+		numberAt.lastIndex = index;
+		const match = numberAt.exec(value);
 		if (!match || !finite(match[0])) return null;
-		numbers.push(Number(match[0]));
-		index = svgNumberAt.lastIndex;
-		skipSpace();
+		numbers.push({ number: Number(match[0]), separated, text: match[0] });
+		index = numberAt.lastIndex;
+		separated = skipSpace();
 		if (value[index] === ",") {
-			index++; skipSpace();
+			index++; skipSpace(); separated = true;
 			if (index === value.length) return null;
 		}
 	}
 	return numbers.length ? numbers : null;
 }
 
+/** Transform arguments: both engines read every compact spelling. */
+function transformNumbers(value: string): number[] | null {
+	return compactNumbers(value)?.map((item) => item.number) ?? null;
+}
+
+/**
+ * Point pairs. Both engines read a negative second coordinate that follows
+ * the first directly, as in `10-5`, but Firefox reads no other compact form.
+ * A separator must therefore precede every other number.
+ */
+function pointNumbers(value: string): number[] | null {
+	const items = compactNumbers(value);
+	if (!items || items.length % 2 !== 0) return null;
+	return items.every((item, index) => item.separated || (index % 2 === 1 && item.text.startsWith("-"))) ? items.map((item) => item.number) : null;
+}
+
+/** Strict number lists, separated by whitespace or one comma. */
+function plainNumbers(value: string): number[] | null {
+	const items = listItems(value);
+	return items?.every((item) => cssNumber.test(item) && finite(item)) ? items.map(Number) : null;
+}
+
+/** Browsers store viewBox and dimensions as 32-bit floats, so `1e-50` becomes zero. */
+function positiveFloat(number: number): boolean { return Math.fround(number) > 0; }
+
 /** Parses one length and returns its number, or null outside the allowed units. */
-function parseLength(value: string, allowed: Units, syntax: NumberSyntax): { number: number; unit: Unit } | null {
-	const match = dimensions[syntax].exec(value);
+function parseLength(value: string, allowed: Units): { number: number; unit: Unit } | null {
+	const match = dimension.exec(value);
 	if (!match) return null;
-	const unit = (match[2]?.toLowerCase() ?? "") as Unit;
+	const unit = asciiLower(match[2] ?? "") as Unit;
 	const range = allowed[unit];
 	return range && finite(match[1]!, range) ? { number: Number(match[1]), unit } : null;
 }
 
-/** The size of a root `width` or `height` in user units, for the synthesized viewBox. */
+/** The positive size of a root `width` or `height` in user units, for the synthesized viewBox, or null. */
 export function absoluteLength(value: string): number | null {
-	const parsed = parseLength(trimXml(value), { "": any, px: any }, "svg");
-	return parsed?.number ?? null;
+	const parsed = parseLength(trimXml(value), { "": any, px: any });
+	return parsed && positiveFloat(parsed.number) ? parsed.number : null;
 }
 
 /** The four numbers of a valid viewBox, or null. */
 function viewBoxNumbers(value: string): readonly [number, number, number, number] | null {
-	const numbers = svgNumbers(value);
-	return numbers?.length === 4 && numbers[2]! > 0 && numbers[3]! > 0 ? [numbers[0]!, numbers[1]!, numbers[2]!, numbers[3]!] : null;
+	const numbers = plainNumbers(value);
+	return numbers?.length === 4 && positiveFloat(numbers[2]!) && positiveFloat(numbers[3]!) ? [numbers[0]!, numbers[1]!, numbers[2]!, numbers[3]!] : null;
 }
 
 function keywordIn(values: readonly string[], value: string, css: boolean): boolean {
-	return css ? values.some((keyword) => keyword.toLowerCase() === value.toLowerCase()) : values.includes(value);
+	return css ? values.some((keyword) => asciiLower(keyword) === asciiLower(value)) : values.includes(value);
 }
 
 /**
@@ -272,11 +291,11 @@ const isHue = (token: string) => isNumber(token.replace(/(?:deg|grad|rad|turn)$/
 function color(value: string): boolean {
 	const trimmed = trimXml(value);
 	// The earlier grammar accepted `inherit`, which only copies the parent value.
-	if (trimmed.toLowerCase() === "inherit" || namedColors.has(trimmed.toLowerCase())) return true;
+	if (asciiLower(trimmed) === "inherit" || namedColors.has(asciiLower(trimmed))) return true;
 	if (/^#(?:[\da-f]{3,4}|[\da-f]{6}|[\da-f]{8})$/i.test(trimmed)) return true;
 	const call = /^(rgba?|hsla?)\(([^()]*)\)$/i.exec(trimmed);
 	if (!call) return false;
-	const hsl = call[1]!.toLowerCase().startsWith("h");
+	const hsl = asciiLower(call[1]!).startsWith("h");
 	const inner = call[2]!;
 	if (inner.includes(",")) {
 		const parts = inner.split(",").map(trimXml);
@@ -314,7 +333,7 @@ function transformList(value: string): boolean {
 		transformFunction.lastIndex = index;
 		const match = transformFunction.exec(trimmed);
 		if (!match) return false;
-		const args = svgNumbers(match[2]!);
+		const args = transformNumbers(match[2]!);
 		if (!args || !transformArguments[match[1]!]!.includes(args.length)) return false;
 		index = transformFunction.lastIndex;
 		if (index === trimmed.length) return true;
@@ -324,8 +343,22 @@ function transformList(value: string): boolean {
 }
 
 const pathAlphabet = /^[MmZzLlHhVvCcSsQqTtAa\d\t\n\r .,eE+\-]*$/;
-const svgNumberTokens = new RegExp(svgNumberSource, "g");
-const cssWideKeywords = new Set(["initial", "unset", "revert", "revert-layer", "default"]);
+/** Path data keeps the SVG number form, which allows `1.`. */
+const pathNumberTokens = /[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?/g;
+const cssWideKeywords = new Set(["inherit", "initial", "unset", "revert", "revert-layer", "revert-rule", "default"]);
+
+/**
+ * A comma-separated list of quoted or unquoted family names. A CSS-wide
+ * keyword is valid only alone, and the earlier grammar accepted `inherit`
+ * there. Only XML whitespace separates words, because DOMPurify trims other
+ * spaces and would change what the check saw.
+ */
+function fontFamily(value: string): boolean {
+	if (!/^[\p{Letter}\p{Number}\t\n\r ,'"_-]{1,150}$/u.test(value)) return false;
+	const families = value.split(",").map((family) => asciiLower(trimXml(family)));
+	if (families.length === 1 && families[0] === "inherit") return true;
+	return families.every((family) => family !== "" && !cssWideKeywords.has(family));
+}
 
 function check(rule: ValueRule, value: string): ValueCheck {
 	const valid: ValueCheck = { kind: "valid" };
@@ -333,15 +366,14 @@ function check(rule: ValueRule, value: string): ValueCheck {
 	const trimmed = trimXml(value);
 	switch (rule.kind) {
 		case "length":
-			return (rule.keywords && keywordIn(rule.keywords, trimmed, true)) || parseLength(trimmed, rule.units, rule.syntax) ? valid : invalid("must be a bounded number");
+			return (rule.keywords && keywordIn(rule.keywords, trimmed, true)) || parseLength(trimmed, rule.units) ? valid : invalid("must be a bounded number");
 		case "lengthList": {
 			if (rule.keywords && keywordIn(rule.keywords, trimmed, true)) return valid;
 			const items = listItems(value);
-			return items && items.length <= rule.maxItems && items.every((item) => parseLength(item, rule.units, rule.syntax)) ? valid : invalid("must contain bounded numbers");
+			return items && items.length <= rule.maxItems && items.every((item) => parseLength(item, rule.units)) ? valid : invalid("must contain bounded numbers");
 		}
 		case "points": {
-			const numbers = svgNumbers(value);
-			return numbers && numbers.length % 2 === 0 ? valid : invalid("must contain coordinate pairs");
+			return pointNumbers(value) ? valid : invalid("must contain coordinate pairs");
 		}
 		case "viewBox":
 			return viewBoxNumbers(value) ? valid : invalid("must contain four numbers with positive dimensions");
@@ -352,12 +384,12 @@ function check(rule: ValueRule, value: string): ValueCheck {
 		case "color":
 			return color(value) ? valid : invalid("must be a color");
 		case "paint": {
-			if (trimmed.toLowerCase() === "none" || color(value)) return valid;
+			if (asciiLower(trimmed) === "none" || color(value)) return valid;
 			const id = fragment(value, urlReference);
 			return id ? { kind: "reference", ids: [id], drawsTarget: true, rewrite: ([target]) => `url(#${target})` } : invalid("must be a color or a local gradient");
 		}
 		case "fragmentUrl": {
-			if (trimmed.toLowerCase() === "none") return valid;
+			if (asciiLower(trimmed) === "none") return valid;
 			const id = fragment(value, urlReference);
 			return id ? { kind: "reference", ids: [id], drawsTarget: true, rewrite: ([target]) => `url(#${target})` } : invalid("must use a local fragment reference");
 		}
@@ -371,19 +403,19 @@ function check(rule: ValueRule, value: string): ValueCheck {
 		}
 		case "path": {
 			if (!pathAlphabet.test(value)) return invalid("must be path data with bounded numbers");
-			const tokens = value.match(svgNumberTokens) ?? [];
+			const tokens = value.match(pathNumberTokens) ?? [];
 			// Nonempty path data needs a number, as the earlier rule required.
 			return (value === "" || tokens.length > 0) && tokens.every((token) => finite(token)) ? valid : invalid("must be path data with bounded numbers");
 		}
 		case "transform":
 			return transformList(value) ? valid : invalid("must be a list of transform functions");
 		case "fontFamily":
-			return /^[\p{Letter}\p{Number}\s,'"_-]{1,150}$/u.test(value) && !cssWideKeywords.has(trimmed.toLowerCase()) ? valid : invalid("must be a list of font names");
+			return fontFamily(value) ? valid : invalid("must be a list of font names");
 		case "aspectRatio":
 			return /^(?:none|x(?:Min|Mid|Max)Y(?:Min|Mid|Max))(?:[\t\n\r ]+(?:meet|slice))?$/.test(trimmed) ? valid : invalid("must be an alignment keyword with optional meet or slice");
 		case "paintOrder": {
-			if (trimmed.toLowerCase() === "normal") return valid;
-			const tokens = trimmed.toLowerCase().split(whitespaceRun);
+			if (asciiLower(trimmed) === "normal") return valid;
+			const tokens = asciiLower(trimmed).split(whitespaceRun);
 			return tokens.length <= 3 && new Set(tokens).size === tokens.length && tokens.every((token) => ["fill", "stroke", "markers"].includes(token)) ? valid : invalid("value is not supported");
 		}
 		case "namespaceDeclaration":
