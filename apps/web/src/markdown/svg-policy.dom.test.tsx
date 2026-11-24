@@ -43,22 +43,35 @@ describe("inline SVG attribute values", () => {
 	const ready = (body: string) => prepareSvg(drawing(body), "x");
 	const accepts = (bodies: string[]) => { for (const body of bodies) expect(ready(body).kind, body).toBe("ready"); };
 	const rejects = (bodies: string[]) => { for (const body of bodies) expect(ready(body).kind, body).toBe("rejected"); };
+	/** Asserts that sanitizing kept every attribute of every element, not only that the drawing passed. */
+	const retains = (bodies: string[]) => {
+		for (const body of bodies) {
+			const result = ready(body); expect(result.kind, body).toBe("ready");
+			if (result.kind !== "ready") continue;
+			const input = new DOMParser().parseFromString(drawing(body), "image/svg+xml").querySelectorAll("svg *");
+			const output = result.fragment.querySelectorAll("svg *");
+			expect(output.length, body).toBe(input.length);
+			input.forEach((element, index) => {
+				for (const attr of Array.from(element.attributes)) if (attr.name !== "id" && !/url\(#|^#/.test(attr.value)) expect(output[index]!.getAttributeNS(attr.namespaceURI, attr.localName), `${body} ${attr.name}`).toBe(attr.value);
+			});
+		}
+	};
 
 	it("keeps letter and word spacing on text, spans and groups", () => {
 		// The shape of a published drawing that failed only on letter-spacing.
 		const result = ready('<text x="600" y="55" font-family="monospace" font-size="23" font-weight="bold" text-anchor="middle" letter-spacing="2">LABEL</text>');
 		expect(result.kind).toBe("ready");
 		if (result.kind === "ready") expect(result.fragment.querySelector("text")?.getAttribute("letter-spacing")).toBe("2");
-		accepts(['<g letter-spacing="-1.5"><text>a<tspan letter-spacing="normal">b</tspan></text></g>', '<text letter-spacing="2px" word-spacing=".1em">a b</text>', '<text word-spacing="normal">a</text>']);
+		retains(['<g letter-spacing="-1.5"><text>a<tspan letter-spacing="normal">b</tspan></text></g>', '<text letter-spacing="2px" word-spacing=".1em">a b</text>', '<text word-spacing="normal">a</text>']);
 		rejects(['<text letter-spacing="2%">a</text>', '<text letter-spacing="2pt">a</text>', '<text letter-spacing="2 3">a</text>', '<text letter-spacing="calc(1px)">a</text>', '<text word-spacing="inherit">a</text>']);
 	});
 
-	it("accepts the static text, paint and gradient keywords", () => {
-		accepts([
+	it("accepts and keeps the static text, paint and gradient keywords", () => {
+		retains([
 			'<text text-decoration="underline" direction="rtl" writing-mode="vertical-rl" dominant-baseline="ideographic">a</text>',
 			'<text alignment-baseline="middle">a<tspan baseline-shift="super">2</tspan><tspan baseline-shift="-3">3</tspan></text>',
 			'<text rotate="0 15 -30">abc</text>', '<text xml:space="preserve">a  b</text>',
-			'<path d="M0 0L1 1" paint-order="stroke fill" shape-rendering="crispEdges" vector-effect="non-scaling-stroke" stroke-linejoin="miter-clip"/>',
+			'<path d="M0 0L1 1" paint-order="stroke fill" shape-rendering="crispEdges" vector-effect="non-scaling-stroke" stroke-linejoin="bevel"/>',
 			'<defs><radialGradient id="g" fx="30%" fy="-5" fr="0" color-interpolation="linearRGB"><stop offset="1"/></radialGradient></defs><rect width="5" height="5" fill="url(#g)"/>',
 		]);
 		rejects(['<text text-decoration="underline red">a</text>', '<text writing-mode="sideways">a</text>', '<path paint-order="stroke stroke"/>', '<path paint-order="normal fill"/>', '<path vector-effect="fixed-position"/>', '<text xml:space="keep">a</text>', '<text xml:lang="en">a</text>', '<text lang="en">a</text>', '<g visibility="hidden"/>', '<g display="none"/>']);
@@ -78,7 +91,7 @@ describe("inline SVG attribute values", () => {
 
 	it("applies each length grammar with its own units", () => {
 		accepts(['<path opacity="50%" fill-opacity=".5" stroke-dasharray="2px 3px"/>', '<path stroke-dasharray="none"/>', '<path stroke-dasharray="1, 2 ,3"/>', '<text font-size="1.2em">a<tspan font-size="120%">b</tspan></text>', '<text x="10 20 30" y="5" dy="1.2em">abc</text>', '<rect rx="auto" width="1" height="1"/>']);
-		rejects(['<path opacity="1px"/>', '<stop offset="3px"/>', '<path stroke-dasharray="2,,3"/>', '<path stroke-dasharray="' + '1 '.repeat(65) + '"/>', '<text font-size="5em">a</text>', '<text font-size="500%">a</text>', '<rect x="10 20" width="1" height="1"/>', '<rect width="2em" height="1"/>', '<path stroke-width="1e7"/>']);
+		rejects(['<path opacity="1px"/>', '<stop offset="3px"/>', '<path stroke-dasharray="2,,3"/>', '<path stroke-dasharray="' + '1 '.repeat(65) + '"/>', '<text font-size="1e7em">a</text>', '<path stroke-linejoin="arcs"/>', '<rect x="10 20" width="1" height="1"/>', '<rect width="2em" height="1"/>', '<path stroke-width="1e7"/>']);
 	});
 
 	it("parses viewBox, points and transform lists", () => {
@@ -94,5 +107,50 @@ describe("inline SVG attribute values", () => {
 		const source = drawing(`<defs><g id="g">${`<text x="${positions}">a</text>`.repeat(4)}</g></defs>` + '<use href="#g"/>'.repeat(30));
 		expect(prepareSvg(source, "x")).toMatchObject({ kind: "rejected", reason: expect.stringContaining("expansion") });
 		expect(ready(`<text x="${positions} 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25"/>`).kind).toBe("rejected");
+	});
+	it("matches CSS keywords without regard to case and SVG keywords exactly", () => {
+		retains(['<path fill="NONE" stroke="InHerit" stroke-linecap="ROUND" paint-order="Stroke"/>', '<stop stop-color="INHERIT" offset="0"/>', '<text font-weight="BOLD" letter-spacing="Normal" dominant-baseline="Central">a</text>']);
+		rejects(['<linearGradient gradientUnits="userspaceonuse"/>', '<text xml:space="PRESERVE">a</text>', '<rect width="1" height="1" preserveAspectRatio="xmidymid"/>']);
+	});
+
+	it("uses the CSS number form for presentation values and channel rules for colors", () => {
+		rejects(['<text letter-spacing="1.px">a</text>', '<path fill="rgb(1. 2 3)"/>', '<path fill="rgb(10%, 20, 30)"/>', '<path fill="hsl(120, 50, 50)"/>', '<path opacity="1."/>', '<text font-weight="400.">a</text>', '<path fill="CanvasText"/>']);
+		retains(['<path fill="rgb(10% 20 30)" stroke="hsl(120 50 50 / .5)"/>', '<path fill="hsl(0.5turn, 50%, 50%)" stroke="rgb(1, 2, 3, 50%)"/>', '<rect x="1." width="2." height="3"/>']);
+	});
+
+	it("keeps separate keyword sets for the two baseline properties", () => {
+		retains(['<text alignment-baseline="baseline">a</text>', '<text alignment-baseline="auto" dominant-baseline="text-before-edge">a</text>']);
+		rejects(['<text dominant-baseline="baseline">a</text>', '<text dominant-baseline="before-edge">a</text>', '<text dominant-baseline="use-script">a</text>']);
+	});
+
+	it("reads compact coordinate pairs and transform arguments", () => {
+		retains(['<polyline points="10-5 20-10"/>', '<polygon points="1.5.5 2e1-3"/>', '<g transform="translate(10-5)rotate(1.5.5.5)"/>']);
+		rejects(['<polyline points="10-5 20"/>', '<polyline points="1,,2 3 4"/>', '<polyline points="1 2,"/>']);
+	});
+
+	it("keeps the path rule of the earlier policy", () => {
+		rejects(['<path d="M"/>', '<path d="  "/>', '<path d="M1e7 0"/>']);
+		accepts(['<path d=""/>', '<path d="M0 0L1 1z"/>']);
+	});
+
+	it("parses root dimensions with the length grammar", () => {
+		for (const [width, height] of [["10PX", "20"], ["10px ", " 20px"], ["10", "20"]]) {
+			const result = prepareSvg(`<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"><rect width="1" height="1"/></svg>`, "x");
+			expect(result.kind, width).toBe("ready");
+			if (result.kind === "ready") expect(result.fragment.querySelector("svg")?.getAttribute("viewBox")).toBe("0 0 10 20");
+		}
+		for (const width of ["100%", "10em", "0", "20000"]) expect(prepareSvg(`<svg width="${width}" height="10"><rect width="1" height="1"/></svg>`, "x").kind, width).toBe("rejected");
+	});
+
+	it("rejects standalone CSS-wide keywords as font families", () => {
+		rejects(['<text font-family="revert">a</text>', '<text font-family="Unset">a</text>']);
+		accepts(['<text font-family="\'Revert Sans\', serif">a</text>', '<text font-family="inherit">a</text>']);
+	});
+
+	it("parses long whitespace runs in linear time", () => {
+		const gap = " ".repeat(60_000);
+		const started = performance.now();
+		for (const body of [`<path fill="rgb(1,${gap}2,${gap}" />`, `<path stroke-dasharray="1${gap}x"/>`, `<path opacity="${gap}1${gap}x"/>`]) expect(prepareSvg(drawing(body), "x").kind).toBe("rejected");
+		expect(performance.now() - started).toBeLessThan(1000);
 	});
 });

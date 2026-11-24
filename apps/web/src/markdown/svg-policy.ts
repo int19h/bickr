@@ -1,7 +1,7 @@
 import DOMPurify from "dompurify";
 
 import { svgLimits } from "@bickr/shared/content-limits";
-import { attributeGeometryBytes, attributeSpec, checkAttribute, svgAttributeNames, svgNamespace } from "./svg-attributes";
+import { absoluteLength, attributeGeometryBytes, attributeSpec, checkAttribute, svgAttributeNames, svgNamespace } from "./svg-attributes";
 export { svgLimits } from "@bickr/shared/content-limits";
 const tags = new Set(["svg", "g", "defs", "path", "rect", "circle", "ellipse", "line", "polyline", "polygon", "text", "tspan", "title", "desc", "linearGradient", "radialGradient", "stop", "clipPath", "mask", "use"]);
 
@@ -88,15 +88,13 @@ export function prepareSvg(source: string, prefix: string): SvgResult {
 			active.delete(element); weights.set(element, result); return result;
 		}
 		weight(root);
-		let viewBox = root.getAttribute("viewBox");
-		if (!viewBox) {
-			const width = Number(root.getAttribute("width")?.replace(/px$/, "") ?? 300);
-			const height = Number(root.getAttribute("height")?.replace(/px$/, "") ?? 150);
-			if (!(width > 0 && height > 0 && width <= 10_000 && height <= 10_000)) reject("SVG needs a valid viewBox or finite dimensions.");
-			viewBox = `0 0 ${width} ${height}`; root.setAttribute("viewBox", viewBox);
+		// The attribute loop already parsed an explicit viewBox.
+		if (!root.hasAttribute("viewBox")) {
+			const dimension = (name: string, fallback: number) => { const value = root.getAttribute(name); return value === null ? fallback : absoluteLength(value); };
+			const width = dimension("width", 300); const height = dimension("height", 150);
+			if (width === null || height === null || !(width > 0 && height > 0 && width <= 10_000 && height <= 10_000)) reject("SVG needs a valid viewBox or finite dimensions.");
+			root.setAttribute("viewBox", `0 0 ${width} ${height}`);
 		}
-		const coordinates = viewBox.trim().split(/[\s,]+/).map(Number);
-		if (coordinates.length !== 4 || !(coordinates[2]! > 0 && coordinates[3]! > 0)) reject("SVG viewBox must contain four numbers with positive dimensions.");
 		root.setAttribute("width", "100%"); root.setAttribute("height", "100%"); root.setAttribute("role", "img");
 		if (!root.hasAttribute("aria-label") && !root.hasAttribute("aria-labelledby")) root.setAttribute("aria-label", root.querySelector("title")?.textContent ?? "SVG drawing");
 		// Create page-document nodes only after the complete tree passes policy.
