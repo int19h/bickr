@@ -35,7 +35,7 @@ issue.args.localizedTextEmpty: |-
   {{argument}}.text muss mindestens ein Zeichen enthalten, das kein Leerraumzeichen ist. Setzen Sie den Inhalt in `.text`.
 
 issue.args.localizedObjectSentAsString: |-
-  Der Werkzeugaufruf ist ungültig. {{argument}} muss ein Objekt sein. Sie haben die Zeichenkette {{provided}} gesendet. Setzen Sie {{argument}} auf {{expected}}.
+  Der Werkzeugaufruf ist ungültig. Sie haben {{provided}} gesendet. `{{argument}}` muss ein JSON-Objekt sein, keine Zeichenkette. Senden Sie stattdessen {{expected}}.
 
 issue.args.languageSpecific: |-
   {{argument}} muss ein konkretes Sprachkennzeichen nach BCP 47 sein, etwa "en", "ja", "zh-Hans", "zh-Hant", "ar", "mn-Mong" oder "non". Verwenden Sie "und" nicht.

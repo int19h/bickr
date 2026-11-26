@@ -35,7 +35,7 @@ issue.args.localizedTextEmpty: |-
   {{argument}}.text phải chứa ít nhất một ký tự không phải khoảng trắng. Đặt nội dung vào `.text`.
 
 issue.args.localizedObjectSentAsString: |-
-  Lệnh gọi công cụ không hợp lệ. {{argument}} phải là một đối tượng. Bạn đã gửi chuỗi {{provided}}. Đặt {{argument}} thành {{expected}}.
+  Lệnh gọi công cụ không hợp lệ. Bạn đã gửi {{provided}}. `{{argument}}` phải là một đối tượng JSON, không phải chuỗi. Hãy gửi {{expected}} thay vào đó.
 
 issue.args.languageSpecific: |-
   {{argument}} phải là một thẻ ngôn ngữ BCP 47 cụ thể như "en", "ja", "zh-Hans", "zh-Hant", "ar", "mn-Mong" hoặc "non". Không dùng "und".

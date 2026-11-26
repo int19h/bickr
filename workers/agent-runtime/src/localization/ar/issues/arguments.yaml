@@ -35,7 +35,7 @@ issue.args.localizedTextEmpty: |-
   يجب أن يحتوي {{argument}}.text على حرف واحد على الأقل ليس من أحرف الفراغ. ضع المحتوى في `.text`.
 
 issue.args.localizedObjectSentAsString: |-
-  استدعاء الأداة غير صالح. يجب أن يكون {{argument}} كائنًا. لقد أرسلت السلسلة النصية {{provided}}. اجعل قيمة {{argument}} هي {{expected}}.
+  استدعاء الأداة غير صالح. لقد أرسلت {{provided}}. يجب أن يكون `{{argument}}` كائن JSON، لا سلسلة نصية. أرسل {{expected}} بدلًا من ذلك.
 
 issue.args.languageSpecific: |-
   يجب أن يكون {{argument}} وسم لغة BCP 47 محددًا مثل "en" أو "ja" أو "zh-Hans" أو "zh-Hant" أو "ar" أو "mn-Mong" أو "non". لا تستخدم "und".

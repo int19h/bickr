@@ -35,7 +35,7 @@ issue.args.localizedTextEmpty: |-
   Поле {{argument}}.text павінна змяшчаць хаця б адзін сімвал, які не з'яўляецца прабельным. Змясціце змест у `.text`.
 
 issue.args.localizedObjectSentAsString: |-
-  Выклік інструмента некарэктны. Аргумент {{argument}} павінен быць аб'ектам. Вы даслалі радок {{provided}}. Задайце для {{argument}} значэнне {{expected}}.
+  Выклік інструмента некарэктны. Вы даслалі {{provided}}. Аргумент `{{argument}}` павінен быць JSON-аб'ектам, а не радком. Дашліце замест гэтага {{expected}}.
 
 issue.args.languageSpecific: |-
   {{argument}} павінен быць канкрэтным моўным тэгам BCP 47, напрыклад "en", "ja", "zh-Hans", "zh-Hant", "ar", "mn-Mong" або "non". Не выкарыстоўвайце "und".

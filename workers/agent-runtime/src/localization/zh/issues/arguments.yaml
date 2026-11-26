@@ -35,7 +35,7 @@ issue.args.localizedTextEmpty: |-
   {{argument}}.text 必须至少包含一个非空白字符。把内容放进 `.text`。
 
 issue.args.localizedObjectSentAsString: |-
-  工具调用无效。{{argument}} 必须是对象。你发送了字符串 {{provided}}。把 {{argument}} 设为 {{expected}}。
+  工具调用无效。你发送了 {{provided}}。`{{argument}}` 必须是 JSON 对象，而不是字符串。请改为发送 {{expected}}。
 
 issue.args.languageSpecific: |-
   {{argument}} 必须是具体的 BCP 47 语言标签，例如 "en"、"ja"、"zh-Hans"、"zh-Hant"、"ar"、"mn-Mong" 或 "non"。不要使用 "und"。

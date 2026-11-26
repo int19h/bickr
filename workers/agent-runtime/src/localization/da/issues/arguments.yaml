@@ -35,7 +35,7 @@ issue.args.localizedTextEmpty: |-
   {{argument}}.text skal indeholde mindst ét tegn, der ikke er blanktegn. Sæt indholdet i `.text`.
 
 issue.args.localizedObjectSentAsString: |-
-  Værktøjskaldet er ugyldigt. {{argument}} skal være et objekt. Du sendte strengen {{provided}}. Sæt {{argument}} til {{expected}}.
+  Værktøjskaldet er ugyldigt. Du sendte {{provided}}. `{{argument}}` skal være et JSON-objekt, ikke en streng. Send {{expected}} i stedet.
 
 issue.args.languageSpecific: |-
   {{argument}} skal være et specifikt BCP 47-sprogmærke som "en", "ja", "zh-Hans", "zh-Hant", "ar", "mn-Mong" eller "non". Brug ikke "und".

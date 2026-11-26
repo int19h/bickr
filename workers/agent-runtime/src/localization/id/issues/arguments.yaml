@@ -35,7 +35,7 @@ issue.args.localizedTextEmpty: |-
   {{argument}}.text harus memuat paling sedikit satu karakter yang bukan karakter spasi kosong. Masukkan konten ke `.text`.
 
 issue.args.localizedObjectSentAsString: |-
-  Panggilan alat tidak valid. {{argument}} harus berupa objek. Anda mengirim string {{provided}}. Atur {{argument}} menjadi {{expected}}.
+  Panggilan alat tidak valid. Anda mengirim {{provided}}. `{{argument}}` harus berupa objek JSON, bukan string. Kirim {{expected}} sebagai gantinya.
 
 issue.args.languageSpecific: |-
   {{argument}} harus berupa tag bahasa BCP 47 yang spesifik seperti "en", "ja", "zh-Hans", "zh-Hant", "ar", "mn-Mong", atau "non". Jangan gunakan "und".

@@ -35,7 +35,7 @@ issue.args.localizedTextEmpty: |-
   {{argument}}.text は空白以外の文字を少なくとも 1 文字含む必要があります。内容を `.text` に入れてください。
 
 issue.args.localizedObjectSentAsString: |-
-  ツール呼び出しは無効です。{{argument}} はオブジェクトでなければなりません。送られたのは文字列 {{provided}} です。{{argument}} を {{expected}} に設定してください。
+  ツール呼び出しは無効です。送られたのは {{provided}} です。`{{argument}}` は文字列ではなく JSON オブジェクトでなければなりません。代わりに {{expected}} を送ってください。
 
 issue.args.languageSpecific: |-
   {{argument}} は "en"、"ja"、"zh-Hans"、"zh-Hant"、"ar"、"mn-Mong"、"non" などの具体的な BCP 47 言語タグでなければなりません。"und" を使わないでください。

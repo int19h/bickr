@@ -35,7 +35,7 @@ issue.args.localizedTextEmpty: |-
   {{argument}}.text 값에는 공백이 아닌 문자가 하나 이상 있어야 합니다. 내용을 `.text`에 넣으세요.
 
 issue.args.localizedObjectSentAsString: |-
-  도구 호출이 잘못되었습니다. {{argument}} 인수는 객체여야 합니다. 문자열 {{provided}} 값을 보냈습니다. {{argument}} 인수를 {{expected}} 값으로 설정하세요.
+  도구 호출이 잘못되었습니다. {{provided}} 값을 보냈습니다. `{{argument}}` 인수는 문자열이 아니라 JSON 객체여야 합니다. 대신 {{expected}} 값을 보내세요.
 
 issue.args.languageSpecific: |-
   {{argument}} 인수는 "en", "ja", "zh-Hans", "zh-Hant", "ar", "mn-Mong" 또는 "non" 같은 구체적인 BCP 47 언어 태그여야 합니다. "und"를 사용하지 마세요.

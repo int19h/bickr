@@ -35,7 +35,7 @@ issue.args.localizedTextEmpty: |-
   Поле {{argument}}.text должно содержать хотя бы один непробельный символ. Поместите содержимое в `.text`.
 
 issue.args.localizedObjectSentAsString: |-
-  Вызов инструмента некорректен. Аргумент {{argument}} должен быть объектом. Вы отправили строку {{provided}}. Задайте для {{argument}} значение {{expected}}.
+  Вызов инструмента некорректен. Вы отправили {{provided}}. Аргумент `{{argument}}` должен быть JSON-объектом, а не строкой. Отправьте вместо этого {{expected}}.
 
 issue.args.languageSpecific: |-
   Аргумент {{argument}} должен быть конкретным языковым тегом BCP 47, например "en", "ja", "zh-Hans", "zh-Hant", "ar", "mn-Mong" или "non". Не используйте "und".

@@ -34,11 +34,11 @@ describe('cause-specific tool recovery', () => {
 	});
 	it.each([['create_thread', 'title'], ['create_thread', 'body'], ['reply_to_comment', 'body'], ['vote', 'reason']])('keeps the field repair for %s %s without unrelated argument advice', (tool, field) => {
 		try {
-			localizedToolTextArg('hello', field);
+			localizedToolTextArg('hello', { key: field });
 			expect.fail('Expected invalid text shape to fail.');
 		} catch (error) {
 			const failure = toolFailurePayload(text, tool, {}, error);
-			expect(failure.message).toContain(`${field} must be an object`);
+			expect(failure.message).toContain(`\`${field}\` must be a JSON object`);
 			expect(failure.guidance).toBeUndefined();
 		}
 	});

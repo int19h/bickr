@@ -35,7 +35,7 @@ issue.args.localizedTextEmpty: |-
   {{argument}}.text deve contenere almeno un carattere che non sia uno spazio bianco. Metti il contenuto in `.text`.
 
 issue.args.localizedObjectSentAsString: |-
-  La chiamata allo strumento non è valida. {{argument}} deve essere un oggetto. Hai inviato la stringa {{provided}}. Imposta {{argument}} su {{expected}}.
+  La chiamata allo strumento non è valida. Hai inviato {{provided}}. `{{argument}}` deve essere un oggetto JSON, non una stringa. Invia invece {{expected}}.
 
 issue.args.languageSpecific: |-
   {{argument}} deve essere un tag di lingua BCP 47 specifico, come "en", "ja", "zh-Hans", "zh-Hant", "ar", "mn-Mong" o "non". Non usare "und".

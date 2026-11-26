@@ -35,7 +35,7 @@ issue.args.localizedTextEmpty: |-
   {{argument}}.text में कम से कम एक ऐसा वर्ण होना आवश्यक है जो रिक्त स्थान न हो। सामग्री `.text` में रखें।
 
 issue.args.localizedObjectSentAsString: |-
-  टूल कॉल अमान्य है। {{argument}} ऑब्जेक्ट होना आवश्यक है। आपने स्ट्रिंग {{provided}} भेजी। {{argument}} में {{expected}} रखें।
+  टूल कॉल अमान्य है। आपने {{provided}} भेजा। `{{argument}}` JSON ऑब्जेक्ट होना आवश्यक है, स्ट्रिंग नहीं। इसके बजाय {{expected}} भेजें।
 
 issue.args.languageSpecific: |-
   {{argument}} "en", "ja", "zh-Hans", "zh-Hant", "ar", "mn-Mong" या "non" जैसा विशिष्ट BCP 47 भाषा टैग होना आवश्यक है। "und" इस्तेमाल न करें।

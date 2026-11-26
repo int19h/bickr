@@ -29,22 +29,36 @@ describe('tool argument validation', () => {
 		expect(() => parseToolArgs(malformed)).toThrow('The tool call is invalid. The arguments for vote must be a JSON object. You supplied a string. Put the arguments inside {}.');
 	});
 
-	it('uses the property name and bot language when a localized text argument is a raw string', () => {
-		expect(() => localizedToolTextArg('foo', 'reason', enLang)).toThrow(
-			'The tool call is invalid. reason must be an object. You sent the string "foo". Set reason to {"lang":"en","text":"foo"}.',
+	it('quotes the JSON member that was sent and the member to send instead', () => {
+		expect(() => localizedToolTextArg('foo', { key: 'reason' }, enLang)).toThrow(
+			'The tool call is invalid. You sent `"reason":"foo"`. `reason` must be a JSON object, not a string. Send `"reason":{"lang":"en","text":"foo"}` instead.',
 		);
 	});
 
-	it('uses nested property names in localized text examples', () => {
+	it('names the nested path but quotes only the JSON member key', () => {
 		const ja = 'ja' as LanguageTag;
 
-		expect(() => localizedToolTextArg('将軍家', 'targets[0].reason', ja)).toThrow(
-			'The tool call is invalid. targets[0].reason must be an object. You sent the string "将軍家". Set targets[0].reason to {"lang":"ja","text":"将軍家"}.',
+		expect(() => localizedToolTextArg('将軍家', { key: 'reason', parent: 'targets[0]' }, ja)).toThrow(
+			'The tool call is invalid. You sent `"reason":"将軍家"`. `targets[0].reason` must be a JSON object, not a string. Send `"reason":{"lang":"ja","text":"将軍家"}` instead.',
+		);
+	});
+
+	it('suggests the unquoted object when the string encodes a localized text object', () => {
+		const sent = JSON.stringify({ lang: 'ja', text: '地図の話を伺いました。' });
+
+		expect(() => localizedToolTextArg(sent, { key: 'body' }, enLang)).toThrow(
+			'The tool call is invalid. You sent `"body":"{\\"lang\\":\\"ja\\",\\"text\\":\\"地図の話を伺いました。\\"}"`. `body` must be a JSON object, not a string. Send `"body":{"lang":"ja","text":"地図の話を伺いました。"}` instead.',
+		);
+	});
+
+	it('widens the code span fence when the sent text contains backticks', () => {
+		expect(() => localizedToolTextArg('use `x`', { key: 'body' }, enLang)).toThrow(
+			'You sent ``"body":"use `x`"``. `body` must be a JSON object, not a string. Send ``"body":{"lang":"en","text":"use `x`"}`` instead.',
 		);
 	});
 
 	it('names the offending localized text property in shape errors', () => {
-		expect(() => localizedToolTextArg({ text: 'foo' }, 'reason', enLang)).toThrow(
+		expect(() => localizedToolTextArg({ text: 'foo' }, { key: 'reason' }, enLang)).toThrow(
 			'reason must be an object with lang and text. Set reason to an object such as {"lang":"ja","text":"将軍家"} or {"lang":"en","text":"my text"}.',
 		);
 	});
