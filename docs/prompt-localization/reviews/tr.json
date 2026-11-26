@@ -1,8 +1,8 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "catalogSourceHash": "dc0b823a0529b7992b6c9310b8e3e6d94e67163276f802b612ea958457d8f995",
+  "catalogSourceHash": "4a52f58519811c7ece47244eb015a1ff6413d5be0370fd7dc3dc1934aad9a123",
   "locale": "tr",
-  "status": "approved",
+  "status": "partially_pending_translation",
   "leadReason": "Accept the Turkish catalog after both reviewers accept the exact three terminology follow-ups. Relative time uses count plus a singular unit and sonra or önce. Parenthesized member headings preserve singular and plural labels. Tool arguments consistently use argüman, with suffixes on native head nouns. All conditions, roles, limits, and protected identifiers remain intact.",
   "terminologyDecisions": {
     "time": "count + singular unit + sonra/önce",
@@ -4712,7 +4712,7 @@
     },
     "issues/arguments": {
       "finalHash": "8468676f8bafabc2f55f55a4f728158354fe4895957a0bb120df1ed882747025",
-      "finalTemplateHash": "a8abdc86e772806d9972c8832775117bde721c2dbef89bc4fd2c9aec98bc111a",
+      "finalTemplateHash": "c4ac4379c50ca8ce31a2d09c839aac816f2818673e9ab40a720409b9bf6108c2",
       "draftHashes": {
         "codex": "8aee35c4fe6fc5e9b0293f0262a5ae8ea12eb6f3d8136abdf69f871c883a6c93",
         "opus": "4340ffea40e30f08719d1e0beb69fbb55ff3638dc5146ae03842cfd974d38083",
@@ -4892,17 +4892,13 @@
           "finalDiscussion": {}
         },
         "issue.args.localizedObjectSentAsString": {
-          "finalValueHash": "346d35c6f6e12b8aa94efa25a7310ed911e60bab08c0ece49e376c621ce6e5b3",
-          "chosenFrom": "synthesis",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Opus and Gemini clearly preserve sent string versus object and exact replacement. Standardize dize to dizge.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and no single draft; the wording is a synthesis. the obligation stays -malı/-meli, gerekir, or zorunlu. English: The tool call is invalid. {{argument}} must be an object. You sent the string {{provided}}. Set {{argument}} to {{expected}}.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
+          "finalValueHash": "c17702e5477387030eba643ec826fc17e077a84f50221ddb72c978dba06adc42",
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [],
+          "reviewedCommit": null,
+          "leadReason": "Translate the owner-approved English source. Keep the quoted JSON members in the provided and expected parameters, and keep the argument path in a code span.",
+          "reviewerReason": null
         },
         "issue.args.languageSpecific": {
           "finalValueHash": "7d6397ff675e728f3eb7a2213fb32333a1fe055f469302dc378f891a910b8bde",
@@ -8294,6 +8290,42 @@
       "summary": "Keep the translation unchanged. The English source change is whitespace between two blocks and does not change meaning.",
       "uncertainties": [],
       "historicalEvidence": "Earlier review records for system.main still describe the current translated text, because this update changes no translated text."
+    },
+    {
+      "task": "localized-text-string-member",
+      "provenance": "lead_translation",
+      "lead": "claude-opus",
+      "reviewerSessions": [],
+      "reviewedCommit": null,
+      "leadReason": "Translate the owner-approved English source. Keep the quoted JSON members in the provided and expected parameters, and keep the argument path in a code span.",
+      "reviewerReason": null,
+      "sourceCommit": "30ad2866be1dda0721bb1c1bcf3aa756829bb971",
+      "previousCatalogSourceHash": "dc0b823a0529b7992b6c9310b8e3e6d94e67163276f802b612ea958457d8f995",
+      "catalogSourceHash": "4a52f58519811c7ece47244eb015a1ff6413d5be0370fd7dc3dc1934aad9a123",
+      "previousFinalTemplateHash": "a8abdc86e772806d9972c8832775117bde721c2dbef89bc4fd2c9aec98bc111a",
+      "finalTemplateHash": "c4ac4379c50ca8ce31a2d09c839aac816f2818673e9ab40a720409b9bf6108c2",
+      "units": [
+        "issue.args.localizedObjectSentAsString"
+      ],
+      "status": "pending_review",
+      "reviewedDraftCommit": null,
+      "reportHash": null,
+      "uncertainties": [],
+      "previousDecisions": {
+        "issue.args.localizedObjectSentAsString": {
+          "finalValueHash": "346d35c6f6e12b8aa94efa25a7310ed911e60bab08c0ece49e376c621ce6e5b3",
+          "chosenFrom": "synthesis",
+          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
+          "candidateReason": "Opus and Gemini clearly preserve sent string versus object and exact replacement. Standardize dize to dizge.",
+          "opusDecision": "accept",
+          "opusReason": "Faithful.",
+          "grokDecision": "accept",
+          "grokReason": "Accept. Compared with the English source and no single draft; the wording is a synthesis. the obligation stays -malı/-meli, gerekir, or zorunlu. English: The tool call is invalid. {{argument}} must be an object. You sent the string {{provided}}. Set {{argument}} to {{expected}}.",
+          "changedAfterComparison": false,
+          "finalFollowUp": {},
+          "finalDiscussion": {}
+        }
+      }
     }
   ],
   "followUpReviews": [

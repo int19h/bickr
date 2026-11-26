@@ -245,8 +245,10 @@
           "kind": "direct"
         }
       ],
-      "protectedTokens": [],
-      "sourceTemplateHash": "5901242cea0f21b545594ada1a0af3ddf8ddb55de000906fb638ed5d9777e315"
+      "protectedTokens": [
+        "`{{argument}}`"
+      ],
+      "sourceTemplateHash": "a91577625f2a65ea778908acfd9519bc8d8d5a4319a2a535d3c62ed79fcd005c"
     },
     {
       "id": "issue.args.languageSpecific",

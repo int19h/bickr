@@ -1,8 +1,8 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "catalogSourceHash": "dc0b823a0529b7992b6c9310b8e3e6d94e67163276f802b612ea958457d8f995",
+  "catalogSourceHash": "4a52f58519811c7ece47244eb015a1ff6413d5be0370fd7dc3dc1934aad9a123",
   "locale": "ga",
-  "status": "approved",
+  "status": "partially_pending_translation",
   "leadReason": "Accept best-effort Irish after both requested final discussions and both 28-unit follow-ups. Use standard is gá dom action needs, direct audience wording, explicit persona genitives, dictionary-backed disclaimer notices, singular detached member headers, native JSON adjective order and list punctuation. Keep the maximum ceiling and all conditions. Relative-time digit patterns follow resolved Unicode CLDR and protected identifiers remain opaque. The lead chooses the optional direct relative from Opus.",
   "terminologyDecisions": {
     "action": "gníomh for an action. Beart can also mean action and is not invalid.",
@@ -5363,7 +5363,7 @@
     },
     "issues/arguments": {
       "finalHash": "f3aa4361e46dde87ac127d7da52fa7b2bf4a07ac884325333dd15142fac19162",
-      "finalTemplateHash": "8914af5423a29e9fbfebd28a488e8289dc4e9d33456b49f147e43154f76e4683",
+      "finalTemplateHash": "eb0408ff1fbcd2ac7b77d4ef04a57d11f70455b415fc2217a36c7158d26c2451",
       "draftHashes": {
         "codex": "cec9aeeef1c795e8ab0360e66a7909b69dd223b0ede2b636a446973d633fa5c4",
         "opus": "b4a3a61d4f8a7278311a314bbbd2829de9540d238f3fbc70c908ad57498f8093",
@@ -5532,17 +5532,13 @@
           "finalDiscussion": {}
         },
         "issue.args.localizedObjectSentAsString": {
-          "finalValueHash": "479b9a651266c2362befa0e33f333a3ebb51a04045b59630558e8e5cee97f187",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Keeps invalid call, object requirement, past sent string, and both inserted values. The set-on construction is more natural than Gemini set-to.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and opus. the obligation stays caithfidh or ní mór. English: The tool call is invalid. {{argument}} must be an object. You sent the string {{provided}}. Set {{argument}} to {{expected}}.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
+          "finalValueHash": "cfcded5769955a131cc1b3179b975ba222b873c1992a2b71490fc3999e969693",
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [],
+          "reviewedCommit": null,
+          "leadReason": "Translate the owner-approved English source. Keep the quoted JSON members in the provided and expected parameters, and keep the argument path in a code span.",
+          "reviewerReason": null
         },
         "issue.args.languageSpecific": {
           "finalValueHash": "01766df2faf1f4e759aee84f08cdd2fc25ba008be814f1db38902ae6ab43e1fc",
@@ -9031,6 +9027,44 @@
       "summary": "Keep the translation unchanged. The English source change is whitespace between two blocks and does not change meaning.",
       "uncertainties": [],
       "historicalEvidence": "Earlier review records for system.main still describe the current translated text, because this update changes no translated text."
+    },
+    {
+      "task": "localized-text-string-member",
+      "provenance": "lead_translation",
+      "lead": "claude-opus",
+      "reviewerSessions": [],
+      "reviewedCommit": null,
+      "leadReason": "Translate the owner-approved English source. Keep the quoted JSON members in the provided and expected parameters, and keep the argument path in a code span.",
+      "reviewerReason": null,
+      "sourceCommit": "30ad2866be1dda0721bb1c1bcf3aa756829bb971",
+      "previousCatalogSourceHash": "dc0b823a0529b7992b6c9310b8e3e6d94e67163276f802b612ea958457d8f995",
+      "catalogSourceHash": "4a52f58519811c7ece47244eb015a1ff6413d5be0370fd7dc3dc1934aad9a123",
+      "previousFinalTemplateHash": "8914af5423a29e9fbfebd28a488e8289dc4e9d33456b49f147e43154f76e4683",
+      "finalTemplateHash": "eb0408ff1fbcd2ac7b77d4ef04a57d11f70455b415fc2217a36c7158d26c2451",
+      "units": [
+        "issue.args.localizedObjectSentAsString"
+      ],
+      "status": "pending_review",
+      "reviewedDraftCommit": null,
+      "reportHash": null,
+      "uncertainties": [
+        "Irish remains a best effort translation."
+      ],
+      "previousDecisions": {
+        "issue.args.localizedObjectSentAsString": {
+          "finalValueHash": "479b9a651266c2362befa0e33f333a3ebb51a04045b59630558e8e5cee97f187",
+          "chosenFrom": "opus",
+          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
+          "candidateReason": "Keeps invalid call, object requirement, past sent string, and both inserted values. The set-on construction is more natural than Gemini set-to.",
+          "opusDecision": "accept",
+          "opusReason": "Faithful.",
+          "grokDecision": "accept",
+          "grokReason": "Accept. Compared with the English source and opus. the obligation stays caithfidh or ní mór. English: The tool call is invalid. {{argument}} must be an object. You sent the string {{provided}}. Set {{argument}} to {{expected}}.",
+          "changedAfterComparison": false,
+          "finalFollowUp": {},
+          "finalDiscussion": {}
+        }
+      }
     }
   ],
   "followUpReviews": [
