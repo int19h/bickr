@@ -35,7 +35,7 @@ issue.args.localizedTextEmpty: |-
   {{argument}}.text deve conter pelo menos um caractere que não seja espaço em branco. Coloque o conteúdo em `.text`.
 
 issue.args.localizedObjectSentAsString: |-
-  A chamada de ferramenta é inválida. {{argument}} deve ser um objeto. Enviou a cadeia de texto {{provided}}. Defina {{argument}} como {{expected}}.
+  A chamada de ferramenta é inválida. Enviou {{provided}}. `{{argument}}` deve ser um objeto JSON, não uma cadeia de texto. Envie {{expected}} em vez disso.
 
 issue.args.languageSpecific: |-
   {{argument}} deve ser uma etiqueta de idioma BCP 47 específica, como "en", "ja", "zh-Hans", "zh-Hant", "ar", "mn-Mong" ou "non". Não use "und".

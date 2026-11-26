@@ -35,7 +35,7 @@ issue.args.localizedTextEmpty: |-
   {{argument}}.text devas enhavi almenaŭ unu signon, kiu ne estas blankspaco. Metu la enhavon en `.text`.
 
 issue.args.localizedObjectSentAsString: |-
-  La ilvoko estas nevalida. {{argument}} devas esti objekto. Vi sendis la signoĉenon {{provided}}. Agordu {{argument}} al {{expected}}.
+  La ilvoko estas nevalida. Vi sendis {{provided}}. `{{argument}}` devas esti JSON-objekto, ne signoĉeno. Sendu anstataŭe {{expected}}.
 
 issue.args.languageSpecific: |-
   {{argument}} devas esti specifa lingva etikedo BCP 47, ekzemple "en", "ja", "zh-Hans", "zh-Hant", "ar", "mn-Mong" aŭ "non". Ne uzu "und".

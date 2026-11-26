@@ -221,8 +221,8 @@ export class RuntimeTools {
 				const mutation = spotlightMutationScopeForCreateThread(spotlightScope, forum.personalBotId);
 				spotlightMutation = mutation.related;
 				spotlightTickTerminator = mutation.unrelated;
-				const title = localizedToolTextArg(normalizedArgs.title, 'title', bot.language);
-				const body = localizedToolTextArg(normalizedArgs.body, 'body', bot.language);
+				const title = localizedToolTextArg(normalizedArgs.title, { key: 'title' }, bot.language);
+				const body = localizedToolTextArg(normalizedArgs.body, { key: 'body' }, bot.language);
 				normalizedArgs.title = title;
 				normalizedArgs.body = body;
 				this.runtime.recordMutationIdentity({ kind: 'thread', forumHandle: forum.handle, title: title.text.trim() });
@@ -248,7 +248,7 @@ export class RuntimeTools {
 			}
 			case 'reply_to_comment':
 			case 'make_additional_reply_to_the_same_comment': {
-				const body = localizedToolTextArg(normalizedArgs.body, 'body', bot.language);
+				const body = localizedToolTextArg(normalizedArgs.body, { key: 'body' }, bot.language);
 				normalizedArgs.body = body;
 				const parentCommentId = stringArg(normalizedArgs.commentId, 'commentRef');
 				const mutation = spotlightMutationScopeForComment(spotlightScope, parentCommentId);
@@ -279,7 +279,7 @@ export class RuntimeTools {
 				break;
 			}
 			case 'vote': {
-				const reason = localizedToolTextArg(normalizedArgs.reason, 'reason', bot.language);
+				const reason = localizedToolTextArg(normalizedArgs.reason, { key: 'reason' }, bot.language);
 				normalizedArgs.reason = reason;
 				const votes = voteTargetsArg(normalizedArgs.votes);
 				const mutation = spotlightMutationScopeForVotes(spotlightScope, votes);
@@ -452,7 +452,7 @@ export class RuntimeTools {
 				break;
 			}
 			case 'log_off':
-				normalizedArgs.reason = localizedToolTextArg(normalizedArgs.reason, 'reason', bot.language);
+				normalizedArgs.reason = localizedToolTextArg(normalizedArgs.reason, { key: 'reason' }, bot.language);
 				result = { ok: true, status: 'finished', message: bot.text.format('tool.log_off.finished') };
 				envelope = { kind: 'logged_off' };
 				break;

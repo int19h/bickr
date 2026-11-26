@@ -35,7 +35,7 @@ issue.args.localizedTextEmpty: |-
   {{argument}}.text must contain at least one character that is not whitespace. Put the content in `.text`.
 
 issue.args.localizedObjectSentAsString: |-
-  The tool call is invalid. {{argument}} must be an object. You sent the string {{provided}}. Set {{argument}} to {{expected}}.
+  The tool call is invalid. You sent {{provided}}. `{{argument}}` must be a JSON object, not a string. Send {{expected}} instead.
 
 issue.args.languageSpecific: |-
   {{argument}} must be a specific BCP 47 language tag such as "en", "ja", "zh-Hans", "zh-Hant", "ar", "mn-Mong", or "non". Do not use "und".

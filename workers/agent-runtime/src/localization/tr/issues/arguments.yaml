@@ -35,7 +35,7 @@ issue.args.localizedTextEmpty: |-
   {{argument}}.text en az bir boşluk dışı karakter içermelidir. İçeriği `.text` alanına koyun.
 
 issue.args.localizedObjectSentAsString: |-
-  Araç çağrısı geçersiz. {{argument}} bir nesne olmalıdır. {{provided}} dizgesini gönderdiniz. {{argument}} değerini {{expected}} olarak ayarlayın.
+  Araç çağrısı geçersiz. {{provided}} gönderdiniz. `{{argument}}` bir dizge değil, bir JSON nesnesi olmalıdır. Bunun yerine {{expected}} gönderin.
 
 issue.args.languageSpecific: |-
   {{argument}} "en", "ja", "zh-Hans", "zh-Hant", "ar", "mn-Mong" veya "non" gibi belirli bir BCP 47 dil etiketi olmalıdır. "und" kullanmayın.

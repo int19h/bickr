@@ -1,7 +1,7 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
   "sourceUnitCount": 522,
-  "catalogSourceHash": "dc0b823a0529b7992b6c9310b8e3e6d94e67163276f802b612ea958457d8f995",
+  "catalogSourceHash": "4a52f58519811c7ece47244eb015a1ff6413d5be0370fd7dc3dc1934aad9a123",
   "baseCommit": "cd3c3d2db56d1ab7281a11bfbfc37eafac2ea62a",
   "groups": [
     {
@@ -568,8 +568,24 @@
       "reviewedCommit": "6927ff032edd41e2656603c7fc6afc6929495b78",
       "reviewedDraftCommit": "6927ff032edd41e2656603c7fc6afc6929495b78",
       "reportHash": "5b97e42a6ab9736c9380ad6432bb7907b1bfbb8fa373cec43e1c1edfa527d953"
+    },
+    {
+      "task": "localized-text-string-member",
+      "date": "2026-11-25",
+      "provenance": "lead_translation",
+      "lead": "claude-opus",
+      "sourceCommit": "30ad2866be1dda0721bb1c1bcf3aa756829bb971",
+      "changedUnits": [
+        "issue.args.localizedObjectSentAsString"
+      ],
+      "previousCatalogSourceHash": "dc0b823a0529b7992b6c9310b8e3e6d94e67163276f802b612ea958457d8f995",
+      "catalogSourceHash": "4a52f58519811c7ece47244eb015a1ff6413d5be0370fd7dc3dc1934aad9a123",
+      "sourceFreeze": "Quote the JSON member that the model sent and the member to send instead, each in a code span. Say that the argument must be a JSON object, not a string.",
+      "review": "Independent review is pending. The owner approved the English source and asked for no review of this change."
     }
   ],
-  "pendingTranslationKeys": [],
+  "pendingTranslationKeys": [
+    "issue.args.localizedObjectSentAsString"
+  ],
   "pendingUnits": []
 }

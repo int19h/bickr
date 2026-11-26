@@ -1,8 +1,8 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "catalogSourceHash": "dc0b823a0529b7992b6c9310b8e3e6d94e67163276f802b612ea958457d8f995",
+  "catalogSourceHash": "4a52f58519811c7ece47244eb015a1ff6413d5be0370fd7dc3dc1934aad9a123",
   "locale": "ar",
-  "status": "approved",
+  "status": "partially_pending_translation",
   "leadReason": "Accept the Arabic catalog after both reviewers accept all twelve exact follow-up units. Compact count-neutral time phrases retain the interval direction, numeric value, and unit in all six native categories. The corrected tanwin and title quotes preserve meaning. Count-neutral wording deliberately avoids redundant numeric duals.",
   "terminologyDecisions": {
     "continue": "Use الاستمرار, distinct from following a participant (متابعة).",
@@ -4798,7 +4798,7 @@
     },
     "issues/arguments": {
       "finalHash": "6a542482a2bbd8ec2890586fa25bb6f030857e42af67386297fa34a657631b52",
-      "finalTemplateHash": "e3ead0cf262c74810f7eea4d01dc2ca8bcdeb2ed2b2e4c8a1853eeb516230654",
+      "finalTemplateHash": "024456bdff46703e1d46dc30ef3595d832506f6a5917b99cc22533c482c13caf",
       "draftHashes": {
         "codex": "f4f5fbf9b5ff90509c71b8a091105c0337f74eff89377625fc6b6a1beb115828",
         "opus": "6e260ff99506f85be2057599a811e4abaee4d297fe6376dc4ee29ea91bff315b",
@@ -4967,17 +4967,13 @@
           "finalDiscussion": {}
         },
         "issue.args.localizedObjectSentAsString": {
-          "finalValueHash": "24b70a36b90a438f2407422bd02f4ced06385ec0e81ec46d1bc6a255cfdcb517",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Opus keeps sent text-string type and required replacement object naturally, without Codex agreement ambiguity.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful; inserted values stay opaque.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and opus. the obligation stays يجب. English: The tool call is invalid. {{argument}} must be an object. You sent the string {{provided}}. Set {{argument}} to {{expected}}.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
+          "finalValueHash": "c9b17c2e0f8aa7c1cfd77efd8b4dce6bc85ac5094ebc7d362b6449c135759c95",
+          "provenance": "lead_translation",
+          "lead": "claude-opus",
+          "reviewerSessions": [],
+          "reviewedCommit": null,
+          "leadReason": "Translate the owner-approved English source. Keep the quoted JSON members in the provided and expected parameters, and keep the argument path in a code span.",
+          "reviewerReason": null
         },
         "issue.args.languageSpecific": {
           "finalValueHash": "0e262f7185dd391c3e7f2e76cb87ddfafc9d54cf77078c060ee06423c0fd275f",
@@ -8473,6 +8469,42 @@
       "summary": "Keep the translation unchanged. The English source change is whitespace between two blocks and does not change meaning.",
       "uncertainties": [],
       "historicalEvidence": "Earlier review records for system.main still describe the current translated text, because this update changes no translated text."
+    },
+    {
+      "task": "localized-text-string-member",
+      "provenance": "lead_translation",
+      "lead": "claude-opus",
+      "reviewerSessions": [],
+      "reviewedCommit": null,
+      "leadReason": "Translate the owner-approved English source. Keep the quoted JSON members in the provided and expected parameters, and keep the argument path in a code span.",
+      "reviewerReason": null,
+      "sourceCommit": "30ad2866be1dda0721bb1c1bcf3aa756829bb971",
+      "previousCatalogSourceHash": "dc0b823a0529b7992b6c9310b8e3e6d94e67163276f802b612ea958457d8f995",
+      "catalogSourceHash": "4a52f58519811c7ece47244eb015a1ff6413d5be0370fd7dc3dc1934aad9a123",
+      "previousFinalTemplateHash": "e3ead0cf262c74810f7eea4d01dc2ca8bcdeb2ed2b2e4c8a1853eeb516230654",
+      "finalTemplateHash": "024456bdff46703e1d46dc30ef3595d832506f6a5917b99cc22533c482c13caf",
+      "units": [
+        "issue.args.localizedObjectSentAsString"
+      ],
+      "status": "pending_review",
+      "reviewedDraftCommit": null,
+      "reportHash": null,
+      "uncertainties": [],
+      "previousDecisions": {
+        "issue.args.localizedObjectSentAsString": {
+          "finalValueHash": "24b70a36b90a438f2407422bd02f4ced06385ec0e81ec46d1bc6a255cfdcb517",
+          "chosenFrom": "opus",
+          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
+          "candidateReason": "Opus keeps sent text-string type and required replacement object naturally, without Codex agreement ambiguity.",
+          "opusDecision": "accept",
+          "opusReason": "Faithful; inserted values stay opaque.",
+          "grokDecision": "accept",
+          "grokReason": "Accept. Compared with the English source and opus. the obligation stays يجب. English: The tool call is invalid. {{argument}} must be an object. You sent the string {{provided}}. Set {{argument}} to {{expected}}.",
+          "changedAfterComparison": false,
+          "finalFollowUp": {},
+          "finalDiscussion": {}
+        }
+      }
     }
   ],
   "followUpReviews": [

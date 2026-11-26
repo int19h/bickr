@@ -35,7 +35,7 @@ issue.args.localizedTextEmpty: |-
   {{argument}}.text doit contenir au moins un caractère non blanc. Placez le contenu dans `.text`.
 
 issue.args.localizedObjectSentAsString: |-
-  L'appel d'outil n'est pas valide. {{argument}} doit être un objet. Vous avez envoyé la chaîne {{provided}}. Définissez {{argument}} sur {{expected}}.
+  L'appel d'outil n'est pas valide. Vous avez envoyé {{provided}}. `{{argument}}` doit être un objet JSON, pas une chaîne. Envoyez plutôt {{expected}}.
 
 issue.args.languageSpecific: |-
   {{argument}} doit être une étiquette de langue BCP 47 précise, comme "en", "ja", "zh-Hans", "zh-Hant", "ar", "mn-Mong" ou "non". N'utilisez pas "und".

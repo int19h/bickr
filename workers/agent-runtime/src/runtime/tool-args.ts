@@ -1,6 +1,7 @@
 import type { BickrFunctionToolName } from '../prompt-and-tools';
 import { participantListLimits } from '@bickr/shared/content-limits';
 import { agentIssue, type AgentIssue } from '../localization/issues';
+import { code, type FreeText } from '../localization/result-template';
 import { formatCommentRef, formatThreadRef, parseCommentRef, parseThreadRef } from '@bickr/shared/ids';
 import {
 	localizedTextString,
@@ -437,9 +438,17 @@ export function stringArg(value: unknown, label: string): string {
 	return value.trim();
 }
 
-export function localizedToolTextArg(value: unknown, label: string, language?: LanguageTag | null): RequiredLocalizedText {
+/** A tool argument property: its JSON key and, for a nested property, the path of the object that holds it. */
+export type ToolArgProperty = { readonly key: string; readonly parent?: string };
+
+function toolArgPropertyPath(property: ToolArgProperty): string {
+	return property.parent === undefined ? property.key : `${property.parent}.${property.key}`;
+}
+
+export function localizedToolTextArg(value: unknown, property: ToolArgProperty, language?: LanguageTag | null): RequiredLocalizedText {
+	const label = toolArgPropertyPath(property);
 	if (typeof value === 'string') {
-		throw new ToolCallArgumentValidationError('bad_request', localizedToolTextStringError(value, label, language));
+		throw new ToolCallArgumentValidationError('bad_request', localizedToolTextStringError(value, property, language));
 	}
 	const record = runtimeRecord(value);
 	if (!Object.hasOwn(record, 'lang') || !Object.hasOwn(record, 'text')) {
@@ -461,11 +470,29 @@ export function localizedArgumentText(value: unknown): string | undefined {
 	return text?.trim() ? text : undefined;
 }
 
-function localizedToolTextStringError(text: string, label: string, language?: LanguageTag | null): AgentIssue {
-	const lang = language ?? ('en' as LanguageTag);
-	const provided = JSON.stringify(text);
-	const expected = localizedToolTextValueExample(lang, text);
-	return agentIssue("issue.args.localizedObjectSentAsString", { argument: label, provided: provided, expected: expected });
+function localizedToolTextStringError(text: string, property: ToolArgProperty, language?: LanguageTag | null): AgentIssue {
+	// Quote the exact JSON member that the model sent and the member that it must send instead.
+	// Small models repair the call more reliably when they can compare the two snippets directly.
+	const member = (json: string) => code(`${JSON.stringify(property.key)}:${json}` as FreeText);
+	const encoded = encodedLocalizedText(text);
+	const expected = encoded ? localizedToolTextValueExample(encoded.lang, encoded.text)
+		: localizedToolTextValueExample(language ?? 'en', text);
+	return agentIssue("issue.args.localizedObjectSentAsString", { argument: toolArgPropertyPath(property), provided: member(JSON.stringify(text)), expected: member(expected) });
+}
+
+/**
+ * Models sometimes send a whole localized text object as a JSON string. The correction then
+ * shows that object without the quotes, instead of nesting the encoded JSON inside `text`.
+ */
+function encodedLocalizedText(text: string): { lang: string; text: string } | null {
+	let decoded: unknown;
+	try {
+		decoded = JSON.parse(text);
+	} catch {
+		return null;
+	}
+	const record = runtimeRecord(decoded);
+	return typeof record.lang === 'string' && typeof record.text === 'string' ? { lang: record.lang, text: record.text } : null;
 }
 
 function localizedToolTextValueExample(lang: string, text: string): string {
@@ -571,7 +598,7 @@ function followToolTargetsFromLegacyArgs(args: ToolArgs, language?: LanguageTag 
 	if (rawUsernames === undefined) {
 		throw new ToolCallArgumentValidationError('bad_request', agentIssue("issue.args.followTargetsArray", {  }));
 	}
-	const reason = localizedToolTextArg(args.reason, 'reason', language);
+	const reason = localizedToolTextArg(args.reason, { key: 'reason' }, language);
 	return usernamesArg(rawUsernames).map((username) => ({ username, reason }));
 }
 
@@ -655,7 +682,7 @@ function followToolTargetArg(value: unknown, index: number, language?: LanguageT
 	const label = `targets[${index}]`;
 	return {
 		username: typedHandleArg(record.username ?? record.handle, 'u', `${label}.username`),
-		reason: localizedToolTextArg(record.reason, `${label}.reason`, language),
+		reason: localizedToolTextArg(record.reason, { key: 'reason', parent: label }, language),
 	};
 }
 

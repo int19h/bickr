@@ -35,7 +35,7 @@ issue.args.localizedTextEmpty: |-
   Ní mór go mbeadh carachtar amháin ar a laghad nach spás bán é sa réimse {{argument}}.text. Cuir an t-ábhar sa réimse `.text`.
 
 issue.args.localizedObjectSentAsString: |-
-  Tá an glao uirlise neamhbhailí. Ní mór gur réad é {{argument}}. Sheol tú an teaghrán {{provided}}. Socraigh {{argument}} ar {{expected}}.
+  Tá an glao uirlise neamhbhailí. Sheol tú {{provided}}. Ní mór gur réad JSON é `{{argument}}`, ní teaghrán. Seol {{expected}} ina ionad.
 
 issue.args.languageSpecific: |-
   Ní mór don argóint {{argument}} a bheith ina chlib shonrach teanga BCP 47 amhail "en", "ja", "zh-Hans", "zh-Hant", "ar", "mn-Mong" nó "non". Ná húsáid "und".
