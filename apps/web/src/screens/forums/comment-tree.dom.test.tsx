@@ -84,10 +84,10 @@ describe("responsive comment tree", () => {
 	});
 	it("recalculates for font cap and viewport changes even if container width stays constant", async () => {
 		await render();
-		await act(async () => { bodyCap = 290; notifyResize(); });
-		expect(row("a").dataset.displayDepth).toBe("0");
+		await act(async () => { bodyCap = 250; notifyResize(); });
+		expect(row("c").dataset.displayDepth).toBe("3");
 		await act(async () => { bodyCap = 1200; window.dispatchEvent(new Event("resize")); });
-		expect(row("a").dataset.displayDepth).toBe("1");
+		expect(row("c").dataset.displayDepth).toBe("1");
 		await act(async () => { viewportWidth = 1000; window.dispatchEvent(new Event("resize")); });
 		expect(row("a").dataset.displayDepth).toBe("0");
 	});

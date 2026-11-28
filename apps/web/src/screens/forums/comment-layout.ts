@@ -12,8 +12,9 @@ export type CommentLayoutRow = {
 };
 
 export function commentIndentLimit(treeWidth: number, viewportWidth: number, gutter: number, bodyCap: number): number {
-	const floor = Math.max(300, viewportWidth / 2);
-	if (gutter <= 0 || bodyCap < floor) {
+	// A body at its full natural width is wide enough; a floor above the cap turns off indentation on wide screens where the body never shrinks.
+	const floor = Math.min(Math.max(300, viewportWidth * 0.7), bodyCap);
+	if (gutter <= 0) {
 		return 0;
 	}
 	return Math.max(0, Math.floor((treeWidth - gutter - floor) / gutter));
