@@ -20,15 +20,22 @@ describe("comment indentation budget", () => {
 		expect(commentIndentLimit(348, 380, 24, 1200)).toBe(1);
 		expect(commentIndentLimit(347.99, 379.99, 24, 1200)).toBe(0);
 	});
-	it("uses half the viewport above 600px and the desktop gutter", () => {
-		expect(commentIndentLimit(768, 800, 26, 1200)).toBe(13);
+	it("uses 70% of the viewport on wider screens and the desktop gutter", () => {
+		expect(commentIndentLimit(768, 800, 26, 1200)).toBe(7);
 	});
 	it("uses spare container width before shrinking a capped body", () => {
-		expect(commentIndentLimit(1500, 1600, 26, 1000)).toBe(25);
+		expect(commentIndentLimit(1500, 1600, 26, 1000)).toBe(18);
 	});
-	it("stops indentation if the font-dependent body cap is below the floor", () => {
-		expect(commentIndentLimit(1500, 1600, 26, 799)).toBe(0);
-		expect(commentIndentLimit(2000, 2400, 26, 1100)).toBe(0);
+	it("never requires a body wider than its font-dependent cap", () => {
+		expect(commentIndentLimit(1500, 1600, 26, 799)).toBe(25);
+		expect(commentIndentLimit(2000, 2400, 26, 1100)).toBe(33);
+	});
+	it("allows a capped body exactly at its cap and rejects the next indent", () => {
+		expect(commentIndentLimit(1156, 2000, 26, 1000)).toBe(5);
+		expect(commentIndentLimit(1155.99, 2000, 26, 1000)).toBe(4);
+	});
+	it("returns no indentation without a gutter", () => {
+		expect(commentIndentLimit(1500, 1600, 0, 1000)).toBe(0);
 	});
 });
 
